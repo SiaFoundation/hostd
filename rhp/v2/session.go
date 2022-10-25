@@ -186,41 +186,16 @@ func (s *session) WriteError(err error) error {
 }
 
 // WriteResponse writes an RPC response object.
-func (s *session) WriteResponse(resp rpcObject) error {
-	var timeout time.Duration
-
-	switch resp.(type) {
-	case *rpcSectorRootsResponse, *rpcReadResponse:
-		timeout = 2 * time.Minute
-	case *rpcFormContractAdditions, *rpcFormContractSignatures,
-		*rpcRenewAndClearContractSignatures,
-		*rpcSettingsResponse, *rpcLockResponse, *rpcWriteMerkleProof:
-		timeout = 30 * time.Second
-	case *rpcWriteResponse:
-		timeout = 10 * time.Second
-	default:
-		panic(fmt.Sprintf("unrecognized response type %T", resp))
-	}
+func (s *session) WriteResponse(resp rpcObject, timeout time.Duration) error {
 	s.conn.SetWriteDeadline(time.Now().Add(timeout))
 	return s.writeMessage(&rpcResponse{nil, resp})
 }
 
 // ReadResponse reads an RPC response. If the response is an error, it is
 // returned directly.
-func (s *session) ReadResponse(resp rpcObject) error {
-	var maxSize uint64
-	var timeout time.Duration
-	switch resp.(type) {
-	case *rpcFormContractAdditions:
-		maxSize, timeout = modules.TransactionSizeLimit, 2*time.Minute
-	case *rpcFormContractSignatures, *rpcRenewAndClearContractSignatures, *rpcWriteResponse:
-		maxSize, timeout = minMessageSize, 30*time.Second
-	case *Specifier:
-		maxSize, timeout = minMessageSize, 10*time.Second
-	case *rpcReadResponse, *rpcSectorRootsResponse:
-		maxSize, timeout = minMessageSize, 2*time.Minute
-	default:
-		panic(fmt.Sprintf("unrecognized response type %T", resp))
+func (s *session) ReadResponse(resp rpcObject, maxSize uint64, timeout time.Duration) error {
+	if maxSize < minMessageSize {
+		maxSize = minMessageSize
 	}
 	rr := rpcResponse{nil, resp}
 	s.conn.SetReadDeadline(time.Now().Add(timeout))

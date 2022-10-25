@@ -92,7 +92,7 @@ func (sh *SessionHandler) rpcSettings(s *session) error {
 	}
 	return s.WriteResponse(&rpcSettingsResponse{
 		Settings: js,
-	})
+	}, 30*time.Second)
 }
 
 func (sh *SessionHandler) rpcLock(s *session) error {
@@ -128,7 +128,7 @@ func (sh *SessionHandler) rpcLock(s *session) error {
 		Signatures:   contract.Signatures(),
 	}
 	// avoid holding lock during network round trip
-	if err := s.WriteResponse(lockResp); err != nil {
+	if err := s.WriteResponse(lockResp, 30*time.Second); err != nil {
 		sh.contracts.Unlock(contract.Revision.ParentID)
 		return fmt.Errorf("failed to write lock response: %w", err)
 	}
@@ -203,13 +203,13 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 		Inputs:  formationTxn.SiacoinInputs[renterInputs:],
 		Outputs: formationTxn.SiacoinOutputs[renterOutputs:],
 	}
-	if err := s.WriteResponse(hostAdditionsResp); err != nil {
+	if err := s.WriteResponse(hostAdditionsResp, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	// read the renter's signatures
 	var renterSignaturesResp rpcFormContractSignatures
-	if err := s.ReadResponse(&renterSignaturesResp); err != nil {
+	if err := s.ReadResponse(&renterSignaturesResp, minMessageSize, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read renter signatures: %w", err)
 	}
 	// validate the renter's initial revision signature
@@ -259,12 +259,14 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 		},
 	}
-	if err := s.WriteResponse(hostSignaturesResp); err != nil {
+	if err := s.WriteResponse(hostSignaturesResp, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to write host signatures: %w", err)
 	}
 	return nil
 }
 
+// rpcRenewAndClearContract is an RPC that renews a contract and clears the
+// existing contract
 func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 	if err := s.ContractRevisable(uint64(sh.consensus.Height())); err != nil {
 		return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
@@ -336,13 +338,13 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		Inputs:  renewalTxn.SiacoinInputs[renterInputs:],
 		Outputs: renewalTxn.SiacoinOutputs[renterOutputs:],
 	}
-	if err = s.WriteResponse(hostAdditionsResp); err != nil {
+	if err = s.WriteResponse(hostAdditionsResp, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	// read the renter's signatures for the renewal
 	var renterSigsResp rpcRenewAndClearContractSignatures
-	if err = s.ReadResponse(&renterSigsResp); err != nil {
+	if err = s.ReadResponse(&renterSigsResp, 4096, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read renter signatures: %w", err)
 	}
 
@@ -394,12 +396,13 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 		},
 	}
-	if err := s.WriteResponse(hostSignaturesResp); err != nil {
+	if err := s.WriteResponse(hostSignaturesResp, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to write host signatures: %w", err)
 	}
 	return nil
 }
 
+// rpcSectorRoots returns the Merkle roots of the sectors in a contract
 func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	if err := s.ContractRevisable(uint64(sh.consensus.Height())); err != nil {
 		return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
@@ -444,7 +447,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		MerkleProof: merkle.BuildSectorRangeProof(roots, req.RootOffset, req.RootOffset+req.NumRoots),
 		Signature:   hostSig,
 	}
-	if err := s.WriteResponse(sectorRootsResp); err != nil {
+	if err := s.WriteResponse(sectorRootsResp, 2*time.Minute); err != nil {
 		return fmt.Errorf("failed to write sector roots response: %w", err)
 	}
 
@@ -544,7 +547,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		indices := sectorsChanged(req.Actions, oldSectors)
 		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = merkle.BuildDiffProof(indices, oldRoots)
 	}
-	if err := s.WriteResponse(writeResp); err != nil {
+	if err := s.WriteResponse(writeResp, time.Minute); err != nil {
 		return fmt.Errorf("failed to write merkle proof: %w", err)
 	}
 
@@ -554,7 +557,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 
 	// read the renter's signature
 	var renterSigResponse rpcWriteResponse
-	if err := s.ReadResponse(&renterSigResponse); err != nil {
+	if err := s.ReadResponse(&renterSigResponse, minMessageSize, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read renter signature: %w", err)
 	}
 	// validate the contract signature
@@ -601,7 +604,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 
 	// send the host signature
 	hostSigResp := &rpcWriteResponse{Signature: hostSig}
-	if err := s.WriteResponse(hostSigResp); err != nil {
+	if err := s.WriteResponse(hostSigResp, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to write host signature: %w", err)
 	}
 	return nil
@@ -673,7 +676,8 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	stopSignal := make(chan error, 1)
 	go func() {
 		var id Specifier
-		err := s.ReadResponse(&id)
+		// long timeout because the renter may be slow to send the stop signal
+		err := s.ReadResponse(&id, minMessageSize, 5*time.Minute)
 		if err != nil {
 			stopSignal <- err
 		} else if id != rpcReadStop {
@@ -706,14 +710,14 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 				return err
 			}
 			resp.Signature = hostSig
-			return s.WriteResponse(resp)
+			return s.WriteResponse(resp, 30*time.Second)
 		default:
 		}
 
 		if i == len(req.Sections)-1 {
 			resp.Signature = hostSig
 		}
-		if err := s.WriteResponse(resp); err != nil {
+		if err := s.WriteResponse(resp, 30*time.Second); err != nil {
 			return fmt.Errorf("failed to write read response: %w", err)
 		}
 	}

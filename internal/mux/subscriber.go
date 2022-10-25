@@ -26,7 +26,8 @@ type (
 		ch chan struct{}
 	}
 
-	// A SubscriberMux is a mux that also handles the subscriber handshake
+	// A SubscriberMux is a mux that also handles the subscriber and app seed
+	// handshakes
 	SubscriberMux struct {
 		*Mux
 	}
