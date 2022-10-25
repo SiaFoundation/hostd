@@ -212,10 +212,12 @@ func (s *session) Spend(n types.Currency) {
 	s.spent = s.spent.Add(n)
 }
 
-func (s *session) reviseContract(revision types.FileContractRevision, hostSig, renterSig []byte) {
+func (s *session) ReviseContract(contracts ContractManager, revision types.FileContractRevision, hostSig, renterSig []byte) error {
 	s.contract.Revision = revision
 	copy(s.contract.HostSignature[:], hostSig)
 	copy(s.contract.RenterSignature[:], renterSig)
+
+	return contracts.ReviseContract(revision, renterSig, hostSig)
 }
 
 // ContractRevisable returns an error if a contract is not locked or can't be

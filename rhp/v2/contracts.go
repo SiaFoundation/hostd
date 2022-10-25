@@ -204,6 +204,10 @@ func validateClearingRevision(current, final types.FileContractRevision) error {
 		return errors.New("wrong number of missed proof outputs")
 	case final.NewRevisionNumber != maxRevisionNumber:
 		return errors.New("revision number must be max value")
+	case final.NewUnlockHash != current.NewUnlockHash:
+		return errors.New("unlock hash must not change")
+	case final.UnlockConditions.UnlockHash() != current.UnlockConditions.UnlockHash():
+		return errors.New("unlock conditions must not change")
 	}
 
 	// validate both valid and missed outputs are equal to the current valid
@@ -253,15 +257,19 @@ func validateRevision(current, revision types.FileContractRevision, payment, col
 		return errors.New("valid proof output sum must not change")
 	case missedPayout.Cmp(oldPayout) != 0:
 		return errors.New("missed proof output sum must not change")
+	case revision.NewUnlockHash != current.NewUnlockHash:
+		return errors.New("unlock hash must not change")
+	case revision.UnlockConditions.UnlockHash() != current.UnlockConditions.UnlockHash():
+		return errors.New("unlock conditions must not change")
 	case revision.NewRevisionNumber <= current.NewRevisionNumber:
 		return errors.New("revision number must increase")
 	case revision.NewWindowStart != current.NewWindowStart:
 		return errors.New("window start must not change")
 	case revision.NewWindowEnd != current.NewWindowEnd:
 		return errors.New("window end must not change")
-	case len(revision.NewValidProofOutputs) != 2:
+	case len(revision.NewValidProofOutputs) != len(current.NewValidProofOutputs):
 		return errors.New("valid proof outputs must not change")
-	case len(revision.NewMissedProofOutputs) != 3:
+	case len(revision.NewMissedProofOutputs) != len(current.NewMissedProofOutputs):
 		return errors.New("missed proof outputs must not change")
 	case revision.NewValidProofOutputs[0].Value.Cmp(current.NewValidProofOutputs[0].Value) > 0:
 		return errors.New("renter valid proof output must not increase")

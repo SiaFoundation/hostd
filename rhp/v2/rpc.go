@@ -452,11 +452,12 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	}
 
 	// update the locked contract and commit the revision
-	s.reviseContract(revision, hostSig, req.Signature)
-	if err := sh.contracts.ReviseContract(revision, req.Signature, hostSig); err != nil {
+	if err := s.ReviseContract(sh.contracts, revision, hostSig, req.Signature); err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
 	}
+	// add the renter's spending to the amount spent
+	s.Spend(cost)
 
 	return nil
 }
@@ -596,11 +597,12 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	}
 
 	// update the contract
-	s.reviseContract(revision, hostSig, renterSig)
-	if err := sh.contracts.ReviseContract(revision, renterSig, hostSig); err != nil {
+	if err := s.ReviseContract(sh.contracts, revision, hostSig, renterSig); err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
 	}
+	// add the amount spent
+	s.Spend(cost)
 
 	// send the host signature
 	hostSigResp := &rpcWriteResponse{Signature: hostSig}
@@ -649,28 +651,30 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 			bandwidth += proofSize * crypto.HashSize
 		}
 	}
-	payment := settings.DownloadBandwidthPrice.Mul64(bandwidth).Add(settings.SectorAccessPrice.Mul64(uint64(len(req.Sections))))
 	// revise the contract with the values sent by the renter
 	revision, err := revise(s.contract.Revision, req.NewRevisionNumber, req.NewValidProofValues, req.NewMissedProofValues)
 	if err != nil {
 		return s.WriteError(fmt.Errorf("failed to revise contract: %w", err))
 	}
 
+	// calculate the cost of the read
+	cost := settings.DownloadBandwidthPrice.Mul64(bandwidth).Add(settings.SectorAccessPrice.Mul64(uint64(len(req.Sections))))
 	// validate the renter's signature and transfer
 	sigHash := hashRevision(revision)
 	if !ed25519.Verify(s.contract.RenterKey.Key, sigHash[:], req.Signature) {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature))
-	} else if err := validateRevision(s.contract.Revision, revision, payment, types.ZeroCurrency); err != nil {
+	} else if err := validateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", err))
 	}
 
 	// sign and commit the new revision
 	hostSig := ed25519.Sign(sh.privateKey, sigHash[:])
-	s.reviseContract(revision, hostSig, req.Signature)
-	if err := sh.contracts.ReviseContract(revision, req.Signature, hostSig); err != nil {
+	if err := s.ReviseContract(sh.contracts, revision, hostSig, req.Signature); err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
 	}
+	// add the cost to the amount spent
+	s.Spend(cost)
 
 	// listen for RPCLoopReadStop
 	stopSignal := make(chan error, 1)
