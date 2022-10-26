@@ -97,7 +97,7 @@ func (sh *SessionHandler) rpcSettings(s *session) error {
 
 func (sh *SessionHandler) rpcLock(s *session) error {
 	var req rpcLockRequest
-	if err := s.ReadRequest(&req); err != nil {
+	if err := s.ReadRequest(&req, minMessageSize, 30*time.Second); err != nil {
 		return err
 	}
 
@@ -151,7 +151,7 @@ func (sh *SessionHandler) rpcUnlock(s *session) error {
 // host.
 func (sh *SessionHandler) rpcFormContract(s *session) error {
 	var req rpcFormContractRequest
-	if err := s.ReadRequest(&req); err != nil {
+	if err := s.ReadRequest(&req, 10*minMessageSize, time.Minute); err != nil {
 		return err
 	}
 	formationTxnSet := req.Transactions
@@ -273,7 +273,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 	}
 
 	var req rpcRenewAndClearContractRequest
-	if err := s.ReadRequest(&req); err != nil {
+	if err := s.ReadRequest(&req, 10*minMessageSize, time.Minute); err != nil {
 		return fmt.Errorf("failed to read renew request: %w", err)
 	}
 
@@ -409,7 +409,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	}
 
 	var req rpcSectorRootsRequest
-	if err := s.ReadRequest(&req); err != nil {
+	if err := s.ReadRequest(&req, minMessageSize, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read sector roots request: %w", err)
 	}
 
@@ -475,7 +475,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	}
 
 	var req rpcWriteRequest
-	if err := s.ReadRequest(&req); err != nil {
+	if err := s.ReadRequest(&req, 5*SectorSize, 5*time.Minute); err != nil {
 		return fmt.Errorf("failed to read write request: %w", err)
 	}
 
@@ -633,7 +633,7 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 
 	// read the read request
 	var req rpcReadRequest
-	if err := s.ReadRequest(&req); err != nil {
+	if err := s.ReadRequest(&req, 4*minMessageSize, time.Minute); err != nil {
 		return fmt.Errorf("failed to read read request: %w", err)
 	}
 

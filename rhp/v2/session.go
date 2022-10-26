@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/internal/merkle"
-	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
@@ -40,13 +38,14 @@ type session struct {
 	closed bool
 }
 
-func (s *session) setErr(err error) {
+func (s *session) setErr(err error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil && s.err == nil {
 		s.conn.Close()
 		s.err = err
 	}
+	return s.err
 }
 
 // error returns the first error encountered during the session.
@@ -89,8 +88,7 @@ func (s *session) writeMessage(obj rpcObject) error {
 	s.aead.Seal(payload[:0], msgNonce, payload, nil)
 
 	_, err := s.conn.Write(msg)
-	s.setErr(err)
-	return err
+	return s.setErr(err)
 }
 
 func (s *session) readMessage(obj rpcObject, maxLen uint64) error {
@@ -102,29 +100,26 @@ func (s *session) readMessage(obj rpcObject, maxLen uint64) error {
 	}
 	s.inbuf.reset()
 	if err := s.inbuf.copyN(s.conn, 8); err != nil {
-		s.setErr(err)
-		return err
+		return s.setErr(fmt.Errorf("failed to read message length: %w", err))
 	}
 	msgSize := s.inbuf.readUint64()
 	if msgSize > maxLen {
-		return fmt.Errorf("message size (%v bytes) exceeds maxLen of %v bytes", msgSize, maxLen)
+		return s.setErr(fmt.Errorf("message size (%v bytes) exceeds maxLen of %v bytes", msgSize, maxLen))
 	} else if msgSize < uint64(s.aead.NonceSize()+s.aead.Overhead()) {
-		return fmt.Errorf("message size (%v bytes) is too small (nonce + MAC is %v bytes)", msgSize, s.aead.NonceSize()+s.aead.Overhead())
+		return s.setErr(fmt.Errorf("message size (%v bytes) is too small (nonce + MAC is %v bytes)", msgSize, s.aead.NonceSize()+s.aead.Overhead()))
 	}
 
 	s.inbuf.reset()
 	s.inbuf.grow(int(msgSize))
 	if err := s.inbuf.copyN(s.conn, msgSize); err != nil {
-		s.setErr(err)
-		return err
+		return s.setErr(fmt.Errorf("failed to read message: %w", err))
 	}
 
 	nonce := s.inbuf.next(s.aead.NonceSize())
 	paddedPayload := s.inbuf.bytes()
 	_, err := s.aead.Open(paddedPayload[:0], nonce, paddedPayload, nil)
 	if err != nil {
-		s.setErr(err) // not an I/O error, but still fatal
-		return err
+		return s.setErr(fmt.Errorf("failed to decrypt payload: %w", err)) // not an I/O error, but still fatal
 	}
 	return obj.unmarshalBuffer(&s.inbuf)
 }
@@ -153,21 +148,9 @@ func (s *session) ReadID() (rpcID Specifier, err error) {
 }
 
 // ReadRequest reads an RPC request using the new loop protocol.
-func (s *session) ReadRequest(req rpcObject) error {
-	var maxSize uint64
-	var timeout time.Duration
-
-	switch req.(type) {
-	case *rpcFormContractRequest, *rpcRenewAndClearContractRequest:
-		maxSize, timeout = modules.TransactionSizeLimit, 2*time.Minute
-	case *rpcLockRequest, *rpcSectorRootsRequest, *rpcFormContractSignatures:
-		maxSize, timeout = minMessageSize, 30*time.Second
-	case *rpcReadRequest:
-		maxSize, timeout = 4*minMessageSize, 2*time.Minute
-	case *rpcWriteRequest:
-		maxSize, timeout = 10*merkle.SectorSize, 2*time.Minute
-	default:
-		panic(fmt.Sprintf("unrecognized request type %T", req))
+func (s *session) ReadRequest(req rpcObject, maxSize uint64, timeout time.Duration) error {
+	if maxSize < minMessageSize {
+		maxSize = minMessageSize
 	}
 	s.conn.SetReadDeadline(time.Now().Add(timeout))
 	return s.readMessage(req, maxSize)
