@@ -145,6 +145,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 		metrics:   sh.metrics,
 		challenge: frand.Entropy128(),
 	}
+	defer sess.Close()
 
 	recordEnd := sh.recordSessionStart(sess)
 	defer recordEnd()
