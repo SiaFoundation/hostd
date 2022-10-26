@@ -52,11 +52,11 @@ type (
 		Usage() (used, total uint64, _ error)
 
 		// AddSector adds a sector to the storage manager.
-		AddSector(root crypto.Hash, sector *[SectorSize]byte, refs int) error
+		AddSector(root crypto.Hash, sector []byte, refs int) error
 		// DeleteSector deletes the sector with the given root.
 		DeleteSector(root crypto.Hash, refs int) error
 		// Sector reads a sector from the store
-		Sector(root crypto.Hash) (*[SectorSize]byte, error)
+		Sector(root crypto.Hash) ([]byte, error)
 	}
 
 	ConsensusSet interface {

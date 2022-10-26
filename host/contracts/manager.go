@@ -35,11 +35,11 @@ type (
 	StorageManager interface {
 		HasSector(crypto.Hash) (bool, error)
 		// AddSector adds a sector to the storage manager.
-		AddSector(root crypto.Hash, sector *[sectorSize]byte, refs int) error
+		AddSector(root crypto.Hash, sector []byte, refs int) error
 		// DeleteSector deletes the sector with the given root.
 		DeleteSector(root crypto.Hash, refs int) error
 		// Sector reads a sector from the store
-		Sector(root crypto.Hash) (*[sectorSize]byte, error)
+		Sector(root crypto.Hash) ([]byte, error)
 	}
 
 	// A ContractStore stores contracts for the host. It also updates stored

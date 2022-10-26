@@ -12,8 +12,6 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-const sectorSize = 1 << 22
-
 // storageProofSegment returns the segment index for which a storage proof must
 // be provided, given a contract and the block at the beginning of its proof
 // window.

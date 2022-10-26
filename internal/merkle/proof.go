@@ -88,7 +88,7 @@ func RangeProofSize(n, start, end uint64) uint64 {
 // Merkle tree is precomputed, precalc should return it for i == 0 and j ==
 // SegmentsPerSector/2. If a precalculated root is not available, precalc
 // should return the zero hash.
-func BuildProof(sector *[SectorSize]byte, start, end uint64, precalc func(i, j uint64) crypto.Hash) []crypto.Hash {
+func BuildProof(sector []byte, start, end uint64, precalc func(i, j uint64) crypto.Hash) []crypto.Hash {
 	if end > LeavesPerSector || start > end || start == end {
 		panic("BuildProof: illegal proof range")
 	}

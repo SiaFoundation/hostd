@@ -503,15 +503,16 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	}
 
 	newRoots := append([]crypto.Hash(nil), oldRoots...)
-	gainedSectors := make(map[crypto.Hash]*[SectorSize]byte)
+	gainedSectors := make(map[crypto.Hash][]byte)
 	rootDelta := make(map[crypto.Hash]int)
 	for _, action := range req.Actions {
 		switch action.Type {
 		case rpcWriteActionAppend:
-			var sector [SectorSize]byte
-			copy(sector[:], action.Data)
-			root := merkle.SectorRoot(&sector)
-			gainedSectors[root] = &sector
+			if len(action.Data) != SectorSize {
+				return s.WriteError(fmt.Errorf("append action: invalid sector size %v bytes", len(action.Data)))
+			}
+			root := merkle.SectorRoot(action.Data)
+			gainedSectors[root] = action.Data
 			rootDelta[root]++
 			newRoots = append(newRoots, root)
 		case rpcWriteActionTrim:
@@ -526,6 +527,11 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 			newRoots[i], newRoots[j] = newRoots[j], newRoots[i]
 		case rpcWriteActionUpdate:
 			i, offset := action.A, action.B
+			if offset > SectorSize {
+				return s.WriteError(fmt.Errorf("update action: invalid offset %v bytes", offset))
+			} else if offset+uint64(len(action.Data)) > SectorSize {
+				return s.WriteError(errors.New("update action: offset + data exceeds sector size"))
+			}
 			sector, err := sh.storage.Sector(newRoots[i])
 			if err != nil {
 				s.WriteError(ErrHostInternalError)

@@ -10,7 +10,7 @@ import (
 )
 
 type sectorMeta struct {
-	data       [rhp.SectorSize]byte
+	data       []byte
 	references uint64
 }
 
@@ -36,7 +36,7 @@ func (es *EphemeralStorageManager) HasSector(root crypto.Hash) (bool, error) {
 }
 
 // AddSector adds a sector to the storage manager.
-func (es *EphemeralStorageManager) AddSector(root crypto.Hash, sector *[rhp.SectorSize]byte, refs int) error {
+func (es *EphemeralStorageManager) AddSector(root crypto.Hash, sector []byte, refs int) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 	if _, exists := es.sectors[root]; exists {
@@ -44,7 +44,7 @@ func (es *EphemeralStorageManager) AddSector(root crypto.Hash, sector *[rhp.Sect
 		return nil
 	}
 	es.sectors[root] = &sectorMeta{
-		data:       *sector,
+		data:       sector,
 		references: 1,
 	}
 	return nil
@@ -69,14 +69,15 @@ func (es *EphemeralStorageManager) DeleteSector(root crypto.Hash, refs int) erro
 }
 
 // Sector reads a sector from the store
-func (es *EphemeralStorageManager) Sector(root crypto.Hash) (*[rhp.SectorSize]byte, error) {
+func (es *EphemeralStorageManager) Sector(root crypto.Hash) ([]byte, error) {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 	sector, exists := es.sectors[root]
 	if !exists {
 		return nil, errors.New("sector not found")
 	}
-	return &sector.data, nil
+	buf := append([]byte(nil), sector.data...)
+	return buf, nil
 }
 
 func NewEphemeralStorageManager() *EphemeralStorageManager {

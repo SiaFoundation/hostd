@@ -166,7 +166,10 @@ func (sa *sectorAccumulator) root() crypto.Hash {
 }
 
 // SectorRoot computes the Merkle root of a sector.
-func SectorRoot(sector *[SectorSize]byte) crypto.Hash {
+func SectorRoot(sector []byte) crypto.Hash {
+	if len(sector) != SectorSize {
+		panic("SectorRoot: illegal sector size")
+	}
 	var sa sectorAccumulator
 	sa.appendLeaves(sector[:])
 	return sa.root()
@@ -194,14 +197,13 @@ func ReaderRoot(r io.Reader) (crypto.Hash, error) {
 }
 
 // ReadSector reads a single sector from r and calculates its root.
-func ReadSector(r io.Reader) (crypto.Hash, *[SectorSize]byte, error) {
-	var sector [SectorSize]byte
-	buf := bytes.NewBuffer(sector[:0])
+func ReadSector(r io.Reader) (crypto.Hash, []byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0, SectorSize))
 	root, err := ReaderRoot(io.TeeReader(io.LimitReader(r, SectorSize), buf))
 	if buf.Len() != SectorSize {
 		return crypto.Hash{}, nil, io.ErrUnexpectedEOF
 	}
-	return root, &sector, err
+	return root, buf.Bytes(), err
 }
 
 // MetaRoot calculates the root of a set of existing Merkle roots.
