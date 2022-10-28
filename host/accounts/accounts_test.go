@@ -1,148 +1,141 @@
-package accounts_test
+package accounts
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
-	"time"
 
-	"go.sia.tech/hostd/host/accounts"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/internal/store"
 	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
-func newTestAccountManager(t *testing.T) *accounts.AccountManager {
-	cm, err := settings.NewConfigManager(store.NewEphemeralSettingsStore())
-	if err != nil {
-		panic(err)
-	}
-	cm.UpdateSettings(settings.Settings{
-		MaxAccountBalance: types.SiacoinPrecision,
-	})
-	am := accounts.NewManager(store.NewEphemeralAccountStore(), cm)
-	t.Cleanup(func() { am.Close() })
-	return am
+// An EphemeralAccountStore is an in-memory implementation of the account store;
+// implements host.AccountStore.
+type EphemeralAccountStore struct {
+	mu       sync.Mutex
+	balances map[AccountID]types.Currency
 }
 
-func testCancelledDebit(t *testing.T) {
-	ac := newTestAccountManager(t)
-	accountID := frand.Entropy256()
-
-	// start a new context and immediately cancel it
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	// attempt to withdraw from the account
-	if _, err := ac.Debit(ctx, accountID, types.NewCurrency64(50)); !errors.Is(err, context.Canceled) {
-		t.Fatal("expected context to be cancelled", err)
-	}
-
-	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	// attempt to withdraw from the account
-	if _, err := ac.Debit(ctx, accountID, types.NewCurrency64(50)); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("expected context to be deadline exceeded", err)
-	}
+// Balance returns the balance of the ephemeral account.
+func (eas *EphemeralAccountStore) Balance(accountID AccountID) (types.Currency, error) {
+	eas.mu.Lock()
+	defer eas.mu.Unlock()
+	return eas.balances[accountID], nil
 }
 
-func testBlockedDebit(t *testing.T) {
-	ac := newTestAccountManager(t)
-	accountID := frand.Entropy256()
-
-	go func() {
-		ticker := time.NewTicker(25 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			if _, err := ac.Credit(accountID, types.NewCurrency64(25)); err != nil {
-				panic(fmt.Errorf("expected no error: %w", err))
-			}
-		}
-	}()
-
-	waitingDebits := 10
-	var wg sync.WaitGroup
-	wg.Add(waitingDebits)
-	for i := 0; i < waitingDebits; i++ {
-		go func(i int) {
-			defer wg.Done()
-
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-
-			// attempt to withdraw from the account
-			if _, err := ac.Debit(ctx, accountID, types.NewCurrency64(50)); err != nil {
-				panic(fmt.Errorf("expected successful withdrawal, got %v", err))
-			}
-		}(i)
-	}
-
-	wg.Wait()
+// Credit adds the specified amount to the account, returning the current
+// balance.
+func (eas *EphemeralAccountStore) Credit(accountID AccountID, amount types.Currency) (types.Currency, error) {
+	eas.mu.Lock()
+	defer eas.mu.Unlock()
+	eas.balances[accountID] = eas.balances[accountID].Add(amount)
+	return eas.balances[accountID], nil
 }
 
-func TestDebit(t *testing.T) {
-	t.Run("blocked withdrawal", testBlockedDebit)
-	t.Run("cancelled withdrawal", testCancelledDebit)
+// Refund returns the amount to the ephemeral account.
+func (eas *EphemeralAccountStore) Refund(accountID AccountID, amount types.Currency) error {
+	eas.mu.Lock()
+	defer eas.mu.Unlock()
+
+	eas.balances[accountID] = eas.balances[accountID].Add(amount)
+	return nil
+}
+
+// Debit subtracts the specified amount from the account, returning the current
+// balance.
+func (eas *EphemeralAccountStore) Debit(accountID AccountID, amount types.Currency) (types.Currency, error) {
+	eas.mu.Lock()
+	defer eas.mu.Unlock()
+
+	bal, exists := eas.balances[accountID]
+	if !exists || bal.Cmp(amount) < 0 {
+		return bal, errors.New("insufficient funds")
+	}
+
+	eas.balances[accountID] = eas.balances[accountID].Sub(amount)
+	return eas.balances[accountID], nil
+}
+
+func (eas *EphemeralAccountStore) Close() error {
+	return nil
+}
+
+// NewEphemeralAccountStore intializes a new AccountStore.
+func NewEphemeralAccountStore() *EphemeralAccountStore {
+	return &EphemeralAccountStore{
+		balances: make(map[AccountID]types.Currency),
+	}
 }
 
 func TestCredit(t *testing.T) {
-	ac := newTestAccountManager(t)
+	am := NewManager(NewEphemeralAccountStore())
 	accountID := frand.Entropy256()
 
 	// attempt to credit the account
 	amount := types.NewCurrency64(50)
-	if _, err := ac.Credit(accountID, amount); err != nil {
+	if _, err := am.Credit(accountID, amount); err != nil {
 		t.Fatal("expected successful credit", err)
-	} else if balance, err := ac.Balance(accountID); err != nil {
+	} else if balance, err := am.store.Balance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(amount) != 0 {
 		t.Fatal("expected balance to be equal to amount", balance, amount)
 	}
-
-	// attempt to credit the account over the max balance
-	amount = types.SiacoinPrecision
-	if _, err := ac.Credit(accountID, amount); err == nil {
-		t.Fatal("expected failed credit")
-	}
 }
 
-func TestRefund(t *testing.T) {
-	ac := newTestAccountManager(t)
+func TestBudget(t *testing.T) {
+	am := NewManager(NewEphemeralAccountStore())
 	accountID := frand.Entropy256()
 
-	// fill the account to the max balance
-	fundAmount, expectedBalance := types.SiacoinPrecision, types.SiacoinPrecision
-	if _, err := ac.Credit(accountID, fundAmount); err != nil {
+	// credit the account
+	amount := types.NewCurrency64(50)
+	if _, err := am.Credit(accountID, amount); err != nil {
 		t.Fatal("expected successful credit", err)
-	} else if balance, err := ac.Balance(accountID); err != nil {
-		t.Fatal("expected successful balance", err)
-	} else if balance.Cmp(expectedBalance) != 0 {
-		t.Fatal("expected balance to be equal to amount", balance, expectedBalance)
 	}
 
-	// refund the account another 50H; refunds do not consider the max balance
-	fundAmount = types.NewCurrency64(50)
-	expectedBalance = expectedBalance.Add(fundAmount)
-	if _, err := ac.Refund(accountID, fundAmount); err != nil {
-		t.Fatal("expected successful refund", err)
-	} else if balance, err := ac.Balance(accountID); err != nil {
-		t.Fatal("expected successful balance", err)
-	} else if balance.Cmp(expectedBalance) != 0 {
-		t.Fatal("expected balance to be equal to amount", balance, expectedBalance)
+	expectedBalance := amount
+
+	// initialize a new budget for half the account balance
+	budget, err := am.Budget(context.Background(), accountID, amount.Div64(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer budget.Rollback()
+
+	// check that the in-memory state is consistent
+	budgetAmount := amount.Div64(2)
+	expectedBalance = expectedBalance.Sub(budgetAmount)
+	if am.balances[accountID].balance.Cmp(expectedBalance) != 0 {
+		t.Fatalf("expected in-memory balance to be %v, got %v", expectedBalance, am.balances[accountID].balance)
 	}
 
-	// withdraw from the account
-	debitAmount := types.SiacoinPrecision
-	expectedBalance = expectedBalance.Sub(debitAmount)
-	if _, err := ac.Debit(context.Background(), accountID, debitAmount); err != nil {
-		t.Fatal("expected successful debit", err)
-	} else if balance, err := ac.Balance(accountID); err != nil {
+	// spend half of the budget
+	spendAmount := amount.Div64(4)
+	if err := budget.Spend(spendAmount); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the in-memory state did not change
+	if am.balances[accountID].balance.Cmp(expectedBalance) != 0 {
+		t.Fatalf("expected in-memory balance to be %v, got %v", expectedBalance, am.balances[accountID].balance)
+	}
+
+	// commit the budget
+	if err := budget.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the in-memory state has been cleared
+	if _, exists := am.balances[accountID]; exists {
+		t.Fatal("expected in-memory balance to be cleared")
+	}
+
+	// check that the account balance has been updated and only the spent
+	// amount has been deducted
+	expectedBalance = expectedBalance.Add(budgetAmount.Sub(spendAmount))
+	if balance, err := am.store.Balance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(expectedBalance) != 0 {
-		t.Fatal("expected balance to be equal to amount", balance, expectedBalance)
+		t.Fatalf("expected balance to be equal to %v, got %v", expectedBalance, balance)
 	}
 }
