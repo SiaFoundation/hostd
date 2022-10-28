@@ -46,6 +46,14 @@ func (r *RegistryManager) Close() error {
 	return r.store.Close()
 }
 
+func (r *RegistryManager) Cap() uint64 {
+	return r.store.Cap()
+}
+
+func (r *RegistryManager) Len() uint64 {
+	return r.store.Len()
+}
+
 // Get returns the registry value for the provided key.
 func (r *RegistryManager) Get(key crypto.Hash) (Value, error) {
 	r.mu.Lock()
