@@ -112,7 +112,7 @@ func (sh *SessionHandler) rpcLock(s *session) error {
 	}
 
 	// verify the renter's challenge signature
-	if !s.VerifyChallenge(req.Signature, contract.RenterKey.Key) {
+	if !s.VerifyChallenge(req.Signature, contract.RenterKey()) {
 		// unlock the contract since the renter failed the challenge
 		sh.contracts.Unlock(contract.Revision.ParentID)
 		return s.WriteError(fmt.Errorf("challenge failed: %w", ErrInvalidRenterSignature))
@@ -231,8 +231,6 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 
 	signedRevision := contracts.SignedRevision{
 		Revision:        initialRevision,
-		HostKey:         hostPub,
-		RenterKey:       renterPub,
 		RenterSignature: renterSig,
 		HostSignature:   hostSig,
 	}
@@ -287,7 +285,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 	existingContract := s.contract.Revision
 	hostPub := types.SiaPublicKey{
 		Algorithm: types.SignatureEd25519,
-		Key:       sh.privateKey.Public().([]byte),
+		Key:       sh.privateKey.Public().(ed25519.PublicKey),
 	}
 	settings, err := sh.Settings()
 	if err != nil {
@@ -367,8 +365,6 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 
 	signedRevision := contracts.SignedRevision{
 		Revision:        initialRevision,
-		HostKey:         hostPub,
-		RenterKey:       renterPub,
 		RenterSignature: renterSig,
 		HostSignature:   hostSig,
 	}
@@ -425,7 +421,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	}
 	// validate the renter's signature
 	sigHash := hashRevision(revision)
-	if !ed25519.Verify(s.contract.RenterKey.Key, sigHash[:], req.Signature) {
+	if !ed25519.Verify(s.contract.RenterKey(), sigHash[:], req.Signature) {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature))
 	}
 	hostSig := ed25519.Sign(sh.privateKey, sigHash[:])
@@ -570,7 +566,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	// validate the contract signature
 	renterSig := renterSigResponse.Signature
 	sigHash := hashRevision(revision)
-	if !ed25519.Verify(s.contract.RenterKey.Key, sigHash[:], renterSigResponse.Signature) {
+	if !ed25519.Verify(s.contract.RenterKey(), sigHash[:], renterSigResponse.Signature) {
 		return s.WriteError(fmt.Errorf("failed to verify renter signature: %w", ErrInvalidRenterSignature))
 	}
 	hostSig := ed25519.Sign(sh.privateKey, sigHash[:])
@@ -667,7 +663,7 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	cost := settings.DownloadBandwidthPrice.Mul64(bandwidth).Add(settings.SectorAccessPrice.Mul64(uint64(len(req.Sections))))
 	// validate the renter's signature and transfer
 	sigHash := hashRevision(revision)
-	if !ed25519.Verify(s.contract.RenterKey.Key, sigHash[:], req.Signature) {
+	if !ed25519.Verify(s.contract.RenterKey(), sigHash[:], req.Signature) {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature))
 	} else if err := validateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", err))

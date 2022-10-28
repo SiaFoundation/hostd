@@ -1,6 +1,8 @@
 package contracts
 
 import (
+	"crypto/ed25519"
+
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 )
@@ -13,9 +15,6 @@ type (
 	// and renter needed to broadcast the revision.
 	SignedRevision struct {
 		Revision types.FileContractRevision
-
-		HostKey   types.SiaPublicKey
-		RenterKey types.SiaPublicKey
 
 		HostSignature   []byte
 		RenterSignature []byte
@@ -62,6 +61,13 @@ var (
 	ContractStateMissed ContractState = "missed"
 )
 
+// RenterKey returns the renter's public key.
+func (sr SignedRevision) RenterKey() ed25519.PublicKey {
+	return ed25519.PublicKey(sr.Revision.UnlockConditions.PublicKeys[0].Key)
+}
+
+// Signatures returns the host and renter transaction signatures for the
+// contract revision.
 func (sr SignedRevision) Signatures() []types.TransactionSignature {
 	return []types.TransactionSignature{
 		{
