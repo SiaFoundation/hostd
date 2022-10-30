@@ -3,7 +3,6 @@ package rhp_test
 import (
 	"bytes"
 	"crypto/ed25519"
-	"net"
 	"testing"
 
 	"go.sia.tech/hostd/host/contracts"
@@ -92,19 +91,19 @@ func createTestingPair(tb testing.TB) (*proto.Session, *rhp.SessionHandler) {
 		MaxContractDuration: 1000,
 		MaxCollateral:       types.SiacoinPrecision.Mul64(100),
 	})
-	host := rhp.NewSessionHandler(hostKey, stubConsensus{}, stubTpool{}, stubWallet{}, contractManager, storageManager, settingsManager, stubMetricReporter{})
-	l, err := net.Listen("tcp", "localhost:0")
+
+	host, err := rhp.NewSessionHandler(hostKey, "localhost:0", stubConsensus{}, stubTpool{}, stubWallet{}, contractManager, settingsManager, storageManager, stubMetricReporter{})
 	if err != nil {
-		tb.Fatal("failed to listen:", err)
+		tb.Fatal("failed to create host:", err)
 	}
-	tb.Cleanup(func() { l.Close() })
+	tb.Cleanup(func() { host.Close() })
 	go func() {
-		if err := host.Serve(l); err != nil {
+		if err := host.Serve(); err != nil {
 			tb.Fatal("host.Serve:", err)
 		}
 	}()
 
-	s, err := proto.NewUnlockedSession(modules.NetAddress(l.Addr().String()), hostdb.HostKeyFromPublicKey(hostKey.Public().(ed25519.PublicKey)), 300000)
+	s, err := proto.NewUnlockedSession(modules.NetAddress(host.LocalAddr()), hostdb.HostKeyFromPublicKey(hostKey.Public().(ed25519.PublicKey)), 300000)
 	if err != nil {
 		tb.Fatal(err)
 	} else if _, err := s.Settings(); err != nil {

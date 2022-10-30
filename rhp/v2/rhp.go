@@ -94,13 +94,16 @@ type (
 type SessionHandler struct {
 	privateKey ed25519.PrivateKey
 
+	listener net.Listener
+
 	consensus ConsensusSet
-	settings  SettingsReporter
-	contracts ContractManager
-	storage   StorageManager
 	tpool     TransactionPool
 	wallet    Wallet
+
+	contracts ContractManager
 	metrics   MetricReporter
+	settings  SettingsReporter
+	storage   StorageManager
 }
 
 // upgrade performs the RHP2 handshake and begins handling RPCs
@@ -199,7 +202,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 }
 
 func (sh *SessionHandler) Close() error {
-	return nil
+	return sh.listener.Close()
 }
 
 func (sh *SessionHandler) Settings() (HostSettings, error) {
@@ -245,16 +248,17 @@ func (sh *SessionHandler) Settings() (HostSettings, error) {
 	}, nil
 }
 
-func (sh *SessionHandler) Serve(listener net.Listener) error {
+func (sh *SessionHandler) Serve() error {
 	for {
-		conn, err := listener.Accept()
+		conn, err := sh.listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
 			return nil
 		} else if err != nil {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 		go func() {
-			if err := sh.upgrade(conn); err != nil {
+			ingress, egress := sh.settings.BandwidthLimiters()
+			if err := sh.upgrade(newRPCConn(conn, ingress, egress)); err != nil {
 				log.Printf("failed to upgrade connection: %v", err)
 			}
 			conn.Close()
@@ -262,16 +266,27 @@ func (sh *SessionHandler) Serve(listener net.Listener) error {
 	}
 }
 
-func NewSessionHandler(privateKey ed25519.PrivateKey, cs ConsensusSet, tpool TransactionPool, wallet Wallet, contracts ContractManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter) *SessionHandler {
-	sh := &SessionHandler{
-		privateKey: privateKey,
-		settings:   settings,
-		consensus:  cs,
-		contracts:  contracts,
-		storage:    storage,
-		tpool:      tpool,
-		wallet:     wallet,
-		metrics:    metrics,
+func (sh *SessionHandler) LocalAddr() string {
+	return sh.listener.Addr().String()
+}
+
+func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cs ConsensusSet, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter) (*SessionHandler, error) {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on addr: %w", err)
 	}
-	return sh
+	sh := &SessionHandler{
+		privateKey: hostKey,
+
+		listener:  l,
+		consensus: cs,
+		tpool:     tpool,
+		wallet:    wallet,
+
+		contracts: contracts,
+		metrics:   metrics,
+		settings:  settings,
+		storage:   storage,
+	}
+	return sh, nil
 }
