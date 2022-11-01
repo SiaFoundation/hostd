@@ -64,7 +64,6 @@ func (r *SubscriberRouter) route(stream *Stream) {
 	// read the subscriber request
 	subscriber, err := ss.readSubscriberRequest()
 	if err != nil {
-		ss.setErr(fmt.Errorf("failed to read subscriber: %w", err))
 		return
 	}
 	// get the handler for the subscriber
@@ -74,7 +73,6 @@ func (r *SubscriberRouter) route(stream *Stream) {
 	// if the handler doesn't exist, send the unknown subscriber response
 	if !exists {
 		ss.writeSubscriberResponse(ErrUnknownSubscriber)
-		ss.setErr(fmt.Errorf("failed to route stream: %w", ErrUnknownSubscriber))
 		return
 	}
 	// send an empty error response to indicate success
