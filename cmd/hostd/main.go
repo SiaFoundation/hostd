@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -83,6 +84,7 @@ func main() {
 		}
 	}()
 	log.Println("p2p: Listening on", n.g.Address())
+	log.Println("host public key:", "ed25519:"+hex.EncodeToString(walletKey.Public().(ed25519.PublicKey)))
 
 	l, err := net.Listen("tcp", *apiAddr)
 	if err != nil {

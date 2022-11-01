@@ -15,9 +15,9 @@ func (mr stdoutmetricReporter) Report(metric any) error {
 	case rhp.EventSessionEnd:
 		fmt.Printf("renter session ended")
 	case rhp.EventRPCStart:
-		fmt.Printf("rpc started", v.RPC)
+		fmt.Printf("rpc started %v", v.RPC)
 	case rhp.EventRPCEnd:
-		fmt.Printf("rpc ended", v.RPC)
+		fmt.Printf("rpc ended %v", v.RPC)
 	}
 	return nil
 }

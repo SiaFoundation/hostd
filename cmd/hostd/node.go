@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 
@@ -14,6 +13,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/store"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
+	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/modules/consensus"
@@ -28,13 +28,13 @@ type node struct {
 	tp modules.TransactionPool
 	w  *wallet.SingleAddressWallet
 
-	a  *accounts.AccountManager
-	cm *contracts.ContractManager
-	r  *registry.RegistryManager
-	sm *store.EphemeralStorageManager
+	accounts  *accounts.AccountManager
+	contracts *contracts.ContractManager
+	registry  *registry.RegistryManager
+	storage   *store.EphemeralStorageManager
 
 	rhp2 *rhpv2.SessionHandler
-	// rhp3 *rhpv3.SessionHandler
+	rhp3 *rhpv3.SessionHandler
 }
 
 type txpool struct {
@@ -54,16 +54,35 @@ func (tp txpool) AcceptTransactionSet(txns []types.Transaction) error {
 }
 
 func (n *node) Close() error {
+	n.rhp3.Close()
 	n.rhp2.Close()
-	n.sm.Close()
-	n.r.Close()
-	n.cm.Close()
-	n.a.Close()
+	n.storage.Close()
+	n.registry.Close()
+	n.contracts.Close()
+	n.accounts.Close()
 	n.w.Close()
 	n.tp.Close()
 	n.cs.Close()
 	n.g.Close()
 	return nil
+}
+
+func startRHP2(hostKey ed25519.PrivateKey, addr string, cs rhpv2.ConsensusSet, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager) (*rhpv2.SessionHandler, error) {
+	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, stdoutmetricReporter{})
+	if err != nil {
+		return nil, err
+	}
+	go rhp2.Serve()
+	return rhp2, nil
+}
+
+func startRHP3(hostKey ed25519.PrivateKey, addr string, cs rhpv3.ConsensusSet, tp rhpv3.TransactionPool, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, w rhpv3.Wallet) (*rhpv3.SessionHandler, error) {
+	rhp3, err := rhpv3.NewSessionHandler(hostKey, addr, cs, tp, w, am, cm, rm, sm, sr, stdoutmetricReporter{})
+	if err != nil {
+		return nil, err
+	}
+	go rhp3.Serve()
+	return rhp3, nil
 }
 
 func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey ed25519.PrivateKey) (*node, error) {
@@ -104,9 +123,11 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	walletAddr := wallet.StandardAddress(walletKey.Public().(ed25519.PublicKey))
 	ws := store.NewEphemeralWalletStore(walletAddr)
 	w := wallet.NewSingleAddressWallet(walletKey, ws)
-	if err := cs.ConsensusSetSubscribe(w, modules.ConsensusChangeBeginning, nil); err != nil {
-		return nil, fmt.Errorf("failed to subscribe wallet to consensus: %w", err)
-	}
+	go func() {
+		if err := cs.ConsensusSetSubscribe(w, modules.ConsensusChangeBeginning, nil); err != nil {
+			panic(fmt.Errorf("failed to subscribe wallet to consensus: %w", err))
+		}
+	}()
 
 	ss := store.NewEphemeralSettingsStore()
 	sr, err := settings.NewConfigManager(ss)
@@ -115,7 +136,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 
 	as := store.NewEphemeralAccountStore()
-	accountManager := accounts.NewManager(as, sr)
+	accountManager := accounts.NewManager(as)
 
 	sm := store.NewEphemeralStorageManager()
 	contractStore := store.NewEphemeralContractStore()
@@ -124,12 +145,15 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	er := store.NewEphemeralRegistryStore(1000)
 	registryManager := registry.NewRegistryManager(walletKey, er)
 
-	l, err := net.Listen("tcp", rhp2Addr)
+	rhp2, err := startRHP2(walletKey, rhp2Addr, cs, txpool{tp}, w, contractManager, sr, sm)
 	if err != nil {
-		return nil, fmt.Errorf("failed to listen on rhp2 addr: %w", err)
+		return nil, fmt.Errorf("failed to start rhp2: %w", err)
 	}
-	rhp2 := rhpv2.NewSessionHandler(walletKey, cs, txpool{tp}, w, contractManager, sm, sr, stdoutmetricReporter{})
-	go rhp2.Serve(l)
+
+	rhp3, err := startRHP3(walletKey, rhp3Addr, cs, txpool{tp}, accountManager, contractManager, registryManager, sr, sm, w)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start rhp3: %w", err)
+	}
 
 	return &node{
 		g:  g,
@@ -137,9 +161,12 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		tp: tp,
 		w:  w,
 
-		a:  accountManager,
-		cm: contractManager,
-		sm: sm,
-		r:  registryManager,
+		accounts:  accountManager,
+		contracts: contractManager,
+		storage:   sm,
+		registry:  registryManager,
+
+		rhp2: rhp2,
+		rhp3: rhp3,
 	}, nil
 }
