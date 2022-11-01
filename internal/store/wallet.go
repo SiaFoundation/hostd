@@ -99,6 +99,7 @@ func (es *EphemeralWalletStore) Transactions(skip, max int) ([]wallet.Transactio
 // NewEphemeralAccountStore returns a new EphemeralAccountStore.
 func NewEphemeralWalletStore(addr types.UnlockHash) *EphemeralWalletStore {
 	return &EphemeralWalletStore{
-		addr: addr,
+		addr:    addr,
+		scElems: make(map[types.SiacoinOutputID]wallet.SiacoinElement),
 	}
 }
