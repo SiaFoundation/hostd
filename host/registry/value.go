@@ -14,7 +14,7 @@ import (
 
 const (
 	// EntryTypeArbitrary is a registry value where all data is arbitrary.
-	EntryTypeArbitrary = iota + 1
+	EntryTypeArbitrary ValueType = iota + 1
 	// EntryTypePubKey is a registry value where the first 20 bytes of data
 	// corresponds to the hash of a host's public key.
 	EntryTypePubKey
@@ -30,12 +30,14 @@ type (
 	// Work represents the "work" of a registry value.
 	Work [32]byte
 
+	ValueType uint8
+
 	// A Value is stored in the host registry.
 	Value struct {
 		Tweak    crypto.Hash
 		Data     []byte
 		Revision uint64
-		Type     uint8
+		Type     ValueType
 
 		PublicKey types.SiaPublicKey
 		Signature []byte
