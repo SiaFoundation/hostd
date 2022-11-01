@@ -198,10 +198,8 @@ func validateClearingRevision(current, final types.FileContractRevision) error {
 		return errors.New("window start must not change")
 	case current.NewWindowEnd != final.NewWindowEnd:
 		return errors.New("window end must not change")
-	case len(final.NewValidProofOutputs) != 2:
-		return errors.New("wrong number of valid proof outputs")
-	case len(final.NewMissedProofOutputs) != 2:
-		return errors.New("wrong number of missed proof outputs")
+	case len(final.NewValidProofOutputs) != len(final.NewMissedProofOutputs):
+		return errors.New("wrong number of proof outputs")
 	case final.NewRevisionNumber != maxRevisionNumber:
 		return errors.New("revision number must be max value")
 	case final.NewUnlockHash != current.NewUnlockHash:

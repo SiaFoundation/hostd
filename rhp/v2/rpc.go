@@ -575,7 +575,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	for root, delta := range rootDelta {
 		switch {
 		case delta < 0:
-			if err := sh.storage.DeleteSector(root, delta); err != nil {
+			if err := sh.storage.DeleteSector(root, -delta); err != nil {
 				s.WriteError(ErrHostInternalError)
 				return fmt.Errorf("failed to delete sector %v: %w", root, err)
 			}
