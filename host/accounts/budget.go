@@ -11,9 +11,21 @@ type (
 	// A Budget transactionally manages an account's balance. It is not safe for
 	// concurrent use.
 	Budget interface {
+		// Remaining returns the amount remaining in the budget
 		Remaining() types.Currency
+		// Refund returns amount back to the budget. Refund will panic if the budget has
+		// already been committed or the refund is greater than the amount spent.
+		Refund(amount types.Currency)
+		// Empty spends all of the remaining budget and returns the amount spent
+		Empty() types.Currency
+		// Spend subtracts amount from the remaining budget. An error is
+		// returned if their are insufficient funds.
 		Spend(amount types.Currency) error
+		// Rollback rolls back the budget's spending. If the budget has already
+		// been committed, Rollback is a no-op.
 		Rollback() error
+		// Commit commits the budget's spending to the account. If the budget
+		// has already been committed, Commit will panic.
 		Commit() error
 	}
 
@@ -35,6 +47,26 @@ var (
 // Remaining returns the amount remaining in the budget
 func (b *budget) Remaining() types.Currency {
 	return b.max.Sub(b.spent)
+}
+
+// Empty spends all of the remaining budget and returns the amount spent
+func (b *budget) Empty() (spent types.Currency) {
+	if b.committed {
+		panic("budget already committed")
+	}
+	spent, b.spent = b.spent, b.max
+	return
+}
+
+// Refund returns amount back to the budget. Refund will panic if the budget has
+// already been committed or the refund is greater than the amount spent.
+func (b *budget) Refund(amount types.Currency) {
+	if b.committed {
+		panic("budget already committed")
+	} else if amount.Cmp(b.spent) > 0 {
+		panic("cannot refund more than spent")
+	}
+	b.spent = b.spent.Sub(amount)
 }
 
 // Spend subtracts amount from the remaining budget. An error is returned if

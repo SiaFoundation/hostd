@@ -61,6 +61,17 @@ func (am *AccountManager) Close() error {
 	return am.store.Close()
 }
 
+// Balance returns the balance of the account with the given ID.
+func (am *AccountManager) Balance(accountID AccountID) (types.Currency, error) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if state, ok := am.balances[accountID]; ok {
+		return state.balance, nil
+	}
+	return am.store.Balance(accountID)
+}
+
 // Credit adds the specified amount to the account with the given ID. Credits
 // are synced to the underlying store immediately.
 func (am *AccountManager) Credit(accountID AccountID, amount types.Currency) (balance types.Currency, err error) {
@@ -73,9 +84,9 @@ func (am *AccountManager) Credit(accountID AccountID, amount types.Currency) (ba
 	}
 
 	// increment the balance in memory, if it exists
-	if waiters, ok := am.balances[accountID]; ok {
-		waiters.balance = balance.Add(amount)
-		am.balances[accountID] = waiters
+	if state, ok := am.balances[accountID]; ok {
+		state.balance = balance.Add(amount)
+		am.balances[accountID] = state
 	}
 
 	// wake all waiting withdrawals
@@ -98,8 +109,8 @@ func (am *AccountManager) Budget(ctx context.Context, accountID AccountID, amoun
 
 		var balance types.Currency
 		// if there are currently outstanding debits, use the in-memory balance
-		if waiters, ok := am.balances[accountID]; ok {
-			balance = waiters.balance
+		if state, ok := am.balances[accountID]; ok {
+			balance = state.balance
 		} else {
 			var err error
 			// otherwise, get the balance from the store
