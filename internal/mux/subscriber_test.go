@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gitlab.com/NebulousLabs/log"
@@ -50,20 +51,20 @@ func TestSubscriberRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to listen:", err)
 	}
-	defer listener.Close()
+	t.Cleanup(func() { listener.Close() })
 	startEchoSubscriber(listener, serverKey)
 
 	conn, err := net.Dial("tcp", listener.Addr().String())
 	if err != nil {
 		t.Fatal("failed to dial:", err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() { conn.Close() })
 
 	m, err := DialSubscriber(conn, 8000, serverKey.Public().(ed25519.PublicKey))
 	if err != nil {
 		t.Fatal("failed to dial subscriber:", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 
 	t.Run("test bad subscriber", func(t *testing.T) {
 		// Due to the laziness expected by siad, we cannot detect the unknown
@@ -107,7 +108,7 @@ func TestSubscriberRouterCompat(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create listener:", err)
 	}
-	defer l.Close()
+	t.Cleanup(func() { l.Close() })
 
 	serverKey := ed25519.NewKeyFromSeed(frand.Bytes(32))
 	startEchoSubscriber(l, serverKey)
@@ -116,7 +117,7 @@ func TestSubscriberRouterCompat(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create sia mux:", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 
 	var key mux.ED25519PublicKey
 	copy(key[:], serverKey.Public().(ed25519.PublicKey)[:])
@@ -129,7 +130,7 @@ func TestSubscriberRouterCompat(t *testing.T) {
 
 		if err := writePrefixedBytes(s, []byte("hello")); err != nil {
 			t.Fatal("failed to write to stream:", err)
-		} else if _, err := readPrefixedBytes(s, 1024); err == nil {
+		} else if _, err := readPrefixedBytes(s, 1024); err == nil || !strings.Contains(err.Error(), "unknown subscriber") {
 			t.Fatal("expected subscriber error:", err)
 		}
 	})
@@ -158,7 +159,7 @@ func TestSubscriberMuxCompat(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create sia mux:", err)
 	}
-	defer serverMux.Close()
+	t.Cleanup(func() { serverMux.Close() })
 
 	serverMux.NewListener("echo", func(stream siamux.Stream) {
 		if req, err := readPrefixedBytes(stream, 1024); err != nil {
@@ -172,13 +173,14 @@ func TestSubscriberMuxCompat(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to dial sia mux:", err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() { conn.Close() })
 
 	serverKey := serverMux.PublicKey()
 	m, err := DialSubscriber(conn, 5751, serverKey[:])
 	if err != nil {
 		t.Fatal("failed to dial subscriber mux:", err)
 	}
+	t.Cleanup(func() { m.Close() })
 
 	t.Run("bad subscriber", func(t *testing.T) {
 		s, err := m.NewSubscriberStream("bad sub")
@@ -188,7 +190,7 @@ func TestSubscriberMuxCompat(t *testing.T) {
 
 		if err := writePrefixedBytes(s, []byte("hello")); err != nil {
 			t.Fatal("failed to write to stream:", err)
-		} else if _, err := readPrefixedBytes(s, 1024); err == nil {
+		} else if _, err := readPrefixedBytes(s, 1024); err == nil || !strings.Contains(err.Error(), "unknown subscriber") {
 			t.Fatal("expected subscriber error:", err)
 		}
 	})
