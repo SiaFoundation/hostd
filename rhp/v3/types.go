@@ -27,6 +27,7 @@ type (
 
 	objAccountID accounts.AccountID
 
+	// A Specifier is a unique 16-byte identifier used to identify RPC calls.
 	Specifier [16]byte
 
 	// A PriceTable contains the cost of interacting with the host through

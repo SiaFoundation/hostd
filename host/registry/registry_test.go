@@ -24,8 +24,8 @@ func randomValue(key ed25519.PrivateKey) (value registry.Value) {
 	return
 }
 
-func testRegistry(priKey ed25519.PrivateKey, limit uint64) *registry.RegistryManager {
-	return registry.NewRegistryManager(priKey, store.NewEphemeralRegistryStore(limit))
+func testRegistry(priKey ed25519.PrivateKey, limit uint64) *registry.Manager {
+	return registry.NewManager(priKey, store.NewEphemeralRegistryStore(limit))
 }
 
 func TestRegistryPut(t *testing.T) {
@@ -100,7 +100,7 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// test setting the value to a primary value; should succeed
-	hostID := registry.RegistryHostID(hostPriv.Public().(ed25519.PublicKey))
+	hostID := registry.HostID(hostPriv.Public().(ed25519.PublicKey))
 	value = registry.Value{
 		Tweak:    original.Tweak,
 		Data:     append([]byte(hostID[:20]), updated.Data...),

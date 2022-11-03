@@ -55,6 +55,7 @@ func (eas *EphemeralAccountStore) Debit(accountID accounts.AccountID, amount typ
 	return eas.balances[accountID], nil
 }
 
+// Close closes the account store.
 func (eas *EphemeralAccountStore) Close() error {
 	return nil
 }

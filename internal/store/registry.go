@@ -17,6 +17,7 @@ type EphemeralRegistryStore struct {
 	values map[crypto.Hash]registry.Value
 }
 
+// Close closes the registry store.
 func (es *EphemeralRegistryStore) Close() error {
 	return nil
 }

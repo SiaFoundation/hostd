@@ -17,6 +17,7 @@ type EphemeralContractStore struct {
 	roots     map[types.FileContractID][]crypto.Hash
 }
 
+// Close implements ContractStore.Close
 func (cs *EphemeralContractStore) Close() error {
 	return nil
 }

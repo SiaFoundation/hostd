@@ -20,14 +20,18 @@ type EphemeralStorageManager struct {
 	sectors map[crypto.Hash]*sectorMeta
 }
 
+// Close closes the storage manager.
 func (es *EphemeralStorageManager) Close() error {
 	return nil
 }
 
+// Usage returns the number of bytes stored and the total number of bytes that
+// can be stored.
 func (es *EphemeralStorageManager) Usage() (used, total uint64, _ error) {
 	return uint64(len(es.sectors)) * rhp.SectorSize, math.MaxUint64, nil
 }
 
+// HasSector returns true if the sector is in the store.
 func (es *EphemeralStorageManager) HasSector(root crypto.Hash) (bool, error) {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -80,6 +84,7 @@ func (es *EphemeralStorageManager) Sector(root crypto.Hash) ([]byte, error) {
 	return buf, nil
 }
 
+// NewEphemeralStorageManager returns a new EphemeralStorageManager
 func NewEphemeralStorageManager() *EphemeralStorageManager {
 	return &EphemeralStorageManager{
 		sectors: make(map[crypto.Hash]*sectorMeta),

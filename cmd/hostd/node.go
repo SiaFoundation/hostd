@@ -30,7 +30,7 @@ type node struct {
 
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
-	registry  *registry.RegistryManager
+	registry  *registry.Manager
 	storage   *store.EphemeralStorageManager
 
 	rhp2 *rhpv2.SessionHandler
@@ -143,7 +143,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	contractManager := contracts.NewManager(contractStore, sm, cs, txpool{tp}, w)
 
 	er := store.NewEphemeralRegistryStore(1000)
-	registryManager := registry.NewRegistryManager(walletKey, er)
+	registryManager := registry.NewManager(walletKey, er)
 
 	rhp2, err := startRHP2(walletKey, rhp2Addr, cs, txpool{tp}, w, contractManager, sr, sm)
 	if err != nil {

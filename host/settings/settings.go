@@ -12,8 +12,8 @@ import (
 const defaultBurstSize = 256 * (1 << 20) // 256 MiB
 
 type (
-	// A SettingsStore persists the host's settings
-	SettingsStore interface {
+	// A Store persists the host's settings
+	Store interface {
 		// Settings returns the host's current settings.
 		Settings() (Settings, error)
 		// UpdateSettings updates the host's settings.
@@ -55,7 +55,7 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
-		settings SettingsStore
+		settings Store
 
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
@@ -82,6 +82,7 @@ func (m *ConfigManager) setRateLimit(ingress, egress uint64) {
 	m.egressLimit.SetLimit(rate.Limit(egressLimit))
 }
 
+// Close closes the underlying store
 func (m *ConfigManager) Close() error {
 	return m.settings.Close()
 }
@@ -103,7 +104,7 @@ func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(settingsStore SettingsStore) (*ConfigManager, error) {
+func NewConfigManager(settingsStore Store) (*ConfigManager, error) {
 	m := &ConfigManager{
 		settings: settingsStore,
 

@@ -210,5 +210,4 @@ func TestSubscriberMuxCompat(t *testing.T) {
 			t.Fatalf("unexpected reply: got %v expected %v", resp, req)
 		}
 	})
-
 }

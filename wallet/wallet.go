@@ -13,7 +13,7 @@ import (
 )
 
 type (
-	// A ChainIndex
+	// A ChainIndex pairs a block ID and height
 	ChainIndex struct {
 		ID     types.BlockID
 		Height uint64
@@ -118,6 +118,7 @@ func transactionIsRelevant(txn types.Transaction, addr types.UnlockHash) bool {
 	return false
 }
 
+// Close closes the underlying wallet store
 func (sw *SingleAddressWallet) Close() error {
 	return sw.store.Close()
 }

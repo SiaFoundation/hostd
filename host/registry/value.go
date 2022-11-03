@@ -30,6 +30,7 @@ type (
 	// Work represents the "work" of a registry value.
 	Work [32]byte
 
+	// A ValueType identifies the structure of a value's data.
 	ValueType uint8
 
 	// A Value is stored in the host registry.
@@ -44,13 +45,14 @@ type (
 	}
 )
 
+// Cmp compares to Work values.
 func (w Work) Cmp(b Work) int {
 	return bytes.Compare(w[:], b[:])
 }
 
 // Key returns the key for the registry value.
 func (r *Value) Key() crypto.Hash {
-	return RegistryKey(r.PublicKey.Key, r.Tweak)
+	return Key(r.PublicKey.Key, r.Tweak)
 }
 
 // Hash returns the hash of the Value used for signing
@@ -87,34 +89,11 @@ func (r *Value) Work() (work Work) {
 	return
 }
 
-// RegistryKey is the unique key for a Value.
-func RegistryKey(pub ed25519.PublicKey, tweak crypto.Hash) crypto.Hash {
-	// v1 compat registry key
-	// ed25519 specifier + LE uint64 pub key length + public key + tweak
-	buf := make([]byte, 16+8+32+32)
-	copy(buf, "ed25519")
-	binary.LittleEndian.PutUint64(buf[16:], 32)
-	copy(buf[24:], pub)
-	copy(buf[56:], tweak[:])
-	return blake2b.Sum256(buf)
-}
-
-// RegistryHostID returns the ID hash of the host for primary registry entries.
-func RegistryHostID(pub ed25519.PublicKey) crypto.Hash {
-	// v1 compat host public key hash
-	// ed25519 specifier + LE uint64 pub key length + public key
-	buf := make([]byte, 16+8+32)
-	copy(buf, "ed25519")
-	binary.LittleEndian.PutUint64(buf[16:], 32)
-	copy(buf[24:], pub)
-	return blake2b.Sum256(buf)
-}
-
-// ValidateRegistryEntry validates the fields of a registry entry.
-func ValidateRegistryEntry(value Value) (err error) {
+// validateValue validates the fields of a registry entry.
+func validateValue(value Value) (err error) {
 	switch value.Type {
 	case EntryTypeArbitrary:
-		break // no extra validation required
+		// no extra validation required
 	case EntryTypePubKey:
 		// pub key entries have the first 20 bytes of the host's pub key hash
 		// prefixed to the data.
@@ -135,10 +114,10 @@ func ValidateRegistryEntry(value Value) (err error) {
 	return nil
 }
 
-// ValidateRegistryUpdate validates a registry update against the current entry.
+// validateUpdate validates a registry update against the current entry.
 // An updated registry entry must have a greater revision number, more work, or
 // be replacing a non-primary registry entry.
-func ValidateRegistryUpdate(old, update Value, hostID crypto.Hash) error {
+func validateUpdate(old, update Value, hostID crypto.Hash) error {
 	// if the new revision is greater than the current revision, the update is
 	// valid.
 	if update.Revision > old.Revision {
@@ -171,4 +150,27 @@ func ValidateRegistryUpdate(old, update Value, hostID crypto.Hash) error {
 	}
 
 	return nil
+}
+
+// Key is the unique key for a Value.
+func Key(pub ed25519.PublicKey, tweak crypto.Hash) crypto.Hash {
+	// v1 compat registry key
+	// ed25519 specifier + LE uint64 pub key length + public key + tweak
+	buf := make([]byte, 16+8+32+32)
+	copy(buf, "ed25519")
+	binary.LittleEndian.PutUint64(buf[16:], 32)
+	copy(buf[24:], pub)
+	copy(buf[56:], tweak[:])
+	return blake2b.Sum256(buf)
+}
+
+// HostID returns the ID hash of the host for primary registry entries.
+func HostID(pub ed25519.PublicKey) crypto.Hash {
+	// v1 compat host public key hash
+	// ed25519 specifier + LE uint64 pub key length + public key
+	buf := make([]byte, 16+8+32)
+	copy(buf, "ed25519")
+	binary.LittleEndian.PutUint64(buf[16:], 32)
+	copy(buf[24:], pub)
+	return blake2b.Sum256(buf)
 }

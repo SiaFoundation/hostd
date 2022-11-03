@@ -57,6 +57,7 @@ type (
 )
 
 type (
+	// A Specifier is a 16-byte specifier used to identify an RPC call
 	Specifier [16]byte
 
 	loopKeyExchangeRequest struct {

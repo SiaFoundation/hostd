@@ -68,7 +68,7 @@ func main() {
 	log.Println("hostd", build.Version())
 	if flag.Arg(0) == "version" {
 		log.Println("Commit:", build.GitRevision())
-		log.Println("Build Date:", build.BuildDate())
+		log.Println("Build Date:", build.Date())
 		return
 	}
 

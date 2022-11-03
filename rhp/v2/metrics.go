@@ -63,6 +63,7 @@ type (
 		Timestamp time.Time     `json:"timestamp"`
 	}
 
+	// EventContractFormed records the formation of a new contract
 	EventContractFormed struct {
 		SessionUID UniqueID                   `json:"sessionUID"`
 		ContractID types.FileContractID       `json:"contractID"`

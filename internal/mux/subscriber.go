@@ -51,6 +51,8 @@ var (
 		return ch
 	}()
 
+	// ErrUnknownSubscriber is returned when the subscriber is not registered
+	// with the router.
 	ErrUnknownSubscriber = errors.New("unknown subscriber")
 )
 

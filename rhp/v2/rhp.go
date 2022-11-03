@@ -48,6 +48,7 @@ type (
 		ReviseContract(revision types.FileContractRevision, renterSig, hostSig []byte) error
 	}
 
+	// A StorageManager manages the storage of sectors on disk.
 	StorageManager interface {
 		Usage() (used, total uint64, _ error)
 
@@ -59,10 +60,13 @@ type (
 		Sector(root crypto.Hash) ([]byte, error)
 	}
 
+	// ConsensusSet contains the subset of the consensus set that the host
+	// needs.
 	ConsensusSet interface {
 		Height() types.BlockHeight
 	}
 
+	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.UnlockHash
 		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.SiacoinOutputID, func(), error)
@@ -75,36 +79,39 @@ type (
 		FeeEstimate() (min types.Currency, max types.Currency)
 	}
 
+	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
 		Settings() (settings.Settings, error)
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 
+	// MetricReporter records metrics from the host
 	MetricReporter interface {
 		Report(any) error
 	}
 
+	// A FinancialReporter records financial transactions on the host.
 	FinancialReporter interface {
 		Add(financials.Record) error
 	}
+
+	// A SessionHandler handles the host side of the renter-host protocol and
+	// manages renter sessions
+	SessionHandler struct {
+		privateKey ed25519.PrivateKey
+
+		listener net.Listener
+
+		consensus ConsensusSet
+		tpool     TransactionPool
+		wallet    Wallet
+
+		contracts ContractManager
+		metrics   MetricReporter
+		settings  SettingsReporter
+		storage   StorageManager
+	}
 )
-
-// A SessionHandler handles the host side of the renter-host protocol and
-// manages renter sessions
-type SessionHandler struct {
-	privateKey ed25519.PrivateKey
-
-	listener net.Listener
-
-	consensus ConsensusSet
-	tpool     TransactionPool
-	wallet    Wallet
-
-	contracts ContractManager
-	metrics   MetricReporter
-	settings  SettingsReporter
-	storage   StorageManager
-}
 
 // upgrade performs the RHP2 handshake and begins handling RPCs
 func (sh *SessionHandler) upgrade(conn net.Conn) error {
@@ -201,10 +208,12 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 	}
 }
 
+// Close closes the listener and stops accepting new connections
 func (sh *SessionHandler) Close() error {
 	return sh.listener.Close()
 }
 
+// Settings returns the host's current settings
 func (sh *SessionHandler) Settings() (HostSettings, error) {
 	settings, err := sh.settings.Settings()
 	if err != nil {
@@ -248,6 +257,7 @@ func (sh *SessionHandler) Settings() (HostSettings, error) {
 	}, nil
 }
 
+// Serve starts listening for new connections and blocks until closed
 func (sh *SessionHandler) Serve() error {
 	for {
 		conn, err := sh.listener.Accept()
@@ -266,10 +276,12 @@ func (sh *SessionHandler) Serve() error {
 	}
 }
 
+// LocalAddr returns the listener's listen address
 func (sh *SessionHandler) LocalAddr() string {
 	return sh.listener.Addr().String()
 }
 
+// NewSessionHandler creates a new RHP2 SessionHandler
 func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cs ConsensusSet, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter) (*SessionHandler, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {

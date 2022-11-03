@@ -13,6 +13,8 @@ import (
 )
 
 type (
+	// Consensus defines the interface required by the contract manager to
+	// interact with the consensus set.
 	Consensus interface {
 		BlockByID(types.BlockID) (types.Block, types.BlockHeight, bool)
 		BlockAtHeight(types.BlockHeight) (types.Block, bool)
@@ -91,6 +93,7 @@ type (
 	}
 )
 
+// Close closes the contract manager.
 func (cm *ContractManager) Close() error {
 	return cm.store.Close()
 }
@@ -143,7 +146,7 @@ func (cm *ContractManager) Unlock(id types.FileContractID) {
 	lock.c <- struct{}{}
 }
 
-// Add stores the provided contract, overwriting any previous contract
+// AddContract stores the provided contract, overwriting any previous contract
 // with the same ID.
 func (cm *ContractManager) AddContract(contract SignedRevision, formationTxnSet []types.Transaction) error {
 	cm.mu.Lock()
@@ -151,14 +154,14 @@ func (cm *ContractManager) AddContract(contract SignedRevision, formationTxnSet 
 	return cm.store.Add(contract, formationTxnSet)
 }
 
-// Revise updates the current revision associated with a contract.
+// ReviseContract updates the current revision associated with a contract.
 func (cm *ContractManager) ReviseContract(revision types.FileContractRevision, hostSig []byte, renterSig []byte) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	return cm.store.Revise(revision, hostSig, renterSig)
 }
 
-// Roots returns the roots of all sectors stored by the contract.
+// SectorRoots returns the roots of all sectors stored by the contract.
 func (cm *ContractManager) SectorRoots(id types.FileContractID) ([]crypto.Hash, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -183,6 +186,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))
 }
 
+// NewManager creates a new contract manager.
 func NewManager(store ContractStore, storage StorageManager, consensus Consensus, tpool TransactionPool, wallet Wallet) *ContractManager {
 	cm := &ContractManager{
 		store:     store,

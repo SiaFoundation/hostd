@@ -6,11 +6,13 @@ import (
 	"go.sia.tech/hostd/host/settings"
 )
 
+// An EphemeralSettingsStore implements an in-memory settings store.
 type EphemeralSettingsStore struct {
 	mu       sync.Mutex
 	settings settings.Settings
 }
 
+// Close closes the settings store.
 func (es *EphemeralSettingsStore) Close() error {
 	return nil
 }
@@ -31,6 +33,7 @@ func (es *EphemeralSettingsStore) UpdateSettings(s settings.Settings) error {
 	return nil
 }
 
+// NewEphemeralSettingsStore returns a new EphemeralSettingsStore.
 func NewEphemeralSettingsStore() *EphemeralSettingsStore {
 	return &EphemeralSettingsStore{}
 }

@@ -11,6 +11,7 @@ type (
 	// account ID
 	SourceID [32]byte
 
+	// A Record records a transaction from a funding source
 	Record struct {
 		FundSource       SourceID       `json:"fundSource"`
 		Fees             types.Currency `json:"fees"`

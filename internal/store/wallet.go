@@ -18,6 +18,7 @@ type EphemeralWalletStore struct {
 	txns    []wallet.Transaction
 }
 
+// AddSiacoinElement adds a siacoin element to the store.
 func (es *EphemeralWalletStore) AddSiacoinElement(se wallet.SiacoinElement) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -25,6 +26,7 @@ func (es *EphemeralWalletStore) AddSiacoinElement(se wallet.SiacoinElement) erro
 	return nil
 }
 
+// RemoveSiacoinElement removes a siacoin element from the store.
 func (es *EphemeralWalletStore) RemoveSiacoinElement(id types.SiacoinOutputID) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -32,6 +34,7 @@ func (es *EphemeralWalletStore) RemoveSiacoinElement(id types.SiacoinOutputID) e
 	return nil
 }
 
+// AddTransaction adds a transaction to the store.
 func (es *EphemeralWalletStore) AddTransaction(txn wallet.Transaction) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -39,6 +42,7 @@ func (es *EphemeralWalletStore) AddTransaction(txn wallet.Transaction) error {
 	return nil
 }
 
+// RemoveTransaction removes a transaction from the store.
 func (es *EphemeralWalletStore) RemoveTransaction(id types.TransactionID) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -50,22 +54,26 @@ func (es *EphemeralWalletStore) RemoveTransaction(id types.TransactionID) error 
 	return nil
 }
 
+// Index returns the current chain index.
 func (es *EphemeralWalletStore) Index() wallet.ChainIndex {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 	return es.tip
 }
 
+// LastChange returns the last processed consensus change
 func (es *EphemeralWalletStore) LastChange() modules.ConsensusChangeID {
 	return modules.ConsensusChangeBeginning
 }
 
+// SetLastChange sets the last processed consensus change
 func (es *EphemeralWalletStore) SetLastChange(ccid modules.ConsensusChangeID, idx wallet.ChainIndex) error {
 	es.ccid = ccid
 	es.tip = idx
 	return nil
 }
 
+// Close implements wallet.SingleAddressStore.
 func (es *EphemeralWalletStore) Close() error {
 	return nil
 }
@@ -96,7 +104,7 @@ func (es *EphemeralWalletStore) Transactions(skip, max int) ([]wallet.Transactio
 	return txns, nil
 }
 
-// NewEphemeralAccountStore returns a new EphemeralAccountStore.
+// NewEphemeralWalletStore returns a new EphemeralWalletStore.
 func NewEphemeralWalletStore(addr types.UnlockHash) *EphemeralWalletStore {
 	return &EphemeralWalletStore{
 		addr:    addr,
