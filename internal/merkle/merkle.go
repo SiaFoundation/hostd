@@ -171,7 +171,7 @@ func SectorRoot(sector []byte) crypto.Hash {
 		panic("SectorRoot: illegal sector size")
 	}
 	var sa sectorAccumulator
-	sa.appendLeaves(sector[:])
+	sa.appendLeaves(sector)
 	return sa.root()
 }
 
