@@ -221,6 +221,18 @@ type (
 		FailureRefund        types.Currency
 	}
 
+	program struct {
+		Instructions []instruction
+
+		// An instruction requires a contract to be locked if it is reading from
+		// the contract.
+		RequiresContract bool
+		// An instruction requires finalization if it is modifying a contract.
+		// An instruction may require a contract without finalization, but an
+		// instruction that requires finalization must also require a contract.
+		RequiresFinalization bool
+	}
+
 	rpcExecuteProgramRequest struct {
 		// FileContractID is the id of the filecontract we would like to modify.
 		FileContractID types.FileContractID
