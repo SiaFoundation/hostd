@@ -693,7 +693,8 @@ func (t *objTransaction) decodeFrom(d *decoder) error {
 }
 
 func (oa *objAccountID) encodedLen() int {
-	// key specifier + length prefix + key
+	// note: sia v1 encodes these as a types.SiaPublicKey or an empty string
+	// 16 byte specifier + 8 byte key length prefix + 32 byte key
 	return 16 + 8 + 32
 }
 

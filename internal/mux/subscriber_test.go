@@ -190,7 +190,7 @@ func TestSubscriberMuxCompat(t *testing.T) {
 
 		if err := writePrefixedBytes(s, []byte("hello")); err != nil {
 			t.Fatal("failed to write to stream:", err)
-		} else if _, err := readPrefixedBytes(s, 1024); err == nil || !strings.Contains(err.Error(), "unknown subscriber") {
+		} else if _, err := readPrefixedBytes(s, 1024); err == nil {
 			t.Fatal("expected subscriber error:", err)
 		}
 	})

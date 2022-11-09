@@ -224,8 +224,10 @@ func (m *Mux) AcceptStream() (*Stream, error) {
 	}
 }
 
-// NewStream creates a new Stream. The peer will not be aware of the new Stream
-// until Write is called.
+// NewStream creates a new Stream.
+//
+// Unlike e.g. net.Dial, this does not perform any I/O; the peer will not be
+// aware of the new Stream until Write is called.
 func (m *Mux) NewStream() *Stream {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -435,7 +437,7 @@ func (s *Stream) Close() error {
 		flags: flagFinal,
 	}
 	err := s.m.bufferFrame(h, nil, s.wd)
-	if err == ErrPeerClosedStream {
+	if err == ErrPeerClosedStream || err == ErrPeerClosedConn {
 		err = nil
 	}
 

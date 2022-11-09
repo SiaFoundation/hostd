@@ -32,9 +32,7 @@ func TestMux(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			// wait until the test is complete to close the underlying
-			// connection
-			t.Cleanup(func() { m.Close() })
+			defer m.Close()
 			s, err := m.AcceptStream()
 			if err != nil {
 				return err
@@ -66,6 +64,8 @@ func TestMux(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	} else if err := m.Close(); err != nil {
 		t.Fatal(err)
 	}
 
