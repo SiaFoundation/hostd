@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"unsafe"
 
 	"gitlab.com/NebulousLabs/fastrand"
 	"go.sia.tech/siad/crypto"
@@ -18,10 +17,16 @@ import (
 const solveAttempts = 1e4
 
 type (
+	// Consensus defines a minimal interface needed by the miner to interact
+	// with the consensus set
+	Consensus interface {
+		AcceptBlock(types.Block) error
+	}
+
 	// A Miner is a CPU miner that can mine blocks, sending the reward to a
 	// specified address.
 	Miner struct {
-		cs modules.ConsensusSet
+		consensus Consensus
 
 		mu             sync.Mutex
 		height         types.BlockHeight
@@ -101,18 +106,18 @@ func (m *Miner) mineBlock(addr types.UnlockHash) error {
 	for i := 0; i < solveAttempts; i++ {
 		id := crypto.HashBytes(header)
 		if bytes.Compare(target[:], id[:]) >= 0 {
-			copy(block.Nonce[:], header[32:40])
+			block.Nonce = *(*types.BlockNonce)(header[32:40])
 			solved = true
 			break
 		}
-		*(*uint64)(unsafe.Pointer(&header[32])) = nonce
+		binary.LittleEndian.PutUint64(header[32:], nonce)
 		nonce += types.ASICHardforkFactor
 	}
 	if !solved {
 		return errFailedToSolve
 	}
 
-	if err := m.cs.AcceptBlock(block); err != nil {
+	if err := m.consensus.AcceptBlock(block); err != nil {
 		return fmt.Errorf("failed to get block accepted: %w", err)
 	}
 	return nil
@@ -133,9 +138,9 @@ func (m *Miner) Mine(addr types.UnlockHash, n int) error {
 }
 
 // NewMiner initializes a new CPU miner
-func NewMiner(cs modules.ConsensusSet) *Miner {
+func NewMiner(consensus Consensus) *Miner {
 	return &Miner{
-		cs:      cs,
-		txnsets: make(map[modules.TransactionSetID][]types.TransactionID),
+		consensus: consensus,
+		txnsets:   make(map[modules.TransactionSetID][]types.TransactionID),
 	}
 }
