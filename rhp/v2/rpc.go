@@ -547,8 +547,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		NewMerkleRoot: merkle.MetaRoot(newRoots),
 	}
 	if req.MerkleProof {
-		indices := sectorsChanged(req.Actions, oldSectors)
-		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = merkle.BuildDiffProof(indices, oldRoots)
+		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = buildDiffProof(req.Actions, oldRoots)
 	}
 	if err := s.WriteResponse(writeResp, time.Minute); err != nil {
 		return fmt.Errorf("failed to write merkle proof: %w", err)

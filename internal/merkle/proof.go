@@ -164,32 +164,6 @@ func BuildSectorRangeProof(sectorRoots []crypto.Hash, start, end uint64) []crypt
 	return proof
 }
 
-// BuildDiffProof constructs a diff proof for the specified actions.
-// ActionUpdate is not supported.
-func BuildDiffProof(proofIndices []uint64, sectorRoots []crypto.Hash) (treeHashes, leafHashes []crypto.Hash) {
-	leafHashes = make([]crypto.Hash, len(proofIndices))
-	for i, j := range proofIndices {
-		leafHashes[i] = sectorRoots[j]
-	}
-
-	treeHashes = make([]crypto.Hash, 0, 128)
-	buildRange := func(i, j uint64) {
-		for i < j {
-			subtreeSize := nextSubtreeSize(i, j)
-			treeHashes = append(treeHashes, MetaRoot(sectorRoots[i:][:subtreeSize]))
-			i += subtreeSize
-		}
-	}
-
-	var start uint64
-	for _, end := range proofIndices {
-		buildRange(start, end)
-		start = end + 1
-	}
-	buildRange(start, uint64(len(sectorRoots)))
-	return
-}
-
 // ConvertProofOrdering converts "left-to-right" proofs into the "leaf-to-root"
 // ordering used in consensus storage proofs.
 func ConvertProofOrdering(proof []crypto.Hash, index uint64) []crypto.Hash {

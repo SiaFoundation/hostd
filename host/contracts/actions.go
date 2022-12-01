@@ -84,7 +84,7 @@ func (cm *ContractManager) handleContractAction(height uint64, id types.FileCont
 			},
 		}
 
-		_, max := cm.tpool.FeeEstimate()
+		_, max := cm.tpool.FeeEstimation()
 		fee := max.Mul64(1000)
 		revisionTxn.MinerFees = append(revisionTxn.MinerFees, fee)
 		toSign, discard, err := cm.wallet.FundTransaction(&revisionTxn, fee, nil)
@@ -113,7 +113,7 @@ func (cm *ContractManager) handleContractAction(height uint64, id types.FileCont
 		resolutionTxn := types.Transaction{
 			StorageProofs: []types.StorageProof{sp},
 		}
-		_, max := cm.tpool.FeeEstimate()
+		_, max := cm.tpool.FeeEstimation()
 		fee := max.Mul64(1000)
 		resolutionTxn.MinerFees = append(resolutionTxn.MinerFees, fee)
 		toSign, discard, err := cm.wallet.FundTransaction(&resolutionTxn, fee, nil)

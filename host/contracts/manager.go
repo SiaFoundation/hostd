@@ -30,7 +30,7 @@ type (
 	// A TransactionPool broadcasts transactions to the network.
 	TransactionPool interface {
 		AcceptTransactionSet([]types.Transaction) error
-		FeeEstimate() (min types.Currency, max types.Currency)
+		FeeEstimation() (min types.Currency, max types.Currency)
 	}
 
 	// A StorageManager stores and retrieves sectors.

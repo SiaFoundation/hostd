@@ -76,7 +76,7 @@ type (
 	// A TransactionPool broadcasts transactions to the network.
 	TransactionPool interface {
 		AcceptTransactionSet([]types.Transaction) error
-		FeeEstimate() (min types.Currency, max types.Currency)
+		FeeEstimation() (min types.Currency, max types.Currency)
 	}
 
 	// A SettingsReporter reports the host's current configuration.

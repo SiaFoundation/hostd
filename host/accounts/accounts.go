@@ -9,8 +9,8 @@ import (
 )
 
 type (
-	// An AccountID is a unique identifier for an account. It is also an ed25519
-	// public key used for verifying signed withdrawals from the account.
+	// An AccountID is a unique identifier for an account. It must be an ed25519
+	// public key to sign withdrawals from the account.
 	AccountID [32]byte
 
 	// An AccountStore stores and updates account balances.
@@ -95,11 +95,10 @@ func (am *AccountManager) Credit(accountID AccountID, amount types.Currency) (ba
 	return balance.Add(amount), nil
 }
 
-// Budget creates a new budget for the account with the given ID. The budget is
-// limited to the specified amount. The spent amount will not be synced to the
-// underlying store until Commit is called. This function will block until the
-// account has enough funds to cover the full budget or until the context is
-// cancelled.
+// Budget creates a new budget for an account limited by amount. The spent
+// amount will not be synced to the underlying store until Commit is called.
+// This function will block until the account has enough funds to cover the full
+// budget or until the context is cancelled.
 func (am *AccountManager) Budget(ctx context.Context, accountID AccountID, amount types.Currency) (Budget, error) {
 	// instead of monitoring each account, one global deposit channel wakes all
 	// waiting withdrawals. Since the account's balance may not have changed,

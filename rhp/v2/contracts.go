@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 
 	"go.sia.tech/hostd/internal/merkle"
 	"go.sia.tech/siad/crypto"
@@ -94,17 +93,21 @@ func initialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey t
 	}
 }
 
+// revise updates the contract revision with the provided values
 func revise(revision types.FileContractRevision, revisionNumber uint64, validOutputs, missedOutputs []types.Currency) (types.FileContractRevision, error) {
 	if len(validOutputs) != len(revision.NewValidProofOutputs) || len(missedOutputs) != len(revision.NewMissedProofOutputs) {
 		return types.FileContractRevision{}, errors.New("incorrect number of outputs")
 	}
 	revision.NewRevisionNumber = revisionNumber
+	oldValid, oldMissed := revision.NewValidProofOutputs, revision.NewMissedProofOutputs
 	revision.NewValidProofOutputs = make([]types.SiacoinOutput, len(validOutputs))
 	revision.NewMissedProofOutputs = make([]types.SiacoinOutput, len(missedOutputs))
 	for i := range validOutputs {
+		revision.NewValidProofOutputs[i].UnlockHash = oldValid[i].UnlockHash
 		revision.NewValidProofOutputs[i].Value = validOutputs[i]
 	}
 	for i := range missedOutputs {
+		revision.NewMissedProofOutputs[i].UnlockHash = oldMissed[i].UnlockHash
 		revision.NewMissedProofOutputs[i].Value = missedOutputs[i]
 	}
 	return revision, nil
@@ -273,10 +276,10 @@ func validateRevision(current, revision types.FileContractRevision, payment, col
 		return errors.New("renter valid proof output must not increase")
 	case revision.NewMissedProofOutputs[0].Value.Cmp(current.NewMissedProofOutputs[0].Value) > 0:
 		return errors.New("renter missed proof output must not increase")
-	case revision.NewValidProofOutputs[1].Value.Cmp(minValid) > 0:
-		return fmt.Errorf("insufficient host payment: expected %v, got %v", minValid, revision.NewValidProofOutputs[1].Value)
-	case revision.NewMissedProofOutputs[1].Value.Cmp(minMissed) < 0:
-		return fmt.Errorf("insufficient host payment: expected %v, got %v", minMissed, revision.NewMissedProofOutputs[1].Value)
+	case revision.NewValidProofOutputs[1].Value.Cmp(minValid) < 0:
+		return fmt.Errorf("insufficient host valid transfer: expected value at least %v, got %v", minValid, revision.NewValidProofOutputs[1].Value)
+	case revision.NewMissedProofOutputs[1].Value.Cmp(minMissed) > 0:
+		return fmt.Errorf("insufficient host missed transfer: expected value at least %v, got %v", minMissed, revision.NewMissedProofOutputs[1].Value)
 	}
 	return nil
 }
@@ -331,35 +334,4 @@ func validateWriteActions(actions []rpcWriteAction, oldSectors uint64, proof boo
 		cost = cost.Add(settings.DownloadBandwidthPrice.Mul64(uint64(proofSize)))
 	}
 	return cost, collateral, nil
-}
-
-func sectorsChanged(actions []rpcWriteAction, numSectors uint64) (sectorIndices []uint64) {
-	newNumSectors := numSectors
-	sectorsChanged := make(map[uint64]struct{})
-	for _, action := range actions {
-		switch action.Type {
-		case rpcWriteActionAppend:
-			sectorsChanged[newNumSectors] = struct{}{}
-			newNumSectors++
-		case rpcWriteActionTrim:
-			for i := 0; i < int(action.A); i++ {
-				newNumSectors--
-				sectorsChanged[newNumSectors] = struct{}{}
-			}
-		case rpcWriteActionSwap:
-			sectorsChanged[action.A] = struct{}{}
-			sectorsChanged[action.B] = struct{}{}
-
-		default:
-			panic("unknown or unsupported action type: " + action.Type.String())
-		}
-	}
-
-	for index := range sectorsChanged {
-		if index < numSectors {
-			sectorIndices = append(sectorIndices, index)
-		}
-	}
-	sort.Slice(sectorIndices, func(i, j int) bool { return sectorIndices[i] < sectorIndices[j] })
-	return sectorIndices
 }
