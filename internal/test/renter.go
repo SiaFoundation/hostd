@@ -16,7 +16,6 @@ import (
 	"lukechampine.com/us/renterhost"
 )
 
-// A Renter is an ephemeral renter that can be used for testing
 type (
 	usWallet struct {
 		w *wallet.SingleAddressWallet
@@ -26,13 +25,15 @@ type (
 		tp modules.TransactionPool
 	}
 
+	// A Renter is an ephemeral renter that can be used for testing
 	Renter struct {
 		node
 
 		privKey ed25519.PrivateKey
 	}
 
-	RenterSession struct {
+	// An RHP2Session is used to interact with a host over the RHP2 protocol
+	RHP2Session struct {
 		privKey ed25519.PrivateKey
 
 		cs modules.ConsensusSet
@@ -83,17 +84,18 @@ func (w *usWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash)
 	return w.w.SignTransaction(txn, ids)
 }
 
-func (rs *RenterSession) Close() error {
+// Close closes the session's underlying connection
+func (rs *RHP2Session) Close() error {
 	return rs.sess.Close()
 }
 
 // Append appends a sector to the session's contract
-func (rs *RenterSession) Append(p []byte) (crypto.Hash, error) {
+func (rs *RHP2Session) Append(p []byte) (crypto.Hash, error) {
 	return rs.sess.Append((*[rhpv2.SectorSize]byte)(p))
 }
 
 // Read reads a sector from the host
-func (rs *RenterSession) Read(w io.Writer, sectorRoot crypto.Hash, offset, length uint32) error {
+func (rs *RHP2Session) Read(w io.Writer, sectorRoot crypto.Hash, offset, length uint32) error {
 	return rs.sess.Read(w, []renterhost.RPCReadRequestSection{
 		{
 			MerkleRoot: sectorRoot,
@@ -103,11 +105,13 @@ func (rs *RenterSession) Read(w io.Writer, sectorRoot crypto.Hash, offset, lengt
 	})
 }
 
-func (rs *RenterSession) Revision() types.FileContractRevision {
+// Revision returns the current revision of the locked contract
+func (rs *RHP2Session) Revision() types.FileContractRevision {
 	return rs.sess.Revision().Revision
 }
 
-func (rs *RenterSession) SectorRoots(offset, n int) ([]crypto.Hash, error) {
+// SectorRoots returns the sector roots of the locked contract
+func (rs *RHP2Session) SectorRoots(offset, n int) ([]crypto.Hash, error) {
 	return rs.sess.SectorRoots(offset, n)
 }
 
@@ -117,14 +121,16 @@ func (r *Renter) Close() error {
 	return nil
 }
 
-func (r *Renter) NewLockedSession(hostAddr string, hostKey ed25519.PublicKey, contractID types.FileContractID) (*RenterSession, error) {
+// NewRHP2Session creates a new session, locks a contract, and retrieves the
+// host's settings
+func (r *Renter) NewRHP2Session(hostAddr string, hostKey ed25519.PublicKey, contractID types.FileContractID) (*RHP2Session, error) {
 	sess, err := proto.NewSession(modules.NetAddress(hostAddr), hostdb.HostKeyFromPublicKey(hostKey), contractID, r.privKey, r.cs.Height())
 	if err != nil {
 		return nil, err
 	} else if _, err := sess.Settings(); err != nil {
 		return nil, fmt.Errorf("failed to get settings: %w", err)
 	}
-	return &RenterSession{
+	return &RHP2Session{
 		privKey: r.privKey,
 		sess:    sess,
 		cs:      r.cs,
@@ -133,6 +139,7 @@ func (r *Renter) NewLockedSession(hostAddr string, hostKey ed25519.PublicKey, co
 	}, nil
 }
 
+// Settings returns the host's current settings
 func (r *Renter) Settings(hostAddr string, hostKey ed25519.PublicKey) (rhpv2.HostSettings, error) {
 	s, err := proto.NewUnlockedSession(modules.NetAddress(hostAddr), hostdb.HostKeyFromPublicKey(hostKey), r.cs.Height())
 	if err != nil {
@@ -154,6 +161,7 @@ func (r *Renter) Settings(hostAddr string, hostKey ed25519.PublicKey) (rhpv2.Hos
 	return hs, nil
 }
 
+// FormContract forms a contract with the host
 func (r *Renter) FormContract(hostAddr string, hostKey ed25519.PublicKey, renterPayout types.Currency, duration uint64) (proto.ContractRevision, error) {
 	startHeight := r.cs.Height()
 	s, err := proto.NewUnlockedSession(modules.NetAddress(hostAddr), hostdb.HostKeyFromPublicKey(hostKey), startHeight)
@@ -171,6 +179,7 @@ func (r *Renter) FormContract(hostAddr string, hostKey ed25519.PublicKey, renter
 	return revision, nil
 }
 
+// NewEphemeralRenter creates a new renter for testing
 func NewEphemeralRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 	node, err := newNode(privKey, dir)
 	if err != nil {

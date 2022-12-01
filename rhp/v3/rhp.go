@@ -68,6 +68,8 @@ type (
 	StorageManager interface {
 		Usage() (used, total uint64, _ error)
 
+		// HasSector returns true if the sector is stored on disk.
+		HasSector(crypto.Hash) (bool, error)
 		// AddSector adds a sector to the storage manager.
 		AddSector(root crypto.Hash, sector []byte, refs int) error
 		// DeleteSector deletes the sector with the given root.
@@ -92,7 +94,7 @@ type (
 	// A TransactionPool broadcasts transactions to the network.
 	TransactionPool interface {
 		AcceptTransactionSet([]types.Transaction) error
-		FeeEstimate() (min types.Currency, max types.Currency)
+		FeeEstimation() (min types.Currency, max types.Currency)
 	}
 
 	// A SettingsReporter reports the host's current configuration.

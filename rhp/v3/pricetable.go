@@ -101,16 +101,15 @@ func (pm *priceTableManager) Register(pt PriceTable) {
 	}
 }
 
-func (sh *SessionHandler) priceTable() (PriceTable, error) {
+// PriceTable returns the session handler's current price table.
+func (sh *SessionHandler) PriceTable() (PriceTable, error) {
 	settings, err := sh.settings.Settings()
 	if err != nil {
 		return PriceTable{}, fmt.Errorf("failed to get settings: %w", err)
 	}
 
-	min, max := sh.tpool.FeeEstimate()
-
+	min, max := sh.tpool.FeeEstimation()
 	oneHasting := types.NewCurrency64(1)
-
 	return PriceTable{
 		UID:             frand.Entropy128(),
 		HostBlockHeight: sh.consensus.Height(),

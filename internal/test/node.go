@@ -19,6 +19,8 @@ import (
 
 // A node is the base Sia node that is used to by a renter or host
 type node struct {
+	privKey ed25519.PrivateKey
+
 	g  modules.Gateway
 	cs modules.ConsensusSet
 	tp modules.TransactionPool
@@ -32,6 +34,10 @@ func (n *node) Close() error {
 	n.cs.Close()
 	n.g.Close()
 	return nil
+}
+
+func (n *node) PublicKey() ed25519.PublicKey {
+	return n.privKey.Public().(ed25519.PublicKey)
 }
 
 // GatewayAddr returns the address of the gateway
@@ -49,10 +55,12 @@ func (n *node) MineBlocks(count int) error {
 	return n.m.Mine(n.w.Address(), count)
 }
 
+// CurrentBlock returns the last block in the consensus
 func (n *node) CurrentBlock() types.Block {
 	return n.cs.CurrentBlock()
 }
 
+// newNode creates a new Sia node and wallet with the given key
 func newNode(privKey ed25519.PrivateKey, dir string) (*node, error) {
 	g, err := gateway.New("localhost:0", false, filepath.Join(dir, "gateway"))
 	if err != nil {
@@ -77,6 +85,8 @@ func newNode(privKey ed25519.PrivateKey, dir string) (*node, error) {
 	}
 	tp.TransactionPoolSubscribe(m)
 	return &node{
+		privKey: privKey,
+
 		g:  g,
 		cs: cs,
 		tp: tp,
@@ -85,6 +95,8 @@ func newNode(privKey ed25519.PrivateKey, dir string) (*node, error) {
 	}, nil
 }
 
+// NewTestingPair creates a new renter and host pair, connects them to each
+// other, and funds both wallets.
 func NewTestingPair(dir string) (*Renter, *Host, error) {
 	hostKey, renterKey := ed25519.NewKeyFromSeed(frand.Bytes(32)), ed25519.NewKeyFromSeed(frand.Bytes(32))
 

@@ -22,8 +22,6 @@ func (stubMetricReporter) Report(any) (_ error) { return }
 type Host struct {
 	node
 
-	privKey ed25519.PrivateKey
-
 	settings  *settings.ConfigManager
 	storage   rhpv3.StorageManager
 	registry  *registry.Manager
@@ -34,25 +32,24 @@ type Host struct {
 	rhpv3 *rhpv3.SessionHandler
 }
 
-var (
-	DefaultSettings = settings.Settings{
-		AcceptingContracts:  true,
-		MaxContractDuration: uint64(types.BlocksPerMonth) * 3,
-		MaxCollateral:       types.SiacoinPrecision.Mul64(5000),
+// DefaultSettings returns the default settings for the test host
+var DefaultSettings = settings.Settings{
+	AcceptingContracts:  true,
+	MaxContractDuration: uint64(types.BlocksPerMonth) * 3,
+	MaxCollateral:       types.SiacoinPrecision.Mul64(5000),
 
-		ContractPrice: types.SiacoinPrecision.Div64(4),
+	ContractPrice: types.SiacoinPrecision.Div64(4),
 
-		BaseRPCPrice:      types.NewCurrency64(100),
-		SectorAccessPrice: types.NewCurrency64(100),
+	BaseRPCPrice:      types.NewCurrency64(100),
+	SectorAccessPrice: types.NewCurrency64(100),
 
-		Collateral:      types.SiacoinPrecision.Mul64(200).Div64(1e12).Div64(uint64(types.BlocksPerMonth)),
-		MinStoragePrice: types.SiacoinPrecision.Mul64(100).Div64(1e12).Div64(uint64(types.BlocksPerMonth)),
-		MinEgressPrice:  types.SiacoinPrecision.Mul64(100).Div64(1e12),
-		MinIngressPrice: types.SiacoinPrecision.Mul64(100).Div64(1e12),
+	Collateral:      types.SiacoinPrecision.Mul64(200).Div64(1e12).Div64(uint64(types.BlocksPerMonth)),
+	MinStoragePrice: types.SiacoinPrecision.Mul64(100).Div64(1e12).Div64(uint64(types.BlocksPerMonth)),
+	MinEgressPrice:  types.SiacoinPrecision.Mul64(100).Div64(1e12),
+	MinIngressPrice: types.SiacoinPrecision.Mul64(100).Div64(1e12),
 
-		MaxAccountBalance: types.SiacoinPrecision.Mul64(10),
-	}
-)
+	MaxAccountBalance: types.SiacoinPrecision.Mul64(10),
+}
 
 // Close shutsdown the host
 func (h *Host) Close() error {
@@ -60,10 +57,6 @@ func (h *Host) Close() error {
 	h.rhpv2.Close()
 	h.node.Close()
 	return nil
-}
-
-func (h *Host) PublicKey() ed25519.PublicKey {
-	return h.privKey.Public().(ed25519.PublicKey)
 }
 
 // RHPv2Addr returns the address of the RHPv2 listener
@@ -76,14 +69,17 @@ func (h *Host) RHPv3Addr() string {
 	return h.rhpv3.LocalAddr()
 }
 
+// UpdateSettings updates the host's configuration
 func (h *Host) UpdateSettings(settings settings.Settings) error {
 	return h.settings.UpdateSettings(settings)
 }
 
+// RHPv2Settings returns the host's current RHPv2 settings
 func (h *Host) RHPv2Settings() (rhpv2.HostSettings, error) {
 	return h.rhpv2.Settings()
 }
 
+// RHPv3PriceTable returns the host's current RHPv3 price table
 func (h *Host) RHPv3PriceTable() (rhpv3.PriceTable, error) {
 	return h.rhpv3.PriceTable()
 }
@@ -116,8 +112,6 @@ func NewEphemeralHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	}
 	go rhpv3.Serve()
 	return &Host{
-		privKey: privKey,
-
 		node:      *node,
 		settings:  settings,
 		storage:   storage,

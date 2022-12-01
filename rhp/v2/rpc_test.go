@@ -53,7 +53,7 @@ func TestUploadDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session, err := renter.NewLockedSession(host.RHPv2Addr(), host.PublicKey(), contract.ID())
+	session, err := renter.NewRHP2Session(host.RHPv2Addr(), host.PublicKey(), contract.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

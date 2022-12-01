@@ -36,7 +36,7 @@ var (
 
 // handleRPCPriceTable sends the host's price table to the renter.
 func (sh *SessionHandler) handleRPCPriceTable(s *rpcSession) error {
-	pt, err := sh.priceTable()
+	pt, err := sh.PriceTable()
 	if err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to get price table: %w", err)
