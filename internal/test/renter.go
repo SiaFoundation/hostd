@@ -27,7 +27,7 @@ type (
 
 	// A Renter is an ephemeral renter that can be used for testing
 	Renter struct {
-		node
+		*node
 
 		privKey ed25519.PrivateKey
 	}
@@ -186,7 +186,7 @@ func NewEphemeralRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error)
 		return nil, err
 	}
 	return &Renter{
-		node:    *node,
+		node:    node,
 		privKey: privKey,
 	}, nil
 }

@@ -20,7 +20,7 @@ func (stubMetricReporter) Report(any) (_ error) { return }
 
 // A Host is an ephemeral host that can be used for testing.
 type Host struct {
-	node
+	*node
 
 	settings  *settings.ConfigManager
 	storage   rhpv3.StorageManager
@@ -112,7 +112,7 @@ func NewEphemeralHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	}
 	go rhpv3.Serve()
 	return &Host{
-		node:      *node,
+		node:      node,
 		settings:  settings,
 		storage:   storage,
 		registry:  registry,

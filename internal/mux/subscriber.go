@@ -82,20 +82,6 @@ func (r *SubscriberRouter) route(stream *Stream) {
 	handler(subscriber, ss)
 }
 
-// setErr sets the error on the underlying stream and returns the error.
-func (ss *SubscriberStream) setErr(err error) error {
-	if err == nil {
-		return nil
-	}
-	ss.cond.L.Lock()
-	defer ss.cond.L.Unlock()
-	if ss.err == nil {
-		ss.err = err
-	}
-	ss.cond.Broadcast()
-	return err
-}
-
 // lazyWrite appends the bytes to the lazy write buffer. The buffer is written
 // to the stream during the next call to Write().
 func (ss *SubscriberStream) lazyWrite(p []byte) {
@@ -210,9 +196,14 @@ func (sm *SubscriberMux) NewSubscriberStream(subscriber string) (*SubscriberStre
 		defer close(ss.ch)
 
 		// read the subscriber response
-		if err := ss.readSubscriberResponse(); err != nil {
-			defer ss.Close()
-			ss.setErr(fmt.Errorf("failed to read subscriber response: %w", err))
+		err := ss.readSubscriberResponse()
+		if err != nil {
+			// overwrite the stream error with the subscriber error
+			ss.cond.L.Lock()
+			ss.err = fmt.Errorf("failed to read subscriber response: %w", err)
+			ss.cond.Broadcast()
+			ss.cond.L.Unlock()
+			ss.Close()
 			return
 		}
 	}()
