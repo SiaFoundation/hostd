@@ -151,11 +151,11 @@ func (sw *SingleAddressWallet) Transactions(skip, max int) ([]Transaction, error
 	return sw.store.Transactions(skip, max)
 }
 
-// FundTransaction adds siacoin inputs worth at least the requested amount to
-// the provided transaction. If necessary, a change output will also be added.
-// The inputs will not be available to future calls to FundTransaction unless
-// ReleaseInputs is called.
-func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.SiacoinOutputID, func(), error) {
+// FundTransaction adds siacoin inputs worth at least amount to the provided
+// transaction. If necessary, a change output will also be added. The inputs
+// will not be available to future calls to FundTransaction unless ReleaseInputs
+// is called.
+func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 	if amount.IsZero() {
@@ -174,34 +174,34 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	if err != nil {
 		return nil, nil, err
 	}
-	var outputSum types.Currency
+	var inputSum types.Currency
 	var fundingElements []SiacoinElement
 	for _, sce := range utxos {
 		if sw.used[sce.ID] || inPool[sce.ID] {
 			continue
 		}
 		fundingElements = append(fundingElements, sce)
-		outputSum = outputSum.Add(sce.Value)
-		if outputSum.Cmp(amount) >= 0 {
+		inputSum = inputSum.Add(sce.Value)
+		if inputSum.Cmp(amount) >= 0 {
 			break
 		}
 	}
-	if outputSum.Cmp(amount) < 0 {
+	if inputSum.Cmp(amount) < 0 {
 		return nil, nil, errors.New("insufficient balance")
-	} else if outputSum.Cmp(amount) > 0 {
+	} else if inputSum.Cmp(amount) > 0 {
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-			Value:      outputSum.Sub(amount),
+			Value:      inputSum.Sub(amount),
 			UnlockHash: sw.addr,
 		})
 	}
 
-	toSign := make([]types.SiacoinOutputID, len(fundingElements))
+	toSign := make([]crypto.Hash, len(fundingElements))
 	for i, sce := range fundingElements {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
 			ParentID:         types.SiacoinOutputID(sce.ID),
 			UnlockConditions: StandardUnlockConditions(sw.priv.Public().(ed25519.PublicKey)),
 		})
-		toSign[i] = sce.ID
+		toSign[i] = crypto.Hash(sce.ID)
 		sw.used[sce.ID] = true
 	}
 
@@ -209,7 +209,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 		sw.mu.Lock()
 		defer sw.mu.Unlock()
 		for _, id := range toSign {
-			delete(sw.used, id)
+			delete(sw.used, types.SiacoinOutputID(id))
 		}
 	}
 
@@ -227,25 +227,20 @@ func (sw *SingleAddressWallet) ReleaseInputs(txn types.Transaction) {
 
 // SignTransaction adds a signature to each of the specified inputs using the
 // provided seed.
-func (sw *SingleAddressWallet) SignTransaction(txn *types.Transaction, toSign []types.SiacoinOutputID) error {
-	sigMap := make(map[types.SiacoinOutputID]bool)
+func (sw *SingleAddressWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash, cf types.CoveredFields) error {
+	sigMap := make(map[crypto.Hash]bool)
 	for _, id := range toSign {
 		sigMap[id] = true
 	}
-	for i := range txn.SiacoinInputs {
-		if !sigMap[txn.SiacoinInputs[i].ParentID] {
-			continue
-		}
-
-		id := crypto.Hash(txn.SiacoinInputs[i].ParentID)
-		n := len(txn.TransactionSignatures)
+	for _, id := range toSign {
+		i := len(txn.TransactionSignatures)
 		txn.TransactionSignatures = append(txn.TransactionSignatures, types.TransactionSignature{
-			ParentID:       crypto.Hash(id),
-			CoveredFields:  types.FullCoveredFields,
+			ParentID:       id,
+			CoveredFields:  cf,
 			PublicKeyIndex: 0,
 		})
-		sigHash := txn.SigHash(n, types.BlockHeight(sw.store.Index().Height))
-		txn.TransactionSignatures[n].Signature = ed25519.Sign(sw.priv, sigHash[:])
+		sigHash := txn.SigHash(i, types.BlockHeight(sw.store.Index().Height))
+		txn.TransactionSignatures[i].Signature = ed25519.Sign(sw.priv, sigHash[:])
 	}
 	return nil
 }
