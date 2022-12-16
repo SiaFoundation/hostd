@@ -103,11 +103,15 @@ linters-settings:
         disabled: false
       - name: increment-decrement
         disabled: false
+      - name: modifies-value-receiver
+        disabled: false
       - name: optimize-operands-order
         disabled: false
       - name: range-val-in-closure
         disabled: false
       - name: struct-tag
+        disabled: false
+      - name: superfluous-else
         disabled: false
       - name: time-equal
         disabled: false
