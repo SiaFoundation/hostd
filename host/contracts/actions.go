@@ -2,7 +2,6 @@ package contracts
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math/bits"
 
@@ -92,18 +91,18 @@ func (cm *ContractManager) handleContractAction(height uint64, id types.FileCont
 			return fmt.Errorf("failed to fund revision txn: %w", err)
 		}
 		defer discard()
-		if err := cm.wallet.SignTransaction(&revisionTxn, toSign); err != nil {
+		if err := cm.wallet.SignTransaction(&revisionTxn, toSign, types.FullCoveredFields); err != nil {
 			return fmt.Errorf("failed to sign revision txn: %w", err)
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{revisionTxn}); err != nil {
 			return fmt.Errorf("failed to broadcast revision txn: %w", err)
 		}
 	case contract.ShouldBroadcastStorageProof(height):
-		block, ok := cm.consensus.BlockAtHeight(contract.Revision.NewWindowStart - 1)
-		if !ok {
-			return errors.New("failed to get block for storage proof")
+		state, err := cm.chain.IndexAtHeight(uint64(contract.Revision.NewWindowStart - 1))
+		if err != nil {
+			return fmt.Errorf("failed to get chain index at height %v: %w", contract.Revision.NewWindowStart-1, err)
 		}
 		// get the
-		index := storageProofSegment(block.ID(), contract.Revision.ParentID, contract.Revision.NewFileSize)
+		index := storageProofSegment(state.ID, contract.Revision.ParentID, contract.Revision.NewFileSize)
 		sp, err := cm.buildStorageProof(contract.Revision.ParentID, index)
 		if err != nil {
 			return fmt.Errorf("failed to build storage proof: %w", err)
@@ -121,7 +120,7 @@ func (cm *ContractManager) handleContractAction(height uint64, id types.FileCont
 			return fmt.Errorf("failed to fund resolution txn: %w", err)
 		}
 		defer discard()
-		if err := cm.wallet.SignTransaction(&resolutionTxn, toSign); err != nil {
+		if err := cm.wallet.SignTransaction(&resolutionTxn, toSign, types.FullCoveredFields); err != nil {
 			return fmt.Errorf("failed to sign resolution txn: %w", err)
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{resolutionTxn}); err != nil {
 			return fmt.Errorf("failed to broadcast resolution txn: %w", err)

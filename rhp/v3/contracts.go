@@ -47,6 +47,7 @@ var (
 	ErrUpdateProofSize = errors.New("update section is not a multiple of the segment size")
 )
 
+// hashRevision returns the hash of a contract revision.
 func hashRevision(rev types.FileContractRevision) (hash [32]byte) {
 	h, _ := blake2b.New256(nil)
 	enc := newEncoder(h)

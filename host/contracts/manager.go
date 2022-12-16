@@ -7,24 +7,24 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.sia.tech/hostd/consensus"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
 )
 
 type (
-	// Consensus defines the interface required by the contract manager to
+	// ChainManager defines the interface required by the contract manager to
 	// interact with the consensus set.
-	Consensus interface {
-		BlockByID(types.BlockID) (types.Block, types.BlockHeight, bool)
-		BlockAtHeight(types.BlockHeight) (types.Block, bool)
+	ChainManager interface {
+		IndexAtHeight(height uint64) (consensus.ChainIndex, error)
 	}
 
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.SiacoinOutputID, func(), error)
-		SignTransaction(*types.Transaction, []types.SiacoinOutputID) error
+		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error)
+		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
 	}
 
 	// A TransactionPool broadcasts transactions to the network.
@@ -79,11 +79,11 @@ type (
 
 	// A ContractManager manages contracts' lifecycle
 	ContractManager struct {
-		store     ContractStore
-		storage   StorageManager
-		consensus Consensus
-		tpool     TransactionPool
-		wallet    Wallet
+		store   ContractStore
+		storage StorageManager
+		chain   ChainManager
+		tpool   TransactionPool
+		wallet  Wallet
 
 		blockHeight uint64
 
@@ -187,14 +187,14 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 }
 
 // NewManager creates a new contract manager.
-func NewManager(store ContractStore, storage StorageManager, consensus Consensus, tpool TransactionPool, wallet Wallet) *ContractManager {
+func NewManager(store ContractStore, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet) *ContractManager {
 	cm := &ContractManager{
-		store:     store,
-		storage:   storage,
-		consensus: consensus,
-		tpool:     tpool,
-		wallet:    wallet,
-		locks:     make(map[types.FileContractID]*locker),
+		store:   store,
+		storage: storage,
+		chain:   chain,
+		tpool:   tpool,
+		wallet:  wallet,
+		locks:   make(map[types.FileContractID]*locker),
 	}
 	return cm
 }
