@@ -251,7 +251,7 @@ func validateRevision(current, revision types.FileContractRevision, payment, col
 	}
 
 	minValid := current.NewValidProofOutputs[1].Value.Add(payment)
-	minMissed := current.NewMissedProofOutputs[1].Value.Sub(collateral)
+	maxMissed := current.NewMissedProofOutputs[1].Value.Sub(collateral)
 
 	switch {
 	case validPayout.Cmp(oldPayout) != 0:
@@ -277,9 +277,9 @@ func validateRevision(current, revision types.FileContractRevision, payment, col
 	case revision.NewMissedProofOutputs[0].Value.Cmp(current.NewMissedProofOutputs[0].Value) > 0:
 		return errors.New("renter missed proof output must not increase")
 	case revision.NewValidProofOutputs[1].Value.Cmp(minValid) < 0:
-		return fmt.Errorf("insufficient host valid transfer: expected value at least %v, got %v", minValid, revision.NewValidProofOutputs[1].Value)
-	case revision.NewMissedProofOutputs[1].Value.Cmp(minMissed) > 0:
-		return fmt.Errorf("insufficient host missed transfer: expected value at least %v, got %v", minMissed, revision.NewMissedProofOutputs[1].Value)
+		return fmt.Errorf("insufficient host valid payment: expected value at least %v, got %v", minValid, revision.NewValidProofOutputs[1].Value)
+	case revision.NewMissedProofOutputs[1].Value.Cmp(maxMissed) > 0:
+		return fmt.Errorf("too much collateral transfer: expected value at most %v, got %v", maxMissed, revision.NewMissedProofOutputs[1].Value)
 	}
 	return nil
 }
