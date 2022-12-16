@@ -6,32 +6,34 @@ import (
 	"path/filepath"
 	"time"
 
-	"go.sia.tech/hostd/internal/cpuminer"
+	"go.sia.tech/hostd/consensus"
 	"go.sia.tech/hostd/internal/store"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/modules/consensus"
+	mconsensus "go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
 	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
-// A node is the base Sia node that is used to by a renter or host
-type node struct {
-	privKey ed25519.PrivateKey
+type (
+	// A node is the base Sia node that is used to by a renter or host
+	node struct {
+		privKey ed25519.PrivateKey
 
-	g  modules.Gateway
-	cs modules.ConsensusSet
-	tp modules.TransactionPool
-	w  *wallet.SingleAddressWallet
-	m  *cpuminer.Miner
-}
+		g  modules.Gateway
+		cm *consensus.ChainManager
+		tp modules.TransactionPool
+		w  *wallet.SingleAddressWallet
+		m  *Miner
+	}
+)
 
 func (n *node) Close() error {
 	n.w.Close()
 	n.tp.Close()
-	n.cs.Close()
+	n.cm.Close()
 	n.g.Close()
 	return nil
 }
@@ -56,8 +58,8 @@ func (n *node) MineBlocks(count int) error {
 }
 
 // CurrentBlock returns the last block in the consensus
-func (n *node) CurrentBlock() types.Block {
-	return n.cs.CurrentBlock()
+func (n *node) TipState() consensus.State {
+	return n.cm.Tip()
 }
 
 // newNode creates a new Sia node and wallet with the given key
@@ -66,10 +68,17 @@ func newNode(privKey ed25519.PrivateKey, dir string) (*node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gateway: %w", err)
 	}
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	cs, errCh := mconsensus.New(g, false, filepath.Join(dir, "consensus"))
 	if err := <-errCh; err != nil {
 		return nil, fmt.Errorf("failed to create consensus set: %w", err)
 	}
+
+	chainStore := store.NewEphemeralChainManagerStore()
+	cm, err := consensus.NewChainManager(cs, chainStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chain manager: %w", err)
+	}
+
 	wstore := store.NewEphemeralWalletStore(wallet.StandardAddress(privKey.Public().(ed25519.PublicKey)))
 	w := wallet.NewSingleAddressWallet(privKey, wstore)
 	if err := cs.ConsensusSetSubscribe(w, modules.ConsensusChangeBeginning, nil); err != nil {
@@ -79,7 +88,7 @@ func newNode(privKey ed25519.PrivateKey, dir string) (*node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction pool: %w", err)
 	}
-	m := cpuminer.NewMiner(cs)
+	m := NewMiner(cs)
 	if err := cs.ConsensusSetSubscribe(m, modules.ConsensusChangeBeginning, nil); err != nil {
 		return nil, fmt.Errorf("failed to subscribe miner to consensus set: %w", err)
 	}
@@ -88,7 +97,7 @@ func newNode(privKey ed25519.PrivateKey, dir string) (*node, error) {
 		privKey: privKey,
 
 		g:  g,
-		cs: cs,
+		cm: cm,
 		tp: tp,
 		w:  w,
 		m:  m,
@@ -101,7 +110,7 @@ func NewTestingPair(dir string) (*Renter, *Host, error) {
 	hostKey, renterKey := ed25519.NewKeyFromSeed(frand.Bytes(32)), ed25519.NewKeyFromSeed(frand.Bytes(32))
 
 	// initialize the host
-	host, err := NewEphemeralHost(hostKey, filepath.Join(dir, "host"))
+	host, err := NewHost(hostKey, filepath.Join(dir, "host"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create host: %w", err)
 	} else if err := host.UpdateSettings(DefaultSettings); err != nil {
@@ -109,7 +118,7 @@ func NewTestingPair(dir string) (*Renter, *Host, error) {
 	}
 
 	// initialize the renter
-	renter, err := NewEphemeralRenter(renterKey, filepath.Join(dir, "renter"))
+	renter, err := NewRenter(renterKey, filepath.Join(dir, "renter"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create renter: %w", err)
 	}
@@ -120,19 +129,17 @@ func NewTestingPair(dir string) (*Renter, *Host, error) {
 	}
 
 	// mine enough blocks to fund the host's wallet
-	if err := host.MineBlocks(10); err != nil {
+	if err := host.MineBlocks(int(types.MaturityDelay) * 2); err != nil {
 		return nil, nil, fmt.Errorf("failed to mine blocks: %w", err)
 	}
-
 	// small sleep for synchronization
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Second)
 
 	// mine enough blocks to fund the renter's wallet
-	if err := renter.MineBlocks(10); err != nil {
+	if err := renter.MineBlocks(int(types.MaturityDelay) * 2); err != nil {
 		return nil, nil, fmt.Errorf("failed to mine blocks: %w", err)
 	}
-
 	// small sleep for synchronization
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Second)
 	return renter, host, nil
 }

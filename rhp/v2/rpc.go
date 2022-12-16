@@ -173,13 +173,13 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to get host settings: %w", err)
 	}
-	blockHeight := sh.consensus.Height()
+	currentHeight := sh.cm.Tip().Index.Height
 	// get the contract from the transaction set
 	formationTxn := &formationTxnSet[len(formationTxnSet)-1]
 
 	// validate the contract formation fields. note: the v1 contract type
 	// does not contain the public keys or signatures.
-	if err := validateContractFormation(formationTxn.FileContracts[0], hostPub, renterPub, uint64(blockHeight), settings); err != nil {
+	if err := validateContractFormation(formationTxn.FileContracts[0], hostPub, renterPub, currentHeight, settings); err != nil {
 		return s.WriteError(fmt.Errorf("contract rejected: validation failed: %w", err))
 	}
 
@@ -222,7 +222,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 	formationTxn.TransactionSignatures = renterSignaturesResp.ContractSignatures
 
 	// sign and broadcast the formation transaction
-	if err = sh.wallet.SignTransaction(formationTxn, toSign); err != nil {
+	if err = sh.wallet.SignTransaction(formationTxn, toSign, types.FullCoveredFields); err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to sign formation transaction: %w", err)
 	} else if err = sh.tpool.AcceptTransactionSet(formationTxnSet); err != nil {
@@ -266,7 +266,8 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 // rpcRenewAndClearContract is an RPC that renews a contract and clears the
 // existing contract
 func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
-	if err := s.ContractRevisable(uint64(sh.consensus.Height())); err != nil {
+	currentHeight := sh.cm.Tip().Index.Height
+	if err := s.ContractRevisable(currentHeight); err != nil {
 		return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
 	}
 
@@ -292,7 +293,6 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to get host settings: %w", err)
 	}
-	blockHeight := sh.consensus.Height()
 	// get the contract from the transaction set
 	renewalTxn := &renewalTxnSet[len(renewalTxnSet)-1]
 
@@ -318,7 +318,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 	// contract type does not contain the public keys or signatures.
 	if err := validateClearingRevision(existingContract, renewalTxn.FileContractRevisions[0]); err != nil {
 		return s.WriteError(fmt.Errorf("renewal rejected: clearing revision validation failed: %w", err))
-	} else if err := validateContractRenewal(existingContract, renewalTxn.FileContracts[0], hostPub, renterPub, baseRenterCost, baseCollateral, uint64(blockHeight), settings); err != nil {
+	} else if err := validateContractRenewal(existingContract, renewalTxn.FileContracts[0], hostPub, renterPub, baseRenterCost, baseCollateral, currentHeight, settings); err != nil {
 		return s.WriteError(fmt.Errorf("renewal rejected: renewal validation failed: %w", err))
 	}
 
@@ -356,7 +356,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 	renewalTxn.TransactionSignatures = renterSigsResp.ContractSignatures
 
 	// sign and broadcast the formation transaction
-	if err = sh.wallet.SignTransaction(renewalTxn, toSign); err != nil {
+	if err = sh.wallet.SignTransaction(renewalTxn, toSign, types.FullCoveredFields); err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to sign formation transaction: %w", err)
 	} else if err = sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
@@ -400,7 +400,8 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 
 // rpcSectorRoots returns the Merkle roots of the sectors in a contract
 func (sh *SessionHandler) rpcSectorRoots(s *session) error {
-	if err := s.ContractRevisable(uint64(sh.consensus.Height())); err != nil {
+	currentHeight := sh.cm.Tip().Index.Height
+	if err := s.ContractRevisable(currentHeight); err != nil {
 		return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
 	}
 
@@ -459,8 +460,9 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 }
 
 func (sh *SessionHandler) rpcWrite(s *session) error {
+	currentHeight := sh.cm.Tip().Index.Height
 	// get the locked contract and check that it is revisable
-	if err := s.ContractRevisable(uint64(sh.consensus.Height())); err != nil {
+	if err := s.ContractRevisable(currentHeight); err != nil {
 		return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
 	}
 
@@ -475,8 +477,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		return fmt.Errorf("failed to read write request: %w", err)
 	}
 
-	remainingDuration := uint64(s.contract.Revision.NewWindowStart - sh.consensus.Height())
-
+	remainingDuration := uint64(s.contract.Revision.NewWindowStart) - currentHeight
 	// validate the requested actions
 	oldSectors := s.contract.Revision.NewFileSize / SectorSize
 	cost, collateral, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)
@@ -614,8 +615,9 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 }
 
 func (sh *SessionHandler) rpcRead(s *session) error {
+	currentHeight := sh.cm.Tip().Index.Height
 	// get the locked contract and check that it is revisable
-	if err := s.ContractRevisable(uint64(sh.consensus.Height())); err != nil {
+	if err := s.ContractRevisable(currentHeight); err != nil {
 		return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
 	}
 

@@ -1,5 +1,4 @@
-// Package cpuminer implements a basic CPU miner for the Sia network.
-package cpuminer
+package test
 
 import (
 	"bytes"

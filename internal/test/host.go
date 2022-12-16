@@ -84,15 +84,15 @@ func (h *Host) RHPv3PriceTable() (rhpv3.PriceTable, error) {
 	return h.rhpv3.PriceTable()
 }
 
-// NewEphemeralHost initializes a new test host
-func NewEphemeralHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
+// NewHost initializes a new test host
+func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	node, err := newNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
 
 	storage := store.NewEphemeralStorageManager()
-	contracts := contracts.NewManager(store.NewEphemeralContractStore(), storage, node.cs, node.tp, node.w)
+	contracts := contracts.NewManager(store.NewEphemeralContractStore(), storage, node.cm, node.tp, node.w)
 	settings, err := settings.NewConfigManager(store.NewEphemeralSettingsStore())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
@@ -101,12 +101,12 @@ func NewEphemeralHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	registry := registry.NewManager(privKey, store.NewEphemeralRegistryStore(1000))
 	accounts := accounts.NewManager(store.NewEphemeralAccountStore())
 
-	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", node.cs, node.tp, node.w, contracts, settings, storage, stubMetricReporter{})
+	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, node.w, contracts, settings, storage, stubMetricReporter{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
 	}
 	go rhpv2.Serve()
-	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", node.cs, node.tp, node.w, accounts, contracts, registry, storage, settings, stubMetricReporter{})
+	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, node.w, accounts, contracts, registry, storage, settings, stubMetricReporter{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}

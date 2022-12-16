@@ -9,6 +9,7 @@ import (
 	"net"
 	"time"
 
+	"go.sia.tech/hostd/consensus"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
@@ -60,17 +61,16 @@ type (
 		Sector(root crypto.Hash) ([]byte, error)
 	}
 
-	// ConsensusSet contains the subset of the consensus set that the host
-	// needs.
-	ConsensusSet interface {
-		Height() types.BlockHeight
+	// A ChainManager provides access to the current state of the blockchain.
+	ChainManager interface {
+		Tip() consensus.State
 	}
 
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.SiacoinOutputID, func(), error)
-		SignTransaction(*types.Transaction, []types.SiacoinOutputID) error
+		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error)
+		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
 	}
 
 	// A TransactionPool broadcasts transactions to the network.
@@ -102,9 +102,9 @@ type (
 
 		listener net.Listener
 
-		consensus ConsensusSet
-		tpool     TransactionPool
-		wallet    Wallet
+		cm     ChainManager
+		tpool  TransactionPool
+		wallet Wallet
 
 		contracts ContractManager
 		metrics   MetricReporter
@@ -282,7 +282,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cs ConsensusSet, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter) (*SessionHandler, error) {
+func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter) (*SessionHandler, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on addr: %w", err)
@@ -290,10 +290,10 @@ func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cs ConsensusSet,
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
-		listener:  l,
-		consensus: cs,
-		tpool:     tpool,
-		wallet:    wallet,
+		listener: l,
+		cm:       cm,
+		tpool:    tpool,
+		wallet:   wallet,
 
 		contracts: contracts,
 		metrics:   metrics,

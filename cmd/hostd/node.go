@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"go.sia.tech/hostd/consensus"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
@@ -16,7 +17,7 @@ import (
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/modules/consensus"
+	mconsensus "go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
 )
@@ -50,7 +51,7 @@ func (n *node) Close() error {
 	return nil
 }
 
-func startRHP2(hostKey ed25519.PrivateKey, addr string, cs rhpv2.ConsensusSet, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager) (*rhpv2.SessionHandler, error) {
+func startRHP2(hostKey ed25519.PrivateKey, addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager) (*rhpv2.SessionHandler, error) {
 	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, stdoutmetricReporter{})
 	if err != nil {
 		return nil, err
@@ -59,7 +60,7 @@ func startRHP2(hostKey ed25519.PrivateKey, addr string, cs rhpv2.ConsensusSet, t
 	return rhp2, nil
 }
 
-func startRHP3(hostKey ed25519.PrivateKey, addr string, cs rhpv3.ConsensusSet, tp rhpv3.TransactionPool, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, w rhpv3.Wallet) (*rhpv3.SessionHandler, error) {
+func startRHP3(hostKey ed25519.PrivateKey, addr string, cs rhpv3.ChainManager, tp rhpv3.TransactionPool, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, w rhpv3.Wallet) (*rhpv3.SessionHandler, error) {
 	rhp3, err := rhpv3.NewSessionHandler(hostKey, addr, cs, tp, w, am, cm, rm, sm, sr, stdoutmetricReporter{})
 	if err != nil {
 		return nil, err
@@ -81,7 +82,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err := os.MkdirAll(consensusDir, 0700); err != nil {
 		return nil, err
 	}
-	cs, errCh := consensus.New(g, bootstrap, consensusDir)
+	cs, errCh := mconsensus.New(g, bootstrap, consensusDir)
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -107,10 +108,17 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	ws := store.NewEphemeralWalletStore(walletAddr)
 	w := wallet.NewSingleAddressWallet(walletKey, ws)
 	go func() {
+		// note: start in goroutine for now to avoid blocking the main thread
 		if err := cs.ConsensusSetSubscribe(w, modules.ConsensusChangeBeginning, nil); err != nil {
 			panic(fmt.Errorf("failed to subscribe wallet to consensus: %w", err))
 		}
 	}()
+
+	chainStore := store.NewEphemeralChainManagerStore()
+	chain, err := consensus.NewChainManager(cs, chainStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chain manager: %w", err)
+	}
 
 	ss := store.NewEphemeralSettingsStore()
 	sr, err := settings.NewConfigManager(ss)
@@ -123,17 +131,17 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 	sm := store.NewEphemeralStorageManager()
 	contractStore := store.NewEphemeralContractStore()
-	contractManager := contracts.NewManager(contractStore, sm, cs, tp, w)
+	contractManager := contracts.NewManager(contractStore, sm, chain, tp, w)
 
 	er := store.NewEphemeralRegistryStore(1000)
 	registryManager := registry.NewManager(walletKey, er)
 
-	rhp2, err := startRHP2(walletKey, rhp2Addr, cs, tp, w, contractManager, sr, sm)
+	rhp2, err := startRHP2(walletKey, rhp2Addr, chain, tp, w, contractManager, sr, sm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
-	rhp3, err := startRHP3(walletKey, rhp3Addr, cs, tp, accountManager, contractManager, registryManager, sr, sm, w)
+	rhp3, err := startRHP3(walletKey, rhp3Addr, chain, tp, accountManager, contractManager, registryManager, sr, sm, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp3: %w", err)
 	}

@@ -37,7 +37,7 @@ func hashFundReceipt(fr fundReceipt) (hash crypto.Hash) {
 }
 
 // processContractPayment initializes an RPC budget using funds from a contract.
-func (sh *SessionHandler) processContractPayment(s *rpcSession, height types.BlockHeight) (accounts.Budget, error) {
+func (sh *SessionHandler) processContractPayment(s *rpcSession, height uint64) (accounts.Budget, error) {
 	var req rpcPayByContractRequest
 	if err := s.ReadObject(&req, 4096, 30*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to read contract payment request: %w", err)
@@ -98,7 +98,7 @@ func (sh *SessionHandler) processContractPayment(s *rpcSession, height types.Blo
 
 // processEphemeralAccountPayment initializes an RPC budget using an ephemeral
 // account.
-func (sh *SessionHandler) processEphemeralAccountPayment(s *rpcSession, height types.BlockHeight) (accounts.Budget, error) {
+func (sh *SessionHandler) processEphemeralAccountPayment(s *rpcSession, height uint64) (accounts.Budget, error) {
 	var req rpcPayByEphemeralAccountRequest
 	if err := s.ReadObject(&req, 1024, 15*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to read ephemeral account payment request: %w", err)
@@ -106,9 +106,9 @@ func (sh *SessionHandler) processEphemeralAccountPayment(s *rpcSession, height t
 
 	// validate that the request is valid.
 	switch {
-	case req.Message.Expiry < height:
+	case req.Message.Expiry < types.BlockHeight(height):
 		return nil, errors.New("withdrawal request expired")
-	case req.Message.Expiry > height+20:
+	case req.Message.Expiry > types.BlockHeight(height+20):
 		return nil, errors.New("withdrawal request too far in the future")
 	case req.Message.Amount.IsZero():
 		return nil, errors.New("withdrawal request has zero amount")
@@ -135,12 +135,12 @@ func (sh *SessionHandler) processPayment(s *rpcSession) (accounts.Budget, error)
 	if err := s.ReadObject(&paymentType, 16, 30*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to read payment type: %w", err)
 	}
-
+	currentHeight := sh.chain.Tip().Index.Height
 	switch paymentType {
 	case payByContract:
-		return sh.processContractPayment(s, sh.consensus.Height())
+		return sh.processContractPayment(s, currentHeight)
 	case payByEphemeralAccount:
-		return sh.processEphemeralAccountPayment(s, sh.consensus.Height())
+		return sh.processEphemeralAccountPayment(s, currentHeight)
 	default:
 		return nil, fmt.Errorf("unrecognized payment type: %q", paymentType)
 	}

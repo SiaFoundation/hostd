@@ -10,6 +10,7 @@ import (
 	"net"
 	"time"
 
+	"go.sia.tech/hostd/consensus"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
@@ -78,17 +79,16 @@ type (
 		Sector(root crypto.Hash) ([]byte, error)
 	}
 
-	// ConsensusSet contains the subset of the consensus set that the host
-	// needs.
-	ConsensusSet interface {
-		Height() types.BlockHeight
+	// A ChainManager provides access to the current state of the blockchain.
+	ChainManager interface {
+		Tip() consensus.State
 	}
 
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.SiacoinOutputID, func(), error)
-		SignTransaction(*types.Transaction, []types.SiacoinOutputID) error
+		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error)
+		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
 	}
 
 	// A TransactionPool broadcasts transactions to the network.
@@ -127,10 +127,10 @@ type (
 		registry  RegistryManager
 		storage   StorageManager
 
-		consensus ConsensusSet
-		settings  SettingsReporter
-		tpool     TransactionPool
-		wallet    Wallet
+		chain    ChainManager
+		settings SettingsReporter
+		tpool    TransactionPool
+		wallet   Wallet
 
 		priceTables *priceTableManager
 	}
@@ -146,8 +146,6 @@ func (sh *SessionHandler) handleHostStream(_ string, stream *mux.SubscriberStrea
 		log.Println("failed to read RPC ID:", err)
 		return
 	}
-
-	log.Printf("handling %v", rpcID)
 
 	var err error
 	switch rpcID {
@@ -208,7 +206,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cs ConsensusSet, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter) (*SessionHandler, error) {
+func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter) (*SessionHandler, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on addr: %w", err)
@@ -219,9 +217,9 @@ func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cs ConsensusSet,
 		listener: l,
 		router:   mux.NewSubscriberRouter(frand.Uint64n(math.MaxUint64), hostKey),
 
-		consensus: cs,
-		tpool:     tpool,
-		wallet:    wallet,
+		chain:  chain,
+		tpool:  tpool,
+		wallet: wallet,
 
 		accounts:  accounts,
 		contracts: contracts,

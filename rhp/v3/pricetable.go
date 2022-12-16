@@ -109,10 +109,11 @@ func (sh *SessionHandler) PriceTable() (PriceTable, error) {
 	}
 
 	min, max := sh.tpool.FeeEstimation()
+	currentHeight := types.BlockHeight(sh.chain.Tip().Index.Height)
 	oneHasting := types.NewCurrency64(1)
 	return PriceTable{
 		UID:             frand.Entropy128(),
-		HostBlockHeight: sh.consensus.Height(),
+		HostBlockHeight: currentHeight,
 		Validity:        defaultPriceTableExpiration,
 
 		// ephemeral account costs

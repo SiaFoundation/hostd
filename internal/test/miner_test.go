@@ -1,4 +1,4 @@
-package cpuminer
+package test
 
 import (
 	"crypto/ed25519"
@@ -64,9 +64,9 @@ func (tw *testWallet) Balance() types.Currency {
 	return balance
 }
 
-// FundTransaction adds siacoin inputs worth at least the requested amount to
-// the provided transaction. If necessary, a change output will also be added.
-// The inputs will not be used again until release is called.
+// FundTransaction adds siacoin inputs worth at least amount to the provided
+// transaction. If necessary, a change output will also be added. The inputs
+// will not be used again until release is called.
 func (tw *testWallet) FundAndSignTransaction(txn *types.Transaction, amount types.Currency) (func(), error) {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
