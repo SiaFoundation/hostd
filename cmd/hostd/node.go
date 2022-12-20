@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/internal/persist/sql"
 	"go.sia.tech/hostd/internal/store"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
@@ -104,9 +105,19 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, fmt.Errorf("failed to create tpool: %w", err)
 	}
 
-	walletAddr := wallet.StandardAddress(walletKey.Public().(ed25519.PublicKey))
-	ws := store.NewEphemeralWalletStore(walletAddr)
-	w := wallet.NewSingleAddressWallet(walletKey, ws)
+	db, err := sql.NewSQLiteStore(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sqlite store: %w", err)
+	}
+
+	chainStore := store.NewEphemeralChainManagerStore()
+	chainManager, err := consensus.NewChainManager(cs, chainStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chain manager: %w", err)
+	}
+
+	walletStore := sql.NewWalletStore(db)
+	w := wallet.NewSingleAddressWallet(walletKey, chainManager, walletStore)
 	go func() {
 		// note: start in goroutine for now to avoid blocking the main thread
 		if err := cs.ConsensusSetSubscribe(w, modules.ConsensusChangeBeginning, nil); err != nil {
@@ -114,14 +125,8 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		}
 	}()
 
-	chainStore := store.NewEphemeralChainManagerStore()
-	chain, err := consensus.NewChainManager(cs, chainStore)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create chain manager: %w", err)
-	}
-
-	ss := store.NewEphemeralSettingsStore()
-	sr, err := settings.NewConfigManager(ss)
+	settingsStore := sql.NewSettingsStore(db)
+	sr, err := settings.NewConfigManager(settingsStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -131,17 +136,17 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 	sm := store.NewEphemeralStorageManager()
 	contractStore := store.NewEphemeralContractStore()
-	contractManager := contracts.NewManager(contractStore, sm, chain, tp, w)
+	contractManager := contracts.NewManager(contractStore, sm, chainManager, tp, w)
 
 	er := store.NewEphemeralRegistryStore(1000)
 	registryManager := registry.NewManager(walletKey, er)
 
-	rhp2, err := startRHP2(walletKey, rhp2Addr, chain, tp, w, contractManager, sr, sm)
+	rhp2, err := startRHP2(walletKey, rhp2Addr, chainManager, tp, w, contractManager, sr, sm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
-	rhp3, err := startRHP3(walletKey, rhp3Addr, chain, tp, accountManager, contractManager, registryManager, sr, sm, w)
+	rhp3, err := startRHP3(walletKey, rhp3Addr, chainManager, tp, accountManager, contractManager, registryManager, sr, sm, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp3: %w", err)
 	}
