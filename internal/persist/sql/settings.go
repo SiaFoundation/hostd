@@ -93,5 +93,8 @@ func (ss *SettingsStore) Close() error {
 
 // NewSettingsStore creates a new SettingsStore using the provided database.
 func NewSettingsStore(db *Store) *SettingsStore {
-	return &SettingsStore{db: db, closed: make(chan struct{})}
+	return &SettingsStore{
+		db:     db,
+		closed: make(chan struct{}),
+	}
 }

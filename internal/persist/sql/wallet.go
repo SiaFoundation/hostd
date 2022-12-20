@@ -153,6 +153,7 @@ func (ws *WalletStore) Close() error {
 // NewWalletStore initializes a new wallet store.
 func NewWalletStore(db *Store) *WalletStore {
 	return &WalletStore{
-		db: db,
+		db:     db,
+		closed: make(chan struct{}),
 	}
 }

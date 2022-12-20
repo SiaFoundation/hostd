@@ -316,6 +316,7 @@ func NewRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 		node:    node,
 		cm:      &renterChainManager{cm},
 		privKey: privKey,
+		store:   sqlStore,
 		wallet:  wallet,
 	}, nil
 }
