@@ -9,6 +9,8 @@ import (
 	"unsafe"
 
 	"go.sia.tech/hostd/consensus"
+	"go.sia.tech/hostd/internal/persist/sql"
+	"go.sia.tech/hostd/internal/store"
 	"go.sia.tech/hostd/wallet"
 	rhpv2 "go.sia.tech/renterd/rhp/v2"
 	"go.sia.tech/siad/crypto"
@@ -32,8 +34,9 @@ type (
 		*node
 
 		privKey ed25519.PrivateKey
-
-		cm *renterChainManager
+		store   *sql.SQLStore
+		cm      *renterChainManager
+		wallet  *wallet.SingleAddressWallet
 	}
 
 	// An RHP2Session is used to interact with a host over the RHP2 protocol
@@ -132,6 +135,8 @@ func (r *Renter) TipState() rhpv2.ConsensusState {
 
 // Close shutsdown the renter
 func (r *Renter) Close() error {
+	r.wallet.Close()
+	r.store.Close()
 	r.node.Close()
 	return nil
 }
@@ -154,7 +159,7 @@ func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey ed
 		settings: settings,
 		cm:       r.cm,
 		tp:       &tpool{tp: r.tp},
-		w:        r.w,
+		w:        r.wallet,
 	}, nil
 }
 
@@ -187,7 +192,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25
 		return rhpv2.Contract{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
-	contract := rhpv2.PrepareContractFormation(renterPriv, hostPub, renterPayout, hostCollateral, index.Height+duration, settings, r.w.Address())
+	contract := rhpv2.PrepareContractFormation(renterPriv, hostPub, renterPayout, hostCollateral, index.Height+duration, settings, r.WalletAddress())
 	formationCost := rhpv2.ContractFormationCost(contract, settings.ContractPrice)
 	_, max := r.tp.FeeEstimation()
 	feeEstimate := max.Mul64(2000)
@@ -197,13 +202,13 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25
 	}
 	fundAmount := formationCost.Add(feeEstimate)
 
-	toSign, release, err := r.w.FundTransaction(&formationTxn, fundAmount, nil)
+	toSign, release, err := r.wallet.FundTransaction(&formationTxn, fundAmount, nil)
 	if err != nil {
 		return rhpv2.Contract{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
 
-	if err := r.w.SignTransaction(&formationTxn, toSign, explicitCoveredFields(formationTxn)); err != nil {
+	if err := r.wallet.SignTransaction(&formationTxn, toSign, explicitCoveredFields(formationTxn)); err != nil {
 		return rhpv2.Contract{}, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
@@ -212,6 +217,10 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25
 		return rhpv2.Contract{}, fmt.Errorf("failed to form contract: %w", err)
 	}
 	return revision, nil
+}
+
+func (r *Renter) WalletAddress() types.UnlockHash {
+	return r.wallet.Address()
 }
 
 // dialTransport is a convenience function that connects to the specified
@@ -286,9 +295,14 @@ func NewRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 	if err != nil {
 		return nil, err
 	}
+	chainStore := store.NewEphemeralChainManagerStore()
+	cm, err := consensus.NewChainManager(node.cs, chainStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chain manager: %w", err)
+	}
 	return &Renter{
 		node:    node,
-		cm:      &renterChainManager{node.cm},
+		cm:      &renterChainManager{cm},
 		privKey: privKey,
 	}, nil
 }

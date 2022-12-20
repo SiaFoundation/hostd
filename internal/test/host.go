@@ -3,14 +3,19 @@ package test
 import (
 	"crypto/ed25519"
 	"fmt"
+	"path/filepath"
 
+	"go.sia.tech/hostd/consensus"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/internal/persist/sql"
 	"go.sia.tech/hostd/internal/store"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
+	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
 )
 
@@ -22,6 +27,8 @@ func (stubMetricReporter) Report(any) (_ error) { return }
 type Host struct {
 	*node
 
+	store     *sql.SQLStore
+	wallet    *wallet.SingleAddressWallet
 	settings  *settings.ConfigManager
 	storage   rhpv3.StorageManager
 	registry  *registry.Manager
@@ -53,8 +60,11 @@ var DefaultSettings = settings.Settings{
 
 // Close shutsdown the host
 func (h *Host) Close() error {
+	h.settings.Close()
+	h.wallet.Close()
 	h.rhpv3.Close()
 	h.rhpv2.Close()
+	h.store.Close()
 	h.node.Close()
 	return nil
 }
@@ -84,6 +94,10 @@ func (h *Host) RHPv3PriceTable() (rhpv3.PriceTable, error) {
 	return h.rhpv3.PriceTable()
 }
 
+func (h *Host) WalletAddress() types.UnlockHash {
+	return h.wallet.Address()
+}
+
 // NewHost initializes a new test host
 func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	node, err := newNode(privKey, dir)
@@ -91,9 +105,27 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
 
+	sqlStore, err := sql.NewSQLiteStore(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sql store: %w", err)
+	}
+
+	chainStore := store.NewEphemeralChainManagerStore()
+	cm, err := consensus.NewChainManager(node.cs, chainStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chain manager: %w", err)
+	}
+
+	walletStore := sql.NewWalletStore(sqlStore)
+	wallet := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
+	if err := node.cs.ConsensusSetSubscribe(wallet, modules.ConsensusChangeBeginning, nil); err != nil {
+		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
+	}
+
 	storage := store.NewEphemeralStorageManager()
-	contracts := contracts.NewManager(store.NewEphemeralContractStore(), storage, node.cm, node.tp, node.w)
-	settings, err := settings.NewConfigManager(store.NewEphemeralSettingsStore())
+	contracts := contracts.NewManager(store.NewEphemeralContractStore(), storage, cm, node.tp, wallet)
+	settingsStore := sql.NewSettingsStore(sqlStore)
+	settings, err := settings.NewConfigManager(settingsStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -101,18 +133,20 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	registry := registry.NewManager(privKey, store.NewEphemeralRegistryStore(1000))
 	accounts := accounts.NewManager(store.NewEphemeralAccountStore())
 
-	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, node.w, contracts, settings, storage, stubMetricReporter{})
+	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
 	}
 	go rhpv2.Serve()
-	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, node.w, accounts, contracts, registry, storage, settings, stubMetricReporter{})
+	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
 	go rhpv3.Serve()
 	return &Host{
 		node:      node,
+		store:     sqlStore,
+		wallet:    wallet,
 		settings:  settings,
 		storage:   storage,
 		registry:  registry,
