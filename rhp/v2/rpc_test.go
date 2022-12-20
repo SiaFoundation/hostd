@@ -72,7 +72,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 
 	// mine a block to confirm the contract
-	if err := host.MineBlocks(1); err != nil {
+	if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
 		t.Fatal(err)
 	}
 
