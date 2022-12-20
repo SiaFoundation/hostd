@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/aws/aws-sdk-go v1.44.156
+	github.com/mattn/go-sqlite3 v1.14.16
 	gitlab.com/NebulousLabs/fastrand v0.0.0-20181126182046-603482d69e40
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259

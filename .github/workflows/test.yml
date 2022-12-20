@@ -36,4 +36,4 @@ jobs:
 #          go install go.sia.tech/jape/japecheck@latest
 #          $(go env GOPATH)/bin/japecheck ./api
       - name: Build
-        run: go build -o bin/ ./cmd/hostd
+        run: CGO_ENABLED=1 go build -o bin/ ./cmd/hostd
