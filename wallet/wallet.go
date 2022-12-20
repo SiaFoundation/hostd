@@ -15,6 +15,7 @@ import (
 )
 
 type (
+	// A ChainManager manages the current state of the blockchain.
 	ChainManager interface {
 		Tip() consensus.State
 	}

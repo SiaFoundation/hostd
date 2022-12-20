@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // import sqlite3 driver
 )
 
 type (
@@ -22,9 +22,8 @@ type (
 		StmtContext(ctx context.Context, stmt *sql.Stmt) *sql.Stmt
 	}
 
-	// A SQLStore is a persistent store that uses a SQL database as its
-	// backend.
-	SQLStore struct {
+	// A Store is a persistent store that uses a SQL database as its backend.
+	Store struct {
 		db *sql.DB
 	}
 )
@@ -32,8 +31,8 @@ type (
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed.
-func (ss *SQLStore) transaction(ctx context.Context, fn func(tx) error) error {
-	tx, err := ss.db.BeginTx(ctx, nil)
+func (s *Store) transaction(ctx context.Context, fn func(tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -49,8 +48,8 @@ func (ss *SQLStore) transaction(ctx context.Context, fn func(tx) error) error {
 }
 
 // Close closes the underlying database.
-func (ss *SQLStore) Close() error {
-	return ss.db.Close()
+func (s *Store) Close() error {
+	return s.db.Close()
 }
 
 // getDBVersion returns the current version of the database.
@@ -71,12 +70,12 @@ func setDBVersion(tx tx, version uint64) error {
 }
 
 // NewSQLiteStore creates a new SQLiteStore and initializes the database
-func NewSQLiteStore(fp string) (*SQLStore, error) {
+func NewSQLiteStore(fp string) (*Store, error) {
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%v?_busy_timeout=5000&_journal_mode=WAL", fp))
 	if err != nil {
 		return nil, err
 	}
-	store := &SQLStore{db: db}
+	store := &Store{db: db}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}

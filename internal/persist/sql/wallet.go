@@ -20,7 +20,7 @@ type (
 
 	// A WalletStore gets and sets the current state of a wallet.
 	WalletStore struct {
-		db     *SQLStore
+		db     *Store
 		closed chan struct{}
 	}
 )
@@ -76,6 +76,7 @@ func (ws *WalletStore) GetLastChange() (id modules.ConsensusChangeID, err error)
 	return
 }
 
+// UnspentSiacoinElements returns the spendable siacoin outputs in the wallet.
 func (ws *WalletStore) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err error) {
 	select {
 	case <-ws.closed:
@@ -99,6 +100,7 @@ func (ws *WalletStore) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, 
 	return utxos, nil
 }
 
+// Transactions returns the transactions in the wallet.
 func (ws *WalletStore) Transactions(skip, max int) (txns []wallet.Transaction, err error) {
 	select {
 	case <-ws.closed:
@@ -125,7 +127,7 @@ func (ws *WalletStore) Transactions(skip, max int) (txns []wallet.Transaction, e
 	return
 }
 
-// Transaction begins a transaction on the wallet store.
+// Transaction begins an update transaction on the wallet store.
 func (ws *WalletStore) Transaction(ctx context.Context, fn func(wallet.UpdateTransaction) error) error {
 	select {
 	case <-ws.closed:
@@ -149,8 +151,8 @@ func (ws *WalletStore) Close() error {
 }
 
 // NewWalletStore initializes a new wallet store.
-func NewWalletStore(sql *SQLStore) *WalletStore {
+func NewWalletStore(db *Store) *WalletStore {
 	return &WalletStore{
-		db: sql,
+		db: db,
 	}
 }

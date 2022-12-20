@@ -17,8 +17,8 @@ const dbVersion = 1
 //go:embed init.sql
 var initDatabase string
 
-func (ss *SQLStore) init() error {
-	return ss.transaction(context.Background(), func(tx tx) error {
+func (s *Store) init() error {
+	return s.transaction(context.Background(), func(tx tx) error {
 		version := getDBVersion(tx)
 		if version == 0 {
 			if _, err := tx.Exec(initDatabase, dbVersion); err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"unsafe"
 
 	"go.sia.tech/hostd/consensus"
@@ -34,7 +35,7 @@ type (
 		*node
 
 		privKey ed25519.PrivateKey
-		store   *sql.SQLStore
+		store   *sql.Store
 		cm      *renterChainManager
 		wallet  *wallet.SingleAddressWallet
 	}
@@ -66,7 +67,6 @@ func (cm *renterChainManager) TipState() rhpv2.ConsensusState {
 			ID:     rhpv2.BlockID(tip.Index.ID),
 		},
 	}
-
 }
 
 // RecommendedFee returns the recommended fee to have a transaction added
@@ -129,6 +129,7 @@ func (rs *RHP2Session) SectorRoots(ctx context.Context, offset, n uint64) ([]cry
 	return *(*[]crypto.Hash)(unsafe.Pointer(&roots)), nil
 }
 
+// TipState returns the current tip of the blockchain
 func (r *Renter) TipState() rhpv2.ConsensusState {
 	return r.cm.TipState()
 }
@@ -219,6 +220,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25
 	return revision, nil
 }
 
+// WalletAddress returns the renter's wallet address
 func (r *Renter) WalletAddress() types.UnlockHash {
 	return r.wallet.Address()
 }
@@ -295,14 +297,25 @@ func NewRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 	if err != nil {
 		return nil, err
 	}
+	sqlStore, err := sql.NewSQLiteStore(filepath.Join(dir, "renter.db"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sql store: %w", err)
+	}
 	chainStore := store.NewEphemeralChainManagerStore()
 	cm, err := consensus.NewChainManager(node.cs, chainStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
+	walletStore := sql.NewWalletStore(sqlStore)
+	wallet := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
+	if err := node.cs.ConsensusSetSubscribe(wallet, modules.ConsensusChangeBeginning, nil); err != nil {
+		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
+	}
+
 	return &Renter{
 		node:    node,
 		cm:      &renterChainManager{cm},
 		privKey: privKey,
+		wallet:  wallet,
 	}, nil
 }

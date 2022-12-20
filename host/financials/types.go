@@ -8,8 +8,10 @@ import (
 )
 
 const (
+	// FundSourceContract identifies a contract as the source of funds
 	FundSourceContract = "contract"
-	FundSourceAccount  = "account"
+	// FundSourceAccount identifies an account as the source of funds
+	FundSourceAccount = "account"
 )
 
 type (

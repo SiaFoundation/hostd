@@ -27,7 +27,7 @@ func (stubMetricReporter) Report(any) (_ error) { return }
 type Host struct {
 	*node
 
-	store     *sql.SQLStore
+	store     *sql.Store
 	wallet    *wallet.SingleAddressWallet
 	settings  *settings.ConfigManager
 	storage   rhpv3.StorageManager
@@ -94,6 +94,7 @@ func (h *Host) RHPv3PriceTable() (rhpv3.PriceTable, error) {
 	return h.rhpv3.PriceTable()
 }
 
+// WalletAddress returns the host's wallet address
 func (h *Host) WalletAddress() types.UnlockHash {
 	return h.wallet.Address()
 }

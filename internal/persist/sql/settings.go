@@ -7,10 +7,12 @@ import (
 	"go.sia.tech/hostd/host/settings"
 )
 
+// ErrStoreClosed is returned when the store has been closed.
 var ErrStoreClosed = errors.New("store is closed")
 
+// SettingsStore is a store for host settings.
 type SettingsStore struct {
-	db *SQLStore
+	db *Store
 
 	closed chan struct{}
 }
@@ -89,6 +91,7 @@ func (ss *SettingsStore) Close() error {
 	return nil
 }
 
-func NewSettingsStore(db *SQLStore) *SettingsStore {
+// NewSettingsStore creates a new SettingsStore using the provided database.
+func NewSettingsStore(db *Store) *SettingsStore {
 	return &SettingsStore{db: db, closed: make(chan struct{})}
 }
