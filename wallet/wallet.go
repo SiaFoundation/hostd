@@ -60,16 +60,23 @@ type (
 		cm    ChainManager
 		store SingleAddressStore
 
-		// for building transactions
-		mu   sync.Mutex
-		used map[types.SiacoinOutputID]bool
+		mu sync.Mutex // protects the following fields
+		// txnsets maps a transaction set to its SiacoinOutputIDs.
+		txnsets map[modules.TransactionSetID][]types.SiacoinOutputID
+		// tpool is a set of siacoin output IDs that are currently in the
+		// transaction pool.
+		tpool map[types.SiacoinOutputID]bool
+		// locked is a set of siacoin output IDs locked by FundTransaction. They
+		// will be released either by calling Release for unused transactions or
+		// being confirmed in a block.
+		locked map[types.SiacoinOutputID]bool
 	}
 
 	// An UpdateTransaction atomically updates the wallet store
 	UpdateTransaction interface {
 		AddSiacoinElement(utxo SiacoinElement) error
 		RemoveSiacoinElement(id types.SiacoinOutputID) error
-		AddTransaction(txn Transaction) error
+		AddTransaction(txn Transaction, idx uint64) error
 		RemoveTransaction(id types.TransactionID) error
 		SetLastChange(id modules.ConsensusChangeID) error
 	}
@@ -81,7 +88,13 @@ type (
 		Close() error
 
 		UnspentSiacoinElements() ([]SiacoinElement, error)
-		Transactions(skip, max int) ([]Transaction, error)
+		// Transactions returns a paginated list of transactions ordered by
+		// block height, descending. If no more transactions are available,
+		// (nil, nil) should be returned.
+		Transactions(limit, offset int) ([]Transaction, error)
+		// TransactionCount returns the total number of transactions in the
+		// wallet.
+		TransactionCount() (uint64, error)
 	}
 )
 
@@ -156,36 +169,34 @@ func (sw *SingleAddressWallet) Balance() (spendable, confirmed types.Currency, e
 	defer sw.mu.Unlock()
 	for _, sco := range outputs {
 		confirmed = confirmed.Add(sco.Value)
-		if !sw.used[sco.ID] {
+		if !sw.locked[sco.ID] || sw.tpool[sco.ID] {
 			spendable = spendable.Add(sco.Value)
 		}
 	}
 	return
 }
 
-// Transactions returns up to max transactions relevant to the wallet that have
-// a timestamp later than since.
-func (sw *SingleAddressWallet) Transactions(skip, max int) ([]Transaction, error) {
-	return sw.store.Transactions(skip, max)
+// Transactions returns a paginated list of transactions, ordered by block
+// height descending. If no more transactions are available, (nil, nil) is
+// returned.
+func (sw *SingleAddressWallet) Transactions(limit, offset int) ([]Transaction, error) {
+	return sw.store.Transactions(limit, offset)
+}
+
+// TransactionCount returns the total number of transactions in the wallet.
+func (sw *SingleAddressWallet) TransactionCount() (uint64, error) {
+	return sw.store.TransactionCount()
 }
 
 // FundTransaction adds siacoin inputs worth at least amount to the provided
 // transaction. If necessary, a change output will also be added. The inputs
 // will not be available to future calls to FundTransaction unless ReleaseInputs
 // is called.
-func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error) {
+func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 	if amount.IsZero() {
 		return nil, nil, nil
-	}
-
-	// avoid reusing any inputs currently in the transaction pool
-	inPool := make(map[types.SiacoinOutputID]bool)
-	for _, ptxn := range pool {
-		for _, in := range ptxn.SiacoinInputs {
-			inPool[in.ParentID] = true
-		}
 	}
 
 	utxos, err := sw.store.UnspentSiacoinElements()
@@ -195,7 +206,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	var inputSum types.Currency
 	var fundingElements []SiacoinElement
 	for _, sce := range utxos {
-		if sw.used[sce.ID] || inPool[sce.ID] {
+		if sw.locked[sce.ID] || sw.tpool[sce.ID] {
 			continue
 		}
 		fundingElements = append(fundingElements, sce)
@@ -220,27 +231,18 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 			UnlockConditions: StandardUnlockConditions(sw.priv.Public().(ed25519.PublicKey)),
 		})
 		toSign[i] = crypto.Hash(sce.ID)
-		sw.used[sce.ID] = true
+		sw.locked[sce.ID] = true
 	}
 
 	release := func() {
 		sw.mu.Lock()
 		defer sw.mu.Unlock()
 		for _, id := range toSign {
-			delete(sw.used, types.SiacoinOutputID(id))
+			delete(sw.locked, types.SiacoinOutputID(id))
 		}
 	}
 
 	return toSign, release, nil
-}
-
-// ReleaseInputs is a helper function that releases the inputs of txn for use in
-// other transactions. It should only be called on transactions that are invalid
-// or will never be broadcast.
-func (sw *SingleAddressWallet) ReleaseInputs(txn types.Transaction) {
-	for _, in := range txn.SiacoinInputs {
-		delete(sw.used, in.ParentID)
-	}
 }
 
 // SignTransaction adds a signature to each of the specified inputs using the
@@ -261,6 +263,34 @@ func (sw *SingleAddressWallet) SignTransaction(txn *types.Transaction, toSign []
 		txn.TransactionSignatures[i].Signature = ed25519.Sign(sw.priv, sigHash[:])
 	}
 	return nil
+}
+
+// ReceiveUpdatedUnconfirmedTransactions implements modules.TransactionPoolSubscriber.
+func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modules.TransactionPoolDiff) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+
+	for _, txnsetID := range diff.RevertedTransactions {
+		for _, outputID := range sw.txnsets[txnsetID] {
+			delete(sw.tpool, outputID)
+		}
+		delete(sw.txnsets, txnsetID)
+	}
+
+	for _, txnset := range diff.AppliedTransactions {
+		var txnsetOutputs []types.SiacoinOutputID
+		for _, txn := range txnset.Transactions {
+			for _, sci := range txn.SiacoinInputs {
+				if sci.UnlockConditions.UnlockHash() == sw.addr {
+					sw.tpool[sci.ParentID] = true
+					txnsetOutputs = append(txnsetOutputs, sci.ParentID)
+				}
+			}
+		}
+		if len(txnsetOutputs) > 0 {
+			sw.txnsets[txnset.ID] = txnsetOutputs
+		}
+	}
 }
 
 // ProcessConsensusChange implements modules.ConsensusSetSubscriber.
@@ -336,6 +366,11 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				if err != nil {
 					return fmt.Errorf("failed to remove siacoin element %v: %w", diff.ID, err)
 				}
+				// release the locks on the spent outputs
+				sw.mu.Lock()
+				delete(sw.locked, diff.ID)
+				delete(sw.tpool, diff.ID)
+				sw.mu.Unlock()
 			}
 		}
 
@@ -375,12 +410,14 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				Height: blockHeight,
 			}
 
+			var blockIndex uint64
 			// apply payout transactions -- all transactions should be relevant
 			// to the wallet
 			for _, txn := range appliedPayoutTxns[i] {
-				if err := tx.AddTransaction(txn); err != nil {
+				if err := tx.AddTransaction(txn, blockIndex); err != nil {
 					return fmt.Errorf("failed to add payout transaction %v: %w", txn.ID, err)
 				}
+				blockIndex++
 			}
 
 			// apply actual transactions -- only relevant transactions should be
@@ -410,10 +447,11 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					Source:      TxnSourceTransaction,
 					Transaction: txn,
 					Timestamp:   time.Unix(int64(block.Timestamp), 0),
-				})
+				}, blockIndex)
 				if err != nil {
 					return fmt.Errorf("failed to add transaction %v: %w", txn.ID(), err)
 				}
+				blockIndex++
 			}
 		}
 
@@ -454,11 +492,13 @@ func payoutTransactionID(output types.SiacoinOutput) types.TransactionID {
 // NewSingleAddressWallet returns a new SingleAddressWallet using the provided private key and store.
 func NewSingleAddressWallet(priv ed25519.PrivateKey, cm ChainManager, store SingleAddressStore) *SingleAddressWallet {
 	return &SingleAddressWallet{
-		priv:  priv,
-		addr:  StandardAddress(priv.Public().(ed25519.PublicKey)),
-		store: store,
-		used:  make(map[types.SiacoinOutputID]bool),
-		cm:    cm,
+		priv:    priv,
+		addr:    StandardAddress(priv.Public().(ed25519.PublicKey)),
+		store:   store,
+		locked:  make(map[types.SiacoinOutputID]bool),
+		tpool:   make(map[types.SiacoinOutputID]bool),
+		txnsets: make(map[modules.TransactionSetID][]types.SiacoinOutputID),
+		cm:      cm,
 	}
 }
 

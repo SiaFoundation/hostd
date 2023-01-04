@@ -117,13 +117,15 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 
 	walletStore := sql.NewWalletStore(db)
+	changeID, err := walletStore.GetLastChange()
 	w := wallet.NewSingleAddressWallet(walletKey, chainManager, walletStore)
 	go func() {
 		// note: start in goroutine for now to avoid blocking the main thread
-		if err := cs.ConsensusSetSubscribe(w, modules.ConsensusChangeBeginning, nil); err != nil {
+		if err := cs.ConsensusSetSubscribe(w, changeID, nil); err != nil {
 			panic(fmt.Errorf("failed to subscribe wallet to consensus: %w", err))
 		}
 	}()
+	tp.TransactionPoolSubscribe(w)
 
 	settingsStore := sql.NewSettingsStore(db)
 	sr, err := settings.NewConfigManager(settingsStore)

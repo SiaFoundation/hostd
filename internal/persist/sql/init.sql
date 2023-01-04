@@ -16,8 +16,10 @@ CREATE TABLE wallet_transactions (
 	inflow TEXT NOT NULL,
 	outflow TEXT NOT NULL,
 	block_height UNSIGNED BIG INT NOT NULL,
+	block_index UNSIGNED BIG INT NOT NULL,
 	raw_data BLOB NOT NULL, -- binary serialized transaction
-	date_created UNSIGNED BIG INT NOT NULL
+	date_created UNSIGNED BIG INT NOT NULL,
+	UNIQUE(block_height, block_index)
 );
 CREATE INDEX wallet_transactions_date_created_index ON wallet_transactions(date_created);
 

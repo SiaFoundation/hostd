@@ -64,6 +64,27 @@ func newTestNode(dir string) (*testNode, error) {
 	}, nil
 }
 
+// sendSiacoins helper func to send siacoins from a wallet
+func sendSiacoins(w *wallet.SingleAddressWallet, tp modules.TransactionPool, outputs []types.SiacoinOutput) (txn types.Transaction, err error) {
+	var siacoinOutput types.Currency
+	for _, o := range outputs {
+		siacoinOutput = siacoinOutput.Add(o.Value)
+	}
+	txn.SiacoinOutputs = outputs
+
+	toSign, release, err := w.FundTransaction(&txn, siacoinOutput)
+	if err != nil {
+		return types.Transaction{}, fmt.Errorf("failed to fund transaction: %w", err)
+	}
+	defer release()
+	if err := w.SignTransaction(&txn, toSign, types.FullCoveredFields); err != nil {
+		return types.Transaction{}, fmt.Errorf("failed to sign transaction: %w", err)
+	} else if err := tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
+		return types.Transaction{}, fmt.Errorf("failed to accept transaction set: %w", err)
+	}
+	return txn, nil
+}
+
 func TestWallet(t *testing.T) {
 	node1, err := newTestNode(t.TempDir())
 	if err != nil {
@@ -91,6 +112,7 @@ func TestWallet(t *testing.T) {
 	} else if err := node1.cs.ConsensusSetSubscribe(w, ccID, nil); err != nil {
 		t.Fatal(err)
 	}
+	node1.tp.TransactionPoolSubscribe(w)
 
 	_, balance, err := w.Balance()
 	if err != nil {
@@ -140,8 +162,16 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected 1 UTXO, got %v", len(utxos))
 	}
 
+	// check that the wallet has a single transaction
+	count, err := w.TransactionCount()
+	if err != nil {
+		t.Fatal(err)
+	} else if count != 1 {
+		t.Fatalf("expected 1 transaction, got %v", count)
+	}
+
 	// check that the payout transaction was created
-	txns, err := walletStore.Transactions(0, 100)
+	txns, err := walletStore.Transactions(100, 0)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(txns) != 1 {
@@ -150,20 +180,16 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected miner payout, got %v", txns[0].Source)
 	}
 
-	// send half of the wallet's balance to the zero address
-	txn := types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{
-			{Value: expectedBalance.Div64(2)},
-		},
+	// split the wallet's balance into 20 outputs
+	splitOutputs := make([]types.SiacoinOutput, 20)
+	for i := range splitOutputs {
+		splitOutputs[i] = types.SiacoinOutput{
+			Value:      expectedBalance.Div64(20),
+			UnlockHash: w.Address(),
+		}
 	}
-	toSign, release, err := w.FundTransaction(&txn, expectedBalance.Div64(2), nil)
+	splitTxn, err := sendSiacoins(w, node1.tp, splitOutputs)
 	if err != nil {
-		t.Fatal(err)
-	}
-	defer release()
-	if err := w.SignTransaction(&txn, toSign, types.FullCoveredFields); err != nil {
-		t.Fatal(err)
-	} else if err := node1.tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -173,8 +199,7 @@ func TestWallet(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 
-	// check that the wallet's balance has been reduced
-	expectedBalance = expectedBalance.Div64(2)
+	// check that the wallet's balance is the same
 	_, balance, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
@@ -182,16 +207,72 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected %v balance, got %v", expectedBalance, balance)
 	}
 
-	// check that the wallet has a two transactions
-	txns, err = w.Transactions(0, 100)
+	// check that the wallet has 20 UTXOs
+	utxos, err = walletStore.UnspentSiacoinElements()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 20 {
+		t.Fatalf("expected 20 UTXOs, got %v", len(utxos))
+	}
+
+	// check that the wallet has two transactions
+	count, err = w.TransactionCount()
+	if err != nil {
+		t.Fatal(err)
+	} else if count != 2 {
+		t.Fatalf("expected 2 transactions, got %v", count)
+	}
+
+	// check that the transaction was created at the top of the transaction list
+	txns, err = w.Transactions(100, 0)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(txns) != 2 {
 		t.Fatalf("expected 2 transaction, got %v", len(txns))
-	} else if txns[0].Transaction.ID() != txn.ID() {
-		t.Fatalf("expected transaction %v, got %v", txn.ID(), txns[0].Transaction.ID())
+	} else if txns[0].Transaction.ID() != splitTxn.ID() {
+		t.Fatalf("expected transaction %v, got %v", splitTxn.ID(), txns[0].Transaction.ID())
 	} else if txns[0].Source != wallet.TxnSourceTransaction {
 		t.Fatalf("expected transaction source, got %v", txns[0].Source)
+	}
+
+	// send all the outputs to the burn address individually
+	var sentTransactions []types.Transaction
+	for i := 0; i < 20; i++ {
+		txn, err := sendSiacoins(w, node1.tp, []types.SiacoinOutput{
+			{Value: expectedBalance.Div64(20)},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sentTransactions = append(sentTransactions, txn)
+	}
+
+	// mine another block to confirm the transactions
+	if err := miner.Mine(w.Address(), 1); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the wallet now has 22 transactions
+	count, err = w.TransactionCount()
+	if err != nil {
+		t.Fatal(err)
+	} else if count != 22 {
+		t.Fatalf("expected 22 transactions, got %v", count)
+	}
+
+	// check that the paginated transactions are in the proper order
+	for i := 0; i < 20; i++ {
+		expectedTxn := sentTransactions[i]
+		txns, err := w.Transactions(1, i)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(txns) != 1 {
+			t.Fatalf("expected 1 transaction, got %v", len(txns))
+		} else if txns[0].Transaction.ID() != expectedTxn.ID() {
+			t.Fatalf("expected transaction %v, got %v", expectedTxn.ID(), txns[0].Transaction.ID())
+		} else if txns[0].Source != wallet.TxnSourceTransaction {
+			t.Fatalf("expected transaction source, got %v", txns[0].Source)
+		}
 	}
 
 	// start a new node to trigger a reorg

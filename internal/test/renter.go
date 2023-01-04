@@ -203,7 +203,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25
 	}
 	fundAmount := formationCost.Add(feeEstimate)
 
-	toSign, release, err := r.wallet.FundTransaction(&formationTxn, fundAmount, nil)
+	toSign, release, err := r.wallet.FundTransaction(&formationTxn, fundAmount)
 	if err != nil {
 		return rhpv2.Contract{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
