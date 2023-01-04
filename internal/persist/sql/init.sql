@@ -1,3 +1,8 @@
+/*
+	When changing the schema, the version must be incremented at the bottom of
+	this file and a migration added to migrations.go
+*/
+
 CREATE TABLE wallet_utxos (
 	id TEXT PRIMARY KEY,
 	amount TEXT NOT NULL,
@@ -16,8 +21,6 @@ CREATE TABLE wallet_transactions (
 );
 CREATE INDEX wallet_transactions_date_created_index ON wallet_transactions(date_created);
 
--- all columns should have default values so that the row can be inserted
--- without specifying all values
 CREATE TABLE wallet_settings (
 	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	last_processed_change TEXT NOT NULL DEFAULT ""
@@ -29,9 +32,23 @@ CREATE TABLE accounts (
 	expiration_height UNSIGNED BIG INT NOT NULL
 );
 
+CREATE TABLE storage_volumes (
+	id TEXT PRIMARY KEY,
+	disk_path TEXT NOT NULL,
+	total_sectors UNSIGNED BIG INT NOT NULL,
+	writeable BOOLEAN NOT NULL
+);
+
+CREATE TABLE sector_metadata (
+	sector_root TEXT PRIMARY KEY,
+	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- do not set null here, sectors must first be migrated to a new volume
+	volume_index UNSIGNED BIG INT NOT NULL
+);
+CREATE INDEX sector_metadata_volume_id_index ON sector_metadata(volume_id, volume_index);
+
 CREATE TABLE contracts (
 	id TEXT PRIMARY KEY,
-	renewed_from TEXT REFERENCES expired_contracts ON DELETE SET NULL,
+	renewed_from TEXT REFERENCES contracts ON DELETE SET NULL,
 	host_signature TEXT NOT NULL,
 	renter_signature TEXT NOT NULL,
 	locked_collateral TEXT NOT NULL,
@@ -47,27 +64,17 @@ CREATE TABLE contracts (
 CREATE INDEX contracts_window_start_index ON contracts(window_start);
 CREATE INDEX contracts_window_end_index ON contracts(window_end);
 
-
 CREATE TABLE contract_sector_roots (
 	contract_id TEXT REFERENCES contracts ON DELETE CASCADE,
-	sector_root TEXT NOT NULL
+	sector_root TEXT NOT NULL REFERENCES sector_metadata,
+	root_order UNSIGNED BIG INT NOT NULL,
+	UNIQUE(contract_id, root_order)
 );
 CREATE INDEX contract_sector_roots_contract_id_index ON contract_sector_roots(contract_id);
 
 CREATE TABLE temp_storage (
 	sector_root TEXT PRIMARY KEY,
 	expiration_height UNSIGNED BIG INT NOT NULL
-);
-
-CREATE TABLE storage_volumes (
-	id TEXT PRIMARY KEY,
-	disk_path TEXT NOT NULL,
-	total_space UNSIGNED BIG INT NOT NULL
-);
-CREATE TABLE sector_metadata (
-	sector_root TEXT PRIMARY KEY,
-	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- do not set null here, sectors must be migrated to a new volume
-	sector_index UNSIGNED BIG INT NOT NULL
 );
 
 CREATE TABLE financial_account_funding (
@@ -92,8 +99,6 @@ CREATE TABLE financial_records (
 CREATE INDEX financial_records_source_id ON financial_records(source_id);
 CREATE INDEX financial_records_date_created ON financial_records(date_created);
 
--- all columns should have default values so that the row can be inserted
--- without specifying all values
 CREATE TABLE host_settings (
 	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	settings_revision UNSIGNED BIG INT NOT NULL DEFAULT 0,
@@ -115,12 +120,10 @@ CREATE TABLE host_settings (
 	last_processed_consensus_change BLOB NOT NULL DEFAULT ""
 );
 
--- all columns should have default values so that the row can be inserted
--- without specifying all values
 CREATE TABLE global_settings (
 	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version UNSIGNED BIG INT NOT NULL DEFAULT 0, -- used for migrations
 	host_key TEXT NOT NULL DEFAULT "" -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
 );
 
-INSERT INTO global_settings (db_version) VALUES (?);
+INSERT INTO global_settings (db_version) VALUES (1); -- version must be updated when the schema changes

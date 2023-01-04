@@ -14,10 +14,24 @@ import (
 	"go.sia.tech/siad/types"
 )
 
+// transaction sources indicate the source of a transaction. Transactions can
+// either be created by sending Siacoins between unlock hashes or they can be
+// created by consensus (e.g. a miner payout, a siafund claim, or a contract).
+const (
+	TxnSourceTransaction  TransactionSource = "transaction"
+	TxnSourceMinerPayout  TransactionSource = "minerPayout"
+	TxnSourceSiafundClaim TransactionSource = "siafundClaim"
+	TxnSourceContract     TransactionSource = "contract"
+)
+
 type (
+	// A TransactionSource is a string indicating the source of a transaction.
+	TransactionSource string
+
 	// A ChainManager manages the current state of the blockchain.
 	ChainManager interface {
 		Tip() consensus.State
+		BlockAtHeight(height uint64) (types.Block, bool)
 	}
 
 	// A SiacoinElement is a SiacoinOutput along with its ID.
@@ -34,7 +48,7 @@ type (
 		Transaction types.Transaction    `json:"transaction"`
 		Inflow      types.Currency       `json:"inflow"`
 		Outflow     types.Currency       `json:"outflow"`
-		Source      string               `json:"source"`
+		Source      TransactionSource    `json:"source"`
 		Timestamp   time.Time            `json:"timestamp"`
 	}
 
@@ -63,7 +77,7 @@ type (
 	// A SingleAddressStore stores the state of a single-address wallet.
 	// Implementations are assumed to be thread safe.
 	SingleAddressStore interface {
-		Transaction(context.Context, func(UpdateTransaction) error) error
+		Update(context.Context, func(UpdateTransaction) error) error
 		Close() error
 
 		UnspentSiacoinElements() ([]SiacoinElement, error)
@@ -251,14 +265,65 @@ func (sw *SingleAddressWallet) SignTransaction(txn *types.Transaction, toSign []
 
 // ProcessConsensusChange implements modules.ConsensusSetSubscriber.
 func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange) {
-	err := sw.store.Transaction(context.Background(), func(tx UpdateTransaction) error {
-		addedSiacoinElements, removedSiacoinElements := make(map[types.SiacoinOutputID]bool), make(map[types.SiacoinOutputID]bool)
+	// create payout transactions for each matured siacoin output. Each diff
+	// should correspond to an applied block. This is done outside of the
+	// database transaction to reduce lock contention.
+	appliedPayoutTxns := make([][]Transaction, len(cc.AppliedDiffs))
+	// calculate the block height of the first applied diff
+	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + 1
+	for i := 0; i < len(cc.AppliedDiffs); i, blockHeight = i+1, blockHeight+1 {
+		block := cc.AppliedBlocks[i]
+		diff := cc.AppliedDiffs[i]
+		index := consensus.ChainIndex{
+			ID:     block.ID(),
+			Height: blockHeight,
+		}
+
+		// determine the source of each delayed output
+		delayedOutputSources := make(map[types.SiacoinOutputID]TransactionSource)
+		if blockHeight > uint64(types.MaturityDelay) {
+			// get the block that has matured
+			matureBlock, ok := sw.cm.BlockAtHeight(blockHeight - uint64(types.MaturityDelay))
+			if !ok {
+				panic(fmt.Errorf("failed to get mature block at height %v", blockHeight-uint64(types.MaturityDelay)))
+			}
+			for i := range matureBlock.MinerPayouts {
+				delayedOutputSources[matureBlock.MinerPayoutID(uint64(i))] = TxnSourceMinerPayout
+			}
+			for _, txn := range matureBlock.Transactions {
+				for _, output := range txn.SiafundInputs {
+					delayedOutputSources[output.ParentID.SiaClaimOutputID()] = TxnSourceSiafundClaim
+				}
+			}
+		}
+
+		for _, dsco := range diff.DelayedSiacoinOutputDiffs {
+			// if a delayed output is reverted in an applied diff, the
+			// output has matured -- add a payout transaction.
+			if dsco.SiacoinOutput.UnlockHash != sw.addr || dsco.Direction != modules.DiffRevert {
+				continue
+			}
+			// contract payouts are harder to identify, any unknown output
+			// ID is assumed to be a contract payout.
+			var source TransactionSource
+			if s, ok := delayedOutputSources[dsco.ID]; ok {
+				source = s
+			} else {
+				source = TxnSourceContract
+			}
+			// append the payout transaction to the diff
+			appliedPayoutTxns[i] = append(appliedPayoutTxns[i], payoutTransaction(dsco.SiacoinOutput, index, source, time.Unix(int64(block.Timestamp), 0)))
+		}
+	}
+
+	// begin a database transaction to update the wallet state
+	err := sw.store.Update(context.Background(), func(tx UpdateTransaction) error {
+		// add new siacoin outputs and remove spent or reverted siacoin outputs
 		for _, diff := range cc.SiacoinOutputDiffs {
 			if diff.SiacoinOutput.UnlockHash != sw.addr {
 				continue
 			}
 			if diff.Direction == modules.DiffApply {
-				addedSiacoinElements[diff.ID] = true
 				err := tx.AddSiacoinElement(SiacoinElement{
 					SiacoinOutput: diff.SiacoinOutput,
 					ID:            diff.ID,
@@ -267,7 +332,6 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					return fmt.Errorf("failed to add siacoin element %v: %w", diff.ID, err)
 				}
 			} else {
-				removedSiacoinElements[diff.ID] = true
 				err := tx.RemoveSiacoinElement(diff.ID)
 				if err != nil {
 					return fmt.Errorf("failed to remove siacoin element %v: %w", diff.ID, err)
@@ -275,10 +339,11 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			}
 		}
 
+		// revert payout transactions
 		for _, reverted := range cc.RevertedDiffs {
 			for _, dsco := range reverted.DelayedSiacoinOutputDiffs {
-				// if the output is applied in a reverted block, the output
-				// is no longer matured. Remove the payout transaction.
+				// if a delayed output is applied in a revert diff, the output
+				// is no longer matured -- remove the payout transaction.
 				if dsco.SiacoinOutput.UnlockHash != sw.addr || dsco.Direction != modules.DiffApply {
 					continue
 				}
@@ -289,26 +354,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			}
 		}
 
-		blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + 1
-		for i, applied := range cc.AppliedDiffs {
-			block := cc.AppliedBlocks[i]
-			index := consensus.ChainIndex{
-				ID:     block.ID(),
-				Height: blockHeight,
-			}
-			for _, dsco := range applied.DelayedSiacoinOutputDiffs {
-				// if the output has been reverted in an applied diff, the
-				// output has matured. Add a payout transaction.
-				if dsco.SiacoinOutput.UnlockHash != sw.addr || dsco.Direction != modules.DiffRevert {
-					continue
-				}
-				txn := payoutTransaction(dsco.SiacoinOutput, index, "Payout", time.Unix(int64(block.Timestamp), 0))
-				if err := tx.AddTransaction(txn); err != nil {
-					return fmt.Errorf("failed to add payout transaction: %w", err)
-				}
-			}
-		}
-
+		// revert actual transactions
 		for _, block := range cc.RevertedBlocks {
 			for _, txn := range block.Transactions {
 				if transactionIsRelevant(txn, sw.addr) {
@@ -319,13 +365,26 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			}
 		}
 
-		// reset the block height to apply the transactions
+		// calculate the block height of the first applied block
 		blockHeight = uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + 1
-		for _, block := range cc.AppliedBlocks {
+		// apply transactions
+		for i := 0; i < len(cc.AppliedBlocks); i, blockHeight = i+1, blockHeight+1 {
+			block := cc.AppliedBlocks[i]
 			index := consensus.ChainIndex{
 				ID:     block.ID(),
 				Height: blockHeight,
 			}
+
+			// apply payout transactions -- all transactions should be relevant
+			// to the wallet
+			for _, txn := range appliedPayoutTxns[i] {
+				if err := tx.AddTransaction(txn); err != nil {
+					return fmt.Errorf("failed to add payout transaction %v: %w", txn.ID, err)
+				}
+			}
+
+			// apply actual transactions -- only relevant transactions should be
+			// added to the database
 			for _, txn := range block.Transactions {
 				if !transactionIsRelevant(txn, sw.addr) {
 					continue
@@ -348,7 +407,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					Index:       index,
 					Inflow:      inflow,
 					Outflow:     outflow,
-					Source:      "Transaction",
+					Source:      TxnSourceTransaction,
 					Transaction: txn,
 					Timestamp:   time.Unix(int64(block.Timestamp), 0),
 				})
@@ -356,9 +415,9 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					return fmt.Errorf("failed to add transaction %v: %w", txn.ID(), err)
 				}
 			}
-			blockHeight++
 		}
 
+		// update the change ID
 		if err := tx.SetLastChange(cc.ID); err != nil {
 			return fmt.Errorf("failed to set index: %w", err)
 		}
@@ -371,7 +430,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 
 // payoutTransaction wraps a delayed siacoin output in a transaction for display
 // in the wallet.
-func payoutTransaction(output types.SiacoinOutput, index consensus.ChainIndex, source string, timestamp time.Time) Transaction {
+func payoutTransaction(output types.SiacoinOutput, index consensus.ChainIndex, source TransactionSource, timestamp time.Time) Transaction {
 	txn := types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{output},
 	}

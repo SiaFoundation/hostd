@@ -61,7 +61,7 @@ func main() {
 	rhp2Addr := flag.String("rhp2", ":9982", "address to listen on for RHP2 connections")
 	rhp3Addr := flag.String("rhp3", ":9983", "address to listen on for RHP3 connections")
 	apiAddr := flag.String("http", "localhost:9980", "address to serve API on")
-	dir := flag.String("dir", ".", "directory to store node state in")
+	dir := flag.String("dir", ".", "directory to store hostd metadata")
 	bootstrap := flag.Bool("bootstrap", true, "bootstrap the gateway and consensus modules")
 	flag.Parse()
 

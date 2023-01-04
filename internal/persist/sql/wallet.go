@@ -15,7 +15,7 @@ import (
 type (
 	// A walletTxn is a SQL transaction that modifies the wallet state.
 	walletTxn struct {
-		tx tx
+		tx txn
 	}
 
 	// A WalletStore gets and sets the current state of a wallet.
@@ -107,7 +107,7 @@ func (ws *WalletStore) Transactions(skip, max int) (txns []wallet.Transaction, e
 		return nil, ErrStoreClosed
 	default:
 	}
-	rows, err := ws.db.db.Query(`SELECT id, block_id, block_height, inflow, outflow, raw_data, date_created FROM wallet_transactions ORDER BY date_created DESC LIMIT ? OFFSET ?`, max, skip)
+	rows, err := ws.db.db.Query(`SELECT id, block_id, block_height, source, inflow, outflow, raw_data, date_created FROM wallet_transactions ORDER BY date_created DESC LIMIT ? OFFSET ?`, max, skip)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	} else if err != nil {
@@ -117,7 +117,7 @@ func (ws *WalletStore) Transactions(skip, max int) (txns []wallet.Transaction, e
 	for rows.Next() {
 		var txn wallet.Transaction
 		var buf []byte
-		if err := rows.Scan(scanHash((*[32]byte)(&txn.ID)), scanHash((*[32]byte)(&txn.Index.ID)), &txn.Index.Height, scanCurrency(&txn.Inflow), scanCurrency(&txn.Outflow), &buf, scanTime(&txn.Timestamp)); err != nil {
+		if err := rows.Scan(scanHash((*[32]byte)(&txn.ID)), scanHash((*[32]byte)(&txn.Index.ID)), &txn.Index.Height, &txn.Source, scanCurrency(&txn.Inflow), scanCurrency(&txn.Outflow), &buf, scanTime(&txn.Timestamp)); err != nil {
 			return nil, fmt.Errorf("failed to scan transaction: %w", err)
 		} else if err := txn.Transaction.UnmarshalSia(bytes.NewReader(buf)); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal transaction data: %w", err)
@@ -127,14 +127,14 @@ func (ws *WalletStore) Transactions(skip, max int) (txns []wallet.Transaction, e
 	return
 }
 
-// Transaction begins an update transaction on the wallet store.
-func (ws *WalletStore) Transaction(ctx context.Context, fn func(wallet.UpdateTransaction) error) error {
+// Update begins an update transaction on the wallet store.
+func (ws *WalletStore) Update(ctx context.Context, fn func(wallet.UpdateTransaction) error) error {
 	select {
 	case <-ws.closed:
 		return ErrStoreClosed
 	default:
 	}
-	return ws.db.transaction(ctx, func(tx tx) error {
+	return ws.db.transaction(ctx, func(tx txn) error {
 		return fn(&walletTxn{tx})
 	})
 }

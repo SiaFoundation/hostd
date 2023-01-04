@@ -83,18 +83,16 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	walletStore := sql.NewWalletStore(sqlStore)
-	wallet := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
+	w := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
 
 	ccID, err := walletStore.GetLastChange()
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	if err := node1.cs.ConsensusSetSubscribe(wallet, ccID, nil); err != nil {
+	} else if err := node1.cs.ConsensusSetSubscribe(w, ccID, nil); err != nil {
 		t.Fatal(err)
 	}
 
-	_, balance, err := wallet.Balance()
+	_, balance, err := w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {
@@ -108,12 +106,12 @@ func TestWallet(t *testing.T) {
 	node1.tp.TransactionPoolSubscribe(miner)
 
 	// mine a block to fund the wallet
-	if err := miner.Mine(wallet.Address(), 1); err != nil {
+	if err := miner.Mine(w.Address(), 1); err != nil {
 		t.Fatal(err)
 	}
 
 	// the outputs have not matured yet
-	_, balance, err = wallet.Balance()
+	_, balance, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {
@@ -127,7 +125,7 @@ func TestWallet(t *testing.T) {
 
 	// check the wallet's reported balance
 	expectedBalance := types.CalculateCoinbase(1)
-	_, balance, err = wallet.Balance()
+	_, balance, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(expectedBalance) {
@@ -148,6 +146,8 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if len(txns) != 1 {
 		t.Fatalf("expected 1 transaction, got %v", len(txns))
+	} else if txns[0].Source != wallet.TxnSourceMinerPayout {
+		t.Fatalf("expected miner payout, got %v", txns[0].Source)
 	}
 
 	// send half of the wallet's balance to the zero address
@@ -156,45 +156,45 @@ func TestWallet(t *testing.T) {
 			{Value: expectedBalance.Div64(2)},
 		},
 	}
-	toSign, release, err := wallet.FundTransaction(&txn, expectedBalance.Div64(2), nil)
+	toSign, release, err := w.FundTransaction(&txn, expectedBalance.Div64(2), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
-	if err := wallet.SignTransaction(&txn, toSign, types.FullCoveredFields); err != nil {
+	if err := w.SignTransaction(&txn, toSign, types.FullCoveredFields); err != nil {
 		t.Fatal(err)
-	}
-
-	if err := node1.tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
+	} else if err := node1.tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
 
 	// mine another block to confirm the transaction
-	if err := miner.Mine(wallet.Address(), 1); err != nil {
+	if err := miner.Mine(w.Address(), 1); err != nil {
 		t.Fatal(err)
 	}
-
 	time.Sleep(time.Second)
 
 	// check that the wallet's balance has been reduced
 	expectedBalance = expectedBalance.Div64(2)
-	_, balance, err = wallet.Balance()
+	_, balance, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(expectedBalance) {
 		t.Fatalf("expected %v balance, got %v", expectedBalance, balance)
 	}
 
-	// check that the wallet has a single transaction
-	txns, err = wallet.Transactions(0, 100)
+	// check that the wallet has a two transactions
+	txns, err = w.Transactions(0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(txns) != 2 {
 		t.Fatalf("expected 2 transaction, got %v", len(txns))
 	} else if txns[0].Transaction.ID() != txn.ID() {
 		t.Fatalf("expected transaction %v, got %v", txn.ID(), txns[0].Transaction.ID())
+	} else if txns[0].Source != wallet.TxnSourceTransaction {
+		t.Fatalf("expected transaction source, got %v", txns[0].Source)
 	}
 
+	// start a new node to trigger a reorg
 	node2, err := newTestNode(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -212,15 +212,14 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// connect the nodes to trigger a reorg
+	// connect the nodes. node1 should begin reverting its blocks
 	if err := node1.g.Connect(modules.NetAddress("127.0.0.1:" + node2.g.Address().Port())); err != nil {
 		t.Fatal(err)
 	}
-
 	time.Sleep(time.Second)
 
 	// check that the wallet's balance is back to 0
-	_, balance, err = wallet.Balance()
+	_, balance, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {
@@ -236,7 +235,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// check that all transactions have been deleted
-	txns, err = wallet.Transactions(0, 100)
+	txns, err = w.Transactions(0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(txns) != 0 {

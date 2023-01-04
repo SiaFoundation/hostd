@@ -75,6 +75,11 @@ func (cm *ChainManager) Synced() bool {
 	return cm.cs.Synced()
 }
 
+// BlockAtHeight returns the block at the given height.
+func (cm *ChainManager) BlockAtHeight(height uint64) (types.Block, bool) {
+	return cm.cs.BlockAtHeight(types.BlockHeight(height))
+}
+
 // IndexAtHeight return the chain index at the given height.
 func (cm *ChainManager) IndexAtHeight(height uint64) (ChainIndex, error) {
 	block, ok := cm.cs.BlockAtHeight(types.BlockHeight(height))
