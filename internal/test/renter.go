@@ -10,8 +10,7 @@ import (
 	"unsafe"
 
 	"go.sia.tech/hostd/consensus"
-	"go.sia.tech/hostd/internal/persist/sql"
-	"go.sia.tech/hostd/internal/store"
+	"go.sia.tech/hostd/internal/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
 	rhpv2 "go.sia.tech/renterd/rhp/v2"
 	"go.sia.tech/siad/crypto"
@@ -35,7 +34,7 @@ type (
 		*node
 
 		privKey ed25519.PrivateKey
-		store   *sql.Store
+		store   *sqlite.Store
 		cm      *renterChainManager
 		wallet  *wallet.SingleAddressWallet
 	}
@@ -297,16 +296,15 @@ func NewRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlStore, err := sql.NewSQLiteStore(filepath.Join(dir, "renter.db"))
+	sqlStore, err := sqlite.OpenDatabase(filepath.Join(dir, "renter.db"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
-	chainStore := store.NewEphemeralChainManagerStore()
-	cm, err := consensus.NewChainManager(node.cs, chainStore)
+	cm, err := consensus.NewChainManager(node.cs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
-	walletStore := sql.NewWalletStore(sqlStore)
+	walletStore := sqlite.NewWalletStore(sqlStore)
 	wallet := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
 	if err := node.cs.ConsensusSetSubscribe(wallet, modules.ConsensusChangeBeginning, nil); err != nil {
 		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)

@@ -1,4 +1,4 @@
-package sql
+package sqlite
 
 import (
 	"database/sql"
@@ -7,23 +7,13 @@ import (
 	"go.sia.tech/hostd/host/settings"
 )
 
-// ErrStoreClosed is returned when the store has been closed.
-var ErrStoreClosed = errors.New("store is closed")
-
 // SettingsStore is a store for host settings.
 type SettingsStore struct {
 	db *Store
-
-	closed chan struct{}
 }
 
 // Settings returns the current host settings.
 func (ss *SettingsStore) Settings() (s settings.Settings, err error) {
-	select {
-	case <-ss.closed:
-		return s, ErrStoreClosed
-	default:
-	}
 	const query = `SELECT settings_revision, accepting_contracts, net_address, 
 	contract_price, base_rpc_price, sector_access_price, collateral, 
 	max_collateral, min_storage_price, min_egress_price, min_ingress_price, 
@@ -46,12 +36,6 @@ FROM host_settings;`
 
 // UpdateSettings updates the host's stored settings.
 func (ss *SettingsStore) UpdateSettings(settings settings.Settings) error {
-	select {
-	case <-ss.closed:
-		return ErrStoreClosed
-	default:
-	}
-
 	const query = `INSERT INTO host_settings (settings_revision, 
 		accepting_contracts, net_address, contract_price, base_rpc_price, 
 		sector_access_price, collateral, max_collateral, min_storage_price, 
@@ -80,21 +64,9 @@ ON CONFLICT (id) DO UPDATE SET settings_revision=settings_revision+1,
 	return err
 }
 
-// Close prevents the store from being used.
-func (ss *SettingsStore) Close() error {
-	select {
-	case <-ss.closed:
-		return nil
-	default:
-	}
-	close(ss.closed)
-	return nil
-}
-
 // NewSettingsStore creates a new SettingsStore using the provided database.
 func NewSettingsStore(db *Store) *SettingsStore {
 	return &SettingsStore{
-		db:     db,
-		closed: make(chan struct{}),
+		db: db,
 	}
 }

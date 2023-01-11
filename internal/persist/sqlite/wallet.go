@@ -1,4 +1,4 @@
-package sql
+package sqlite
 
 import (
 	"bytes"
@@ -20,14 +20,13 @@ type (
 
 	// A WalletStore gets and sets the current state of a wallet.
 	WalletStore struct {
-		db     *Store
-		closed chan struct{}
+		db *Store
 	}
 )
 
 // AddSiacoinElement adds a spendable siacoin output to the wallet.
 func (wtx *walletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
-	_, err := wtx.tx.Exec(`
+	_, err := wtx.tx.ExecContext(context.Background(), `
 		INSERT INTO wallet_utxos (id, amount, unlock_hash) VALUES (?, ?, ?)
 	`, valueHash(utxo.ID), valueCurrency(utxo.Value), valueHash(utxo.UnlockHash))
 	return err
@@ -36,39 +35,34 @@ func (wtx *walletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
 // RemoveSiacoinElement removes a spendable siacoin output from the wallet
 // either due to a spend or a reorg.
 func (wtx *walletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error {
-	_, err := wtx.tx.Exec(`DELETE FROM wallet_utxos WHERE id=?`, valueHash(id))
+	_, err := wtx.tx.ExecContext(context.Background(), `DELETE FROM wallet_utxos WHERE id=?`, valueHash(id))
 	return err
 }
 
 // AddTransaction adds a transaction to the wallet.
-func (wtx *walletTxn) AddTransaction(txn wallet.Transaction) error {
+func (wtx *walletTxn) AddTransaction(txn wallet.Transaction, idx uint64) error {
 	var buf bytes.Buffer
 	if err := txn.Transaction.MarshalSia(&buf); err != nil {
 		return fmt.Errorf("failed to marshal transaction: %w", err)
 	}
-	_, err := wtx.tx.Exec(`INSERT INTO wallet_transactions (id, block_id, block_height, source, inflow, outflow, raw_data, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, valueHash(txn.ID), valueHash(txn.Index.ID), txn.Index.Height, txn.Source, valueCurrency(txn.Inflow), valueCurrency(txn.Outflow), buf.Bytes(), valueTime(txn.Timestamp))
+	_, err := wtx.tx.ExecContext(context.Background(), `INSERT INTO wallet_transactions (id, block_id, block_height, block_index, source, inflow, outflow, raw_data, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, valueHash(txn.ID), valueHash(txn.Index.ID), txn.Index.Height, idx, txn.Source, valueCurrency(txn.Inflow), valueCurrency(txn.Outflow), buf.Bytes(), valueTime(txn.Timestamp))
 	return err
 }
 
 // RemoveTransaction removes a transaction from the wallet.
 func (wtx *walletTxn) RemoveTransaction(id types.TransactionID) error {
-	_, err := wtx.tx.Exec(`DELETE FROM wallet_transactions WHERE id=?`, valueHash(id))
+	_, err := wtx.tx.ExecContext(context.Background(), `DELETE FROM wallet_transactions WHERE id=?`, valueHash(id))
 	return err
 }
 
 // SetLastChange sets the last processed consensus change.
 func (wtx *walletTxn) SetLastChange(id modules.ConsensusChangeID) error {
-	_, err := wtx.tx.Exec(`INSERT INTO wallet_settings (last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET last_processed_change=excluded.last_processed_change`, valueHash(id))
+	_, err := wtx.tx.ExecContext(context.Background(), `INSERT INTO wallet_settings (last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET last_processed_change=excluded.last_processed_change`, valueHash(id))
 	return err
 }
 
 // GetLastChange gets the last processed consensus change.
 func (ws *WalletStore) GetLastChange() (id modules.ConsensusChangeID, err error) {
-	select {
-	case <-ws.closed:
-		return id, ErrStoreClosed
-	default:
-	}
 	err = ws.db.db.QueryRow(`SELECT last_processed_change FROM wallet_settings`).Scan(scanHash((*[32]byte)(&id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, nil
@@ -78,11 +72,6 @@ func (ws *WalletStore) GetLastChange() (id modules.ConsensusChangeID, err error)
 
 // UnspentSiacoinElements returns the spendable siacoin outputs in the wallet.
 func (ws *WalletStore) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err error) {
-	select {
-	case <-ws.closed:
-		return nil, ErrStoreClosed
-	default:
-	}
 	rows, err := ws.db.db.Query(`SELECT id, amount, unlock_hash FROM wallet_utxos`)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -100,14 +89,10 @@ func (ws *WalletStore) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, 
 	return utxos, nil
 }
 
-// Transactions returns the transactions in the wallet.
-func (ws *WalletStore) Transactions(skip, max int) (txns []wallet.Transaction, err error) {
-	select {
-	case <-ws.closed:
-		return nil, ErrStoreClosed
-	default:
-	}
-	rows, err := ws.db.db.Query(`SELECT id, block_id, block_height, source, inflow, outflow, raw_data, date_created FROM wallet_transactions ORDER BY date_created DESC LIMIT ? OFFSET ?`, max, skip)
+// Transactions returns a paginated list of transactions ordered by block height
+// descending. If no transactions are found, (nil, nil) is returned.
+func (ws *WalletStore) Transactions(limit, offset int) (txns []wallet.Transaction, err error) {
+	rows, err := ws.db.db.Query(`SELECT id, block_id, block_height, source, inflow, outflow, raw_data, date_created FROM wallet_transactions ORDER BY block_height DESC, block_index ASC LIMIT ? OFFSET ?`, limit, offset)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	} else if err != nil {
@@ -127,33 +112,22 @@ func (ws *WalletStore) Transactions(skip, max int) (txns []wallet.Transaction, e
 	return
 }
 
-// Update begins an update transaction on the wallet store.
-func (ws *WalletStore) Update(ctx context.Context, fn func(wallet.UpdateTransaction) error) error {
-	select {
-	case <-ws.closed:
-		return ErrStoreClosed
-	default:
-	}
-	return ws.db.transaction(ctx, func(tx txn) error {
-		return fn(&walletTxn{tx})
-	})
+// TransactionCount returns the total number of transactions in the wallet.
+func (ws *WalletStore) TransactionCount() (count uint64, err error) {
+	err = ws.db.db.QueryRow(`SELECT COUNT(*) FROM wallet_transactions`).Scan(&count)
+	return
 }
 
-// Close prevents the store from being used.
-func (ws *WalletStore) Close() error {
-	select {
-	case <-ws.closed:
-		return nil
-	default:
-	}
-	close(ws.closed)
-	return nil
+// Update begins an update transaction on the wallet store.
+func (ws *WalletStore) Update(ctx context.Context, fn func(wallet.UpdateTransaction) error) error {
+	return ws.db.transaction(ctx, func(_ context.Context, tx txn) error {
+		return fn(&walletTxn{tx})
+	})
 }
 
 // NewWalletStore initializes a new wallet store.
 func NewWalletStore(db *Store) *WalletStore {
 	return &WalletStore{
-		db:     db,
-		closed: make(chan struct{}),
+		db: db,
 	}
 }

@@ -118,6 +118,10 @@ func (m *ConfigManager) Close() error {
 	return nil
 }
 
+func (m *ConfigManager) Announce(netaddress string) error {
+	panic("not implemented")
+}
+
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)

@@ -36,17 +36,19 @@ CREATE TABLE accounts (
 
 CREATE TABLE storage_volumes (
 	id TEXT PRIMARY KEY,
-	disk_path TEXT NOT NULL,
-	total_sectors UNSIGNED BIG INT NOT NULL,
+	disk_path TEXT UNIQUE NOT NULL,
+	max_sectors UNSIGNED BIG INT NOT NULL,
 	writeable BOOLEAN NOT NULL
 );
 
-CREATE TABLE sector_metadata (
-	sector_root TEXT PRIMARY KEY,
-	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- do not set null here, sectors must first be migrated to a new volume
-	volume_index UNSIGNED BIG INT NOT NULL
+CREATE TABLE volume_sectors (
+	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- on delete, all sectors will need to be migrated first
+	volume_index UNSIGNED BIG INT NOT NULL,
+	sector_root TEXT UNIQUE, -- set null if the sector is not used
+	locks UNSIGNED BIG INT NOT NULL DEFAULT 0, -- number of locks on the sector. prevents overwriting or pruning sectors that are in use. must be cleared on startup.
+	PRIMARY KEY (volume_id, volume_index)
 );
-CREATE INDEX sector_metadata_volume_id_index ON sector_metadata(volume_id, volume_index);
+CREATE INDEX volume_sectors_volume_index_sector_root ON volume_sectors(volume_index, sector_root);
 
 CREATE TABLE contracts (
 	id TEXT PRIMARY KEY,
@@ -68,11 +70,12 @@ CREATE INDEX contracts_window_end_index ON contracts(window_end);
 
 CREATE TABLE contract_sector_roots (
 	contract_id TEXT REFERENCES contracts ON DELETE CASCADE,
-	sector_root TEXT NOT NULL REFERENCES sector_metadata,
+	sector_root TEXT NOT NULL,
 	root_order UNSIGNED BIG INT NOT NULL,
 	UNIQUE(contract_id, root_order)
 );
 CREATE INDEX contract_sector_roots_contract_id_index ON contract_sector_roots(contract_id);
+CREATE INDEX contract_sector_roots_sector_root ON contract_sector_roots(sector_root);
 
 CREATE TABLE temp_storage (
 	sector_root TEXT PRIMARY KEY,

@@ -1,4 +1,4 @@
-package sql
+package sqlite
 
 import (
 	"context"
@@ -8,14 +8,14 @@ import (
 
 func TestInit(t *testing.T) {
 	fp := filepath.Join(t.TempDir(), "test.db")
-	db, err := NewSQLiteStore(fp)
+	db, err := OpenDatabase(fp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	var version uint64
-	err = db.transaction(context.Background(), func(tx txn) (err error) {
+	err = db.transaction(context.Background(), func(_ context.Context, tx txn) (err error) {
 		version = getDBVersion(tx)
 		return nil
 	})

@@ -85,8 +85,6 @@ type (
 	// Implementations are assumed to be thread safe.
 	SingleAddressStore interface {
 		Update(context.Context, func(UpdateTransaction) error) error
-		Close() error
-
 		UnspentSiacoinElements() ([]SiacoinElement, error)
 		// Transactions returns a paginated list of transactions ordered by
 		// block height, descending. If no more transactions are available,
@@ -149,9 +147,9 @@ func transactionIsRelevant(txn types.Transaction, addr types.UnlockHash) bool {
 	return false
 }
 
-// Close closes the underlying wallet store
+// Close closes the wallet
 func (sw *SingleAddressWallet) Close() error {
-	return sw.store.Close()
+	return nil
 }
 
 // Address returns the address of the wallet.

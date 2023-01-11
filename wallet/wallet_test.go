@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/hostd/consensus"
-	"go.sia.tech/hostd/internal/persist/sql"
-	"go.sia.tech/hostd/internal/store"
+	"go.sia.tech/hostd/internal/persist/sqlite"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
@@ -50,8 +49,7 @@ func newTestNode(dir string) (*testNode, error) {
 		return nil, fmt.Errorf("failed to create transaction pool: %w", err)
 	}
 
-	chainStore := store.NewEphemeralChainManagerStore()
-	cm, err := consensus.NewChainManager(cs, chainStore)
+	cm, err := consensus.NewChainManager(cs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
@@ -92,18 +90,17 @@ func TestWallet(t *testing.T) {
 	}
 	defer node1.Close()
 
-	consensusStore := store.NewEphemeralChainManagerStore()
-	cm, err := consensus.NewChainManager(node1.cs, consensusStore)
+	cm, err := consensus.NewChainManager(node1.cs)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	privKey := ed25519.NewKeyFromSeed(frand.Bytes(ed25519.SeedSize))
-	sqlStore, err := sql.NewSQLiteStore(filepath.Join(t.TempDir(), "hostd.db"))
+	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "hostd.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	walletStore := sql.NewWalletStore(sqlStore)
+	walletStore := sqlite.NewWalletStore(db)
 	w := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
 
 	ccID, err := walletStore.GetLastChange()

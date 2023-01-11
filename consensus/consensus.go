@@ -10,13 +10,6 @@ import (
 )
 
 type (
-	// A Store stores the current state of the chain manager
-	Store interface {
-		Close() error
-		GetLastChange() (modules.ConsensusChangeID, error)
-		SetLastChange(modules.ConsensusChangeID) error
-	}
-
 	// A ChainIndex groups a block's ID and height.
 	ChainIndex struct {
 		ID     types.BlockID
@@ -30,8 +23,7 @@ type (
 
 	// A ChainManager manages the current state of the blockchain.
 	ChainManager struct {
-		cs    modules.ConsensusSet
-		store Store
+		cs modules.ConsensusSet
 
 		close chan struct{}
 		mu    sync.Mutex
@@ -54,9 +46,6 @@ func (cm *ChainManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			Height: uint64(cc.BlockHeight),
 		},
 	}
-	if err := cm.store.SetLastChange(cc.ID); err != nil {
-		panic(err)
-	}
 }
 
 // Close closes the chain manager.
@@ -67,7 +56,7 @@ func (cm *ChainManager) Close() error {
 	default:
 	}
 	close(cm.close)
-	return cm.store.Close()
+	return nil
 }
 
 // Synced returns true if the chain manager is synced with the consensus set.
@@ -100,17 +89,26 @@ func (cm *ChainManager) Tip() State {
 }
 
 // NewChainManager creates a new chain manager.
-func NewChainManager(cs modules.ConsensusSet, store Store) (*ChainManager, error) {
+func NewChainManager(cs modules.ConsensusSet) (*ChainManager, error) {
+	height := cs.Height()
+	block, ok := cs.BlockAtHeight(height)
+	if !ok {
+		return nil, fmt.Errorf("failed to get block at height %d", height)
+	}
+
 	cm := &ChainManager{
-		cs:    cs,
-		store: store,
+		cs: cs,
+		tip: State{
+			Index: ChainIndex{
+				ID:     block.ID(),
+				Height: uint64(height),
+			},
+		},
 
 		close: make(chan struct{}),
 	}
-	cc, err := store.GetLastChange()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last change: %w", err)
-	} else if err := cs.ConsensusSetSubscribe(cm, cc, cm.close); err != nil {
+
+	if err := cs.ConsensusSetSubscribe(cm, modules.ConsensusChangeRecent, cm.close); err != nil {
 		return nil, fmt.Errorf("failed to subscribe to consensus set: %w", err)
 	}
 	return cm, nil

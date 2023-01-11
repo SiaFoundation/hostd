@@ -10,8 +10,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/internal/persist/sql"
-	"go.sia.tech/hostd/internal/store"
+	"go.sia.tech/hostd/internal/persist/sqlite"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
@@ -27,7 +26,7 @@ func (stubMetricReporter) Report(any) (_ error) { return }
 type Host struct {
 	*node
 
-	store     *sql.Store
+	store     *sqlite.Store
 	wallet    *wallet.SingleAddressWallet
 	settings  *settings.ConfigManager
 	storage   rhpv3.StorageManager
@@ -106,24 +105,24 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
 
-	sqlStore, err := sql.NewSQLiteStore(filepath.Join(dir, "hostd.db"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
+	defer db.Close()
 
-	chainStore := store.NewEphemeralChainManagerStore()
-	cm, err := consensus.NewChainManager(node.cs, chainStore)
+	cm, err := consensus.NewChainManager(node.cs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
 
-	walletStore := sql.NewWalletStore(sqlStore)
+	walletStore := sqlite.NewWalletStore(db)
 	wallet := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
 	if err := node.cs.ConsensusSetSubscribe(wallet, modules.ConsensusChangeBeginning, nil); err != nil {
 		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
 	}
 
-	storage := store.NewEphemeralStorageManager()
+	/*storage := store.NewEphemeralStorageManager()
 	contracts := contracts.NewManager(store.NewEphemeralContractStore(), storage, cm, node.tp, wallet)
 	settingsStore := sql.NewSettingsStore(sqlStore)
 	settings, err := settings.NewConfigManager(settingsStore)
@@ -143,7 +142,7 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
-	go rhpv3.Serve()
+	go rhpv3.Serve()*
 	return &Host{
 		node:      node,
 		store:     sqlStore,
@@ -156,5 +155,6 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 
 		rhpv2: rhpv2,
 		rhpv3: rhpv3,
-	}, nil
+	}, nil*/
+	return nil, nil
 }
