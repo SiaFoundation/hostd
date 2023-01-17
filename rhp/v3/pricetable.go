@@ -109,7 +109,7 @@ func (sh *SessionHandler) PriceTable() (PriceTable, error) {
 	}
 
 	min, max := sh.tpool.FeeEstimation()
-	currentHeight := types.BlockHeight(sh.chain.Tip().Index.Height)
+	currentHeight := sh.chain.Tip().Index.Height
 	oneHasting := types.NewCurrency64(1)
 	return PriceTable{
 		UID:             frand.Entropy128(),
@@ -149,7 +149,7 @@ func (sh *SessionHandler) PriceTable() (PriceTable, error) {
 		ContractPrice:     settings.ContractPrice,
 		CollateralCost:    settings.Collateral,
 		MaxCollateral:     settings.MaxCollateral,
-		MaxDuration:       types.BlockHeight(settings.MaxContractDuration),
+		MaxDuration:       settings.MaxContractDuration,
 		WindowSize:        144,
 		RenewContractCost: modules.DefaultBaseRPCPrice,
 

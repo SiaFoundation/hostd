@@ -9,7 +9,6 @@ import (
 
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -106,9 +105,9 @@ func (sh *SessionHandler) processEphemeralAccountPayment(s *rpcSession, height u
 
 	// validate that the request is valid.
 	switch {
-	case req.Message.Expiry < types.BlockHeight(height):
+	case req.Message.Expiry < height:
 		return nil, errors.New("withdrawal request expired")
-	case req.Message.Expiry > types.BlockHeight(height+20):
+	case req.Message.Expiry > height+20:
 		return nil, errors.New("withdrawal request too far in the future")
 	case req.Message.Amount.IsZero():
 		return nil, errors.New("withdrawal request has zero amount")

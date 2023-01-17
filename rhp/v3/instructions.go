@@ -108,7 +108,7 @@ type (
 )
 
 var (
-	idInstrAppendSector     = newSpecifier("AppendSector")
+	idInstrAppendSector     = newSpecifier("Append")
 	idInstrAppendSectorRoot = newSpecifier("AppendSectorRoot")
 	idInstrDropSectors      = newSpecifier("DropSectors")
 	idInstrHasSector        = newSpecifier("HasSector")

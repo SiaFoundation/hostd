@@ -22,6 +22,23 @@ func writeResponse(enc *encoder, obj rpcObject) {
 	resp.encodeTo(enc)
 }
 
+func readResponse(dec *decoder, obj rpcObject, maxLen int64) error {
+	length := dec.ReadPrefix()
+	if err := dec.Err(); err != nil {
+		return fmt.Errorf("failed to read length prefix: %w", err)
+	} else if int64(length) > maxLen {
+		return fmt.Errorf("length exceeds max length: %d > %d", length, maxLen)
+	}
+
+	resp := &rpcResponse{nil, obj}
+	if err := resp.decodeFrom(dec); err != nil {
+		return err
+	} else if resp.err != nil {
+		return fmt.Errorf("remote error: %w", resp.err)
+	}
+	return nil
+}
+
 // WriteObjects writes an object to the stream
 func (s *rpcSession) WriteObjects(objs ...rpcObject) error {
 	for _, obj := range objs {
@@ -52,18 +69,5 @@ func (s *rpcSession) ReadObject(obj rpcObject, maxLen int64, timeout time.Durati
 		maxLen = minMessageSize
 	}
 	dec := newDecoder(io.LimitedReader{R: s.stream, N: maxLen})
-	length := dec.ReadPrefix()
-	if err := dec.Err(); err != nil {
-		return fmt.Errorf("failed to read length prefix: %w", err)
-	} else if int64(length) > maxLen {
-		return fmt.Errorf("length exceeds max length: %d > %d", length, maxLen)
-	}
-
-	resp := &rpcResponse{nil, obj}
-	if err := resp.decodeFrom(dec); err != nil {
-		return err
-	} else if resp.err != nil {
-		return fmt.Errorf("remote error: %w", resp.err)
-	}
-	return nil
+	return readResponse(dec, obj, maxLen)
 }

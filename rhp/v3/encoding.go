@@ -336,8 +336,8 @@ func (c *objCurrency) encodeTo(e *encoder) {
 	}
 
 	buf := make([]byte, i+1)
-	for ; i >= 0; i-- {
-		buf[i] = byte(bits[i/_S] >> (uint(i%_S) * 8))
+	for j := 0; i >= 0; i, j = i-1, j+1 {
+		buf[j] = byte(bits[i/_S] >> (uint(i%_S) * 8))
 	}
 	e.WriteBytes(buf)
 }
@@ -797,7 +797,7 @@ func (wm *withdrawalMessage) encodeTo(e *encoder) {
 
 func (wm *withdrawalMessage) decodeFrom(d *decoder) error {
 	(*objAccountID)(&wm.AccountID).decodeFrom(d)
-	wm.Expiry = types.BlockHeight(d.ReadUint64())
+	wm.Expiry = d.ReadUint64()
 	(*objCurrency)(&wm.Amount).decodeFrom(d)
 	d.Read(wm.Nonce[:])
 	return d.Err()

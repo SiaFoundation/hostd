@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"bytes"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -30,11 +31,14 @@ type (
 	// A Specifier is a unique 16-byte identifier used to identify RPC calls.
 	Specifier [16]byte
 
+	// A PriceTableUID is a unique identifier for a price table.
+	PriceTableUID [16]byte
+
 	// A PriceTable contains the cost of interacting with the host through
 	// RHP3 RPCs.
 	PriceTable struct {
 		// UID is a unique specifier that identifies this price table
-		UID Specifier `json:"uid"`
+		UID PriceTableUID `json:"uid"`
 
 		// Validity is a duration that specifies how long the host guarantees these
 		// prices for and are thus considered valid.
@@ -42,7 +46,7 @@ type (
 
 		// HostBlockHeight is the block height of the host. This allows the renter
 		// to create valid withdrawal messages in case it is not synced yet.
-		HostBlockHeight types.BlockHeight `json:"hostblockheight"`
+		HostBlockHeight uint64 `json:"hostblockheight"`
 
 		// UpdatePriceTableCost refers to the cost of fetching a new price table
 		// from the host.
@@ -129,11 +133,11 @@ type (
 
 		// MaxDuration is the max duration for which the host is willing to form a
 		// contract.
-		MaxDuration types.BlockHeight `json:"maxduration"`
+		MaxDuration uint64 `json:"maxduration"`
 
 		// WindowSize is the minimum time in blocks the host requests the
 		// renewWindow of a new contract to be.
-		WindowSize types.BlockHeight `json:"windowsize"`
+		WindowSize uint64 `json:"windowsize"`
 
 		// Registry related fields.
 		RegistryEntriesLeft  uint64 `json:"registryentriesleft"`
@@ -170,7 +174,7 @@ type (
 
 	withdrawalMessage struct {
 		AccountID accounts.AccountID
-		Expiry    types.BlockHeight
+		Expiry    uint64
 		Amount    types.Currency
 		Nonce     [8]byte
 	}
@@ -250,6 +254,19 @@ var (
 
 func (s Specifier) String() string {
 	return string(bytes.Trim(s[:], "\x00"))
+}
+
+func (pu PriceTableUID) String() string {
+	return hex.EncodeToString(pu[:])
+}
+
+func (pu PriceTableUID) MarshalText() ([]byte, error) {
+	return []byte(pu.String()), nil
+}
+
+func (s *Specifier) UnmarshalText(b []byte) error {
+	_, err := hex.Decode(s[:], b)
+	return err
 }
 
 // Error implements the error interface.
