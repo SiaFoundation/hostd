@@ -19,11 +19,10 @@ type (
 		// The subscriber must be prependend to the first call to Write(), but
 		// the response is not sent until future calls to Write() have
 		// completed.
-		lazyMu  sync.Mutex // guards the lazy write buffer
 		lazyBuf []byte
-
-		// ch is used to signal the completion of the subscriber handshake.
-		ch chan struct{}
+		// handshakeComplete is signals the completion of the subscriber
+		// handshake.
+		handshakeComplete bool
 	}
 
 	// A SubscriberMux is a mux that also handles the subscriber and app seed
@@ -45,12 +44,6 @@ type (
 )
 
 var (
-	zeroCh = func() chan struct{} {
-		ch := make(chan struct{})
-		close(ch)
-		return ch
-	}()
-
 	// ErrUnknownSubscriber is returned when the subscriber is not registered
 	// with the router.
 	ErrUnknownSubscriber = errors.New("unknown subscriber")
@@ -59,8 +52,8 @@ var (
 // route reciprocates the subscriber handshake and routes the stream to the
 // appropriate handler.
 func (r *SubscriberRouter) route(stream *Stream) {
-	// create a new subscriber stream with the read channel unlocked.
-	ss := &SubscriberStream{Stream: stream, ch: zeroCh}
+	// create a new subscriber stream with handshake marked as complete
+	ss := &SubscriberStream{Stream: stream, handshakeComplete: true}
 	defer ss.Close()
 
 	// read the subscriber request
@@ -82,11 +75,25 @@ func (r *SubscriberRouter) route(stream *Stream) {
 	handler(subscriber, ss)
 }
 
+func (ss *SubscriberStream) handleSubscriberResponse() {
+	// wait for the subscriber response
+	defer func() { ss.handshakeComplete = true }()
+	// read the subscriber response
+	err := ss.readSubscriberResponse()
+	if err != nil {
+		// overwrite the stream error with the subscriber error
+		ss.cond.L.Lock()
+		ss.err = fmt.Errorf("failed to read subscriber response: %w", err)
+		ss.cond.Broadcast()
+		ss.cond.L.Unlock()
+		ss.Close()
+		return
+	}
+}
+
 // lazyWrite appends the bytes to the lazy write buffer. The buffer is written
 // to the stream during the next call to Write().
 func (ss *SubscriberStream) lazyWrite(p []byte) {
-	ss.lazyMu.Lock()
-	defer ss.lazyMu.Unlock()
 	ss.lazyBuf = append(ss.lazyBuf, p...)
 }
 
@@ -157,23 +164,23 @@ func (ss *SubscriberStream) writeSubscriberResponse(err error) {
 	ss.Write(buf)
 }
 
-// Read implements io.Reader
+// Read implements io.Reader.
 func (ss *SubscriberStream) Read(p []byte) (int, error) {
-	<-ss.ch // block until the subscriber handshake is complete
+	if !ss.handshakeComplete {
+		ss.handleSubscriberResponse()
+	}
 	n, err := ss.Stream.Read(p)
 	return n, err
 }
 
 // Write implements io.Writer
 func (ss *SubscriberStream) Write(p []byte) (int, error) {
-	ss.lazyMu.Lock()
 	var m int
 	// if there is a lazy write buffer, write it to the stream
 	if m = len(ss.lazyBuf); m != 0 {
 		p = append(ss.lazyBuf, p...)
 		ss.lazyBuf = nil
 	}
-	ss.lazyMu.Unlock()
 
 	n, err := ss.Stream.Write(p)
 	if n >= m {
@@ -185,28 +192,9 @@ func (ss *SubscriberStream) Write(p []byte) (int, error) {
 // NewSubscriberStream creates a new Stream that subscribes to the specified
 // handler on the peer.
 func (sm *SubscriberMux) NewSubscriberStream(subscriber string) (*SubscriberStream, error) {
-	// lock the stream to prevent reads until the subscriber handshake is
-	// complete.
-	ss := &SubscriberStream{Stream: sm.Mux.NewStream(), ch: make(chan struct{})}
+	// create a new stream with the subscriber handshake marked as incomplete
+	ss := &SubscriberStream{Stream: sm.Mux.NewStream()}
 	ss.writeSubscriberRequest(subscriber)
-	// The subscriber handshake must happen asynchronously for compatibility
-	// with siad.
-	go func() {
-		// close the Read() guard after the handshake is complete
-		defer close(ss.ch)
-
-		// read the subscriber response
-		err := ss.readSubscriberResponse()
-		if err != nil {
-			// overwrite the stream error with the subscriber error
-			ss.cond.L.Lock()
-			ss.err = fmt.Errorf("failed to read subscriber response: %w", err)
-			ss.cond.Broadcast()
-			ss.cond.L.Unlock()
-			ss.Close()
-			return
-		}
-	}()
 	return ss, nil
 }
 

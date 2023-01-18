@@ -8,6 +8,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"gitlab.com/NebulousLabs/log"
@@ -99,6 +100,65 @@ func TestSubscriberRouter(t *testing.T) {
 			t.Fatalf("unexpected reply: got %v expected %v", resp, req)
 		}
 	})
+}
+
+func TestManySubscribers(t *testing.T) {
+	serverKey := ed25519.NewKeyFromSeed(frand.Bytes(ed25519.SeedSize))
+
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal("failed to listen:", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	startEchoSubscriber(listener, serverKey)
+
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal("failed to dial:", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	m, err := DialSubscriber(conn, 8000, serverKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal("failed to dial subscriber:", err)
+	}
+	t.Cleanup(func() { m.Close() })
+
+	var wg sync.WaitGroup
+	var errCh = make(chan error, 1)
+	wg.Add(1000)
+	for i := 0; i < 1000; i++ {
+		go func(i int) {
+			defer wg.Done()
+			s, err := m.NewSubscriberStream("echo")
+			if err != nil {
+				errCh <- fmt.Errorf("stream %v: failed to create subscriber stream: %w", i, err)
+				return
+			}
+			defer s.Close()
+
+			req := frand.Bytes(128)
+			if err := writePrefixedBytes(s, req); err != nil {
+				errCh <- fmt.Errorf("stream %v: failed to write object to stream: %w", i, err)
+				return
+			} else if resp, err := readPrefixedBytes(s, 1024); err != nil {
+				errCh <- fmt.Errorf("stream %v: failed to read subscriber reply: %w", i, err)
+				return
+			} else if !bytes.Equal(req, resp) {
+				errCh <- fmt.Errorf("stream %v: unexpected reply: got %v expected %v", i, resp, req)
+				return
+			}
+		}(i)
+	}
+
+	go func() {
+		wg.Wait()
+		close(errCh)
+	}()
+
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSubscriberRouterCompat(t *testing.T) {
