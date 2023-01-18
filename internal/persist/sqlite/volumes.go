@@ -31,10 +31,10 @@ func (vs *VolumeStore) migrateSector(oldLoc storage.SectorLocation, startIndex u
 
 	var newLoc storage.SectorLocation
 	var exists bool
-	err := vs.db.exclusiveTransaction(context.Background(), func(ctx context.Context, tx txn) error {
+	err := vs.db.exclusiveTransaction(func(tx txn) error {
 		// get a sector location. If no rows are returned, there is no remaining
 		// space.
-		err := tx.QueryRowContext(ctx, locQuery, oldLoc.Volume, startIndex).Scan(scanHash((*[32]byte)(&newLoc.Volume)), &newLoc.Index, &exists)
+		err := tx.QueryRow(locQuery, oldLoc.Volume, startIndex).Scan(scanHash((*[32]byte)(&newLoc.Volume)), &newLoc.Index, &exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrNotEnoughStorage
 		} else if err != nil {
@@ -63,7 +63,7 @@ func (vs *VolumeStore) Volumes() ([]storage.Volume, error) {
 	COUNT(*) AS total_sectors,
 	COUNT(*) FILTER (WHERE s.sector_root IS NOT NULL) AS used_sectors
 FROM storage_volumes v
-INNER JOIN volume_sectors s`
+LEFT JOIN volume_sectors s`
 	rows, err := vs.db.db.QueryContext(context.Background(), query)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -83,30 +83,31 @@ INNER JOIN volume_sectors s`
 	return volumes, nil
 }
 
-// StoreSector returns an empty location in a writeable volume. The
-// returned location is locked until release is called. If no space is
-// available, ErrNotEnoughStorage is returned.
+// StoreSector returns an empty location in a writeable volume. The returned
+// location is locked until release is called. If no space is available,
+// ErrNotEnoughStorage is returned. It is the caller's responsibility to set
+// the location's sector root.
 //
 // If the sector already exists in the store, the existing location and
-// ErrSectorExists are returned. The location is still locked until
-// release is called.
+// ErrSectorExists are returned. The location is still locked until release is
+// called.
 //
 // If replace is true, a new location is always returned.
 func (vs *VolumeStore) StoreSector(root storage.SectorRoot) (storage.SectorLocation, func() error, error) {
 	// SQLite sorts nulls first -- sort by sector_root DESC, volume_index
 	// ASC to push the existing index to the top.
-	const locQuery = `SELECT s.volume_id, s.volume_index, s.sector_root IS NULL AS sector_exists
+	const locQuery = `SELECT s.volume_id, s.volume_index, s.sector_root IS NOT NULL AS sector_exists
 FROM volume_sectors s
 INNER JOIN storage_volumes v
-WHERE s.locks=0 AND (s.sector_root=? OR (v.writeable=true AND s.sector_root IS NULL))
+WHERE s.sector_root=? OR s.locks=0 AND v.writeable=true AND s.sector_root IS NULL
 ORDER BY s.sector_root DESC, s.volume_index ASC LIMIT 1;`
 
 	var location storage.SectorLocation
 	var exists bool
-	err := vs.db.exclusiveTransaction(context.Background(), func(ctx context.Context, tx txn) error {
+	err := vs.db.exclusiveTransaction(func(tx txn) error {
 		// get a sector location. If no rows are returned, there is no remaining
 		// space.
-		err := tx.QueryRowContext(ctx, locQuery, valueHash(root)).Scan(scanHash((*[32]byte)(&location.Volume)), &location.Index, &exists)
+		err := tx.QueryRow(locQuery, valueHash(root)).Scan(scanHash((*[32]byte)(&location.Volume)), &location.Index, &exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrNotEnoughStorage
 		} else if err != nil {
@@ -177,8 +178,8 @@ func (vs *VolumeStore) MigrateSectors(id storage.VolumeID, startIndex uint64, mi
 	}
 
 	// update the sector locations
-	err := vs.db.exclusiveTransaction(context.Background(), func(ctx context.Context, tx txn) error {
-		updateStmt, err := tx.PrepareContext(ctx, `UPDATE volume_sectors SET sector_root=NULL WHERE sector_root=?;
+	err := vs.db.exclusiveTransaction(func(tx txn) error {
+		updateStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_root=NULL WHERE sector_root=?;
 UPDATE volume_sectors SET sector_root=? WHERE volume_id=? AND volume_index=?;`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare sector update statement: %w", err)
@@ -219,11 +220,11 @@ func (vs *VolumeStore) AddVolume(localPath string, maxSectors uint64, readOnly b
 // are used sectors in the volume, ErrVolumeNotEmpty is returned. If force is
 // true, the volume is removed regardless of whether it is empty.
 func (vs *VolumeStore) RemoveVolume(id storage.VolumeID, force bool) error {
-	return vs.db.exclusiveTransaction(context.Background(), func(ctx context.Context, tx txn) error {
+	return vs.db.exclusiveTransaction(func(tx txn) error {
 		if !force {
 			// check if the volume is empty
 			var count int
-			err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM volume_sectors WHERE volume_id=? AND sector_root IS NOT NULL;`, valueHash(id)).Scan(&count)
+			err := tx.QueryRow(`SELECT COUNT(*) FROM volume_sectors WHERE volume_id=? AND sector_root IS NOT NULL;`, valueHash(id)).Scan(&count)
 			if err != nil {
 				return fmt.Errorf("failed to check if volume is empty: %w", err)
 			} else if count != 0 {
@@ -232,13 +233,13 @@ func (vs *VolumeStore) RemoveVolume(id storage.VolumeID, force bool) error {
 		}
 
 		// remove the volume sectors
-		_, err := tx.ExecContext(ctx, `DELETE FROM volume_sectors WHERE volume_id=?;`, valueHash(id))
+		_, err := tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=?;`, valueHash(id))
 		if err != nil {
 			return fmt.Errorf("failed to remove volume sectors: %w", err)
 		}
 
 		// remove the volume
-		_, err = tx.ExecContext(ctx, `DELETE FROM storage_volumes WHERE id=?;`, valueHash(id))
+		_, err = tx.Exec(`DELETE FROM storage_volumes WHERE id=?;`, valueHash(id))
 		if err != nil {
 			return fmt.Errorf("failed to remove volume: %w", err)
 		}
@@ -249,21 +250,21 @@ func (vs *VolumeStore) RemoveVolume(id storage.VolumeID, force bool) error {
 
 // GrowVolume grows a storage volume's metadata by n sectors.
 func (vs *VolumeStore) GrowVolume(id storage.VolumeID, n uint64) error {
-	return vs.db.exclusiveTransaction(context.Background(), func(ctx context.Context, tx txn) error {
-		stmt, err := tx.PrepareContext(ctx, `INSERT INTO volume_sectors (volume_id, volume_index, sector_root) VALUES (?, ?, NULL);`)
+	return vs.db.exclusiveTransaction(func(tx txn) error {
+		stmt, err := tx.Prepare(`INSERT INTO volume_sectors (volume_id, volume_index, sector_root) VALUES (?, ?, NULL);`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare statement: %w", err)
 		}
 		defer stmt.Close()
 
 		var lastIndex uint64
-		err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(volume_index)+1, 0) AS next_index FROM volume_sectors WHERE volume_id=?;`, valueHash(id)).Scan(&lastIndex)
+		err = tx.QueryRow(`SELECT COALESCE(MAX(volume_index)+1, 0) AS next_index FROM volume_sectors WHERE volume_id=?;`, valueHash(id)).Scan(&lastIndex)
 		if err != nil {
 			return fmt.Errorf("failed to get last volume index: %w", err)
 		}
 
 		for i := lastIndex; i < lastIndex+n; i++ {
-			_, err = stmt.ExecContext(ctx, valueHash(id), i)
+			_, err = stmt.Exec(valueHash(id), i)
 			if err != nil {
 				return fmt.Errorf("failed to grow volume: %w", err)
 			}
@@ -275,17 +276,17 @@ func (vs *VolumeStore) GrowVolume(id storage.VolumeID, n uint64) error {
 // ShrinkVolume shrinks a storage volume's metadata to maxSectors. If there are
 // used sectors outside of the new range, an error is returned.
 func (vs *VolumeStore) ShrinkVolume(id storage.VolumeID, maxSectors uint64) error {
-	return vs.db.exclusiveTransaction(context.Background(), func(ctx context.Context, tx txn) error {
+	return vs.db.exclusiveTransaction(func(tx txn) error {
 		// check if there are any used sectors in the shrink range
 		var count uint64
-		err := tx.QueryRowContext(ctx, `SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=? AND volume_index > ? AND sector_root IS NOT NULL;`, valueHash(id), maxSectors).Scan(&count)
+		err := tx.QueryRow(`SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=? AND volume_index > ? AND sector_root IS NOT NULL;`, valueHash(id), maxSectors).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to get used sectors: %w", err)
 		} else if count != 0 {
 			return fmt.Errorf("cannot shrink volume to %d sectors, %d sectors are in use", maxSectors, count)
 		}
 
-		_, err = tx.ExecContext(ctx, `DELETE FROM volume_sectors WHERE volume_id=? AND volume_index > ?;`, valueHash(id), maxSectors)
+		_, err = tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=? AND volume_index > ?;`, valueHash(id), maxSectors)
 		if err != nil {
 			return fmt.Errorf("failed to shrink volume: %w", err)
 		}
@@ -300,15 +301,22 @@ func (vs *VolumeStore) SetReadOnly(id storage.VolumeID, readOnly bool) error {
 	return err
 }
 
-// SetMaxSectors sets the maximum number of sectors in a volume,
-// returning the difference between the new and old value. It does not
-// change the actual size of the volume or its metadata. GrowVolume or
-// ShrinkVolume should be called after updating the maximum size.
-func (vs *VolumeStore) SetMaxSectors(id storage.VolumeID, maxSectors uint64) (int64, error) {
-	var oldMaxSectors uint64
-	const query = `UPDATE storage_volumes FROM storage_volumes v2 SET max_sectors=? WHERE id=? RETURNING v2.max_sectors;`
-	err := vs.db.db.QueryRow(query, maxSectors, valueHash(id)).Scan(&oldMaxSectors)
-	return int64(maxSectors - oldMaxSectors), err
+// SetMaxSectors sets the maximum number of sectors in a volume, returning the
+// old value. It does not change the actual size of the volume or its metadata.
+// GrowVolume or ShrinkVolume should be called after updating the maximum size.
+func (vs *VolumeStore) SetMaxSectors(id storage.VolumeID, maxSectors uint64) (oldMax uint64, err error) {
+	err = vs.db.exclusiveTransaction(func(tx txn) error {
+		err := tx.QueryRow(`SELECT max_sectors FROM storage_volumes WHERE id=?;`, valueHash(id)).Scan(&oldMax)
+		if err != nil {
+			return fmt.Errorf("failed to get max sectors: %w", err)
+		}
+
+		if _, err = tx.Exec(`UPDATE storage_volumes SET max_sectors=? WHERE id=?;`, maxSectors, valueHash(id)); err != nil {
+			return fmt.Errorf("failed to set max sectors: %w", err)
+		}
+		return nil
+	})
+	return
 }
 
 // NewVolumeStore creates a new VolumeStore.
