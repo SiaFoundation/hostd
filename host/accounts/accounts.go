@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sync"
 
@@ -53,6 +54,10 @@ type (
 		ch chan struct{}
 	}
 )
+
+func (a *AccountID) String() string {
+	return "ed25519:" + hex.EncodeToString(a[:])
+}
 
 // Close closes the underlying account store.
 func (am *AccountManager) Close() error {
