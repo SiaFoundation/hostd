@@ -4,33 +4,80 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // import sqlite3 driver
 )
 
 type (
 	txn interface {
-		ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-		PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
-		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+		// Exec executes a query without returning any rows. The args are for
+		// any placeholder parameters in the query.
+		Exec(query string, args ...any) (sql.Result, error)
+		// Prepare creates a prepared statement for later queries or executions.
+		// Multiple queries or executions may be run concurrently from the
+		// returned statement. The caller must call the statement's Close method
+		// when the statement is no longer needed.
+		Prepare(query string) (*sql.Stmt, error)
+		// Query executes a query that returns rows, typically a SELECT. The
+		// args are for any placeholder parameters in the query.
+		Query(query string, args ...any) (*sql.Rows, error)
+		// QueryRow executes a query that is expected to return at most one row.
+		// QueryRow always returns a non-nil value. Errors are deferred until
+		// Row's Scan method is called. If the query selects no rows, the *Row's
+		// Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
+		// first selected row and discards the rest.
+		QueryRow(query string, args ...any) *sql.Row
 	}
 
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
 		db *sql.DB
 	}
+
+	txnWrapper struct {
+		*sql.Conn
+	}
 )
+
+// Exec executes a query without returning any rows. The args are for any
+// placeholder parameters in the query.
+func (tw *txnWrapper) Exec(query string, args ...any) (sql.Result, error) {
+	return tw.Conn.ExecContext(context.Background(), query, args...)
+}
+
+// Prepare creates a prepared statement for later queries or executions.
+// Multiple queries or executions may be run concurrently from the returned
+// statement. The caller must call the statement's Close method when the
+// statement is no longer needed.
+func (tw *txnWrapper) Prepare(query string) (*sql.Stmt, error) {
+	return tw.Conn.PrepareContext(context.Background(), query)
+}
+
+// Query executes a query that returns rows, typically a SELECT. The args are
+// for any placeholder parameters in the query.
+func (tw *txnWrapper) Query(query string, args ...any) (*sql.Rows, error) {
+	return tw.Conn.QueryContext(context.Background(), query, args...)
+}
+
+// QueryRow executes a query that is expected to return at most one row.
+// QueryRow always returns a non-nil value. Errors are deferred until
+// Row's Scan method is called. If the query selects no rows, the *Row's Scan
+// will return ErrNoRows. Otherwise, the *Row's Scan scans the first selected
+// row and discards the rest.
+func (tw *txnWrapper) QueryRow(query string, args ...any) *sql.Row {
+	return tw.Conn.QueryRowContext(context.Background(), query, args...)
+}
 
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed.
-func (s *Store) transaction(ctx context.Context, fn func(context.Context, txn) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+func (s *Store) transaction(fn func(txn) error) error {
+	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	if err := fn(ctx, tx); err != nil {
+	if err := fn(tx); err != nil {
 		if err := tx.Rollback(); err != nil {
 			return fmt.Errorf("failed to rollback transaction: %w", err)
 		}
@@ -46,15 +93,19 @@ func (s *Store) transaction(ctx context.Context, fn func(context.Context, txn) e
 // note: the sqlite3 library does not support setting BEGIN EXCLUSIVE at the
 // transaction level, so it's done manually here. It may be preferable to make
 // all transactions exclusive.
-func (s *Store) exclusiveTransaction(ctx context.Context, fn func(context.Context, txn) error) error {
+func (s *Store) exclusiveTransaction(fn func(txn) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
 	}
+	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err != nil {
 		return fmt.Errorf("failed to begin exclusive transaction: %w", err)
-	} else if err := fn(ctx, conn); err != nil {
+	} else if err := fn(&txnWrapper{conn}); err != nil {
 		if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
 			return fmt.Errorf("failed to rollback transaction: %w", err)
 		}
@@ -73,7 +124,7 @@ func (s *Store) Close() error {
 // getDBVersion returns the current version of the database.
 func getDBVersion(tx txn) (version uint64) {
 	const query = `SELECT db_version FROM global_settings;`
-	err := tx.QueryRowContext(context.Background(), query).Scan(&version)
+	err := tx.QueryRow(query).Scan(&version)
 	if err != nil {
 		return 0
 	}
@@ -83,7 +134,7 @@ func getDBVersion(tx txn) (version uint64) {
 // setDBVersion sets the current version of the database.
 func setDBVersion(tx txn, version uint64) error {
 	const query = `INSERT INTO global_settings (db_version) VALUES (?) ON CONFLICT (id) DO UPDATE SET db_version=excluded.db_version;`
-	_, err := tx.ExecContext(context.Background(), query, version)
+	_, err := tx.Exec(query, version)
 	return err
 }
 

@@ -26,16 +26,14 @@ type (
 
 // AddSiacoinElement adds a spendable siacoin output to the wallet.
 func (wtx *walletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
-	_, err := wtx.tx.ExecContext(context.Background(), `
-		INSERT INTO wallet_utxos (id, amount, unlock_hash) VALUES (?, ?, ?)
-	`, valueHash(utxo.ID), valueCurrency(utxo.Value), valueHash(utxo.UnlockHash))
+	_, err := wtx.tx.Exec(`INSERT INTO wallet_utxos (id, amount, unlock_hash) VALUES (?, ?, ?)`, valueHash(utxo.ID), valueCurrency(utxo.Value), valueHash(utxo.UnlockHash))
 	return err
 }
 
 // RemoveSiacoinElement removes a spendable siacoin output from the wallet
 // either due to a spend or a reorg.
 func (wtx *walletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error {
-	_, err := wtx.tx.ExecContext(context.Background(), `DELETE FROM wallet_utxos WHERE id=?`, valueHash(id))
+	_, err := wtx.tx.Exec(`DELETE FROM wallet_utxos WHERE id=?`, valueHash(id))
 	return err
 }
 
@@ -45,19 +43,19 @@ func (wtx *walletTxn) AddTransaction(txn wallet.Transaction, idx uint64) error {
 	if err := txn.Transaction.MarshalSia(&buf); err != nil {
 		return fmt.Errorf("failed to marshal transaction: %w", err)
 	}
-	_, err := wtx.tx.ExecContext(context.Background(), `INSERT INTO wallet_transactions (id, block_id, block_height, block_index, source, inflow, outflow, raw_data, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, valueHash(txn.ID), valueHash(txn.Index.ID), txn.Index.Height, idx, txn.Source, valueCurrency(txn.Inflow), valueCurrency(txn.Outflow), buf.Bytes(), valueTime(txn.Timestamp))
+	_, err := wtx.tx.Exec(`INSERT INTO wallet_transactions (id, block_id, block_height, block_index, source, inflow, outflow, raw_data, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, valueHash(txn.ID), valueHash(txn.Index.ID), txn.Index.Height, idx, txn.Source, valueCurrency(txn.Inflow), valueCurrency(txn.Outflow), buf.Bytes(), valueTime(txn.Timestamp))
 	return err
 }
 
 // RemoveTransaction removes a transaction from the wallet.
 func (wtx *walletTxn) RemoveTransaction(id types.TransactionID) error {
-	_, err := wtx.tx.ExecContext(context.Background(), `DELETE FROM wallet_transactions WHERE id=?`, valueHash(id))
+	_, err := wtx.tx.Exec(`DELETE FROM wallet_transactions WHERE id=?`, valueHash(id))
 	return err
 }
 
 // SetLastChange sets the last processed consensus change.
 func (wtx *walletTxn) SetLastChange(id modules.ConsensusChangeID) error {
-	_, err := wtx.tx.ExecContext(context.Background(), `INSERT INTO wallet_settings (last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET last_processed_change=excluded.last_processed_change`, valueHash(id))
+	_, err := wtx.tx.Exec(`INSERT INTO wallet_settings (last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET last_processed_change=excluded.last_processed_change`, valueHash(id))
 	return err
 }
 
@@ -120,7 +118,7 @@ func (ws *WalletStore) TransactionCount() (count uint64, err error) {
 
 // Update begins an update transaction on the wallet store.
 func (ws *WalletStore) Update(ctx context.Context, fn func(wallet.UpdateTransaction) error) error {
-	return ws.db.transaction(ctx, func(_ context.Context, tx txn) error {
+	return ws.db.transaction(func(tx txn) error {
 		return fn(&walletTxn{tx})
 	})
 }
