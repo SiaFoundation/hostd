@@ -42,13 +42,17 @@ CREATE TABLE storage_volumes (
 );
 
 CREATE TABLE volume_sectors (
+	id INTEGER PRIMARY KEY,
 	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- on delete, all sectors will need to be migrated first
 	volume_index UNSIGNED BIG INT NOT NULL,
 	sector_root TEXT UNIQUE, -- set null if the sector is not used
-	locks UNSIGNED BIG INT NOT NULL DEFAULT 0, -- number of locks on the sector. prevents overwriting or pruning sectors that are in use. must be cleared on startup.
-	PRIMARY KEY (volume_id, volume_index)
+	UNIQUE (volume_id, volume_index)
 );
-CREATE INDEX volume_sectors_volume_index_sector_root ON volume_sectors(volume_index, sector_root);
+
+CREATE TABLE locked_volume_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
+	id INTEGER PRIMARY KEY,
+	volume_sector_id INTEGER REFERENCES volume_sectors(id)
+);
 
 CREATE TABLE contracts (
 	id TEXT PRIMARY KEY,
@@ -56,13 +60,13 @@ CREATE TABLE contracts (
 	host_signature TEXT NOT NULL,
 	renter_signature TEXT NOT NULL,
 	locked_collateral TEXT NOT NULL,
-	raw_revision BLOB NOT NULL, -- binary serialized contract revision
 	revision_number UNSIGNED BIG INT NOT NULL,
 	start_height UNISGNED BIG INT NOT NULL,
 	window_start UNSIGNED BIG INT NOT NULL,
 	window_end UNSIGNED BIG INT NOT NULL,
 	final_revision_confirmed BOOLEAN NOT NULL,
-	proof_confirmed BOOLEAN NOT NULL
+	proof_confirmed BOOLEAN NOT NULL,
+	raw_revision BLOB NOT NULL -- binary serialized contract revision
 );
 
 CREATE INDEX contracts_window_start_index ON contracts(window_start);

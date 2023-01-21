@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const clearLockedSectors = `UPDATE volume_sectors SET locks=0;`
+const clearLockedSectors = `DELETE FROM locked_volume_sectors;`
 
 // init queries are run when the database is first created.
 //
