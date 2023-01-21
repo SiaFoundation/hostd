@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"context"
 	"crypto/ed25519"
 	"errors"
 	"fmt"
@@ -84,7 +83,7 @@ type (
 	// A SingleAddressStore stores the state of a single-address wallet.
 	// Implementations are assumed to be thread safe.
 	SingleAddressStore interface {
-		Update(context.Context, func(UpdateTransaction) error) error
+		UpdateWallet(func(UpdateTransaction) error) error
 		UnspentSiacoinElements() ([]SiacoinElement, error)
 		// Transactions returns a paginated list of transactions ordered by
 		// block height, descending. If no more transactions are available,
@@ -345,7 +344,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 	}
 
 	// begin a database transaction to update the wallet state
-	err := sw.store.Update(context.Background(), func(tx UpdateTransaction) error {
+	err := sw.store.UpdateWallet(func(tx UpdateTransaction) error {
 		// add new siacoin outputs and remove spent or reverted siacoin outputs
 		for _, diff := range cc.SiacoinOutputDiffs {
 			if diff.SiacoinOutput.UnlockHash != sw.addr {
