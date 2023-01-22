@@ -29,7 +29,7 @@ func (s *Store) migrateSector(oldLoc storage.SectorLocation, startIndex uint64) 
 	err := s.exclusiveTransaction(func(tx txn) error {
 		// get a sector location. If no rows are returned, there is no remaining
 		// space.
-		err := tx.QueryRow(locQuery, oldLoc.Volume, startIndex).Scan(&newLoc.ID, scanHash((*[32]byte)(&newLoc.Volume)), &newLoc.Index, &exists)
+		err := tx.QueryRow(locQuery, valueHash(oldLoc.Volume), startIndex).Scan(&newLoc.ID, scanHash((*[32]byte)(&newLoc.Volume)), &newLoc.Index, &exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrNotEnoughStorage
 		} else if err != nil {
@@ -137,7 +137,7 @@ ORDER BY s.sector_root DESC, s.volume_index ASC LIMIT 1;`
 // MigrateSectors returns a new location for each occupied sector of a volume
 // starting at startIndex. The sector data should be copied to the new location
 // during migrateFn. Iteration is stopped if migrateFn returns an error. Changes
-// are only committed after commitFn.
+// are committed after commitFn.
 func (s *Store) MigrateSectors(id storage.VolumeID, startIndex uint64, migrateFn func(root storage.SectorRoot, newLoc storage.SectorLocation) error, commitFn func() error) error {
 	// batch changes until commitFn is called
 	var changes []sectorLoc
@@ -146,13 +146,16 @@ func (s *Store) MigrateSectors(id storage.VolumeID, startIndex uint64, migrateFn
 		var oldLoc sectorLoc
 		var lockID uint64
 		err := s.exclusiveTransaction(func(tx txn) error {
-			err := tx.QueryRow(`SELECT id, sector_root, volume_id, volume_index FROM volume_sectors WHERE volume_id=? AND volume_index>=? AND sector_root IS NOT NULL LIMIT 1`, valueHash(id), startIndex).
+			err := tx.QueryRow(`SELECT id, sector_root, volume_id, volume_index FROM volume_sectors WHERE volume_id=$1 AND volume_index>=$2 AND sector_root IS NOT NULL LIMIT 1`, valueHash(id), startIndex).
 				Scan(&oldLoc.ID, scanHash((*[32]byte)(&oldLoc.Root)), scanHash((*[32]byte)(&oldLoc.Volume)), &oldLoc.Index)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get empty sector location: %w", err)
 			}
 			lockID, err = s.lockSector(tx, oldLoc.ID)
-			return err
+			if err != nil {
+				return fmt.Errorf("failed to lock sector location: %w", err)
+			}
+			return nil
 		})
 		if errors.Is(err, sql.ErrNoRows) {
 			break
@@ -226,7 +229,7 @@ func (s *Store) RemoveVolume(id storage.VolumeID, force bool) error {
 		if !force {
 			// check if the volume is empty
 			var count int
-			err := tx.QueryRow(`SELECT COUNT(*) FROM volume_sectors WHERE volume_id=? AND sector_root IS NOT NULL;`, valueHash(id)).Scan(&count)
+			err := tx.QueryRow(`SELECT COUNT(*) FROM volume_sectors WHERE volume_id=$1 AND sector_root IS NOT NULL;`, valueHash(id)).Scan(&count)
 			if err != nil {
 				return fmt.Errorf("failed to check if volume is empty: %w", err)
 			} else if count != 0 {
@@ -253,7 +256,7 @@ func (s *Store) RemoveVolume(id storage.VolumeID, force bool) error {
 // GrowVolume grows a storage volume's metadata by n sectors.
 func (s *Store) GrowVolume(id storage.VolumeID, n uint64) error {
 	return s.exclusiveTransaction(func(tx txn) error {
-		stmt, err := tx.Prepare(`INSERT INTO volume_sectors (volume_id, volume_index, sector_root) VALUES (?, ?, NULL);`)
+		stmt, err := tx.Prepare(`INSERT INTO volume_sectors (volume_id, volume_index) VALUES ($1, $2);`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare statement: %w", err)
 		}
@@ -276,19 +279,19 @@ func (s *Store) GrowVolume(id storage.VolumeID, n uint64) error {
 }
 
 // ShrinkVolume shrinks a storage volume's metadata to maxSectors. If there are
-// used sectors outside of the new range, an error is returned.
+// used sectors outside of the new maximum, an error is returned.
 func (s *Store) ShrinkVolume(id storage.VolumeID, maxSectors uint64) error {
 	return s.exclusiveTransaction(func(tx txn) error {
 		// check if there are any used sectors in the shrink range
 		var count uint64
-		err := tx.QueryRow(`SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=? AND volume_index > ? AND sector_root IS NOT NULL;`, valueHash(id), maxSectors).Scan(&count)
+		err := tx.QueryRow(`SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=? AND volume_index > $1 AND sector_root IS NOT NULL;`, valueHash(id), maxSectors).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to get used sectors: %w", err)
 		} else if count != 0 {
 			return fmt.Errorf("cannot shrink volume to %d sectors, %d sectors are in use", maxSectors, count)
 		}
 
-		_, err = tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=? AND volume_index > ?;`, valueHash(id), maxSectors)
+		_, err = tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=$1 AND volume_index > $2;`, valueHash(id), maxSectors)
 		if err != nil {
 			return fmt.Errorf("failed to shrink volume: %w", err)
 		}

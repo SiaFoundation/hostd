@@ -48,10 +48,12 @@ CREATE TABLE volume_sectors (
 	sector_root TEXT UNIQUE, -- set null if the sector is not used
 	UNIQUE (volume_id, volume_index)
 );
+CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
+CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index);
 
 CREATE TABLE locked_volume_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
 	id INTEGER PRIMARY KEY,
-	volume_sector_id INTEGER REFERENCES volume_sectors(id)
+	volume_sector_id INTEGER REFERENCES volume_sectors(id) ON DELETE CASCADE
 );
 
 CREATE TABLE contracts (

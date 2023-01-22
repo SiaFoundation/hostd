@@ -115,76 +115,71 @@ func TestAddSector(t *testing.T) {
 	}
 
 	// store the sector
-	{
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
-			// check that the sector was stored in the expected location
-			if loc.Volume != vol.ID {
-				t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
-			} else if loc.Index != 0 {
-				t.Fatalf("expected sector index 0, got %v", loc.Index)
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			if err := release(); err != nil {
-				t.Fatal("failed to release sector1:", err)
-			}
-		}()
-	}
-
-	{
-		// check the location was added
-		loc, release, err := db.SectorLocation(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			if err := release(); err != nil {
-				t.Fatal("failed to release sector location:", err)
-			}
-		}()
-
+	release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
+		// check that the sector was stored in the expected location
 		if loc.Volume != vol.ID {
 			t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
 		} else if loc.Index != 0 {
 			t.Fatalf("expected sector index 0, got %v", loc.Index)
 		}
-
-		vol, err := db.Volumes()
-		if err != nil {
-			t.Fatal(err)
-		} else if len(vol) != 1 {
-			t.Fatalf("expected 1 volume, got %v", len(vol))
-		} else if vol[0].UsedSectors != 1 {
-			t.Fatalf("expected 1 used sector, got %v", vol[0].UsedSectors)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := release(); err != nil {
+			t.Fatal("failed to release sector1:", err)
 		}
+	}()
+
+	// check the location was added
+	loc, release, err := db.SectorLocation(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := release(); err != nil {
+			t.Fatal("failed to release sector location:", err)
+		}
+	}()
+
+	if loc.Volume != vol.ID {
+		t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
+	} else if loc.Index != 0 {
+		t.Fatalf("expected sector index 0, got %v", loc.Index)
 	}
 
-	{
-		// store the sector again, should return ErrSectorExists
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
-			switch {
-			case !exists:
-				t.Fatal("sector does not exist")
-			case loc.Volume != vol.ID:
-				t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
-			case loc.Index != 0:
-				t.Fatalf("expected sector index 0, got %v", loc.Index)
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			if err := release(); err != nil {
-				t.Fatal("failed to release sector2:", err)
-			}
-		}()
+	volumes, err := db.Volumes()
+	if err != nil {
+		t.Fatal(err)
 	}
+	if len(volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %v", len(volumes))
+	} else if volumes[0].UsedSectors != 1 {
+		t.Fatalf("expected 1 used sector, got %v", volumes[0].UsedSectors)
+	}
+
+	// store the sector again, exists should be true
+	release, err = db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
+		switch {
+		case !exists:
+			t.Fatal("sector does not exist")
+		case loc.Volume != vol.ID:
+			t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
+		case loc.Index != 0:
+			t.Fatalf("expected sector index 0, got %v", loc.Index)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := release(); err != nil {
+			t.Fatal("failed to release sector2:", err)
+		}
+	}()
 
 	// try to store another sector in the volume, should return
 	// ErrNotEnoughStorage
@@ -196,4 +191,53 @@ func TestAddSector(t *testing.T) {
 
 func TestVolumeGrow(t *testing.T) {
 
+}
+
+func BenchmarkVolumeGrow(b *testing.B) {
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	vol, err := db.AddVolume("test", uint64(b.N), false)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.ReportMetric(float64(b.N), "sectors")
+
+	// grow the volume to b.N sectors
+	if err := db.GrowVolume(vol.ID, uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+}
+
+func BenchmarkShrinkVolume(b *testing.B) {
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	vol, err := db.AddVolume("test", uint64(b.N), false)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// grow the volume to b.N sectors
+	if err := db.GrowVolume(vol.ID, uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.ReportMetric(float64(b.N), "sectors")
+
+	// remove all sectors from the volume
+	if err := db.ShrinkVolume(vol.ID, 0); err != nil {
+		b.Fatal(err)
+	}
 }

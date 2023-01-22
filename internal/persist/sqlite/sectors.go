@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"go.sia.tech/hostd/host/storage"
@@ -13,6 +15,8 @@ type (
 	}
 )
 
+// lockSector locks a sector location and returns a lock ID. The lock
+// id is used with unlockSector to unlock the sector.
 func (s *Store) lockSector(tx txn, locationID uint64) (uint64, error) {
 	var lockID uint64
 	err := tx.QueryRow(`INSERT INTO locked_volume_sectors (volume_sector_id) VALUES ($1) RETURNING id;`, locationID).
@@ -20,11 +24,16 @@ func (s *Store) lockSector(tx txn, locationID uint64) (uint64, error) {
 	return lockID, err
 }
 
+// unlockSector unlocks a locked sector location. It is safe to call
+// multiple times.
+func (s *Store) unlockSector(id uint64) error {
+	_, err := s.db.Exec(`DELETE FROM locked_volume_sectors WHERE id=?;`, id)
+	return err
+}
+
+// unlockSectorFn returns a function that unlocks a sector when called.
 func (s *Store) unlockSectorFn(id uint64) func() error {
-	return func() error {
-		_, err := s.db.Exec(`DELETE FROM locked_volume_sectors WHERE id=?;`, id)
-		return err
-	}
+	return func() error { return s.unlockSector(id) }
 }
 
 // AddSectorMetadata adds a sector's metadata to the sector store.
@@ -38,8 +47,8 @@ func (tx *updateTxn) AddSectorMetadata(root storage.SectorRoot, loc storage.Sect
 // location in the volume. The location is locked until release is
 // called.
 func (s *Store) RemoveSector(root storage.SectorRoot) (loc storage.SectorLocation, err error) {
-	const query = `UPDATE volume_sectors SET sector_root=null WHERE sector_root=? RETURNING volume_id, volume_index;`
-	err = s.db.QueryRow(query, root).Scan(&loc.Volume, &loc.Index)
+	const query = `UPDATE volume_sectors SET sector_root=null WHERE sector_root=$1 RETURNING id, volume_id, volume_index;`
+	err = s.db.QueryRow(query, valueHash(root)).Scan(&loc.ID, scanHash((*[32]byte)(&loc.Volume)), &loc.Index)
 	return
 }
 
@@ -50,7 +59,9 @@ func (s *Store) SectorLocation(root storage.SectorRoot) (loc storage.SectorLocat
 	var lockID uint64
 	err = s.exclusiveTransaction(func(tx txn) error {
 		err = s.db.QueryRow(`SELECT id, volume_id, volume_index FROM volume_sectors WHERE sector_root=?;`, valueHash(root)).Scan(&loc.ID, scanHash((*[32]byte)(&loc.Volume)), &loc.Index)
-		if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return storage.ErrSectorNotFound
+		} else if err != nil {
 			return fmt.Errorf("failed to get sector location: %w", err)
 		}
 		lockID, err = s.lockSector(tx, loc.ID)
@@ -65,8 +76,8 @@ func (s *Store) SectorLocation(root storage.SectorRoot) (loc storage.SectorLocat
 	return loc, s.unlockSectorFn(lockID), nil
 }
 
-// Prune removes the metadata of all sectors that are no longer
-// referenced by either a contract or temporary storage.
+// Prune removes the metadata of any sectors that are not locked or referenced
+// by a contract.
 func (s *Store) Prune() error {
 	_, err := s.db.Exec(`UPDATE volume_sectors AS vs SET vs.sector_root=null
 LEFT JOIN contract_sectors cs ON (cs.sector_root = vs.sector_root)
