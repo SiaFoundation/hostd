@@ -8,6 +8,7 @@ require (
 	gitlab.com/NebulousLabs/fastrand v0.0.0-20181126182046-603482d69e40
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
+	go.sia.tech/mux v1.1.1-0.20230119180453-05591decec67
 	go.sia.tech/renterd v0.0.0-20221209183415-d01d7cc4cdbb
 	go.sia.tech/siad v1.5.10-0.20221206172719-7f3713a01004
 	golang.org/x/crypto v0.4.0

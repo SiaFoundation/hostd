@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.sia.tech/hostd/internal/mux"
+	"go.sia.tech/mux/v1"
 )
 
 var (

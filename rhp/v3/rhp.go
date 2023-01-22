@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net"
 	"time"
 
@@ -16,11 +15,10 @@ import (
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/internal/mux"
+	"go.sia.tech/hostd/rhp/v3/internal/mux"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 	"golang.org/x/time/rate"
-	"lukechampine.com/frand"
 )
 
 const (
@@ -119,7 +117,6 @@ type (
 		privateKey ed25519.PrivateKey
 
 		listener net.Listener
-		router   *mux.SubscriberRouter
 
 		accounts  AccountManager
 		contracts ContractManager
@@ -137,7 +134,7 @@ type (
 )
 
 // handleHostStream handles streams routed to the "host" subscriber
-func (sh *SessionHandler) handleHostStream(_ string, stream *mux.SubscriberStream) {
+func (sh *SessionHandler) handleHostStream(stream *mux.SubscriberStream) {
 	sess := &rpcSession{
 		stream: stream,
 	}
@@ -191,11 +188,27 @@ func (sh *SessionHandler) Serve() error {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 		ingress, egress := sh.settings.BandwidthLimiters()
+		m, err := mux.AcceptSubscriber(newRPCConn(conn, ingress, egress), sh.privateKey)
+		if err != nil {
+			return fmt.Errorf("failed to upgrade conn: %w", err)
+		}
+
 		go func() {
-			if err := sh.router.Upgrade(newRPCConn(conn, ingress, egress)); err != nil {
-				log.Println("failed to upgrade connection:", err)
+			defer m.Close()
+
+			for {
+				stream, subscriber, err := m.AcceptSubscriberStream()
+				if err != nil {
+					log.Println("failed to accept stream:", err)
+					return
+				} else if subscriber != "host" {
+					log.Println("unrecognized subscriber:", subscriber)
+					stream.Close()
+					continue
+				}
+
+				go sh.handleHostStream(stream)
 			}
-			conn.Close()
 		}()
 	}
 }
@@ -215,7 +228,6 @@ func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, chain ChainManag
 		privateKey: hostKey,
 
 		listener: l,
-		router:   mux.NewSubscriberRouter(frand.Uint64n(math.MaxUint64), hostKey),
 
 		chain:  chain,
 		tpool:  tpool,
@@ -230,6 +242,5 @@ func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, chain ChainManag
 
 		priceTables: newPriceTableManager(),
 	}
-	sh.router.RegisterSubscriber("host", sh.handleHostStream)
 	return sh, nil
 }
