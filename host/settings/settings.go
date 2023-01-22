@@ -24,9 +24,6 @@ type (
 		Settings() (Settings, error)
 		// UpdateSettings updates the host's settings.
 		UpdateSettings(s Settings) error
-
-		// Close closes the underlying store
-		Close() error
 	}
 
 	// Settings contains configuration options for the host.
@@ -112,9 +109,8 @@ func (m *ConfigManager) setRateLimit(ingress, egress uint64) {
 	m.egressLimit.SetLimit(rate.Limit(egressLimit))
 }
 
-// Close closes the underlying store
+// Close is a no-op
 func (m *ConfigManager) Close() error {
-	m.settings.Close()
 	return nil
 }
 
