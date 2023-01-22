@@ -100,10 +100,9 @@ func TestWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	walletStore := sqlite.NewWalletStore(db)
-	w := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
+	w := wallet.NewSingleAddressWallet(privKey, cm, db)
 
-	ccID, err := walletStore.GetLastChange()
+	ccID, err := db.GetLastChange()
 	if err != nil {
 		t.Fatal(err)
 	} else if err := node1.cs.ConsensusSetSubscribe(w, ccID, nil); err != nil {
@@ -152,7 +151,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// check that the wallet store only has a single UTXO
-	utxos, err := walletStore.UnspentSiacoinElements()
+	utxos, err := db.UnspentSiacoinElements()
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -168,7 +167,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// check that the payout transaction was created
-	txns, err := walletStore.Transactions(100, 0)
+	txns, err := db.Transactions(100, 0)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(txns) != 1 {
@@ -205,7 +204,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// check that the wallet has 20 UTXOs
-	utxos, err = walletStore.UnspentSiacoinElements()
+	utxos, err = db.UnspentSiacoinElements()
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 20 {
@@ -305,7 +304,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// check that the all utxos have been deleted
-	utxos, err = walletStore.UnspentSiacoinElements()
+	utxos, err = db.UnspentSiacoinElements()
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 0 {

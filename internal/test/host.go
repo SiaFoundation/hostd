@@ -116,8 +116,7 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
 
-	walletStore := sqlite.NewWalletStore(db)
-	wallet := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
+	wallet := wallet.NewSingleAddressWallet(privKey, cm, db)
 	if err := node.cs.ConsensusSetSubscribe(wallet, modules.ConsensusChangeBeginning, nil); err != nil {
 		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
 	}

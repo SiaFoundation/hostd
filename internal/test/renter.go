@@ -296,7 +296,7 @@ func NewRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlStore, err := sqlite.OpenDatabase(filepath.Join(dir, "renter.db"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "renter.db"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
@@ -304,8 +304,7 @@ func NewRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
-	walletStore := sqlite.NewWalletStore(sqlStore)
-	wallet := wallet.NewSingleAddressWallet(privKey, cm, walletStore)
+	wallet := wallet.NewSingleAddressWallet(privKey, cm, db)
 	if err := node.cs.ConsensusSetSubscribe(wallet, modules.ConsensusChangeBeginning, nil); err != nil {
 		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
 	}
@@ -314,7 +313,7 @@ func NewRenter(privKey ed25519.PrivateKey, dir string) (*Renter, error) {
 		node:    node,
 		cm:      &renterChainManager{cm},
 		privKey: privKey,
-		store:   sqlStore,
+		store:   db,
 		wallet:  wallet,
 	}, nil
 }
