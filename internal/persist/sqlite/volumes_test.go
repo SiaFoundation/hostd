@@ -9,51 +9,6 @@ import (
 	"lukechampine.com/frand"
 )
 
-func TestVolumeSetMaxSectors(t *testing.T) {
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	v, err := db.AddVolume("test", 1000, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	old, err := db.SetMaxSectors(v.ID, 500)
-	if err != nil {
-		t.Fatal(err)
-	} else if old != 1000 {
-		t.Fatalf("expected old max of 1000, got %v", old)
-	}
-
-	volumes, err := db.Volumes()
-	if err != nil {
-		t.Fatal(err)
-	} else if len(volumes) != 1 {
-		t.Fatalf("expected 1 volume, got %v", len(volumes))
-	} else if volumes[0].MaxSectors != 500 {
-		t.Fatalf("expected max of 500, got %v", volumes[0].MaxSectors)
-	}
-
-	old, err = db.SetMaxSectors(v.ID, 1000)
-	if err != nil {
-		t.Fatal(err)
-	} else if old != 500 {
-		t.Fatalf("expected old max of 500, got %v", old)
-	}
-
-	volumes, err = db.Volumes()
-	if err != nil {
-		t.Fatal(err)
-	} else if len(volumes) != 1 {
-		t.Fatalf("expected 1 volume, got %v", len(volumes))
-	} else if volumes[0].MaxSectors != 1000 {
-		t.Fatalf("expected max of 1000, got %v", volumes[0].MaxSectors)
-	}
-}
-
 func TestVolumeSetReadOnly(t *testing.T) {
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -61,7 +16,7 @@ func TestVolumeSetReadOnly(t *testing.T) {
 	}
 	defer db.Close()
 
-	vol, err := db.AddVolume("test", 1000, false)
+	vol, err := db.AddVolume("test", false)
 	if err != nil {
 		t.Fatal(err)
 	} else if db.GrowVolume(vol.ID, 100) != nil {
@@ -96,7 +51,7 @@ func TestAddSector(t *testing.T) {
 	}
 	defer db.Close()
 
-	vol, err := db.AddVolume("test", 1000, false)
+	vol, err := db.AddVolume("test", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,12 +92,9 @@ func TestAddSector(t *testing.T) {
 	loc, release, err := db.SectorLocation(root)
 	if err != nil {
 		t.Fatal(err)
+	} else if err := release(); err != nil {
+		t.Fatal(err)
 	}
-	defer func() {
-		if err := release(); err != nil {
-			t.Fatal("failed to release sector location:", err)
-		}
-	}()
 
 	if loc.Volume != vol.ID {
 		t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
@@ -174,12 +126,9 @@ func TestAddSector(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	} else if err := release(); err != nil {
+		t.Fatal(err)
 	}
-	defer func() {
-		if err := release(); err != nil {
-			t.Fatal("failed to release sector2:", err)
-		}
-	}()
 
 	// try to store another sector in the volume, should return
 	// ErrNotEnoughStorage
@@ -190,7 +139,155 @@ func TestAddSector(t *testing.T) {
 }
 
 func TestVolumeGrow(t *testing.T) {
+	const initialSectors = 64
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
 
+	vol, err := db.AddVolume("test", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.GrowVolume(vol.ID, initialSectors); err != nil {
+		t.Fatal(err)
+	}
+
+	volumes, err := db.Volumes()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(volumes) != 1 {
+		t.Fatal(err)
+	} else if volumes[0].UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volumes[0].UsedSectors)
+	} else if volumes[0].TotalSectors != initialSectors {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors, volumes[0].TotalSectors)
+	}
+
+	// grow the volume
+	if err := db.GrowVolume(vol.ID, initialSectors*2); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the volume's available sectors match
+	volumes, err = db.Volumes()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(volumes) != 1 {
+		t.Fatal(err)
+	} else if volumes[0].UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volumes[0].UsedSectors)
+	} else if volumes[0].TotalSectors != initialSectors*2 {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors*2, volumes[0].TotalSectors)
+	}
+}
+
+func TestVolumeShrink(t *testing.T) {
+	const initialSectors = 64
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	vol, err := db.AddVolume("test", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.GrowVolume(vol.ID, initialSectors); err != nil {
+		t.Fatal(err)
+	}
+
+	// shrink the volume by half
+	if err := db.ShrinkVolume(vol.ID, initialSectors/2); err != nil {
+		t.Fatal(err)
+	}
+
+	// add a few sectors
+	for i := 0; i < 5; i++ {
+		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
+			if loc.Volume != vol.ID {
+				t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
+			} else if loc.Index != uint64(i) {
+				t.Fatalf("expected sector index 0, got %v", loc.Index)
+			} else if exists {
+				t.Fatal("sector exists")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// check that the volume cannot be shrunk below the used sectors
+	if err := db.ShrinkVolume(vol.ID, 2); !errors.Is(err, storage.ErrVolumeNotEmpty) {
+		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
+	}
+
+	// check that the volume can be shrunk to the used sectors
+	if err := db.ShrinkVolume(vol.ID, 5); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoveVolume(t *testing.T) {
+	const initialSectors = 64
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	vol, err := db.AddVolume("test", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.GrowVolume(vol.ID, initialSectors); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the empty volume can be removed
+	if err := db.RemoveVolume(vol.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// add another volume
+	vol, err = db.AddVolume("test", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.GrowVolume(vol.ID, initialSectors); err != nil {
+		t.Fatal(err)
+	}
+
+	// add a few sectors
+	for i := 0; i < 5; i++ {
+		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
+			if loc.Volume != vol.ID {
+				t.Fatalf("expected volume ID %v, got %v", vol.ID, loc.Volume)
+			} else if loc.Index != uint64(i) {
+				t.Fatalf("expected sector index 0, got %v", loc.Index)
+			} else if exists {
+				t.Fatal("sector exists")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// check that the volume cannot be removed
+	if err := db.RemoveVolume(vol.ID, false); !errors.Is(err, storage.ErrVolumeNotEmpty) {
+		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
+	}
+
+	// check that the volume can be force removed
+	if err := db.RemoveVolume(vol.ID, true); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func BenchmarkVolumeGrow(b *testing.B) {
@@ -200,7 +297,7 @@ func BenchmarkVolumeGrow(b *testing.B) {
 	}
 	defer db.Close()
 
-	vol, err := db.AddVolume("test", uint64(b.N), false)
+	vol, err := db.AddVolume("test", false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -222,7 +319,7 @@ func BenchmarkShrinkVolume(b *testing.B) {
 	}
 	defer db.Close()
 
-	vol, err := db.AddVolume("test", uint64(b.N), false)
+	vol, err := db.AddVolume("test", false)
 	if err != nil {
 		b.Fatal(err)
 	}

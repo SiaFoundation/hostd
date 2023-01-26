@@ -4,16 +4,41 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"math/big"
+	"strconv"
 	"time"
 
 	"go.sia.tech/siad/types"
 )
 
 type (
+	sqlUint64   uint64 // sqlite does not support uint64, this will marshal it as a string for when we need to store the high bits
 	sqlCurrency types.Currency
 	sqlHash     [32]byte
 	sqlTime     time.Time
 )
+
+func (su *sqlUint64) Scan(src interface{}) error {
+	switch src := src.(type) {
+	case string:
+		i, err := strconv.ParseUint(src, 10, 64)
+		if err != nil {
+			return err
+		}
+		*su = sqlUint64(i)
+	case int64:
+		if src < 0 {
+			return fmt.Errorf("cannot scan %v to uint64", src)
+		}
+		*su = sqlUint64(src)
+	default:
+		return fmt.Errorf("cannot scan %T to uint64", src)
+	}
+	return nil
+}
+
+func (su *sqlUint64) Value() (driver.Value, error) {
+	return strconv.FormatUint(uint64(*su), 10), nil
+}
 
 // Scan implements the sql.Scanner interface.
 func (sc *sqlCurrency) Scan(src interface{}) error {
@@ -89,4 +114,8 @@ func scanTime(t *time.Time) *sqlTime {
 
 func valueTime(t time.Time) sqlTime {
 	return (sqlTime)(t)
+}
+
+func valueUint64(u uint64) sqlUint64 {
+	return (sqlUint64)(u)
 }

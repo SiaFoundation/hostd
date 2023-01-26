@@ -42,7 +42,7 @@ CREATE TABLE storage_volumes (
 
 CREATE TABLE volume_sectors (
 	id INTEGER PRIMARY KEY,
-	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- on delete, all sectors will need to be migrated first
+	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- all sectors will need to be migrated first when deleting a volume
 	volume_index INTEGER NOT NULL,
 	sector_root TEXT UNIQUE, -- set null if the sector is not used
 	UNIQUE (volume_id, volume_index)
@@ -65,7 +65,7 @@ CREATE TABLE contracts (
 	proof_block_id TEXT,
 	revision_number TEXT NOT NULL, -- stored as text to support uint64_max on revisions
 	confirmed_revision_number TEXT, -- determines if the final revision should be broadcast
-	negotiation_height INTEGER NOT NULL,
+	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be broadcast
 	window_start INTEGER NOT NULL,
 	window_end INTEGER NOT NULL,
 	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set

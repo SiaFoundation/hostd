@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -11,22 +12,8 @@ import (
 	"lukechampine.com/frand"
 )
 
-func TestChunks(t *testing.T) {
-	start := 50
-	add := 100
-	end := start + add
-	n := 256
-	for i := end; i > start; i -= n {
-		if start > i-n {
-			n = i - start
-		}
-		t.Log(start, end, i-n)
-	}
-	t.Fail()
-}
-
 func TestAddVolume(t *testing.T) {
-	const expectedSectors = (1 << 40) / (1 << 22) // 1 TiB
+	const expectedSectors = 500
 	dir := t.TempDir()
 
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
@@ -35,17 +22,14 @@ func TestAddVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	sectorStore := sqlite.NewSectorStore(db)
-	volumeStore := sqlite.NewVolumeStore(db)
+	vm := storage.NewVolumeManager(db)
 
-	manager := storage.NewManager(volumeStore, sectorStore)
-
-	volume, err := manager.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
+	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	volumes, err := manager.Volumes()
+	volumes, err := vm.Volumes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +40,6 @@ func TestAddVolume(t *testing.T) {
 		t.Fatalf("expected volume %v, got %v", volume.ID, volumes[0].ID)
 	case volumes[0].TotalSectors != expectedSectors:
 		t.Fatalf("expected %v total sectors, got %v", expectedSectors, volumes[0].TotalSectors)
-	case volumes[0].MaxSectors != expectedSectors:
-		t.Fatalf("expected %v max sectors, got %v", expectedSectors, volumes[0].MaxSectors)
 	case volumes[0].UsedSectors != 0:
 		t.Fatalf("expected 0 used sectors, got %v", volumes[0].UsedSectors)
 	case volumes[0].ReadOnly:
@@ -77,11 +59,8 @@ func TestRemoveVolume(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	sectorStore := sqlite.NewSectorStore(db)
-	volumeStore := sqlite.NewVolumeStore(db)
-	manager := storage.NewManager(volumeStore, sectorStore)
-
-	volume, err := manager.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
+	vm := storage.NewVolumeManager(db)
+	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,38 +72,123 @@ func TestRemoveVolume(t *testing.T) {
 	root := storage.SectorRoot(merkle.SectorRoot(sector))
 
 	// write the sector
-	loc, release, err := manager.WriteSector(root, sector)
+	release, err := vm.WriteSector(root, sector)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
 
-	if loc.Volume != volume.ID {
-		t.Fatalf("expected volume %v, got %v", volume.ID, loc.Volume)
-	} else if loc.Index != 0 {
-		t.Fatalf("expected index 0, got %v", loc.Index)
-	}
-	// add the sector's metadata
-	err = sectorStore.Update(func(tx storage.SectorUpdateTransaction) error {
-		return tx.AddSectorMetadata(root, loc)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// attempt to remove the volume. Should return ErrNotEnoughStorage since
 	// there is only one volume.
-	if err := manager.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
-		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
+	if err := vm.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
 	// remove the sector
-	if err := manager.RemoveSector(root); err != nil {
+	if err := vm.RemoveSector(root); err != nil {
 		t.Fatal(err)
 	}
 
 	// remove the volume
-	if err := manager.RemoveVolume(volume.ID, false); err != nil {
+	if err := vm.RemoveVolume(volume.ID, false); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVolumeShrink(t *testing.T) {
+	const sectors = 64
+	dir := t.TempDir()
+
+	// create the database
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm := storage.NewVolumeManager(db)
+	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), sectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roots := make([]storage.SectorRoot, 0, sectors)
+	// fill the volume
+	for i := 0; i < cap(roots); i++ {
+		sector := make([]byte, 1<<22)
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		root := storage.SectorRoot(merkle.SectorRoot(sector))
+		release, err := vm.WriteSector(root, sector)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		defer release()
+		roots = append(roots, root)
+
+		// validate the volume stats are correct
+		volumes, err := vm.Volumes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if volumes[0].UsedSectors != uint64(i+1) {
+			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// validate that each sector was stored in the expected location
+	for i, root := range roots {
+		loc, release, err := db.SectorLocation(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		if loc.Volume != volume.ID {
+			t.Fatal(err)
+		} else if loc.Index != uint64(i) {
+			t.Fatalf("expected sector %v to be at index %v, got %v", root, i, loc.Index)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// try to shrink the volume, should fail since no space is available
+	toRemove := len(roots) / 4
+	remainingSectors := uint64(sectors - toRemove)
+	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors); !errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatalf("expected resize error, got %v", err)
+	}
+
+	// remove some sectors
+	for i := 0; i < toRemove; i++ {
+		if err := vm.RemoveSector(roots[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roots = roots[toRemove:]
+
+	// shrink the volume by the number of sectors removed, should succeed
+	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors); err != nil {
+		t.Fatal(err)
+	}
+
+	// validate that the sectors were moved to the beginning of the volume
+	for i, root := range roots {
+		loc, release, err := db.SectorLocation(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		if loc.Volume != volume.ID {
+			t.Fatal(err)
+		} else if loc.Index != uint64(i) {
+			t.Fatalf("expected sector %v to be at index %v, got %v", root, i, loc.Index)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

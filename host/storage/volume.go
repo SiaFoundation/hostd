@@ -34,7 +34,6 @@ type (
 	Volume struct {
 		ID           VolumeID `json:"id"`
 		LocalPath    string   `json:"localPath"`
-		MaxSectors   uint64   `json:"maxSectors"`
 		UsedSectors  uint64   `json:"usedSectors"`
 		TotalSectors uint64   `json:"totalSectors"`
 		ReadOnly     bool     `json:"readOnly"`
@@ -58,10 +57,10 @@ type (
 
 // volume returns the volume with the given ID, or an error if the volume does
 // not exist or is currently busy.
-func (m *Manager) volume(v VolumeID) (*volume, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	vol, ok := m.volumes[v]
+func (vm *VolumeManager) volume(v VolumeID) (*volume, error) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	vol, ok := vm.volumes[v]
 	if !ok {
 		return nil, fmt.Errorf("volume %v not found", v)
 	} else if vol.busy {

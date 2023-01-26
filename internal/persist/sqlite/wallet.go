@@ -103,7 +103,7 @@ func (s *Store) TransactionCount() (count uint64, err error) {
 	return
 }
 
-// Update begins an update transaction on the wallet store.
+// UpdateWallet begins an update transaction on the wallet store.
 func (s *Store) UpdateWallet(fn func(wallet.UpdateTransaction) error) error {
 	return s.transaction(func(tx txn) error {
 		return fn(&updateTxn{tx})

@@ -10,6 +10,12 @@ import (
 )
 
 type (
+	// A row is a common interface for scanning either sql.Rows or sql.Row.
+	row interface {
+		Scan(dest ...any) error
+	}
+
+	// A txn is an interface for executing queries within a transaction.
 	txn interface {
 		// Exec executes a query without returning any rows. The args are for
 		// any placeholder parameters in the query.
