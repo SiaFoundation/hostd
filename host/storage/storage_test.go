@@ -157,19 +157,21 @@ func TestVolumeShrink(t *testing.T) {
 	}
 
 	// try to shrink the volume, should fail since no space is available
-	toRemove := len(roots) / 4
+	toRemove := sectors / 4
 	remainingSectors := uint64(sectors - toRemove)
 	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors); !errors.Is(err, storage.ErrNotEnoughStorage) {
-		t.Fatalf("expected resize error, got %v", err)
+		t.Fatalf("expected not enough storage error, got %v", err)
 	}
 
-	// remove some sectors
-	for i := 0; i < toRemove; i++ {
-		if err := vm.RemoveSector(roots[i]); err != nil {
+	// remove some sectors from the beginning of the volume
+	for _, root := range roots[:toRemove] {
+		if err := vm.RemoveSector(root); err != nil {
 			t.Fatal(err)
 		}
 	}
-	roots = roots[toRemove:]
+	// when shrinking, the roots after the target size should be moved to
+	// the beginning of the volume
+	roots = append(roots[remainingSectors:], roots[toRemove:remainingSectors]...)
 
 	// shrink the volume by the number of sectors removed, should succeed
 	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors); err != nil {

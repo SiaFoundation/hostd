@@ -35,14 +35,14 @@ CREATE TABLE accounts (
 );
 
 CREATE TABLE storage_volumes (
-	id TEXT PRIMARY KEY,
+	id INTEGER PRIMARY KEY,
 	disk_path TEXT UNIQUE NOT NULL,
 	writeable BOOLEAN NOT NULL
 );
 
 CREATE TABLE volume_sectors (
 	id INTEGER PRIMARY KEY,
-	volume_id TEXT NOT NULL REFERENCES storage_volumes, -- all sectors will need to be migrated first when deleting a volume
+	volume_id INTEGER NOT NULL REFERENCES storage_volumes, -- all sectors will need to be migrated first when deleting a volume
 	volume_index INTEGER NOT NULL,
 	sector_root TEXT UNIQUE, -- set null if the sector is not used
 	UNIQUE (volume_id, volume_index)
@@ -60,12 +60,11 @@ CREATE TABLE contracts (
 	renewed_to TEXT REFERENCES contracts ON DELETE SET NULL,
 	locked_collateral TEXT NOT NULL,
 	contract_error TEXT,
-	formation_block_id TEXT,
-	final_revision_block_id TEXT,
-	proof_block_id TEXT,
-	revision_number TEXT NOT NULL, -- stored as text to support uint64_max on revisions
-	confirmed_revision_number TEXT, -- determines if the final revision should be broadcast
-	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be broadcast
+	revision_number TEXT NOT NULL, -- stored as text to support uint64_max on clearing revisions
+	confirmed_revision_number TEXT DEFAULT '0', -- determines if the final revision should be broadcast; stored as text to support uint64_max on clearing revisions
+	formation_confirmed BOOLEAN NOT NULL DEFAULT false, -- true if the contract has been confirmed on the blockchain
+	resolution_confirmed BOOLEAN NOT NULL DEFAULT false, -- true if the storage proof/resolution has been confirmed on the blockchain
+	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	window_start INTEGER NOT NULL,
 	window_end INTEGER NOT NULL,
 	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
@@ -108,6 +107,7 @@ CREATE TABLE financial_records (
 	ingress_revenue TEXT NOT NULL,
 	storage_revenue TEXT NOT NULL,
 	fee_revenue TEXT NOT NULL,
+	reverted BOOLEAN NOT NULL,
 	date_created INTEGER NOT NULL
 );
 CREATE INDEX financial_records_source_id ON financial_records(source_id);

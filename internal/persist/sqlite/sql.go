@@ -41,10 +41,6 @@ type (
 		db *sql.DB
 	}
 
-	updateTxn struct {
-		tx txn
-	}
-
 	txnWrapper struct {
 		*sql.Conn
 	}

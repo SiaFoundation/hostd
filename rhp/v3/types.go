@@ -252,18 +252,22 @@ var (
 	keyEd25519 = newSpecifier("ed25519")
 )
 
+// String returns the string encoding of a Specifier.
 func (s Specifier) String() string {
 	return string(bytes.Trim(s[:], "\x00"))
 }
 
+// String returns the hex encoding of a PriceTableUID.
 func (pu PriceTableUID) String() string {
 	return hex.EncodeToString(pu[:])
 }
 
+// MarshalText implements the encoding.TextMarshaler interface.
 func (pu PriceTableUID) MarshalText() ([]byte, error) {
 	return []byte(pu.String()), nil
 }
 
+// UnmarshalText implements the encoding.TextUnmarshaler interface.
 func (s *Specifier) UnmarshalText(b []byte) error {
 	_, err := hex.Decode(s[:], b)
 	return err

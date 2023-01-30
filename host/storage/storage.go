@@ -12,8 +12,9 @@ type (
 	// A SectorLocation is a location of a sector within a volume.
 	SectorLocation struct {
 		ID     uint64
-		Volume VolumeID
+		Volume int
 		Index  uint64
+		Root   SectorRoot
 	}
 
 	// A VolumeManager manages storage using local volumes.
@@ -21,16 +22,16 @@ type (
 		vs VolumeStore
 
 		mu      sync.Mutex // protects the following fields
-		volumes map[VolumeID]*volume
+		volumes map[int]*volume
 		// changedVolumes tracks volumes that need to be fsynced
-		changedVolumes map[VolumeID]bool
+		changedVolumes map[int]bool
 	}
 )
 
 // lockVolume locks a volume for operations until release is called. A locked
 // volume cannot have its size or status changed and no new sectors can be
 // written to it.
-func (vm *VolumeManager) lockVolume(id VolumeID) (func(), error) {
+func (vm *VolumeManager) lockVolume(id int) (func(), error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	v, ok := vm.volumes[id]
@@ -46,26 +47,37 @@ func (vm *VolumeManager) lockVolume(id VolumeID) (func(), error) {
 	}, nil
 }
 
-// migrateSector migrates a sector from one volume to another.
-func (vm *VolumeManager) migrateSector(root SectorRoot, location SectorLocation) error {
-	sector, err := vm.ReadSector(root)
+// writeSector writes a sector to a volume. The volume is not synced after the
+// sector is written. The location is assumed to be empty and locked.
+func (vm *VolumeManager) writeSector(data []byte, loc SectorLocation) error {
+	vol, err := vm.volume(loc.Volume)
 	if err != nil {
-		return fmt.Errorf("failed to read sector %v: %w", root, err)
+		return fmt.Errorf("failed to get volume: %w", err)
+	} else if err := vol.WriteSector(data, loc.Index); err != nil {
+		return fmt.Errorf("failed to write sector data: %w", err)
 	}
-
-	newVolume, err := vm.volume(location.Volume)
-	if err != nil {
-		return fmt.Errorf("failed to get volume %v: %w", location.Volume, err)
-	}
-
-	// write the sector to the new volume
-	if err := newVolume.WriteSector(sector, location.Index); err != nil {
-		return fmt.Errorf("failed to write sector %v: %w", location, err)
-	}
+	vm.mu.Lock()
+	vm.changedVolumes[loc.Volume] = true
+	vm.mu.Unlock()
 	return nil
 }
 
-func (vm *VolumeManager) growVolume(id VolumeID, oldMaxSectors, newMaxSectors uint64) error {
+// migrateSector migrates sectors to new locations. The sectors are read from
+// their current locations and written to their new locations. Changed volumes
+// are synced after all sectors have been written.
+func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
+	for _, loc := range locations {
+		sector, err := vm.ReadSector(loc.Root)
+		if err != nil {
+			return fmt.Errorf("failed to read sector %v: %w", loc.Root, err)
+		} else if err := vm.writeSector(sector, loc); err != nil {
+			return fmt.Errorf("failed to write sector %v to %v:%v: %w", loc.Root, loc.Volume, loc.Index, err)
+		}
+	}
+	return vm.Sync()
+}
+
+func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors > newMaxSectors {
 		return errors.New("old sectors must be less than new sectors")
 	}
@@ -93,7 +105,7 @@ func (vm *VolumeManager) growVolume(id VolumeID, oldMaxSectors, newMaxSectors ui
 	return nil
 }
 
-func (vm *VolumeManager) shrinkVolume(id VolumeID, oldMaxSectors, newMaxSectors uint64) error {
+func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
 	}
@@ -104,7 +116,7 @@ func (vm *VolumeManager) shrinkVolume(id VolumeID, oldMaxSectors, newMaxSectors 
 	}
 
 	// migrate any sectors outside of the new end of the volume
-	err = vm.vs.MigrateSectors(id, newMaxSectors, vm.migrateSector, vm.Sync)
+	err = vm.vs.MigrateSectors(id, newMaxSectors, vm.migrateSectors)
 	if err != nil {
 		return fmt.Errorf("failed to migrate sectors: %w", err)
 	}
@@ -168,7 +180,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 }
 
 // SetReadOnly sets the read-only status of a volume.
-func (vm *VolumeManager) SetReadOnly(id VolumeID, readOnly bool) error {
+func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
@@ -182,7 +194,7 @@ func (vm *VolumeManager) SetReadOnly(id VolumeID, readOnly bool) error {
 }
 
 // RemoveVolume removes a volume from the manager.
-func (vm *VolumeManager) RemoveVolume(id VolumeID, force bool) error {
+func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 	// lock the volume during removal to prevent concurrent operations
 	release, err := vm.lockVolume(id)
 	if err != nil {
@@ -195,7 +207,7 @@ func (vm *VolumeManager) RemoveVolume(id VolumeID, force bool) error {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
 	// migrate sectors to other volumes
-	err = vm.vs.MigrateSectors(id, 0, vm.migrateSector, vm.Sync)
+	err = vm.vs.MigrateSectors(id, 0, vm.migrateSectors)
 	if err != nil {
 		return fmt.Errorf("failed to migrate sector data: %w", err)
 	}
@@ -203,7 +215,7 @@ func (vm *VolumeManager) RemoveVolume(id VolumeID, force bool) error {
 }
 
 // ResizeVolume resizes a volume to the specified size.
-func (vm *VolumeManager) ResizeVolume(ctx context.Context, id VolumeID, maxSectors uint64) error {
+func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int, maxSectors uint64) error {
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
@@ -239,9 +251,16 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id VolumeID, maxSecto
 
 // RemoveSector deletes a sector's metadata and zeroes its data.
 func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
-	loc, err := vm.vs.RemoveSector(root)
+	// get and lock the sector's current location
+	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
 		return fmt.Errorf("failed to locate sector %v: %w", root, err)
+	}
+	defer release()
+
+	// remove the sector from the volume store
+	if err := vm.vs.RemoveSector(root); err != nil {
+		return fmt.Errorf("failed to remove sector %v: %w", root, err)
 	}
 
 	// get the volume from memory
@@ -250,7 +269,7 @@ func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
 		return fmt.Errorf("failed to get volume %v: %w", loc.Volume, err)
 	}
 
-	// zero the sector, immediately sync the volume, then release the lock
+	// zero the sector and immediately sync the volume
 	zeroes := make([]byte, sectorSize)
 	if err := vol.WriteSector(zeroes, loc.Index); err != nil {
 		return fmt.Errorf("failed to zero sector %v: %w", root, err)
@@ -281,7 +300,7 @@ func (vm *VolumeManager) ReadSector(root SectorRoot) ([]byte, error) {
 // Sync syncs the data files of changed volumes.
 func (vm *VolumeManager) Sync() error {
 	vm.mu.Lock()
-	var toSync []VolumeID
+	var toSync []int
 	for id := range vm.changedVolumes {
 		toSync = append(toSync, id)
 	}
@@ -322,7 +341,7 @@ func NewVolumeManager(vs VolumeStore) *VolumeManager {
 	return &VolumeManager{
 		vs: vs,
 
-		volumes:        make(map[VolumeID]*volume),
-		changedVolumes: make(map[VolumeID]bool),
+		volumes:        make(map[int]*volume),
+		changedVolumes: make(map[int]bool),
 	}
 }

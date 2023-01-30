@@ -11,21 +11,26 @@ import (
 	"go.sia.tech/siad/types"
 )
 
+// An updateWalletTxn atomically updates the wallet
+type updateWalletTxn struct {
+	tx txn
+}
+
 // AddSiacoinElement adds a spendable siacoin output to the wallet.
-func (tx *updateTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
+func (tx *updateWalletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
 	_, err := tx.tx.Exec(`INSERT INTO wallet_utxos (id, amount, unlock_hash) VALUES (?, ?, ?)`, valueHash(utxo.ID), valueCurrency(utxo.Value), valueHash(utxo.UnlockHash))
 	return err
 }
 
 // RemoveSiacoinElement removes a spendable siacoin output from the wallet
 // either due to a spend or a reorg.
-func (tx *updateTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error {
+func (tx *updateWalletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error {
 	_, err := tx.tx.Exec(`DELETE FROM wallet_utxos WHERE id=?`, valueHash(id))
 	return err
 }
 
 // AddTransaction adds a transaction to the wallet.
-func (tx *updateTxn) AddTransaction(txn wallet.Transaction, idx uint64) error {
+func (tx *updateWalletTxn) AddTransaction(txn wallet.Transaction, idx uint64) error {
 	var buf bytes.Buffer
 	if err := txn.Transaction.MarshalSia(&buf); err != nil {
 		return fmt.Errorf("failed to marshal transaction: %w", err)
@@ -35,19 +40,19 @@ func (tx *updateTxn) AddTransaction(txn wallet.Transaction, idx uint64) error {
 }
 
 // RemoveTransaction removes a transaction from the wallet.
-func (tx *updateTxn) RemoveTransaction(id types.TransactionID) error {
+func (tx *updateWalletTxn) RemoveTransaction(id types.TransactionID) error {
 	_, err := tx.tx.Exec(`DELETE FROM wallet_transactions WHERE id=?`, valueHash(id))
 	return err
 }
 
 // SetLastChange sets the last processed consensus change.
-func (tx *updateTxn) SetLastChange(id modules.ConsensusChangeID) error {
+func (tx *updateWalletTxn) SetLastChange(id modules.ConsensusChangeID) error {
 	_, err := tx.tx.Exec(`INSERT INTO wallet_settings (last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET last_processed_change=excluded.last_processed_change`, valueHash(id))
 	return err
 }
 
-// GetLastChange gets the last processed consensus change.
-func (s *Store) GetLastChange() (id modules.ConsensusChangeID, err error) {
+// GetLastWalletChange gets the last consensus change processed by the wallet.
+func (s *Store) GetLastWalletChange() (id modules.ConsensusChangeID, err error) {
 	err = s.db.QueryRow(`SELECT last_processed_change FROM wallet_settings`).Scan(scanHash((*[32]byte)(&id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, nil
@@ -58,9 +63,7 @@ func (s *Store) GetLastChange() (id modules.ConsensusChangeID, err error) {
 // UnspentSiacoinElements returns the spendable siacoin outputs in the wallet.
 func (s *Store) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err error) {
 	rows, err := s.db.Query(`SELECT id, amount, unlock_hash FROM wallet_utxos`)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	} else if err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("failed to query unspent siacoin elements: %w", err)
 	}
 	defer rows.Close()
@@ -78,9 +81,7 @@ func (s *Store) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err err
 // descending. If no transactions are found, (nil, nil) is returned.
 func (s *Store) Transactions(limit, offset int) (txns []wallet.Transaction, err error) {
 	rows, err := s.db.Query(`SELECT id, block_id, block_height, source, inflow, outflow, raw_data, date_created FROM wallet_transactions ORDER BY block_height DESC, block_index ASC LIMIT ? OFFSET ?`, limit, offset)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	} else if err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("failed to query transactions: %w", err)
 	}
 	defer rows.Close()
@@ -106,6 +107,6 @@ func (s *Store) TransactionCount() (count uint64, err error) {
 // UpdateWallet begins an update transaction on the wallet store.
 func (s *Store) UpdateWallet(fn func(wallet.UpdateTransaction) error) error {
 	return s.transaction(func(tx txn) error {
-		return fn(&updateTxn{tx})
+		return fn(&updateWalletTxn{tx})
 	})
 }

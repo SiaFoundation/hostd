@@ -102,7 +102,7 @@ func TestWallet(t *testing.T) {
 	}
 	w := wallet.NewSingleAddressWallet(privKey, cm, db)
 
-	ccID, err := db.GetLastChange()
+	ccID, err := db.GetLastWalletChange()
 	if err != nil {
 		t.Fatal(err)
 	} else if err := node1.cs.ConsensusSetSubscribe(w, ccID, nil); err != nil {

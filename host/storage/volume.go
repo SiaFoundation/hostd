@@ -32,14 +32,14 @@ type (
 
 	// A Volume stores and retrieves sector data
 	Volume struct {
-		ID           VolumeID `json:"id"`
-		LocalPath    string   `json:"localPath"`
-		UsedSectors  uint64   `json:"usedSectors"`
-		TotalSectors uint64   `json:"totalSectors"`
-		ReadOnly     bool     `json:"readOnly"`
+		ID           int    `json:"id"`
+		LocalPath    string `json:"localPath"`
+		UsedSectors  uint64 `json:"usedSectors"`
+		TotalSectors uint64 `json:"totalSectors"`
+		ReadOnly     bool   `json:"readOnly"`
 
 		// the following fields are not persisted
-		Stats VolumeStats `json:"stats"`
+		// Stats VolumeStats `json:"stats"`
 	}
 
 	// A volume stores and retrieves sector data
@@ -57,7 +57,7 @@ type (
 
 // volume returns the volume with the given ID, or an error if the volume does
 // not exist or is currently busy.
-func (vm *VolumeManager) volume(v VolumeID) (*volume, error) {
+func (vm *VolumeManager) volume(v int) (*volume, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	vol, ok := vm.volumes[v]

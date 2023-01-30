@@ -17,7 +17,7 @@ type (
 		// Volumes returns a list of all volumes in the volume store.
 		Volumes() ([]Volume, error)
 		// Volume returns a volume in the store by its id
-		Volume(VolumeID) (Volume, error)
+		Volume(id int) (Volume, error)
 		// AddVolume initializes a new storage volume and adds it to the volume
 		// store. GrowVolume must be called afterwards to initialize the volume
 		// to its desired size.
@@ -25,23 +25,23 @@ type (
 		// RemoveVolume removes a storage volume from the volume store. If there
 		// are used sectors in the volume, ErrVolumeNotEmpty is returned. If
 		// force is true, the volume is removed even if it is not empty.
-		RemoveVolume(id VolumeID, force bool) error
+		RemoveVolume(volumeID int, force bool) error
 		// GrowVolume grows a storage volume's metadata to maxSectors. If the
 		// number of sectors in the volume is already greater than maxSectors,
 		// nil is returned.
-		GrowVolume(id VolumeID, maxSectors uint64) error
+		GrowVolume(volumeID int, maxSectors uint64) error
 		// ShrinkVolume shrinks a storage volume's metadata to maxSectors. If
 		// there are used sectors in the shrink range, an error is returned.
-		ShrinkVolume(id VolumeID, maxSectors uint64) error
+		ShrinkVolume(volumeID int, maxSectors uint64) error
 
 		// SetReadOnly sets the read-only flag on a volume.
-		SetReadOnly(id VolumeID, readOnly bool) error
+		SetReadOnly(volumeID int, readOnly bool) error
 
 		// MigrateSectors returns a new location for each occupied sector of a volume
 		// starting at min. The sector data should be copied to the new volume and
 		// synced to disk during migrateFn. Iteration is stopped if migrateFn returns an
 		// error.
-		MigrateSectors(id VolumeID, min uint64, migrateFn func(root SectorRoot, newLoc SectorLocation) error, commitFn func() error) error
+		MigrateSectors(volumeID int, min uint64, migrateFn func(newLocations []SectorLocation) error) error
 		// StoreSector calls fn with an empty location in a writeable volume. If
 		// the sector root already exists, fn is called with the existing
 		// location and exists is true. Unless exists is true, The sector must
@@ -54,7 +54,7 @@ type (
 		StoreSector(root SectorRoot, fn func(loc SectorLocation, exists bool) error) (release func() error, err error)
 		// RemoveSector removes the metadata of a sector and returns its
 		// location in the volume.
-		RemoveSector(root SectorRoot) (loc SectorLocation, err error)
+		RemoveSector(root SectorRoot) error
 		// SectorLocation returns the location of a sector or an error if the
 		// sector is not found. The location is locked until release is
 		// called.
