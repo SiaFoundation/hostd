@@ -10,6 +10,21 @@ import (
 	"go.sia.tech/hostd/host/storage"
 )
 
+const sectorSize = 1 << 22
+
+func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
+	// nulls are not included in COUNT() -- counting sector roots is equivalent
+	// to counting used sectors.
+	const query = `SELECT COUNT(id) AS total_sectors, COUNT(sector_root) AS used_sectors FROM volume_sectors`
+	err := s.db.QueryRow(query).Scan(&totalBytes, &usedBytes)
+	if err != nil {
+		return 0, 0, fmt.Errorf("query failed: %w", err)
+	}
+	totalBytes *= sectorSize
+	usedBytes *= sectorSize
+	return usedBytes, totalBytes, nil
+}
+
 // Volumes returns a list of all volumes.
 func (s *Store) Volumes() ([]storage.Volume, error) {
 	const query = `SELECT v.id, v.disk_path, NOT v.writeable, COUNT(s.id) AS total_sectors, COUNT(s.sector_root) AS used_sectors

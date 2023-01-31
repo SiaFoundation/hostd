@@ -137,6 +137,11 @@ func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint6
 	return volume.Resize(newMaxSectors * sectorSize)
 }
 
+// Usage returns the total and used storage space, in bytes, in the storage manager.
+func (vm *VolumeManager) Usage() (usedBytes uint64, totalBytes uint64, err error) {
+	return vm.vs.StorageUsage()
+}
+
 // Volumes returns a list of all volumes in the storage manager.
 func (vm *VolumeManager) Volumes() ([]Volume, error) {
 	return vm.vs.Volumes()

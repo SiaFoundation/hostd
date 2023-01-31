@@ -14,6 +14,8 @@ type (
 
 	// A VolumeStore stores and retrieves information about storage volumes.
 	VolumeStore interface {
+		// StorageUsage returns the number of used and total bytes in all volumes
+		StorageUsage() (usedBytes, totalBytes uint64, _ error)
 		// Volumes returns a list of all volumes in the volume store.
 		Volumes() ([]Volume, error)
 		// Volume returns a volume in the store by its id
