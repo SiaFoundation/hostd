@@ -23,8 +23,6 @@ type (
 		// Debit subtracts the specified amount from the account with the given
 		// ID. Returns the remaining balance of the account.
 		Debit(accountID AccountID, amount types.Currency) (types.Currency, error)
-
-		Close() error
 	}
 
 	accountState struct {
@@ -57,13 +55,6 @@ type (
 
 func (a *AccountID) String() string {
 	return "ed25519:" + hex.EncodeToString(a[:])
-}
-
-// Close closes the underlying account store.
-func (am *AccountManager) Close() error {
-	am.mu.Lock()
-	defer am.mu.Unlock()
-	return am.store.Close()
 }
 
 // Balance returns the balance of the account with the given ID.
