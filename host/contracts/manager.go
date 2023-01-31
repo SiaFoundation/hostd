@@ -3,11 +3,14 @@ package contracts
 import (
 	"errors"
 	"fmt"
+	"log"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"go.sia.tech/hostd/consensus"
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
@@ -23,7 +26,7 @@ type (
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error)
+		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []crypto.Hash, release func(), err error)
 		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
 	}
 
@@ -35,41 +38,8 @@ type (
 
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
-		HasSector(crypto.Hash) (bool, error)
-		// AddSector adds a sector to the storage manager.
-		AddSector(root crypto.Hash, sector []byte, refs int) error
-		// DeleteSector deletes the sector with the given root.
-		DeleteSector(root crypto.Hash, refs int) error
-		// Sector reads a sector from the store
-		Sector(root crypto.Hash) ([]byte, error)
-	}
-
-	// A ContractStore stores contracts for the host. It also updates stored
-	// contracts from the blockchain and determines which contracts need
-	// lifecycle actions.
-	ContractStore interface {
-		// Exists returns true if the contract is in the store.
-		Exists(types.FileContractID) bool
-		// Get returns the contract with the given ID.
-		Get(types.FileContractID) (Contract, error)
-		// Add stores the provided contract, should error if the contract
-		// already exists in the store.
-		Add(SignedRevision, []types.Transaction) error
-		// Delete removes the contract with the given ID from the store.
-		Delete(types.FileContractID) error
-		// ReviseContract updates the current revision associated with a contract.
-		Revise(revision types.FileContractRevision, hostSig []byte, renterSig []byte) error
-
-		// Roots returns the roots of all sectors stored by the contract.
-		Roots(types.FileContractID) ([]crypto.Hash, error)
-		// SetRoots sets the stored roots of the contract.
-		SetRoots(types.FileContractID, []crypto.Hash) error
-
-		// ContractAction calls contractFn on every contract in the store that
-		// needs a lifecycle action performed.
-		ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID)) error
-
-		Close() error
+		// ReadSector reads a sector from the store
+		ReadSector(root storage.SectorRoot) ([]byte, error)
 	}
 
 	locker struct {
@@ -93,15 +63,10 @@ type (
 	}
 )
 
-// Close closes the contract manager.
-func (cm *ContractManager) Close() error {
-	return cm.store.Close()
-}
-
 // Lock locks a contract for modification.
 func (cm *ContractManager) Lock(id types.FileContractID, timeout time.Duration) (SignedRevision, error) {
 	cm.mu.Lock()
-	contract, err := cm.store.Get(id)
+	contract, err := cm.store.Contract(id)
 	if err != nil {
 		return SignedRevision{}, err
 	}
@@ -121,7 +86,7 @@ func (cm *ContractManager) Lock(id types.FileContractID, timeout time.Duration) 
 	cm.mu.Unlock()
 	select {
 	case <-c:
-		contract, err := cm.store.Get(id)
+		contract, err := cm.store.Contract(id)
 		if err != nil {
 			return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
 		}
@@ -146,44 +111,50 @@ func (cm *ContractManager) Unlock(id types.FileContractID) {
 	lock.c <- struct{}{}
 }
 
-// AddContract stores the provided contract, overwriting any previous contract
-// with the same ID.
-func (cm *ContractManager) AddContract(contract SignedRevision, formationTxnSet []types.Transaction) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	return cm.store.Add(contract, formationTxnSet)
+// AddContract stores the provided contract, should error if the contract
+// already exists.
+func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
+	return cm.store.AddContract(revision, formationSet, lockedCollateral, negotationHeight)
 }
 
-// ReviseContract updates the current revision associated with a contract.
-func (cm *ContractManager) ReviseContract(revision types.FileContractRevision, hostSig []byte, renterSig []byte) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	return cm.store.Revise(revision, hostSig, renterSig)
+// RenewContract renews a contract. It is expected that the existing
+// contract will be cleared.
+func (cm *ContractManager) RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
+	if existing.Revision.NewFileMerkleRoot != (crypto.Hash{}) {
+		return errors.New("existing contract must be cleared")
+	} else if existing.Revision.NewFileSize != 0 {
+		return errors.New("existing contract must be cleared")
+	} else if existing.Revision.NewRevisionNumber != math.MaxUint64 {
+		return errors.New("existing contract must be cleared")
+	}
+	return cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, negotationHeight)
 }
 
 // SectorRoots returns the roots of all sectors stored by the contract.
-func (cm *ContractManager) SectorRoots(id types.FileContractID) ([]crypto.Hash, error) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	return cm.store.Roots(id)
-}
-
-// SetRoots updates the roots of the contract.
-func (cm *ContractManager) SetRoots(id types.FileContractID, roots []crypto.Hash) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	return cm.store.SetRoots(id, roots)
+func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset uint64) ([]crypto.Hash, error) {
+	return cm.store.SectorRoots(id, limit, offset)
 }
 
 // ProcessConsensusChange applies a block update to the contract manager.
 func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	cm.store.ContractAction(&cc, func(id types.FileContractID) {
-		_ = cm.handleContractAction(uint64(cc.BlockHeight), id)
-		// TODO: log error
-	})
+	err := cm.store.ContractAction(&cc, cm.handleContractAction)
+	if err != nil {
+		log.Println("CONTRACTOR ERROR:", err)
+	}
 	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))
+}
+
+func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*ContractUpdater, error) {
+	roots, err := cm.store.SectorRoots(contractID, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sector roots: %w", err)
+	}
+	return &ContractUpdater{
+		store:       cm.store,
+		sectorRoots: roots,
+	}, nil
 }
 
 // NewManager creates a new contract manager.

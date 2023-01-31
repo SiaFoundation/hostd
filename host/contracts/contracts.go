@@ -2,12 +2,24 @@ package contracts
 
 import (
 	"crypto/ed25519"
+	"errors"
+	"fmt"
 
+	"go.sia.tech/hostd/internal/merkle"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 )
 
+const (
+	sectorActionAppend sectorActionType = "append"
+	sectorActionUpdate sectorActionType = "update"
+	sectorActionSwap   sectorActionType = "swap"
+	sectorActionTrim   sectorActionType = "trim"
+)
+
 type (
+	sectorActionType string
+
 	// ContractState is the current lifecycle stage of a contract.
 	ContractState string
 
@@ -25,27 +37,37 @@ type (
 	Contract struct {
 		SignedRevision
 
-		// FormationTransaction is the transaction created by the host and
-		// renter during contract formation. A reference is kept in case it
-		// needs to be rebroadcast.
-		Confirmed            bool
-		FormationTransaction []types.Transaction
+		LockedCollateral types.Currency
 
-		// Error is an error encountered while interacting with the contract.
-		// if an error is set, the host may refuse to interact with the
-		// contract.
+		// NegotiationHeight is the height the contract was negotiated at.
+		NegotiationHeight uint64
+		// FormationConfirmed is true if the contract formation transaction
+		// has been confirmed on the blockchain.
+		FormationConfirmed bool
+		// RevisionConfirmed is true if the contract revision transaction has
+		// been confirmed on the blockchain.
+		RevisionConfirmed bool
+		// ResolutionConfirmed is true if the contract's resolution has been
+		// confirmed on the blockchain.
+		ResolutionConfirmed bool
+		// Error is an error encountered while interacting with the contract. if
+		// an error is set, the host may refuse to use the contract.
 		Error error
-		// FormationHeight is the height the contract was formed, should never
-		// be 0.
-		FormationHeight uint64
-		// RevisionHeight is the height the contract was revised or 0 if the
-		// contract has not broadcast its final revision.
-		RevisionHeight uint64
-		// ResolutionHeight is the height the contract was resolved  or 0 if the
-		// contract is unresolved.
-		ResolutionHeight uint64
 		// State is the current lifecycle state of the contract.
 		State ContractState
+	}
+
+	contractSectorAction struct {
+		Root   crypto.Hash
+		A, B   uint64
+		Action sectorActionType
+	}
+
+	ContractUpdater struct {
+		store ContractStore
+
+		sectorActions []contractSectorAction
+		sectorRoots   []crypto.Hash
 	}
 )
 
@@ -54,11 +76,14 @@ var (
 	ContractStateUnresolved ContractState = "unresolved"
 	// ContractStateRenewed is a contract that has been renewed.
 	ContractStateRenewed ContractState = "renewed"
-	// ContractStateValid is a contract with a successfully confirmed storage proof.
+	// ContractStateValid is a contract with a successfully confirmed storage
+	// proof.
 	ContractStateValid ContractState = "valid"
-	// ContractStateMissed is a contract that was resolved after the proof window
-	// ended.
+	// ContractStateMissed is a contract that was resolved after the proof
+	// window ended.
 	ContractStateMissed ContractState = "missed"
+
+	ErrNotFound = errors.New("contract not found")
 )
 
 // RenterKey returns the renter's public key.
@@ -83,29 +108,93 @@ func (sr SignedRevision) Signatures() []types.TransactionSignature {
 	}
 }
 
-// ShouldBroadcastTransaction returns true if the host should redbroadcast the
-// contract formation transaction. The transaction should be rebroadcast if the
-// contract has not been seen on the blockchain, there is not an existing error,
-// and the height is before the proof deadline.
-func (c *Contract) ShouldBroadcastTransaction(height uint64) bool {
-	// if the contract has not been confirmed, and the height is before the
-	// proof deadline, attempt to rebroadcast the transaction every 6 blocks
-	return !c.Confirmed && c.Error == nil && c.Revision.NewWindowStart-6 > types.BlockHeight(height) && (height-c.FormationHeight)%6 == 0
+func (cu *ContractUpdater) AppendSector(root crypto.Hash) {
+	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+		Root:   root,
+		Action: sectorActionAppend,
+	})
+	cu.sectorRoots = append(cu.sectorRoots, root)
 }
 
-// ShouldBroadcastRevision returns true if the host should broadcast the final
-// revision. The final revision should be broadcast if the height is within 6
-// blocks of the proof window and the host's current revision number is higher
-// than the parent's.
-func (c *Contract) ShouldBroadcastRevision(height uint64) bool {
-	return c.RevisionHeight == 0 && types.BlockHeight(height) >= c.Revision.NewWindowStart-6 && c.Revision.NewWindowStart > types.BlockHeight(height)
+func (cu *ContractUpdater) SwapSectors(a, b uint64) error {
+	if a >= uint64(len(cu.sectorRoots)) || b >= uint64(len(cu.sectorRoots)) {
+		return fmt.Errorf("invalid sector indices %v, %v", a, b)
+	}
+	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+		A:      a,
+		B:      b,
+		Action: sectorActionSwap,
+	})
+	cu.sectorRoots[a], cu.sectorRoots[b] = cu.sectorRoots[b], cu.sectorRoots[a]
+	return nil
 }
 
-// ShouldBroadcastStorageProof returns true if the host should broadcast a contract
-// resolution. The contract resolution should be broadcast if the contract is in
-// the proof window and has not already been resolved.
-func (c *Contract) ShouldBroadcastStorageProof(height uint64) bool {
-	// if the current index is past window start and the contract has not been resolved, attempt to resolve it. If the
-	// resolution fails, retry every 6 blocks.
-	return c.ResolutionHeight == 0 && c.Revision.NewWindowStart <= types.BlockHeight(height) && c.Revision.NewWindowEnd > types.BlockHeight(height) && (types.BlockHeight(height)-c.Revision.NewWindowStart)%6 == 0
+func (cu *ContractUpdater) TrimSectors(n uint64) error {
+	if n > uint64(len(cu.sectorRoots)) {
+		return fmt.Errorf("invalid sector count %v", n)
+	}
+	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+		A:      n,
+		Action: sectorActionTrim,
+	})
+	cu.sectorRoots = cu.sectorRoots[:uint64(len(cu.sectorRoots))-n]
+	return nil
+}
+
+func (cu *ContractUpdater) UpdateSectors(root crypto.Hash, i uint64) error {
+	if i >= uint64(len(cu.sectorRoots)) {
+		return fmt.Errorf("invalid sector index %v", i)
+	}
+	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+		Root:   root,
+		A:      i,
+		Action: sectorActionUpdate,
+	})
+	cu.sectorRoots[i] = root
+	return nil
+}
+
+func (cu *ContractUpdater) SectorLength() uint64 {
+	return uint64(len(cu.sectorRoots))
+}
+
+func (cu *ContractUpdater) SectorRoot(i uint64) (crypto.Hash, error) {
+	if i >= uint64(len(cu.sectorRoots)) {
+		return crypto.Hash{}, fmt.Errorf("invalid sector index %v", i)
+	}
+	return cu.sectorRoots[i], nil
+}
+
+func (cu *ContractUpdater) MerkleRoot() crypto.Hash {
+	return merkle.MetaRoot(cu.sectorRoots)
+}
+
+func (cu *ContractUpdater) Commit(revision SignedRevision) error {
+	return cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
+		for i, action := range cu.sectorActions {
+			switch action.Action {
+			case sectorActionAppend:
+				if err := tx.AppendSector(action.Root); err != nil {
+					return fmt.Errorf("failed to apply action %v: append sector: %w", i, err)
+				}
+			case sectorActionUpdate:
+				if err := tx.UpdateSector(action.A, action.Root); err != nil {
+					return fmt.Errorf("failed to update sector: %w", err)
+				}
+			case sectorActionSwap:
+				if err := tx.SwapSectors(action.A, action.B); err != nil {
+					return fmt.Errorf("failed to swap sectors: %w", err)
+				}
+			case sectorActionTrim:
+				if err := tx.TrimSectors(action.A); err != nil {
+					return fmt.Errorf("failed to trim sectors: %w", err)
+				}
+			}
+		}
+
+		if err := tx.ReviseContract(revision); err != nil {
+			return fmt.Errorf("failed to revise contract: %w", err)
+		}
+		return nil
+	})
 }

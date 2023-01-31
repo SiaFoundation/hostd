@@ -195,14 +195,6 @@ func (s *session) Spend(n types.Currency) {
 	s.spent = s.spent.Add(n)
 }
 
-func (s *session) ReviseContract(contracts ContractManager, revision types.FileContractRevision, hostSig, renterSig []byte) error {
-	s.contract.Revision = revision
-	copy(s.contract.HostSignature[:], hostSig)
-	copy(s.contract.RenterSignature[:], renterSig)
-
-	return contracts.ReviseContract(revision, renterSig, hostSig)
-}
-
 // ContractRevisable returns an error if a contract is not locked or can't be
 // revised. A contract is revisable if the revision number is not the max uint64
 // value and it is not close to the proof window.

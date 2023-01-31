@@ -83,7 +83,8 @@ type (
 	// A SingleAddressStore stores the state of a single-address wallet.
 	// Implementations are assumed to be thread safe.
 	SingleAddressStore interface {
-		UpdateWallet(func(UpdateTransaction) error) error
+		LastWalletChange() (modules.ConsensusChangeID, error)
+
 		UnspentSiacoinElements() ([]SiacoinElement, error)
 		// Transactions returns a paginated list of transactions ordered by
 		// block height, descending. If no more transactions are available,
@@ -92,6 +93,8 @@ type (
 		// TransactionCount returns the total number of transactions in the
 		// wallet.
 		TransactionCount() (uint64, error)
+
+		UpdateWallet(func(UpdateTransaction) error) error
 	}
 )
 

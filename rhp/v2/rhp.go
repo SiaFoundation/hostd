@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 	"golang.org/x/crypto/blake2b"
@@ -42,23 +43,29 @@ type (
 		// Unlock unlocks the contract with the given ID.
 		Unlock(id types.FileContractID)
 
-		SectorRoots(id types.FileContractID) ([]crypto.Hash, error)
-		SetRoots(id types.FileContractID, roots []crypto.Hash) error
+		// AddContract adds a new contract to the manager.
+		AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		// RenewContract renews an existing contract.
+		RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		// ReviseContract atomically revises a contract and its sector roots
+		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
-		AddContract(revision contracts.SignedRevision, txnset []types.Transaction) error
-		ReviseContract(revision types.FileContractRevision, renterSig, hostSig []byte) error
+		// SectorRoots returns the sector roots of the contract with the given ID.
+		SectorRoots(id types.FileContractID, limit, offset uint64) ([]crypto.Hash, error)
 	}
 
 	// A StorageManager manages the storage of sectors on disk.
 	StorageManager interface {
 		Usage() (used, total uint64, _ error)
 
-		// AddSector adds a sector to the storage manager.
-		AddSector(root crypto.Hash, sector []byte, refs int) error
-		// DeleteSector deletes the sector with the given root.
-		DeleteSector(root crypto.Hash, refs int) error
-		// Sector reads a sector from the store
-		Sector(root crypto.Hash) ([]byte, error)
+		// WriteSector writes a sector to persistent storage. release should
+		// only be called after the contract roots have been committed to
+		// prevent the sector from being deleted.
+		WriteSector(root storage.SectorRoot, data []byte) (release func() error, _ error)
+		// ReadSector reads the sector with the given root from the manager.
+		ReadSector(root storage.SectorRoot) ([]byte, error)
+		// Sync syncs the data files of changed volumes.
+		Sync() error
 	}
 
 	// A ChainManager provides access to the current state of the blockchain.
@@ -69,7 +76,7 @@ type (
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error)
+		FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error)
 		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
 	}
 

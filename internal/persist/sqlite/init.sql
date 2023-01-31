@@ -23,11 +23,6 @@ CREATE TABLE wallet_transactions (
 );
 CREATE INDEX wallet_transactions_date_created_index ON wallet_transactions(date_created);
 
-CREATE TABLE wallet_settings (
-	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
-	last_processed_change TEXT NOT NULL DEFAULT ""
-);
-
 CREATE TABLE accounts (
 	id TEXT PRIMARY KEY,
 	balance TEXT NOT NULL,
@@ -137,7 +132,9 @@ CREATE TABLE host_settings (
 CREATE TABLE global_settings (
 	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL DEFAULT 0, -- used for migrations
-	host_key TEXT NOT NULL DEFAULT "" -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
+	host_key TEXT NOT NULL DEFAULT "", -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
+	wallet_last_processed_change TEXT NOT NULL DEFAULT "", -- last processed consensus change for the wallet
+	contracts_last_processed_change TEXT NOT NULL DEFAULT "" -- last processed consensus change for the contract manager
 );
 
 INSERT INTO global_settings (db_version) VALUES (1); -- version must be updated when the schema changes

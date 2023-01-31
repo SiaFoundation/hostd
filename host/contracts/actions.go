@@ -5,10 +5,23 @@ import (
 	"fmt"
 	"math/bits"
 
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/merkle"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 	"golang.org/x/crypto/blake2b"
+)
+
+// An action determines what lifecycle event should be performed on a contract.
+const (
+	ActionBroadcastFormation     LifecycleAction = "formation"
+	ActionBroadcastFinalRevision LifecycleAction = "revision"
+	ActionBroadcastResolution    LifecycleAction = "resolution"
+)
+
+type (
+	// LifecycleAction is an action that should be performed on a contract.
+	LifecycleAction string
 )
 
 // storageProofSegment returns the segment index for which a storage proof must
@@ -34,12 +47,12 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 	sectorIndex := index / merkle.LeavesPerSector
 	segmentIndex := index % merkle.LeavesPerSector
 
-	roots, err := cm.SectorRoots(id)
+	roots, err := cm.SectorRoots(id, 0, 0)
 	if err != nil {
 		return types.StorageProof{}, err
 	}
 	root := roots[sectorIndex]
-	sector, err := cm.storage.Sector(root)
+	sector, err := cm.storage.ReadSector(storage.SectorRoot(root))
 	if err != nil {
 		return types.StorageProof{}, err
 	}
@@ -54,19 +67,22 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 }
 
 // handleContractAction performs a lifecycle action on a contract.
-func (cm *ContractManager) handleContractAction(height uint64, id types.FileContractID) error {
-	contract, err := cm.store.Get(id)
+func (cm *ContractManager) handleContractAction(id types.FileContractID, action LifecycleAction) error {
+	contract, err := cm.store.Contract(id)
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
 	}
 
-	switch {
-	case contract.ShouldBroadcastTransaction(height):
-		if err := cm.tpool.AcceptTransactionSet(contract.FormationTransaction); err != nil {
+	switch action {
+	case ActionBroadcastFormation:
+		formationSet, err := cm.store.ContractFormationSet(id)
+		if err != nil {
+			return fmt.Errorf("failed to get formation set: %w", err)
+		} else if err := cm.tpool.AcceptTransactionSet(formationSet); err != nil {
 			// TODO: recalc financials
 			return fmt.Errorf("failed to broadcast formation txn: %w", err)
 		}
-	case contract.ShouldBroadcastRevision(height):
+	case ActionBroadcastFinalRevision:
 		revisionTxn := types.Transaction{
 			FileContractRevisions: []types.FileContractRevision{contract.Revision},
 			TransactionSignatures: []types.TransactionSignature{
@@ -86,7 +102,7 @@ func (cm *ContractManager) handleContractAction(height uint64, id types.FileCont
 		_, max := cm.tpool.FeeEstimation()
 		fee := max.Mul64(1000)
 		revisionTxn.MinerFees = append(revisionTxn.MinerFees, fee)
-		toSign, discard, err := cm.wallet.FundTransaction(&revisionTxn, fee, nil)
+		toSign, discard, err := cm.wallet.FundTransaction(&revisionTxn, fee)
 		if err != nil {
 			return fmt.Errorf("failed to fund revision txn: %w", err)
 		}
@@ -96,12 +112,11 @@ func (cm *ContractManager) handleContractAction(height uint64, id types.FileCont
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{revisionTxn}); err != nil {
 			return fmt.Errorf("failed to broadcast revision txn: %w", err)
 		}
-	case contract.ShouldBroadcastStorageProof(height):
+	case ActionBroadcastResolution:
 		state, err := cm.chain.IndexAtHeight(uint64(contract.Revision.NewWindowStart - 1))
 		if err != nil {
 			return fmt.Errorf("failed to get chain index at height %v: %w", contract.Revision.NewWindowStart-1, err)
 		}
-		// get the
 		index := storageProofSegment(state.ID, contract.Revision.ParentID, contract.Revision.NewFileSize)
 		sp, err := cm.buildStorageProof(contract.Revision.ParentID, index)
 		if err != nil {
@@ -115,7 +130,7 @@ func (cm *ContractManager) handleContractAction(height uint64, id types.FileCont
 		_, max := cm.tpool.FeeEstimation()
 		fee := max.Mul64(1000)
 		resolutionTxn.MinerFees = append(resolutionTxn.MinerFees, fee)
-		toSign, discard, err := cm.wallet.FundTransaction(&resolutionTxn, fee, nil)
+		toSign, discard, err := cm.wallet.FundTransaction(&resolutionTxn, fee)
 		if err != nil {
 			return fmt.Errorf("failed to fund resolution txn: %w", err)
 		}

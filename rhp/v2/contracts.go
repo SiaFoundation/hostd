@@ -293,7 +293,7 @@ func validateWriteActions(actions []rpcWriteAction, oldSectors uint64, proof boo
 		switch action.Type {
 		case rpcWriteActionAppend:
 			if len(action.Data) != SectorSize {
-				return types.ZeroCurrency, types.ZeroCurrency, ErrInvalidSectorLength
+				return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("invalid sector size: %v: %w", len(action.Data), ErrInvalidSectorLength)
 			}
 			newSectors++
 			uploadBytes += SectorSize

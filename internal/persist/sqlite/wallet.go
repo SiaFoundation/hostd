@@ -47,13 +47,13 @@ func (tx *updateWalletTxn) RemoveTransaction(id types.TransactionID) error {
 
 // SetLastChange sets the last processed consensus change.
 func (tx *updateWalletTxn) SetLastChange(id modules.ConsensusChangeID) error {
-	_, err := tx.tx.Exec(`INSERT INTO wallet_settings (last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET last_processed_change=excluded.last_processed_change`, valueHash(id))
+	_, err := tx.tx.Exec(`INSERT INTO global_settings (wallet_last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET wallet_last_processed_change=excluded.wallet_last_processed_change`, valueHash(id))
 	return err
 }
 
-// GetLastWalletChange gets the last consensus change processed by the wallet.
-func (s *Store) GetLastWalletChange() (id modules.ConsensusChangeID, err error) {
-	err = s.db.QueryRow(`SELECT last_processed_change FROM wallet_settings`).Scan(scanHash((*[32]byte)(&id)))
+// LastWalletChange gets the last consensus change processed by the wallet.
+func (s *Store) LastWalletChange() (id modules.ConsensusChangeID, err error) {
+	err = s.db.QueryRow(`SELECT wallet_last_processed_change FROM global_settings`).Scan(scanHash((*[32]byte)(&id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, nil
 	}

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/merkle"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
@@ -186,7 +188,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 	// calculate the host's collateral and add the inputs to the transaction
 	hostCollateral := formationTxn.FileContracts[0].ValidProofOutputs[1].Value.Sub(settings.ContractPrice)
 	renterInputs, renterOutputs := len(formationTxn.SiacoinInputs), len(formationTxn.SiacoinOutputs)
-	toSign, discard, err := sh.wallet.FundTransaction(formationTxn, hostCollateral, nil)
+	toSign, discard, err := sh.wallet.FundTransaction(formationTxn, hostCollateral)
 	if err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to fund formation transaction: %w", err)
@@ -234,7 +236,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 		RenterSignature: renterSig,
 		HostSignature:   hostSig,
 	}
-	if err := sh.contracts.AddContract(signedRevision, formationTxnSet); err != nil {
+	if err := sh.contracts.AddContract(signedRevision, formationTxnSet, hostCollateral, currentHeight); err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to add contract to store: %w", err)
 	}
@@ -266,135 +268,144 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 // rpcRenewAndClearContract is an RPC that renews a contract and clears the
 // existing contract
 func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
-	currentHeight := sh.cm.Tip().Index.Height
-	if err := s.ContractRevisable(currentHeight); err != nil {
-		return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
-	}
+	/*	currentHeight := sh.cm.Tip().Index.Height
+		if err := s.ContractRevisable(currentHeight); err != nil {
+			return s.WriteError(fmt.Errorf("contract not revisable: %w", err))
+		}
 
-	var req rpcRenewAndClearContractRequest
-	if err := s.ReadRequest(&req, 10*minMessageSize, time.Minute); err != nil {
-		return fmt.Errorf("failed to read renew request: %w", err)
-	}
+		var req rpcRenewAndClearContractRequest
+		if err := s.ReadRequest(&req, 10*minMessageSize, time.Minute); err != nil {
+			return fmt.Errorf("failed to read renew request: %w", err)
+		}
 
-	renewalTxnSet := req.Transactions
-	if len(renewalTxnSet) == 0 || len(renewalTxnSet[len(renewalTxnSet)-1].FileContracts) != 1 || len(renewalTxnSet[len(renewalTxnSet)-1].FileContractRevisions) != 1 {
-		return s.WriteError(ErrTxnMissingContract)
-	}
+		renewalTxnSet := req.Transactions
+		if len(renewalTxnSet) == 0 || len(renewalTxnSet[len(renewalTxnSet)-1].FileContracts) != 1 || len(renewalTxnSet[len(renewalTxnSet)-1].FileContractRevisions) != 1 {
+			return s.WriteError(ErrTxnMissingContract)
+		}
 
-	renterPub := req.RenterKey
-	// get the host's public key, current block height, and settings
-	existingContract := s.contract.Revision
-	hostPub := types.SiaPublicKey{
-		Algorithm: types.SignatureEd25519,
-		Key:       sh.privateKey.Public().(ed25519.PublicKey),
-	}
-	settings, err := sh.Settings()
-	if err != nil {
-		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to get host settings: %w", err)
-	}
-	// get the contract from the transaction set
-	renewalTxn := &renewalTxnSet[len(renewalTxnSet)-1]
+		renterPub := req.RenterKey
+		// get the host's public key, current block height, and settings
+		existingContract := s.contract.Revision
+		clearingRevision := renewalTxn.FileContractRevisions[0]
+		hostPub := types.SiaPublicKey{
+			Algorithm: types.SignatureEd25519,
+			Key:       sh.privateKey.Public().(ed25519.PublicKey),
+		}
+		settings, err := sh.Settings()
+		if err != nil {
+			s.WriteError(ErrHostInternalError)
+			return fmt.Errorf("failed to get host settings: %w", err)
+		}
+		// get the contract from the transaction set
+		renewalTxn := &renewalTxnSet[len(renewalTxnSet)-1]
 
-	// create an initial revision for the renewed contract
-	initialRevision := initialRevision(renewalTxn, hostPub, renterPub)
-	sigHash := hashRevision(initialRevision)
-	hostSig := ed25519.Sign(sh.privateKey, sigHash[:])
+		// create an initial revision for the renewed contract
+		initialRevision := initialRevision(renewalTxn, hostPub, renterPub)
+		renewalSigHash := hashRevision(initialRevision)
+		clearingSigHash := hashRevision(clearingRevision)
+		renewalHostSig := ed25519.Sign(sh.privateKey, renewalSigHash[:])
+		clearingHostSig := ed25519.Sign(sh.privateKey, clearingSigHash[:])
 
-	// calculate the "base" storage cost to the renter and risked collateral for
-	// the host for the data already in the contract. If the contract height did
-	// not increase, base costs are zero since the storage is already paid for.
-	baseRenterCost := settings.ContractPrice
-	var baseCollateral types.Currency
-	if initialRevision.NewWindowEnd > existingContract.NewWindowEnd {
-		extension := uint64(initialRevision.NewWindowEnd - existingContract.NewWindowEnd)
-		baseRenterCost = baseRenterCost.Add(settings.StoragePrice.Mul64(initialRevision.NewFileSize).Mul64(extension))
-		baseCollateral = settings.Collateral.Mul64(initialRevision.NewFileSize).Mul64(extension)
-	} else if initialRevision.NewValidProofOutputs[1].Value.Cmp(baseCollateral.Add(baseRenterCost)) < 0 {
-		return s.WriteError(errors.New("renewal rejected: insufficient host payout for storage and collateral"))
-	}
+		// calculate the "base" storage cost to the renter and risked collateral for
+		// the host for the data already in the contract. If the contract height did
+		// not increase, base costs are zero since the storage is already paid for.
+		baseRenterCost := settings.ContractPrice
+		var baseCollateral types.Currency
+		if initialRevision.NewWindowEnd > existingContract.NewWindowEnd {
+			extension := uint64(initialRevision.NewWindowEnd - existingContract.NewWindowEnd)
+			baseRenterCost = baseRenterCost.Add(settings.StoragePrice.Mul64(initialRevision.NewFileSize).Mul64(extension))
+			baseCollateral = settings.Collateral.Mul64(initialRevision.NewFileSize).Mul64(extension)
+		} else if initialRevision.NewValidProofOutputs[1].Value.Cmp(baseCollateral.Add(baseRenterCost)) < 0 {
+			return s.WriteError(errors.New("renewal rejected: insufficient host payout for storage and collateral"))
+		}
 
-	// validate fields of the clearing revision and renewal. note: the v1
-	// contract type does not contain the public keys or signatures.
-	if err := validateClearingRevision(existingContract, renewalTxn.FileContractRevisions[0]); err != nil {
-		return s.WriteError(fmt.Errorf("renewal rejected: clearing revision validation failed: %w", err))
-	} else if err := validateContractRenewal(existingContract, renewalTxn.FileContracts[0], hostPub, renterPub, baseRenterCost, baseCollateral, currentHeight, settings); err != nil {
-		return s.WriteError(fmt.Errorf("renewal rejected: renewal validation failed: %w", err))
-	}
+		// validate fields of the clearing revision and renewal. note: the v1
+		// contract type does not contain the public keys or signatures.
+		if err := validateClearingRevision(existingContract, clearingRevision); err != nil {
+			return s.WriteError(fmt.Errorf("renewal rejected: clearing revision validation failed: %w", err))
+		} else if err := validateContractRenewal(existingContract, initialRevision, hostPub, renterPub, baseRenterCost, baseCollateral, currentHeight, settings); err != nil {
+			return s.WriteError(fmt.Errorf("renewal rejected: renewal validation failed: %w", err))
+		}
 
-	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
-	fundAmount := initialRevision.NewValidProofOutputs[1].Value.Sub(baseRenterCost)
-	toSign, discard, err := sh.wallet.FundTransaction(renewalTxn, fundAmount, nil)
-	if err != nil {
-		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to fund renewal transaction: %w", err)
-	}
-	defer discard()
+		renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
+		fundAmount := initialRevision.NewValidProofOutputs[1].Value.Sub(baseRenterCost)
+		toSign, discard, err := sh.wallet.FundTransaction(renewalTxn, fundAmount, nil)
+		if err != nil {
+			s.WriteError(ErrHostInternalError)
+			return fmt.Errorf("failed to fund renewal transaction: %w", err)
+		}
+		defer discard()
 
-	// send the renter the host additions to the renewal txn
-	hostAdditionsResp := &rpcFormContractAdditions{
-		Inputs:  renewalTxn.SiacoinInputs[renterInputs:],
-		Outputs: renewalTxn.SiacoinOutputs[renterOutputs:],
-	}
-	if err = s.WriteResponse(hostAdditionsResp, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to write host additions: %w", err)
-	}
+		// send the renter the host additions to the renewal txn
+		hostAdditionsResp := &rpcFormContractAdditions{
+			Inputs:  renewalTxn.SiacoinInputs[renterInputs:],
+			Outputs: renewalTxn.SiacoinOutputs[renterOutputs:],
+		}
+		if err = s.WriteResponse(hostAdditionsResp, 30*time.Second); err != nil {
+			return fmt.Errorf("failed to write host additions: %w", err)
+		}
 
-	// read the renter's signatures for the renewal
-	var renterSigsResp rpcRenewAndClearContractSignatures
-	if err = s.ReadResponse(&renterSigsResp, 4096, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to read renter signatures: %w", err)
-	}
+		// read the renter's signatures for the renewal
+		var renterSigsResp rpcRenewAndClearContractSignatures
+		if err = s.ReadResponse(&renterSigsResp, 4096, 30*time.Second); err != nil {
+			return fmt.Errorf("failed to read renter signatures: %w", err)
+		}
 
-	// validate the renter's initial revision signature
-	renterSig := renterSigsResp.RevisionSignature.Signature
-	if !ed25519.Verify(renterPub.Key, sigHash[:], renterSig) {
-		return s.WriteError(ErrInvalidRenterSignature)
-	}
-	// add the renter's signatures to the transaction and contract revision
-	renewalTxn.TransactionSignatures = renterSigsResp.ContractSignatures
-	renewalTxn.TransactionSignatures = renterSigsResp.ContractSignatures
+		// validate the renter's initial revision signature
+		renterRenewalSig := renterSigsResp.
+		if !ed25519.Verify(renterPub.Key, renewalSigHash[:], renterRenewalSig) {
+			return s.WriteError(ErrInvalidRenterSignature)
+		}
+		renterClearingSig := renterSigsResp.FinalRevisionSignature
+		// add the renter's signatures to the transaction and contract revision
+		renewalTxn.TransactionSignatures = renterSigsResp.ContractSignatures
 
-	// sign and broadcast the formation transaction
-	if err = sh.wallet.SignTransaction(renewalTxn, toSign, types.FullCoveredFields); err != nil {
-		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to sign formation transaction: %w", err)
-	} else if err = sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
-		return s.WriteError(fmt.Errorf("failed to broadcast formation transaction: %w", err))
-	}
+		// sign and broadcast the formation transaction
+		if err = sh.wallet.SignTransaction(renewalTxn, toSign, types.FullCoveredFields); err != nil {
+			s.WriteError(ErrHostInternalError)
+			return fmt.Errorf("failed to sign formation transaction: %w", err)
+		} else if err = sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
+			return s.WriteError(fmt.Errorf("failed to broadcast formation transaction: %w", err))
+		}
 
-	signedRevision := contracts.SignedRevision{
-		Revision:        initialRevision,
-		RenterSignature: renterSig,
-		HostSignature:   hostSig,
-	}
-	if err := sh.contracts.AddContract(signedRevision, renewalTxnSet); err != nil {
-		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to add contract to store: %w", err)
-	}
+		clearingSignedRevision := contracts.SignedRevision{
+			Revision:        existingContract,
+			RenterSignature: renterSigsResp.FinalRevisionSignature,
+			HostSignature:   clearingHostSig,
+		}
 
-	// add renter spending to the amount spent
-	s.Spend(baseRenterCost)
-	// log the formation event
-	sh.metrics.Report(EventContractRenewed{
-		SessionUID: s.uid,
-		ContractID: renewalTxn.FileContractID(0),
-		Contract:   initialRevision,
-	})
+		renewalSignedRevision := contracts.SignedRevision{
+			Revision:        initialRevision,
+			RenterSignature: renterRenewalSig,
+			HostSignature:   hostRenewalSig,
+		}
+		if err := sh.contracts.RenewContract(renewalSignedRevision, clearingSignedRevision, renewalTxnSet, hostCollateral, currentHeight); err != nil {
+			s.WriteError(ErrHostInternalError)
+			return fmt.Errorf("failed to renew contract: %w", err)
+		}
 
-	// send the host signatures to the renter
-	renterTxnSigs := len(renterSigsResp.ContractSignatures)
-	hostSignaturesResp := &rpcFormContractSignatures{
-		ContractSignatures: renewalTxn.TransactionSignatures[renterTxnSigs:],
-		RevisionSignature: types.TransactionSignature{
-			ParentID:      crypto.Hash(renewalTxn.FileContractID(0)),
-			Signature:     hostSig,
-			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
-		},
-	}
-	if err := s.WriteResponse(hostSignaturesResp, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to write host signatures: %w", err)
-	}
+		// add renter spending to the amount spent
+		s.Spend(baseRenterCost)
+		// log the formation event
+		sh.metrics.Report(EventContractRenewed{
+			SessionUID: s.uid,
+			ContractID: renewalTxn.FileContractID(0),
+			Contract:   initialRevision,
+		})
+
+		// send the host signatures to the renter
+		renterTxnSigs := len(renterSigsResp.ContractSignatures)
+		hostSignaturesResp := &rpcFormContractSignatures{
+			ContractSignatures: renewalTxn.TransactionSignatures[renterTxnSigs:],
+			RevisionSignature: types.TransactionSignature{
+				ParentID:      crypto.Hash(renewalTxn.FileContractID(0)),
+				Signature:     hostSig,
+				CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
+			},
+		}
+		if err := s.WriteResponse(hostSignaturesResp, 30*time.Second); err != nil {
+			return fmt.Errorf("failed to write host signatures: %w", err)
+		}*/
 	return nil
 }
 
@@ -416,6 +427,8 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		return fmt.Errorf("failed to get host settings: %w", err)
 	}
 
+	log.Println(s.contract.Revision.ParentID, s.contract.Revision.NewRevisionNumber, s.contract.Revision.NewFileMerkleRoot, s.contract.Revision.NewFileSize)
+
 	revision, err := revise(s.contract.Revision, req.NewRevisionNumber, req.NewValidProofValues, req.NewMissedProofValues)
 	if err != nil {
 		return s.WriteError(fmt.Errorf("failed to revise contract: %w", err))
@@ -433,14 +446,30 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", err))
 	}
 
-	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID)
+	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID, req.NumRoots, req.RootOffset)
 	if err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to get sector roots: %w", err)
 	}
 
+	// commit the revision
+	signedRevision := contracts.SignedRevision{
+		Revision:        revision,
+		RenterSignature: req.Signature,
+		HostSignature:   hostSig,
+	}
+	updater, err := sh.contracts.ReviseContract(revision.ParentID)
+	if err != nil {
+		s.WriteError(ErrHostInternalError)
+		return fmt.Errorf("failed to revise contract: %w", err)
+	} else if err := updater.Commit(signedRevision); err != nil {
+		s.WriteError(ErrHostInternalError)
+		return fmt.Errorf("failed to commit contract revision: %w", err)
+	}
+	s.contract = signedRevision
+
 	sectorRootsResp := &rpcSectorRootsResponse{
-		SectorRoots: roots[req.RootOffset : req.RootOffset+req.NumRoots],
+		SectorRoots: roots,
 		MerkleProof: merkle.BuildSectorRangeProof(roots, req.RootOffset, req.RootOffset+req.NumRoots),
 		Signature:   hostSig,
 	}
@@ -448,14 +477,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		return fmt.Errorf("failed to write sector roots response: %w", err)
 	}
 
-	// update the locked contract and commit the revision
-	if err := s.ReviseContract(sh.contracts, revision, hostSig, req.Signature); err != nil {
-		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to revise contract: %w", err)
-	}
-	// add the renter's spending to the amount spent
 	s.Spend(cost)
-
 	return nil
 }
 
@@ -493,15 +515,11 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", err))
 	}
 
-	oldRoots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID)
+	contractUpdater, err := sh.contracts.ReviseContract(revision.ParentID)
 	if err != nil {
 		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to get sector roots: %w", err)
+		return fmt.Errorf("failed to revise contract: %w", err)
 	}
-
-	newRoots := append([]crypto.Hash(nil), oldRoots...)
-	gainedSectors := make(map[crypto.Hash][]byte)
-	rootDelta := make(map[crypto.Hash]int)
 	for _, action := range req.Actions {
 		switch action.Type {
 		case rpcWriteActionAppend:
@@ -509,54 +527,68 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 				return s.WriteError(fmt.Errorf("append action: invalid sector size %v bytes", len(action.Data)))
 			}
 			root := merkle.SectorRoot(action.Data)
-			gainedSectors[root] = action.Data
-			rootDelta[root]++
-			newRoots = append(newRoots, root)
-		case rpcWriteActionTrim:
-			n := action.A
-			i := uint64(len(newRoots)) - n
-			for _, root := range newRoots[i:] {
-				rootDelta[root]--
+
+			release, err := sh.storage.WriteSector(storage.SectorRoot(root), action.Data)
+			if err != nil {
+				return s.WriteError(fmt.Errorf("append action: failed to write sector: %w", err))
 			}
-			newRoots = newRoots[:i]
+			defer release()
+			contractUpdater.AppendSector(root)
+		case rpcWriteActionTrim:
+			if err := contractUpdater.TrimSectors(action.A); err != nil {
+				return s.WriteError(fmt.Errorf("trim action: failed to trim sectors: %w", err))
+			}
 		case rpcWriteActionSwap:
-			i, j := action.A, action.B
-			newRoots[i], newRoots[j] = newRoots[j], newRoots[i]
+			if err := contractUpdater.SwapSectors(action.A, action.B); err != nil {
+				return s.WriteError(fmt.Errorf("swap action: failed to swap sectors: %w", err))
+			}
 		case rpcWriteActionUpdate:
+			root, err := contractUpdater.SectorRoot(action.A)
+			if err != nil {
+				return s.WriteError(fmt.Errorf("update action: failed to get sector root: %w", err))
+			}
+
+			sector, err := sh.storage.ReadSector(storage.SectorRoot(root))
+			if err != nil {
+				s.WriteError(ErrHostInternalError)
+				return fmt.Errorf("failed to read sector %v: %w", root, err)
+			}
+
 			i, offset := action.A, action.B
 			if offset > SectorSize {
 				return s.WriteError(fmt.Errorf("update action: invalid offset %v bytes", offset))
 			} else if offset+uint64(len(action.Data)) > SectorSize {
 				return s.WriteError(errors.New("update action: offset + data exceeds sector size"))
 			}
-			sector, err := sh.storage.Sector(newRoots[i])
-			if err != nil {
-				s.WriteError(ErrHostInternalError)
-				return fmt.Errorf("failed to get sector: %w", err)
-			}
+
 			copy(sector[offset:], action.Data)
-			root := merkle.SectorRoot(sector)
-			gainedSectors[root] = sector
-			rootDelta[newRoots[i]]--
-			rootDelta[root]++
-			newRoots[i] = root
+			newRoot := merkle.SectorRoot(sector)
+
+			if err := contractUpdater.UpdateSectors(newRoot, i); err != nil {
+				return s.WriteError(fmt.Errorf("update action: failed to update sector: %w", err))
+			}
+			release, err := sh.storage.WriteSector(storage.SectorRoot(root), action.Data)
+			if err != nil {
+				return s.WriteError(fmt.Errorf("append action: failed to write sector: %w", err))
+			}
+			defer release()
 		}
 	}
 
 	// build the merkle proof response
 	writeResp := &rpcWriteMerkleProof{
-		NewMerkleRoot: merkle.MetaRoot(newRoots),
+		NewMerkleRoot: contractUpdater.MerkleRoot(),
 	}
-	if req.MerkleProof {
+	/*if req.MerkleProof {
 		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = buildDiffProof(req.Actions, oldRoots)
-	}
+	}*/
 	if err := s.WriteResponse(writeResp, time.Minute); err != nil {
 		return fmt.Errorf("failed to write merkle proof: %w", err)
 	}
 
 	// apply the new merkle root and file size to the revision
 	revision.NewFileMerkleRoot = writeResp.NewMerkleRoot
-	revision.NewFileSize = uint64(len(newRoots)) * SectorSize
+	revision.NewFileSize = uint64(contractUpdater.SectorLength()) * SectorSize
 
 	// read the renter's signature
 	var renterSigResponse rpcWriteResponse
@@ -570,39 +602,25 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		return s.WriteError(fmt.Errorf("failed to verify renter signature: %w", ErrInvalidRenterSignature))
 	}
 	hostSig := ed25519.Sign(sh.privateKey, sigHash[:])
-
-	// apply the modifications
-	for root, delta := range rootDelta {
-		switch {
-		case delta < 0:
-			if err := sh.storage.DeleteSector(root, -delta); err != nil {
-				s.WriteError(ErrHostInternalError)
-				return fmt.Errorf("failed to delete sector %v: %w", root, err)
-			}
-		case delta > 0:
-			sector, ok := gainedSectors[root]
-			if !ok {
-				s.WriteError(ErrHostInternalError)
-				return fmt.Errorf("write missing sector %v", root)
-			}
-			if err := sh.storage.AddSector(root, sector, delta); err != nil {
-				s.WriteError(ErrHostInternalError)
-				return fmt.Errorf("failed to add sector %v: %w", root, err)
-			}
-		}
+	signedRevision := contracts.SignedRevision{
+		Revision:        revision,
+		HostSignature:   hostSig,
+		RenterSignature: renterSig,
 	}
 
-	// update the sector roots
-	if err := sh.contracts.SetRoots(revision.ParentID, newRoots); err != nil {
+	// sync the storage manager
+	if err := sh.storage.Sync(); err != nil {
 		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to set sector roots: %w", err)
+		return fmt.Errorf("failed to sync storage manager: %w", err)
 	}
-
-	// update the contract
-	if err := s.ReviseContract(sh.contracts, revision, hostSig, renterSig); err != nil {
+	// commit the contract modifications
+	if err := contractUpdater.Commit(signedRevision); err != nil {
 		s.WriteError(ErrHostInternalError)
-		return fmt.Errorf("failed to revise contract: %w", err)
+		return fmt.Errorf("failed to commit contract modifications: %w", err)
 	}
+	// update the session contract
+	s.contract = signedRevision
+
 	// add the amount spent
 	s.Spend(cost)
 
@@ -672,10 +690,22 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 
 	// sign and commit the new revision
 	hostSig := ed25519.Sign(sh.privateKey, sigHash[:])
-	if err := s.ReviseContract(sh.contracts, revision, hostSig, req.Signature); err != nil {
+	signedRevision := contracts.SignedRevision{
+		Revision:        revision,
+		HostSignature:   hostSig,
+		RenterSignature: req.Signature,
+	}
+
+	updater, err := sh.contracts.ReviseContract(revision.ParentID)
+	if err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
+	} else if err := updater.Commit(signedRevision); err != nil {
+		s.WriteError(ErrHostInternalError)
+		return fmt.Errorf("failed to commit contract revision: %w", err)
 	}
+	// update the session contract
+	s.contract = signedRevision
 	// add the cost to the amount spent
 	s.Spend(cost)
 
@@ -696,7 +726,7 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 
 	// enter response loop
 	for i, sec := range req.Sections {
-		sector, err := sh.storage.Sector(sec.MerkleRoot)
+		sector, err := sh.storage.ReadSector(storage.SectorRoot(sec.MerkleRoot))
 		if err != nil {
 			return s.WriteError(fmt.Errorf("failed to get sector: %w", err))
 		}

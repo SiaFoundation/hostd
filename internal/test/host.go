@@ -10,7 +10,9 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.sia.tech/hostd/internal/store"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
@@ -29,7 +31,7 @@ type Host struct {
 	store     *sqlite.Store
 	wallet    *wallet.SingleAddressWallet
 	settings  *settings.ConfigManager
-	storage   rhpv3.StorageManager
+	storage   *storage.VolumeManager
 	registry  *registry.Manager
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
@@ -61,7 +63,7 @@ var DefaultSettings = settings.Settings{
 func (h *Host) Close() error {
 	h.settings.Close()
 	h.wallet.Close()
-	h.rhpv3.Close()
+	// h.rhpv3.Close()
 	h.rhpv2.Close()
 	h.store.Close()
 	h.node.Close()
@@ -76,6 +78,11 @@ func (h *Host) RHPv2Addr() string {
 // RHPv3Addr returns the address of the RHPv3 listener
 func (h *Host) RHPv3Addr() string {
 	return h.rhpv3.LocalAddr()
+}
+
+func (h *Host) AddVolume(path string, size uint64) error {
+	_, err := h.storage.AddVolume(path, size)
+	return err
 }
 
 // UpdateSettings updates the host's configuration
@@ -109,7 +116,6 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
-	defer db.Close()
 
 	cm, err := consensus.NewChainManager(node.cs)
 	if err != nil {
@@ -121,10 +127,10 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
 	}
 
-	/*storage := store.NewEphemeralStorageManager()
-	contracts := contracts.NewManager(store.NewEphemeralContractStore(), storage, cm, node.tp, wallet)
-	settingsStore := sql.NewSettingsStore(sqlStore)
-	settings, err := settings.NewConfigManager(settingsStore)
+	storage := storage.NewVolumeManager(db)
+	storage.AddVolume(filepath.Join(dir, "storage"), 64)
+	contracts := contracts.NewManager(db, storage, cm, node.tp, wallet)
+	settings, err := settings.NewConfigManager(db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -137,14 +143,14 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
 	}
 	go rhpv2.Serve()
-	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{})
+	/*rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
-	go rhpv3.Serve()*
+	go rhpv3.Serve()*/
 	return &Host{
 		node:      node,
-		store:     sqlStore,
+		store:     db,
 		wallet:    wallet,
 		settings:  settings,
 		storage:   storage,
@@ -153,7 +159,6 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		contracts: contracts,
 
 		rhpv2: rhpv2,
-		rhpv3: rhpv3,
-	}, nil*/
-	return nil, nil
+		// rhpv3: rhpv3,
+	}, nil
 }

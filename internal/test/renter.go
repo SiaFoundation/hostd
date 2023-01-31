@@ -115,7 +115,7 @@ func (rs *RHP2Session) Read(ctx context.Context, w io.Writer, sectorRoot crypto.
 
 // Revision returns the current revision of the locked contract
 func (rs *RHP2Session) Revision() types.FileContractRevision {
-	return rs.sess.Contract().Revision
+	return rs.sess.Revision().Revision
 }
 
 // SectorRoots returns the sector roots of the locked contract
@@ -178,18 +178,18 @@ func (r *Renter) Settings(ctx context.Context, hostAddr string, hostKey ed25519.
 }
 
 // FormContract forms a contract with the host
-func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25519.PublicKey, renterPayout, hostCollateral types.Currency, duration uint64) (rhpv2.Contract, error) {
+func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25519.PublicKey, renterPayout, hostCollateral types.Currency, duration uint64) (rhpv2.ContractRevision, error) {
 	hostPub := *(*rhpv2.PublicKey)(hostKey)
 	renterPriv := rhpv2.PrivateKey(r.privKey)
 	index := r.cm.TipState().Index
 	t, err := dialTransport(ctx, hostAddr, hostPub)
 	if err != nil {
-		return rhpv2.Contract{}, fmt.Errorf("failed to dial transport: %w", err)
+		return rhpv2.ContractRevision{}, fmt.Errorf("failed to dial transport: %w", err)
 	}
 	defer t.Close()
 	settings, err := rhpv2.RPCSettings(ctx, t)
 	if err != nil {
-		return rhpv2.Contract{}, fmt.Errorf("failed to get host settings: %w", err)
+		return rhpv2.ContractRevision{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
 	contract := rhpv2.PrepareContractFormation(renterPriv, hostPub, renterPayout, hostCollateral, index.Height+duration, settings, r.WalletAddress())
@@ -204,17 +204,17 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25
 
 	toSign, release, err := r.wallet.FundTransaction(&formationTxn, fundAmount)
 	if err != nil {
-		return rhpv2.Contract{}, fmt.Errorf("failed to fund transaction: %w", err)
+		return rhpv2.ContractRevision{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
 
 	if err := r.wallet.SignTransaction(&formationTxn, toSign, explicitCoveredFields(formationTxn)); err != nil {
-		return rhpv2.Contract{}, fmt.Errorf("failed to sign transaction: %w", err)
+		return rhpv2.ContractRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
-	revision, _, err := rhpv2.RPCFormContract(t, r.cm.TipState(), renterPriv, []types.Transaction{formationTxn})
+	revision, _, err := rhpv2.RPCFormContract(t, renterPriv, []types.Transaction{formationTxn})
 	if err != nil {
-		return rhpv2.Contract{}, fmt.Errorf("failed to form contract: %w", err)
+		return rhpv2.ContractRevision{}, fmt.Errorf("failed to form contract: %w", err)
 	}
 	return revision, nil
 }

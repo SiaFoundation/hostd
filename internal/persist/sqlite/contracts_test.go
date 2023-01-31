@@ -32,14 +32,18 @@ func TestUpdateContractRoots(t *testing.T) {
 	defer db.Close()
 
 	// add a contract to the database
-	contract := types.FileContractRevision{
-		ParentID:          frand.Entropy256(),
-		NewRevisionNumber: 1,
-		NewWindowStart:    100,
-		NewWindowEnd:      200,
+	contract := contracts.SignedRevision{
+		Revision: types.FileContractRevision{
+			ParentID:          frand.Entropy256(),
+			NewRevisionNumber: 1,
+			NewWindowStart:    100,
+			NewWindowEnd:      200,
+		},
+		HostSignature:   frand.Bytes(64),
+		RenterSignature: frand.Bytes(64),
 	}
 
-	if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, 0, frand.Bytes(64), frand.Bytes(64)); err != nil {
+	if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -49,9 +53,9 @@ func TestUpdateContractRoots(t *testing.T) {
 		roots[i] = frand.Entropy256()
 	}
 
-	err = db.UpdateContracts(func(tx contracts.UpdateContractTransaction) error {
+	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
 		for _, root := range roots {
-			if err := tx.AppendSector(contract.ParentID, root); err != nil {
+			if err := tx.AppendSector(root); err != nil {
 				return err
 			}
 		}
@@ -62,7 +66,7 @@ func TestUpdateContractRoots(t *testing.T) {
 	}
 
 	// verify the roots were added in the correct order
-	dbRoots, err := db.SectorRoots(contract.ParentID, 0, 100)
+	dbRoots, err := db.SectorRoots(contract.Revision.ParentID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -72,15 +76,15 @@ func TestUpdateContractRoots(t *testing.T) {
 	// swap two roots
 	i, j := 5, 8
 	roots[i], roots[j] = roots[j], roots[i]
-	err = db.UpdateContracts(func(tx contracts.UpdateContractTransaction) error {
-		return tx.SwapSectors(contract.ParentID, uint64(i), uint64(j))
+	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
+		return tx.SwapSectors(uint64(i), uint64(j))
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// verify the roots were swapped
-	dbRoots, err = db.SectorRoots(contract.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -90,15 +94,15 @@ func TestUpdateContractRoots(t *testing.T) {
 	// trim the last 3 roots
 	toRemove := 3
 	roots = roots[:len(roots)-toRemove]
-	err = db.UpdateContracts(func(tx contracts.UpdateContractTransaction) error {
-		return tx.TrimSectors(contract.ParentID, uint64(toRemove))
+	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
+		return tx.TrimSectors(uint64(toRemove))
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// verify the roots were removed
-	dbRoots, err = db.SectorRoots(contract.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -106,15 +110,15 @@ func TestUpdateContractRoots(t *testing.T) {
 	}
 
 	// swap a root outside of the range, should fail
-	err = db.UpdateContracts(func(tx contracts.UpdateContractTransaction) error {
-		return tx.SwapSectors(contract.ParentID, 0, 100)
+	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
+		return tx.SwapSectors(0, 100)
 	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 
 	// verify the roots stayed the same
-	dbRoots, err = db.SectorRoots(contract.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
