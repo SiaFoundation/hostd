@@ -10,7 +10,7 @@ require (
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
 	go.sia.tech/mux v1.1.1-0.20230119180453-05591decec67
-	go.sia.tech/renterd v0.0.0-20230123141223-e575da278e22
+	go.sia.tech/renterd v0.0.0-20221212140411-1e971169c463 // careful when upgrading -- renterd defines a "testing" sector size hostd does not know how to handle.
 	go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db
 	golang.org/x/crypto v0.5.0
 	golang.org/x/sys v0.4.0

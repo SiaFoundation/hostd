@@ -162,6 +162,8 @@ gitlab.com/NebulousLabs/writeaheadlog v0.0.0-20200618142844-c59a90f49130/go.mod 
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.sia.tech/mux v1.1.1-0.20230119180453-05591decec67 h1:zvvQLvKYRL9neKyvvLOa1b565LVNBuR8Gx+qQ4OO0Pg=
 go.sia.tech/mux v1.1.1-0.20230119180453-05591decec67/go.mod h1:Yyo6wZelOYTyvrHmJZ6aQfRoer3o4xyKQ4NmQLJrBSo=
+go.sia.tech/renterd v0.0.0-20221212140411-1e971169c463 h1:+kqT/yRr5D0rYvGSL7pZbgbp88aZ9u9tAXIzLPpZH30=
+go.sia.tech/renterd v0.0.0-20221212140411-1e971169c463/go.mod h1:/+Lt5VlO1C67++hSp9oG09JDk4/xfSfweirQk3Y8xLI=
 go.sia.tech/renterd v0.0.0-20230123141223-e575da278e22 h1:jCgu24b8gJAcleTt9eTYwoVd1Ux69bij2WunBWzxJIY=
 go.sia.tech/renterd v0.0.0-20230123141223-e575da278e22/go.mod h1:lyUWsBFSGGB9jiUgZxtMS+JXT50k++EhaZDHBE8e8U0=
 go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db h1:XNzF+306DQ1tUiQIK3Y/JCLn7/9zt0GOx60Pj1kPjiw=

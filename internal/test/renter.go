@@ -115,7 +115,7 @@ func (rs *RHP2Session) Read(ctx context.Context, w io.Writer, sectorRoot crypto.
 
 // Revision returns the current revision of the locked contract
 func (rs *RHP2Session) Revision() types.FileContractRevision {
-	return rs.sess.Revision().Revision
+	return rs.sess.Contract().Revision
 }
 
 // SectorRoots returns the sector roots of the locked contract
@@ -212,7 +212,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey ed25
 		return rhpv2.ContractRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
-	revision, _, err := rhpv2.RPCFormContract(t, renterPriv, []types.Transaction{formationTxn})
+	revision, _, err := rhpv2.RPCFormContract(t, r.cm.TipState(), renterPriv, []types.Transaction{formationTxn})
 	if err != nil {
 		return rhpv2.ContractRevision{}, fmt.Errorf("failed to form contract: %w", err)
 	}

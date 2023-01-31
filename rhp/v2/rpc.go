@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"go.sia.tech/hostd/host/contracts"
@@ -427,8 +426,6 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		return fmt.Errorf("failed to get host settings: %w", err)
 	}
 
-	log.Println(s.contract.Revision.ParentID, s.contract.Revision.NewRevisionNumber, s.contract.Revision.NewFileMerkleRoot, s.contract.Revision.NewFileSize)
-
 	revision, err := revise(s.contract.Revision, req.NewRevisionNumber, req.NewValidProofValues, req.NewMissedProofValues)
 	if err != nil {
 		return s.WriteError(fmt.Errorf("failed to revise contract: %w", err))
@@ -514,18 +511,15 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	} else if err := validateRevision(s.contract.Revision, revision, cost, collateral); err != nil {
 		return s.WriteError(fmt.Errorf("failed to validate revision: %w", err))
 	}
-
 	contractUpdater, err := sh.contracts.ReviseContract(revision.ParentID)
 	if err != nil {
 		s.WriteError(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
 	}
+	oldRoots := contractUpdater.SectorRoots()
 	for _, action := range req.Actions {
 		switch action.Type {
 		case rpcWriteActionAppend:
-			if len(action.Data) != SectorSize {
-				return s.WriteError(fmt.Errorf("append action: invalid sector size %v bytes", len(action.Data)))
-			}
 			root := merkle.SectorRoot(action.Data)
 
 			release, err := sh.storage.WriteSector(storage.SectorRoot(root), action.Data)
@@ -579,9 +573,9 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	writeResp := &rpcWriteMerkleProof{
 		NewMerkleRoot: contractUpdater.MerkleRoot(),
 	}
-	/*if req.MerkleProof {
+	if req.MerkleProof {
 		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = buildDiffProof(req.Actions, oldRoots)
-	}*/
+	}
 	if err := s.WriteResponse(writeResp, time.Minute); err != nil {
 		return fmt.Errorf("failed to write merkle proof: %w", err)
 	}

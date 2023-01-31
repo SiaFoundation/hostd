@@ -2,12 +2,15 @@ package rhp_test
 
 import (
 	"context"
+	"io"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"go.sia.tech/hostd/internal/merkle"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/rhp/v2"
+	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
@@ -117,5 +120,125 @@ func TestUploadDownload(t *testing.T) {
 		t.Fatal("wrong filesize")
 	case revision.NewFileMerkleRoot != sectorRoot:
 		t.Fatal("wrong merkle root")
+	}
+}
+
+func BenchmarkUpload(b *testing.B) {
+	renter, host, err := test.NewTestingPair(b.TempDir())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	if err := host.AddVolume(filepath.Join(b.TempDir(), "storage.dat"), uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	// form a contract
+	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.SiacoinPrecision.Mul64(10), types.SiacoinPrecision.Mul64(20), 200)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// mine a block to confirm the contract
+	if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
+		b.Fatal(err)
+	}
+
+	session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), contract.ID())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer session.Close()
+
+	// calculate the remaining duration of the contract
+	var remainingDuration uint64
+	contractExpiration := uint64(session.Revision().NewWindowEnd)
+	currentHeight := renter.TipState().Index.Height
+	if contractExpiration < currentHeight {
+		b.Fatal("contract expired")
+	}
+	remainingDuration = contractExpiration - currentHeight
+
+	b.ReportAllocs()
+	b.SetBytes(int64(b.N) * rhp.SectorSize)
+	b.ResetTimer()
+
+	// upload b.N sectors
+	for i := 0; i < b.N; i++ {
+		// generate a sector
+		sector := make([]byte, rhp.SectorSize)
+		frand.Read(sector[:256])
+
+		// upload the sector
+		if _, err := session.Append(context.Background(), sector, remainingDuration); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDownload(b *testing.B) {
+	renter, host, err := test.NewTestingPair(b.TempDir())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	if err := host.AddVolume(filepath.Join(b.TempDir(), "storage.dat"), uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	// form a contract
+	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.SiacoinPrecision.Mul64(10), types.SiacoinPrecision.Mul64(20), 200)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// mine a block to confirm the contract
+	if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
+		b.Fatal(err)
+	}
+
+	session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), contract.ID())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer session.Close()
+
+	// calculate the remaining duration of the contract
+	var remainingDuration uint64
+	contractExpiration := uint64(session.Revision().NewWindowEnd)
+	currentHeight := renter.TipState().Index.Height
+	if contractExpiration < currentHeight {
+		b.Fatal("contract expired")
+	}
+	remainingDuration = contractExpiration - currentHeight
+
+	var uploaded []crypto.Hash
+	// upload b.N sectors
+	for i := 0; i < b.N; i++ {
+		// generate a sector
+		sector := make([]byte, rhp.SectorSize)
+		frand.Read(sector[:256])
+
+		// upload the sector
+		root, err := session.Append(context.Background(), sector, remainingDuration)
+		if err != nil {
+			b.Fatal(err)
+		}
+		uploaded = append(uploaded, root)
+	}
+
+	b.ReportAllocs()
+	b.SetBytes(int64(b.N) * rhp.SectorSize)
+	b.ResetTimer()
+
+	for _, root := range uploaded {
+		// download the sector
+		if err := session.Read(context.Background(), io.Discard, root, 0, rhp.SectorSize); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

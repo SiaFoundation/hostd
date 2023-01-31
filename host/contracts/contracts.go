@@ -169,6 +169,11 @@ func (cu *ContractUpdater) MerkleRoot() crypto.Hash {
 	return merkle.MetaRoot(cu.sectorRoots)
 }
 
+// SectorRoots returns a copy of the current state of the contract's sector roots.
+func (cu *ContractUpdater) SectorRoots() []crypto.Hash {
+	return append([]crypto.Hash(nil), cu.sectorRoots...)
+}
+
 func (cu *ContractUpdater) Commit(revision SignedRevision) error {
 	return cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
 		for i, action := range cu.sectorActions {
