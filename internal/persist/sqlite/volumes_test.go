@@ -263,7 +263,6 @@ func TestVolumeGrow(t *testing.T) {
 	} else if volumes[1].TotalSectors != initialSectors/2 {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors/2, volumes[1].TotalSectors)
 	}
-
 }
 
 func TestVolumeShrink(t *testing.T) {

@@ -52,7 +52,7 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 		return types.StorageProof{}, err
 	}
 	root := roots[sectorIndex]
-	sector, err := cm.storage.ReadSector(storage.SectorRoot(root))
+	sector, err := cm.storage.Read(storage.SectorRoot(root))
 	if err != nil {
 		return types.StorageProof{}, err
 	}

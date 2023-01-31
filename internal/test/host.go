@@ -80,6 +80,7 @@ func (h *Host) RHPv3Addr() string {
 	return h.rhpv3.LocalAddr()
 }
 
+// AddVolume adds a new volume to the host
 func (h *Host) AddVolume(path string, size uint64) error {
 	_, err := h.storage.AddVolume(path, size)
 	return err

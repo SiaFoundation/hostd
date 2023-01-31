@@ -72,7 +72,7 @@ func TestRemoveVolume(t *testing.T) {
 	root := storage.SectorRoot(merkle.SectorRoot(sector))
 
 	// write the sector
-	release, err := vm.WriteSector(root, sector)
+	release, err := vm.Write(root, sector)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestVolumeShrink(t *testing.T) {
 			t.Fatal(err)
 		}
 		root := storage.SectorRoot(merkle.SectorRoot(sector))
-		release, err := vm.WriteSector(root, sector)
+		release, err := vm.Write(root, sector)
 		if err != nil {
 			t.Fatal(i, err)
 		}

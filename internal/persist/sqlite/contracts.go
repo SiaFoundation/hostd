@@ -93,48 +93,56 @@ func (u *updateContractTxn) TrimSectors(n uint64) error {
 	return err
 }
 
+// ApplyContractFormation sets the formation_confirmed flag to true.
 func (u *updateContractsTxn) ApplyContractFormation(id types.FileContractID) error {
 	const query = `UPDATE contracts SET formation_confirmed=true WHERE id=$2;`
 	_, err := u.tx.Exec(query, valueHash(id))
 	return err
 }
 
+// ApplyFinalRevision sets the confirmed revision number.
 func (u *updateContractsTxn) ApplyFinalRevision(id types.FileContractID, revision types.FileContractRevision) error {
 	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE id=$2;`
 	_, err := u.tx.Exec(query, valueUint64(revision.NewRevisionNumber), valueHash(id))
 	return err
 }
 
+// ApplyContractResolution sets the resolution_confirmed flag to true.
 func (u *updateContractsTxn) ApplyContractResolution(id types.FileContractID, sp types.StorageProof) error {
 	const query = `UPDATE contracts SET resolution_confirmed=true WHERE id=$2;`
 	_, err := u.tx.Exec(query, valueHash(id))
 	return err
 }
 
+// RevertFormationConfirmed sets the formation_confirmed flag to false.
 func (u *updateContractsTxn) RevertFormationConfirmed(id types.FileContractID) error {
 	const query = `UPDATE contracts SET formation_confirmed=false WHERE id=$2;`
 	_, err := u.tx.Exec(query, valueHash(id))
 	return err
 }
 
+// RevertFinalRevision sets the confirmed revision number to 0.
 func (u *updateContractsTxn) RevertFinalRevision(id types.FileContractID) error {
 	const query = `UPDATE contracts SET confirmed_revision_number="0" WHERE id=$2;`
 	_, err := u.tx.Exec(query, valueHash(id))
 	return err
 }
 
+// RevertContractResolution sets the resolution_confirmed flag to false.
 func (u *updateContractsTxn) RevertContractResolution(id types.FileContractID) error {
 	const query = `UPDATE contracts SET resolution_confirmed=false WHERE id=$2;`
 	_, err := u.tx.Exec(query, valueHash(id))
 	return err
 }
 
+// SetLastChangeID sets the last processed consensus change ID.
 func (u *updateContractsTxn) SetLastChangeID(ccID modules.ConsensusChangeID) error {
 	const query = `INSERT INTO global_settings (contracts_last_processed_change) VALUES ($1) ON CONFLICT (id) DO UPDATE SET contracts_last_processed_change=exluded.contracts_last_processed_change;`
 	_, err := u.tx.Exec(query, valueHash(ccID))
 	return err
 }
 
+// Contract returns the contract with the given ID.
 func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, err error) {
 	var revisionBuf []byte
 	const query = `SELECT id, contract_error, negotiation_height, formation_confirmed, revision_number=confirmed_revision_number AS revision_confirmed, resolution_confirmed, locked_collateral, raw_revision, host_sig, renter_sig FROM contracts WHERE id=$1;`
@@ -253,6 +261,8 @@ func (s *Store) ContractAction(cc *modules.ConsensusChange, contractFn func(type
 	return nil
 }
 
+// ContractFormationSet returns the set of transactions that were created during
+// contract formation.
 func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transaction, error) {
 	var buf []byte
 	err := s.db.QueryRow(`SELECT formation_txn_set FROM contracts WHERE id=$1;`, valueHash(id)).Scan(&buf)
@@ -286,6 +296,7 @@ func (s *Store) UpdateContract(id types.FileContractID, fn func(contracts.Update
 	})
 }
 
+// UpdateContractState atomically updates the contractor's state.
 func (s *Store) UpdateContractState(fn func(contracts.UpdateStateTransaction) error) error {
 	return s.exclusiveTransaction(func(tx txn) error {
 		return fn(&updateContractsTxn{tx: tx})

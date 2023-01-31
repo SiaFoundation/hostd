@@ -22,7 +22,7 @@ type (
 	}
 
 	// A FundingRecord records a transfer of funds between a source contract and
-	//a destination account.
+	// a destination account.
 	FundingRecord struct {
 		// Source is the source of the funds. It must be a contract.
 		Source FundSource `json:"source"`

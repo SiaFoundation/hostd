@@ -12,6 +12,8 @@ import (
 
 const sectorSize = 1 << 22
 
+// StorageUsage returns the number of bytes used and the total number of bytes
+// available in the storage pool.
 func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
 	// nulls are not included in COUNT() -- counting sector roots is equivalent
 	// to counting used sectors.

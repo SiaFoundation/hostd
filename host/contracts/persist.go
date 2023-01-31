@@ -23,7 +23,7 @@ type (
 		ReviseContract(revision SignedRevision) error
 	}
 
-	// UpdateTransaction atomically updates the contract manager's state.
+	// UpdateStateTransaction atomically updates the contract manager's state.
 	UpdateStateTransaction interface {
 		ApplyContractFormation(types.FileContractID) error
 		ApplyFinalRevision(types.FileContractID, types.FileContractRevision) error

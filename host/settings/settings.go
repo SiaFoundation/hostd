@@ -114,6 +114,7 @@ func (m *ConfigManager) Close() error {
 	return nil
 }
 
+// Announce announces the host to the network
 func (m *ConfigManager) Announce(netaddress string) error {
 	panic("not implemented")
 }

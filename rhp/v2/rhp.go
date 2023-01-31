@@ -58,12 +58,12 @@ type (
 	StorageManager interface {
 		Usage() (used, total uint64, _ error)
 
-		// WriteSector writes a sector to persistent storage. release should
-		// only be called after the contract roots have been committed to
-		// prevent the sector from being deleted.
-		WriteSector(root storage.SectorRoot, data []byte) (release func() error, _ error)
-		// ReadSector reads the sector with the given root from the manager.
-		ReadSector(root storage.SectorRoot) ([]byte, error)
+		// Write writes a sector to persistent storage. release should only be
+		// called after the contract roots have been committed to prevent the
+		// sector from being deleted.
+		Write(root storage.SectorRoot, data []byte) (release func() error, _ error)
+		// Read reads the sector with the given root from the manager.
+		Read(root storage.SectorRoot) ([]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 	}

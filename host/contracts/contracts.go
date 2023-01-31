@@ -18,6 +18,8 @@ const (
 )
 
 type (
+	// A sectorActionType denotes the type of action to be performed on a
+	// contract's sectors.
 	sectorActionType string
 
 	// ContractState is the current lifecycle stage of a contract.
@@ -57,12 +59,16 @@ type (
 		State ContractState
 	}
 
+	// A contractSectorAction defines an action to be performed on a contract's
+	// sectors.
 	contractSectorAction struct {
 		Root   crypto.Hash
 		A, B   uint64
 		Action sectorActionType
 	}
 
+	// A ContractUpdater is used to atomically update a contract's sectors
+	// and metadata.
 	ContractUpdater struct {
 		store ContractStore
 
@@ -83,6 +89,8 @@ var (
 	// window ended.
 	ContractStateMissed ContractState = "missed"
 
+	// ErrNotFound is returned by the contract store when a contract is not
+	// found.
 	ErrNotFound = errors.New("contract not found")
 )
 
@@ -108,6 +116,7 @@ func (sr SignedRevision) Signatures() []types.TransactionSignature {
 	}
 }
 
+// AppendSector appends a sector to the contract.
 func (cu *ContractUpdater) AppendSector(root crypto.Hash) {
 	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
 		Root:   root,
@@ -116,6 +125,7 @@ func (cu *ContractUpdater) AppendSector(root crypto.Hash) {
 	cu.sectorRoots = append(cu.sectorRoots, root)
 }
 
+// SwapSectors swaps the sectors at the given indices.
 func (cu *ContractUpdater) SwapSectors(a, b uint64) error {
 	if a >= uint64(len(cu.sectorRoots)) || b >= uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector indices %v, %v", a, b)
@@ -129,6 +139,7 @@ func (cu *ContractUpdater) SwapSectors(a, b uint64) error {
 	return nil
 }
 
+// TrimSectors removes the last n sectors from the contract.
 func (cu *ContractUpdater) TrimSectors(n uint64) error {
 	if n > uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector count %v", n)
@@ -141,7 +152,8 @@ func (cu *ContractUpdater) TrimSectors(n uint64) error {
 	return nil
 }
 
-func (cu *ContractUpdater) UpdateSectors(root crypto.Hash, i uint64) error {
+// UpdateSector updates the Merkle root of the sector at the given index.
+func (cu *ContractUpdater) UpdateSector(root crypto.Hash, i uint64) error {
 	if i >= uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector index %v", i)
 	}
@@ -154,10 +166,12 @@ func (cu *ContractUpdater) UpdateSectors(root crypto.Hash, i uint64) error {
 	return nil
 }
 
+// SectorLength returns the number of sectors in the contract.
 func (cu *ContractUpdater) SectorLength() uint64 {
 	return uint64(len(cu.sectorRoots))
 }
 
+// SectorRoot returns the Merkle root of the sector at the given index.
 func (cu *ContractUpdater) SectorRoot(i uint64) (crypto.Hash, error) {
 	if i >= uint64(len(cu.sectorRoots)) {
 		return crypto.Hash{}, fmt.Errorf("invalid sector index %v", i)
@@ -165,6 +179,7 @@ func (cu *ContractUpdater) SectorRoot(i uint64) (crypto.Hash, error) {
 	return cu.sectorRoots[i], nil
 }
 
+// MerkleRoot returns the merkle root of the contract's sector roots.
 func (cu *ContractUpdater) MerkleRoot() crypto.Hash {
 	return merkle.MetaRoot(cu.sectorRoots)
 }
@@ -174,6 +189,7 @@ func (cu *ContractUpdater) SectorRoots() []crypto.Hash {
 	return append([]crypto.Hash(nil), cu.sectorRoots...)
 }
 
+// Commit atomically applies all changes to the contract to the store.
 func (cu *ContractUpdater) Commit(revision SignedRevision) error {
 	return cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
 		for i, action := range cu.sectorActions {

@@ -38,8 +38,8 @@ type (
 
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
-		// ReadSector reads a sector from the store
-		ReadSector(root storage.SectorRoot) ([]byte, error)
+		// Read reads a sector from the store
+		Read(root storage.SectorRoot) ([]byte, error)
 	}
 
 	locker struct {
@@ -146,6 +146,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))
 }
 
+// ReviseContract initializes a new contract updater for the given contract.
 func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*ContractUpdater, error) {
 	roots, err := cm.store.SectorRoots(contractID, 0, 0)
 	if err != nil {

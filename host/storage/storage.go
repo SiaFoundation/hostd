@@ -67,7 +67,7 @@ func (vm *VolumeManager) writeSector(data []byte, loc SectorLocation) error {
 // are synced after all sectors have been written.
 func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
 	for _, loc := range locations {
-		sector, err := vm.ReadSector(loc.Root)
+		sector, err := vm.Read(loc.Root)
 		if err != nil {
 			return fmt.Errorf("failed to read sector %v: %w", loc.Root, err)
 		} else if err := vm.writeSector(sector, loc); err != nil {
@@ -284,8 +284,8 @@ func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
 	return nil
 }
 
-// ReadSector reads the sector with the given root from a volume.
-func (vm *VolumeManager) ReadSector(root SectorRoot) ([]byte, error) {
+// Read reads the sector with the given root
+func (vm *VolumeManager) Read(root SectorRoot) ([]byte, error) {
 	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate sector %v: %w", root, err)
@@ -324,9 +324,9 @@ func (vm *VolumeManager) Sync() error {
 	return nil
 }
 
-// WriteSector writes a sector to a volume. release should only be called after the
+// Write writes a sector to a volume. release should only be called after the
 // contract roots have been committed to prevent the sector from being deleted.
-func (vm *VolumeManager) WriteSector(root SectorRoot, data []byte) (release func() error, _ error) {
+func (vm *VolumeManager) Write(root SectorRoot, data []byte) (release func() error, _ error) {
 	return vm.vs.StoreSector(root, func(loc SectorLocation, exists bool) error {
 		if exists {
 			return nil

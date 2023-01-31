@@ -522,7 +522,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		case rpcWriteActionAppend:
 			root := merkle.SectorRoot(action.Data)
 
-			release, err := sh.storage.WriteSector(storage.SectorRoot(root), action.Data)
+			release, err := sh.storage.Write(storage.SectorRoot(root), action.Data)
 			if err != nil {
 				return s.WriteError(fmt.Errorf("append action: failed to write sector: %w", err))
 			}
@@ -542,7 +542,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 				return s.WriteError(fmt.Errorf("update action: failed to get sector root: %w", err))
 			}
 
-			sector, err := sh.storage.ReadSector(storage.SectorRoot(root))
+			sector, err := sh.storage.Read(storage.SectorRoot(root))
 			if err != nil {
 				s.WriteError(ErrHostInternalError)
 				return fmt.Errorf("failed to read sector %v: %w", root, err)
@@ -558,10 +558,10 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 			copy(sector[offset:], action.Data)
 			newRoot := merkle.SectorRoot(sector)
 
-			if err := contractUpdater.UpdateSectors(newRoot, i); err != nil {
+			if err := contractUpdater.UpdateSector(newRoot, i); err != nil {
 				return s.WriteError(fmt.Errorf("update action: failed to update sector: %w", err))
 			}
-			release, err := sh.storage.WriteSector(storage.SectorRoot(root), action.Data)
+			release, err := sh.storage.Write(storage.SectorRoot(root), action.Data)
 			if err != nil {
 				return s.WriteError(fmt.Errorf("append action: failed to write sector: %w", err))
 			}
@@ -720,7 +720,7 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 
 	// enter response loop
 	for i, sec := range req.Sections {
-		sector, err := sh.storage.ReadSector(storage.SectorRoot(sec.MerkleRoot))
+		sector, err := sh.storage.Read(storage.SectorRoot(sec.MerkleRoot))
 		if err != nil {
 			return s.WriteError(fmt.Errorf("failed to get sector: %w", err))
 		}
