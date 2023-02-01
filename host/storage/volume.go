@@ -55,20 +55,6 @@ type (
 	}
 )
 
-// getVolume returns the volume with the given ID, or an error if the volume does
-// not exist or is currently busy.
-func (vm *VolumeManager) getVolume(v int) (*volume, error) {
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-	vol, ok := vm.volumes[v]
-	if !ok {
-		return nil, fmt.Errorf("volume %v not found", v)
-	} else if vol.busy {
-		return nil, fmt.Errorf("volume %v is currently busy", v)
-	}
-	return vol, nil
-}
-
 // ReadSector reads the sector at index from the volume
 func (v *volume) ReadSector(index uint64) ([]byte, error) {
 	buf := make([]byte, sectorSize)

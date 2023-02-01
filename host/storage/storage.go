@@ -19,8 +19,7 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
-		vs    VolumeStore
-		close chan struct{}
+		vs VolumeStore
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int]*volume
@@ -29,20 +28,24 @@ type (
 	}
 )
 
-var (
-	// ErrClosed is returned when the volume manager is closed.
-	ErrClosed = errors.New("volume manager is closed")
-)
+// getVolume returns the volume with the given ID, or an error if the volume does
+// not exist or is currently busy.
+func (vm *VolumeManager) getVolume(v int) (*volume, error) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	vol, ok := vm.volumes[v]
+	if !ok {
+		return nil, fmt.Errorf("volume %v not found", v)
+	} else if vol.busy {
+		return nil, fmt.Errorf("volume %v is currently busy", v)
+	}
+	return vol, nil
+}
 
 // lockVolume locks a volume for operations until release is called. A locked
 // volume cannot have its size or status changed and no new sectors can be
 // written to it.
 func (vm *VolumeManager) lockVolume(id int) (func(), error) {
-	select {
-	case <-vm.close:
-		return nil, ErrClosed
-	default:
-	}
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	v, ok := vm.volumes[id]
@@ -89,11 +92,12 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
 }
 
 func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64) error {
+	const batchSize = 256
+
 	if oldMaxSectors > newMaxSectors {
 		return errors.New("old sectors must be less than new sectors")
 	}
 
-	const batchSize = 256
 	v, err := vm.getVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
@@ -117,6 +121,8 @@ func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64)
 }
 
 func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint64) error {
+	const batchSize = 256
+
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
 	}
@@ -132,10 +138,8 @@ func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint6
 		return fmt.Errorf("failed to migrate sectors: %w", err)
 	}
 
-	n := uint64(256)
-	for current := oldMaxSectors; current > newMaxSectors; current -= n {
-		if current < n {
-			n = 0
+	for current := oldMaxSectors; current > newMaxSectors; current -= batchSize {
+		if current < batchSize {
 			current = newMaxSectors
 		}
 		// shrink in chunks to prevent holding a lock for too long and to
@@ -366,7 +370,6 @@ func NewVolumeManager(vs VolumeStore) (*VolumeManager, error) {
 	vm := &VolumeManager{
 		vs: vs,
 
-		close:          make(chan struct{}),
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
 	}
