@@ -3,6 +3,7 @@ package sqlite
 import (
 	"bytes"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -138,7 +139,7 @@ func (u *updateContractsTxn) RevertContractResolution(id types.FileContractID) e
 // SetLastChangeID sets the last processed consensus change ID.
 func (u *updateContractsTxn) SetLastChangeID(ccID modules.ConsensusChangeID) error {
 	const query = `INSERT INTO global_settings (contracts_last_processed_change) VALUES ($1) ON CONFLICT (id) DO UPDATE SET contracts_last_processed_change=exluded.contracts_last_processed_change;`
-	_, err := u.tx.Exec(query, valueHash(ccID))
+	_, err := u.tx.Exec(query, hex.EncodeToString(ccID[:]))
 	return err
 }
 
@@ -279,9 +280,20 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // LastContractChange gets the last consensus change processed by the
 // contractor.
 func (s *Store) LastContractChange() (id modules.ConsensusChangeID, err error) {
-	err = s.db.QueryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(scanHash((*[32]byte)(&id)))
+	var consensusID string
+	err = s.db.QueryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(&consensusID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, nil
+	} else if err != nil {
+		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to query last contract change: %w", err)
+	} else if len(consensusID) == 0 {
+		return modules.ConsensusChangeBeginning, nil
+	}
+	n, err := hex.Decode(id[:], []byte(consensusID))
+	if err != nil {
+		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to decode last contract change: %w", err)
+	} else if n != len(id) {
+		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to decode last contract change: expected %d bytes, got %d", len(id), n)
 	}
 	return
 }
