@@ -496,7 +496,6 @@ func TestMigrateSectors(t *testing.T) {
 	} else if v1.UsedSectors != initialSectors/4 {
 		t.Fatalf("expected volume to have %v sectors, got %v/%v", initialSectors/4, v1.UsedSectors, v1.TotalSectors)
 	}
-
 }
 
 func BenchmarkVolumeGrow(b *testing.B) {
