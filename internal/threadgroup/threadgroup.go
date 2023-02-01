@@ -57,13 +57,10 @@ func (tg *ThreadGroup) AddContext(parent context.Context) (context.Context, cont
 		// threadgroup or parent context cancelled, cancel the child context
 		cancel()
 	}()
-	var completed bool
+	var once sync.Once
 	return ctx, func() {
 		cancel()
-		if !completed {
-			completed = true
-			done()
-		}
+		once.Do(done)
 	}, nil
 }
 
