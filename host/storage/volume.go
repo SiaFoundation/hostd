@@ -55,9 +55,9 @@ type (
 	}
 )
 
-// volume returns the volume with the given ID, or an error if the volume does
+// getVolume returns the volume with the given ID, or an error if the volume does
 // not exist or is currently busy.
-func (vm *VolumeManager) volume(v int) (*volume, error) {
+func (vm *VolumeManager) getVolume(v int) (*volume, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	vol, ok := vm.volumes[v]

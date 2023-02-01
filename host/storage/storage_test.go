@@ -35,7 +35,10 @@ func TestAddVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	vm := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
 	if err != nil {
@@ -72,7 +75,10 @@ func TestRemoveVolume(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	vm := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +115,7 @@ func TestRemoveVolume(t *testing.T) {
 }
 
 func TestVolumeGrow(t *testing.T) {
-	const initialSectors = 16
+	const initialSectors = 32
 	dir := t.TempDir()
 
 	// create the database
@@ -120,7 +126,10 @@ func TestVolumeGrow(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	vm := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
 	volume, err := vm.AddVolume(volumeFilePath, initialSectors)
 	if err != nil {
@@ -134,7 +143,7 @@ func TestVolumeGrow(t *testing.T) {
 	}
 
 	// grow the volume
-	const newSectors = 32
+	const newSectors = 64
 	if err := vm.ResizeVolume(volume.ID, newSectors); err != nil {
 		t.Fatal(err)
 	} else if err := checkFileSize(volumeFilePath, int64(newSectors*sectorSize)); err != nil {
@@ -151,7 +160,7 @@ func TestVolumeGrow(t *testing.T) {
 }
 
 func TestVolumeShrink(t *testing.T) {
-	const sectors = 16
+	const sectors = 32
 	dir := t.TempDir()
 
 	// create the database
@@ -162,7 +171,10 @@ func TestVolumeShrink(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	vm := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
 	volume, err := vm.AddVolume(volumeFilePath, sectors)
 	if err != nil {
@@ -269,7 +281,7 @@ func TestVolumeShrink(t *testing.T) {
 }
 
 func TestVolumeManagerReadWrite(t *testing.T) {
-	const sectors = 16
+	const sectors = 32
 	dir := t.TempDir()
 
 	// create the database
@@ -280,7 +292,10 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	vm := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
 	volume, err := vm.AddVolume(volumeFilePath, sectors)
 	if err != nil {
@@ -330,6 +345,92 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		retrievedRoot := storage.SectorRoot(merkle.SectorRoot(sector))
 		if retrievedRoot != root {
 			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
+		}
+	}
+}
+
+func BenchmarkVolumeManagerWrite(b *testing.B) {
+	dir := b.TempDir()
+
+	// create the database
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		b.Fatal(err)
+	}
+	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
+	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.SetBytes(sectorSize)
+
+	// fill the volume
+	for i := 0; i < b.N; i++ {
+		sector := make([]byte, 1<<22)
+		frand.Read(sector[:256])
+		root := storage.SectorRoot(merkle.SectorRoot(sector))
+		release, err := vm.Write(root, sector)
+		if err != nil {
+			b.Fatal(i, err)
+		} else if err := release(); err != nil {
+			b.Fatal(i, err)
+		}
+	}
+}
+
+func BenchmarkVolumeManagerRead(b *testing.B) {
+	dir := b.TempDir()
+
+	// create the database
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		b.Fatal(err)
+	}
+	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
+	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// fill the volume
+	written := make([]storage.SectorRoot, 0, b.N)
+	for i := 0; i < b.N; i++ {
+		sector := make([]byte, 1<<22)
+		frand.Read(sector[:256])
+		root := storage.SectorRoot(merkle.SectorRoot(sector))
+		release, err := vm.Write(root, sector)
+		if err != nil {
+			b.Fatal(i, err)
+		} else if err := release(); err != nil {
+			b.Fatal(i, err)
+		}
+		written = append(written, root)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.SetBytes(sectorSize)
+	// read the sectors back
+	for _, root := range written {
+		if _, err := vm.Read(root); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

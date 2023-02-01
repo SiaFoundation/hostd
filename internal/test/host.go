@@ -128,7 +128,10 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
 	}
 
-	storage := storage.NewVolumeManager(db)
+	storage, err := storage.NewVolumeManager(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage manager: %w", err)
+	}
 	storage.AddVolume(filepath.Join(dir, "storage"), 64)
 	contracts := contracts.NewManager(db, storage, cm, node.tp, wallet)
 	settings, err := settings.NewConfigManager(db)

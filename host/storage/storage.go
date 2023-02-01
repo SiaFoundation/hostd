@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 )
@@ -18,7 +19,8 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
-		vs VolumeStore
+		vs    VolumeStore
+		close chan struct{}
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int]*volume
@@ -27,10 +29,20 @@ type (
 	}
 )
 
+var (
+	// ErrClosed is returned when the volume manager is closed.
+	ErrClosed = errors.New("volume manager is closed")
+)
+
 // lockVolume locks a volume for operations until release is called. A locked
 // volume cannot have its size or status changed and no new sectors can be
 // written to it.
 func (vm *VolumeManager) lockVolume(id int) (func(), error) {
+	select {
+	case <-vm.close:
+		return nil, ErrClosed
+	default:
+	}
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	v, ok := vm.volumes[id]
@@ -49,7 +61,7 @@ func (vm *VolumeManager) lockVolume(id int) (func(), error) {
 // writeSector writes a sector to a volume. The volume is not synced after the
 // sector is written. The location is assumed to be empty and locked.
 func (vm *VolumeManager) writeSector(data []byte, loc SectorLocation) error {
-	vol, err := vm.volume(loc.Volume)
+	vol, err := vm.getVolume(loc.Volume)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
 	} else if err := vol.WriteSector(data, loc.Index); err != nil {
@@ -82,7 +94,7 @@ func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64)
 	}
 
 	const batchSize = 256
-	v, err := vm.volume(id)
+	v, err := vm.getVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
@@ -109,7 +121,7 @@ func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint6
 		return errors.New("old sectors must be greater than new sectors")
 	}
 
-	volume, err := vm.volume(id)
+	volume, err := vm.getVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
@@ -273,7 +285,7 @@ func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
 	}
 
 	// get the volume from memory
-	vol, err := vm.volume(loc.Volume)
+	vol, err := vm.getVolume(loc.Volume)
 	if err != nil {
 		return fmt.Errorf("failed to get volume %v: %w", loc.Volume, err)
 	}
@@ -315,7 +327,7 @@ func (vm *VolumeManager) Sync() error {
 	}
 	vm.mu.Unlock()
 	for _, id := range toSync {
-		v, err := vm.volume(id)
+		v, err := vm.getVolume(id)
 		if err != nil {
 			return fmt.Errorf("failed to get volume %v: %w", id, err)
 		} else if err := v.Sync(); err != nil {
@@ -335,7 +347,7 @@ func (vm *VolumeManager) Write(root SectorRoot, data []byte) (release func() err
 		if exists {
 			return nil
 		}
-		vol, err := vm.volume(loc.Volume)
+		vol, err := vm.getVolume(loc.Volume)
 		if err != nil {
 			return fmt.Errorf("failed to get volume %v: %w", loc.Volume, err)
 		} else if err := vol.WriteSector(data, loc.Index); err != nil {
@@ -346,11 +358,28 @@ func (vm *VolumeManager) Write(root SectorRoot, data []byte) (release func() err
 }
 
 // NewVolumeManager creates a new VolumeManager.
-func NewVolumeManager(vs VolumeStore) *VolumeManager {
-	return &VolumeManager{
+func NewVolumeManager(vs VolumeStore) (*VolumeManager, error) {
+	volumes, err := vs.Volumes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load volumes: %w", err)
+	}
+	vm := &VolumeManager{
 		vs: vs,
 
+		close:          make(chan struct{}),
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
 	}
+	// load the volumes into memory
+	for _, vol := range volumes {
+		f, err := os.Open(vol.LocalPath)
+		if err != nil {
+			log.Printf("failed to open volume file %v: %v", vol.LocalPath, err)
+			continue
+		}
+		vm.volumes[vol.ID] = &volume{
+			data: f,
+		}
+	}
+	return vm, nil
 }
