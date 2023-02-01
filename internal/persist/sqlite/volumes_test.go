@@ -466,37 +466,37 @@ func TestMigrateSectors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// migrate the remaining sectors from the first volume; should fail
+	// migrate the remaining sectors from the first volume; should partially complete
 	err = db.MigrateSectors(volumeID, 0, func(locations []storage.SectorLocation) error {
-		t.Fatal("unexpected call to migration function")
+		if len(locations) > initialSectors/4 {
+			t.Fatalf("expected only %v migrations, got %v", initialSectors/4, len(locations))
+		}
 		return nil
 	})
 	if !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
-	// migrate half the sectors from the first volume to the second volume
-	i = 0
-	migrating := roots[initialSectors/4:]
-	err = db.MigrateSectors(volumeID, initialSectors/4, func(locations []storage.SectorLocation) error {
-		for _, loc := range locations {
-			if loc.Volume != volume2ID {
-				t.Fatalf("expected volume ID %v, got %v", volume2ID, loc.Volume)
-			} else if loc.Index != uint64(i) {
-				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
-			} else if loc.Root != migrating[i] {
-				t.Fatalf("expected sector root %v, got %v", roots[i], loc.Root)
-			}
-			i++
-		}
-		// note: sync to disk
-		return nil
-	})
+	// check that volume 2 is now full
+	v2, err := db.Volume(volume2ID)
 	if err != nil {
 		t.Fatal(err)
-	} else if i != 16 {
-		t.Fatalf("expected 16 sectors, got %v", i)
+	} else if v2.ID != volume2ID {
+		t.Fatalf("expected volume ID %v, got %v", volume2ID, v2.ID)
+	} else if v2.UsedSectors != v2.TotalSectors {
+		t.Fatalf("expected volume to be full, got %v/%v", v2.UsedSectors, v2.TotalSectors)
 	}
+
+	// check that volume 1 was reduced by the same amount
+	v1, err := db.Volume(volumeID)
+	if err != nil {
+		t.Fatal(err)
+	} else if v1.ID != volumeID {
+		t.Fatalf("expected volume ID %v, got %v", volumeID, v1.ID)
+	} else if v1.UsedSectors != initialSectors/4 {
+		t.Fatalf("expected volume to have %v sectors, got %v/%v", initialSectors/4, v1.UsedSectors, v1.TotalSectors)
+	}
+
 }
 
 func BenchmarkVolumeGrow(b *testing.B) {
