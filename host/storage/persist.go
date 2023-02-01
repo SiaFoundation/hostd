@@ -23,7 +23,7 @@ type (
 		// AddVolume initializes a new storage volume and adds it to the volume
 		// store. GrowVolume must be called afterwards to initialize the volume
 		// to its desired size.
-		AddVolume(localPath string, readOnly bool) (Volume, error)
+		AddVolume(localPath string, readOnly bool) (int, error)
 		// RemoveVolume removes a storage volume from the volume store. If there
 		// are used sectors in the volume, ErrVolumeNotEmpty is returned. If
 		// force is true, the volume is removed even if it is not empty.

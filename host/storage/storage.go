@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -96,7 +95,7 @@ func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64)
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
 		// progress tracking.
-		if v.Resize(current); err != nil {
+		if v.Resize(target); err != nil {
 			return fmt.Errorf("failed to expand volume data: %w", err)
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
@@ -154,14 +153,14 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 		return Volume{}, fmt.Errorf("failed to create volume file: %w", err)
 	}
 
-	v, err := vm.vs.AddVolume(localPath, false)
+	volumeID, err := vm.vs.AddVolume(localPath, false)
 	if err != nil {
-		return v, fmt.Errorf("failed to add volume to store: %w", err)
+		return Volume{}, fmt.Errorf("failed to add volume to store: %w", err)
 	}
 
 	// add the new volume to the volume map
 	vm.mu.Lock()
-	vm.volumes[v.ID] = &volume{
+	vm.volumes[volumeID] = &volume{
 		data: f,
 		stats: VolumeStats{
 			Available: true,
@@ -170,18 +169,17 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 	vm.mu.Unlock()
 
 	// lock the volume during grow operation
-	release, err := vm.lockVolume(v.ID)
+	release, err := vm.lockVolume(volumeID)
 	if err != nil {
-		return v, fmt.Errorf("failed to lock volume: %w", err)
+		return Volume{}, fmt.Errorf("failed to lock volume: %w", err)
 	}
 	defer release()
 
 	// grow the volume to the desired size
-	if err := vm.growVolume(v.ID, 0, maxSectors); err != nil {
-		return v, fmt.Errorf("failed to grow volume: %w", err)
+	if err := vm.growVolume(volumeID, 0, maxSectors); err != nil {
+		return Volume{}, fmt.Errorf("failed to grow volume: %w", err)
 	}
-
-	return v, nil
+	return vm.vs.Volume(volumeID)
 }
 
 // SetReadOnly sets the read-only status of a volume.
@@ -220,7 +218,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 }
 
 // ResizeVolume resizes a volume to the specified size.
-func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int, maxSectors uint64) error {
+func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)

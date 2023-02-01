@@ -209,9 +209,9 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 // AddVolume initializes a new storage volume and adds it to the volume
 // store. GrowVolume must be called afterwards to initialize the volume
 // to its desired size.
-func (s *Store) AddVolume(localPath string, readOnly bool) (volume storage.Volume, err error) {
-	const query = `INSERT INTO storage_volumes (disk_path, writeable) VALUES (?, ?) RETURNING id, disk_path, NOT writeable;`
-	err = s.db.QueryRow(query, localPath, !readOnly).Scan(&volume.ID, &volume.LocalPath, &volume.ReadOnly)
+func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err error) {
+	const query = `INSERT INTO storage_volumes (disk_path, writeable) VALUES (?, ?) RETURNING id;`
+	err = s.db.QueryRow(query, localPath, !readOnly).Scan(&volumeID)
 	return
 }
 
@@ -286,13 +286,13 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 	return s.exclusiveTransaction(func(tx txn) error {
 		// check if there are any used sectors in the shrink range
 		var count uint64
-		err := tx.QueryRow(`SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=$1 AND volume_index > $2 AND sector_root IS NOT NULL;`, id, maxSectors).Scan(&count)
+		err := tx.QueryRow(`SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_root IS NOT NULL;`, id, maxSectors).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to get used sectors: %w", err)
 		} else if count != 0 {
 			return fmt.Errorf("cannot shrink volume to %d sectors, %d sectors are in use: %w", maxSectors, count, storage.ErrVolumeNotEmpty)
 		}
-		_, err = tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=$1 AND volume_index > $2;`, id, maxSectors)
+		_, err = tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2;`, id, maxSectors)
 		if err != nil {
 			return fmt.Errorf("failed to shrink volume: %w", err)
 		}

@@ -1,8 +1,9 @@
 package storage_test
 
 import (
-	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,6 +12,18 @@ import (
 	"go.sia.tech/hostd/internal/persist/sqlite"
 	"lukechampine.com/frand"
 )
+
+const sectorSize = 1 << 22
+
+func checkFileSize(fp string, expectedSize int64) error {
+	stat, err := os.Stat(fp)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	} else if stat.Size() != expectedSize {
+		return fmt.Errorf("expected file size %v, got %v", expectedSize, stat.Size())
+	}
+	return nil
+}
 
 func TestAddVolume(t *testing.T) {
 	const expectedSectors = 500
@@ -95,6 +108,44 @@ func TestRemoveVolume(t *testing.T) {
 	}
 }
 
+func TestVolumeGrow(t *testing.T) {
+	const initialSectors = 32
+	dir := t.TempDir()
+
+	// create the database
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm := storage.NewVolumeManager(db)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	volume, err := vm.AddVolume(volumeFilePath, initialSectors)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := checkFileSize(volumeFilePath, int64(initialSectors*sectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != initialSectors {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors, volume.TotalSectors)
+	} else if volume.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
+	}
+
+	// grow the volume
+	const newSectors = 64
+	if err := vm.ResizeVolume(volume.ID, newSectors); err != nil {
+		t.Fatal(err)
+	} else if err := checkFileSize(volumeFilePath, int64(newSectors*sectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != newSectors {
+		t.Fatalf("expected %v total sectors, got %v", newSectors, volume.TotalSectors)
+	} else if volume.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
+	}
+}
+
 func TestVolumeShrink(t *testing.T) {
 	const sectors = 32
 	dir := t.TempDir()
@@ -108,9 +159,16 @@ func TestVolumeShrink(t *testing.T) {
 
 	// initialize the storage manager
 	vm := storage.NewVolumeManager(db)
-	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), sectors)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	volume, err := vm.AddVolume(volumeFilePath, sectors)
 	if err != nil {
 		t.Fatal(err)
+	} else if err := checkFileSize(volumeFilePath, int64(sectors*sectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != sectors {
+		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
+	} else if volume.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
 	}
 
 	roots := make([]storage.SectorRoot, 0, sectors)
@@ -159,7 +217,7 @@ func TestVolumeShrink(t *testing.T) {
 	// try to shrink the volume, should fail since no space is available
 	toRemove := sectors / 4
 	remainingSectors := uint64(sectors - toRemove)
-	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.ResizeVolume(volume.ID, remainingSectors); !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected not enough storage error, got %v", err)
 	}
 
@@ -174,7 +232,9 @@ func TestVolumeShrink(t *testing.T) {
 	roots = append(roots[remainingSectors:], roots[toRemove:remainingSectors]...)
 
 	// shrink the volume by the number of sectors removed, should succeed
-	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors); err != nil {
+	if err := vm.ResizeVolume(volume.ID, remainingSectors); err != nil {
+		t.Fatal(err)
+	} else if err := checkFileSize(volumeFilePath, int64(remainingSectors*sectorSize)); err != nil {
 		t.Fatal(err)
 	}
 
