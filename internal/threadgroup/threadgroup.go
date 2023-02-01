@@ -74,6 +74,7 @@ func (tg *ThreadGroup) Stop() {
 	tg.wg.Wait()
 }
 
+// New creates a new threadgroup
 func New() *ThreadGroup {
 	return &ThreadGroup{
 		closed: make(chan struct{}),

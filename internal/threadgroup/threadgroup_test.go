@@ -86,5 +86,4 @@ func TestThreadgroupContext(t *testing.T) {
 			t.Fatal("expected threadgroup to wait until all threads complete")
 		}
 	})
-
 }

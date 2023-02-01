@@ -174,6 +174,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 	return nil
 }
 
+// Close gracefully shutsdown the volume manager.
 func (vm *VolumeManager) Close() error {
 	// wait for all operations to stop
 	vm.tg.Stop()
