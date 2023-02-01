@@ -397,6 +397,19 @@ func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
 	return nil
 }
 
+// LockSector prevents the sector with the given root from being pruned. If the
+// sector does not exist, an error is returned. Release must be called when the
+// sector is no longer needed.
+func (vm *VolumeManager) LockSector(root SectorRoot) (func() error, error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	_, release, err := vm.vs.SectorLocation(root)
+	return release, err
+}
+
 // Read reads the sector with the given root
 func (vm *VolumeManager) Read(root SectorRoot) ([]byte, error) {
 	done, err := vm.tg.Add()
