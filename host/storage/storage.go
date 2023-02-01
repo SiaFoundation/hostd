@@ -141,7 +141,8 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
-	// migrate any sectors outside of the new end of the volume
+	// migrate any sectors outside of the target range. migrateSectors will be
+	// called on chunks of 256 sectors
 	err = vm.vs.MigrateSectors(id, newMaxSectors, vm.migrateSectors)
 	if err != nil {
 		return fmt.Errorf("failed to migrate sectors: %w", err)
@@ -159,7 +160,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		var target uint64
 		if current < batchSize {
 			target = newMaxSectors
-			batchSize = 0
+			batchSize = current - newMaxSectors
 		} else {
 			target = current - batchSize
 		}
@@ -168,7 +169,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		if err := vm.vs.ShrinkVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
 		} else if err := volume.Resize(target); err != nil {
-			return fmt.Errorf("failed to expand volume data: %w", err)
+			return fmt.Errorf("failed to shrink volume data to %v sectors: %w", target, err)
 		}
 	}
 	return nil

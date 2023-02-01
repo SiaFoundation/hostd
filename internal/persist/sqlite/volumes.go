@@ -147,8 +147,13 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 			newLocations, err = locationsForMigration(tx, volumeID, startIndex, len(oldLocations))
 			if err != nil {
 				return fmt.Errorf("failed to get new locations: %w", err)
-			} else if len(newLocations) != len(oldLocations) {
-				return storage.ErrNotEnoughStorage // not enough space to complete the batch
+			} else if len(newLocations) == 0 {
+				// if no new locations were returned, there's no more space
+				return storage.ErrNotEnoughStorage
+			} else if len(newLocations) < len(oldLocations) {
+				// only enough space to partially migrate the batch. truncate
+				// the old locations to avoid unnecessary locks
+				oldLocations = oldLocations[:len(newLocations)]
 			}
 
 			// add the sector root to the new locations
