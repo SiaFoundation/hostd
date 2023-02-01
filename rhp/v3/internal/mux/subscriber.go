@@ -41,10 +41,9 @@ var (
 )
 
 func (ss *SubscriberStream) handleSubscriberResponse() {
-	// wait for the subscriber response
-	defer func() { ss.handshakeComplete = true }()
 	// read the subscriber response
 	err := readSubscriberResponse(ss.Stream)
+	ss.handshakeComplete = true
 	ss.handshakeErr = err
 }
 

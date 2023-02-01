@@ -141,7 +141,7 @@ func TestManySubscribers(t *testing.T) {
 	t.Cleanup(func() { m.Close() })
 
 	var wg sync.WaitGroup
-	var errCh = make(chan error, 1000)
+	var errCh = make(chan error, 100)
 	wg.Add(cap(errCh))
 	for i := 0; i < cap(errCh); i++ {
 		go func(i int) {
@@ -164,7 +164,6 @@ func TestManySubscribers(t *testing.T) {
 				errCh <- fmt.Errorf("stream %v: unexpected reply: got %v expected %v", i, resp, req)
 				return
 			}
-			log.Println(i, "done")
 		}(i)
 	}
 
@@ -192,7 +191,7 @@ func TestSubscriberRouterCompat(t *testing.T) {
 	t.Cleanup(func() { l.Close() })
 
 	serverKey := ed25519.NewKeyFromSeed(frand.Bytes(32))
-	startEchoSubscriber(l, serverKey)
+	go startEchoSubscriber(l, serverKey)
 
 	m, err := siamux.New(":0", ":0", nlog.DiscardLogger, filepath.Join(dir, "siamux"))
 	if err != nil {
@@ -208,6 +207,7 @@ func TestSubscriberRouterCompat(t *testing.T) {
 		if err != nil {
 			t.Fatal("failed to create subscriber stream:", err)
 		}
+		defer s.Close()
 
 		if err := writePrefixedBytes(s, []byte("hello")); err != nil {
 			t.Fatal("failed to write to stream:", err)
@@ -221,6 +221,7 @@ func TestSubscriberRouterCompat(t *testing.T) {
 		if err != nil {
 			t.Fatal("failed to create subscriber stream:", err)
 		}
+		defer s.Close()
 
 		req := frand.Bytes(128)
 		if err := writePrefixedBytes(s, req); err != nil {
@@ -268,6 +269,7 @@ func TestSubscriberMuxCompat(t *testing.T) {
 		if err != nil {
 			t.Fatal("failed to create subscriber stream:", err)
 		}
+		defer s.Close()
 
 		if err := writePrefixedBytes(s, []byte("hello")); err != nil {
 			t.Fatal("failed to write to stream:", err)
@@ -281,6 +283,7 @@ func TestSubscriberMuxCompat(t *testing.T) {
 		if err != nil {
 			t.Fatal("failed to create subscriber stream:", err)
 		}
+		defer s.Close()
 
 		req := frand.Bytes(128)
 		if err := writePrefixedBytes(s, req); err != nil {
