@@ -9,7 +9,7 @@ import (
 	"math"
 	"net"
 
-	"go.sia.tech/mux/v1"
+	"go.sia.tech/hostd/internal/mux"
 	"lukechampine.com/frand"
 )
 
@@ -63,7 +63,7 @@ func (ss *SubscriberStream) Read(p []byte) (int, error) {
 // handler on the peer.
 func (sm *SubscriberMux) NewSubscriberStream(subscriber string) (*SubscriberStream, error) {
 	// create a new stream with the subscriber handshake marked as incomplete
-	ss := &SubscriberStream{Stream: sm.Mux.DialStream()}
+	ss := &SubscriberStream{Stream: sm.Mux.NewStream()}
 	if err := writeSubscriberRequest(ss.Stream, subscriber); err != nil {
 		return nil, fmt.Errorf("failed to write subscriber request: %w", err)
 	}
@@ -186,7 +186,7 @@ func reciprocateAppSeedHandshake(m *mux.Mux, appID uint64) error {
 
 func initiateAppSeedHandshake(m *mux.Mux, appID uint64) error {
 	// first stream handles the app seed handshake
-	s := m.DialStream()
+	s := m.NewStream()
 	defer s.Close()
 
 	seed := make([]byte, 8)

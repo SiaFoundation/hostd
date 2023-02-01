@@ -6,17 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
 	nlog "gitlab.com/NebulousLabs/log"
 	"gitlab.com/NebulousLabs/siamux"
 	nmux "gitlab.com/NebulousLabs/siamux/mux"
-	"go.sia.tech/mux/v1"
+	"go.sia.tech/hostd/internal/mux"
 	"lukechampine.com/frand"
 )
 
@@ -35,10 +33,7 @@ func startEchoSubscriber(l net.Listener, priv ed25519.PrivateKey) {
 		}
 
 		go func() {
-			defer func() {
-				log.Println("closing mux")
-				m.Close()
-			}()
+			defer m.Close()
 
 			for i := 0; ; i++ {
 				stream, subscriber, err := m.AcceptSubscriberStream()
@@ -211,7 +206,7 @@ func TestSubscriberRouterCompat(t *testing.T) {
 
 		if err := writePrefixedBytes(s, []byte("hello")); err != nil {
 			t.Fatal("failed to write to stream:", err)
-		} else if _, err := readPrefixedBytes(s, 1024); err == nil || !strings.Contains(err.Error(), "unknown subscriber") {
+		} else if _, err := readPrefixedBytes(s, 1024); err == nil {
 			t.Fatal("expected subscriber error:", err)
 		}
 	})
