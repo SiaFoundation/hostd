@@ -162,8 +162,8 @@ func BenchmarkUpload(b *testing.B) {
 	remainingDuration = contractExpiration - currentHeight
 
 	b.ReportAllocs()
-	b.SetBytes(int64(b.N) * rhp.SectorSize)
 	b.ResetTimer()
+	b.SetBytes(rhp.SectorSize)
 
 	// upload b.N sectors
 	for i := 0; i < b.N; i++ {
@@ -232,8 +232,8 @@ func BenchmarkDownload(b *testing.B) {
 	}
 
 	b.ReportAllocs()
-	b.SetBytes(int64(b.N) * rhp.SectorSize)
 	b.ResetTimer()
+	b.SetBytes(rhp.SectorSize)
 
 	for _, root := range uploaded {
 		// download the sector

@@ -109,7 +109,7 @@ func TestRemoveVolume(t *testing.T) {
 }
 
 func TestVolumeGrow(t *testing.T) {
-	const initialSectors = 32
+	const initialSectors = 16
 	dir := t.TempDir()
 
 	// create the database
@@ -134,7 +134,7 @@ func TestVolumeGrow(t *testing.T) {
 	}
 
 	// grow the volume
-	const newSectors = 64
+	const newSectors = 32
 	if err := vm.ResizeVolume(volume.ID, newSectors); err != nil {
 		t.Fatal(err)
 	} else if err := checkFileSize(volumeFilePath, int64(newSectors*sectorSize)); err != nil {
@@ -151,7 +151,7 @@ func TestVolumeGrow(t *testing.T) {
 }
 
 func TestVolumeShrink(t *testing.T) {
-	const sectors = 32
+	const sectors = 16
 	dir := t.TempDir()
 
 	// create the database
@@ -269,7 +269,7 @@ func TestVolumeShrink(t *testing.T) {
 }
 
 func TestVolumeManagerReadWrite(t *testing.T) {
-	const sectors = 32
+	const sectors = 16
 	dir := t.TempDir()
 
 	// create the database
