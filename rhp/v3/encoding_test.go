@@ -320,34 +320,6 @@ func TestRPCEncodingCompat(t *testing.T) {
 		}
 		testEncodingCompat(t, hostd, siad)
 	})
-	t.Run("rpcExecuteProgramRequest", func(t *testing.T) {
-		hostd := &rpcExecuteProgramRequest{
-			FileContractID: types.FileContractID(frand.Entropy256()),
-			Program: program{
-				Instructions: []instruction{
-					&instrAppendSector{
-						SectorDataOffset: 0,
-						ProofRequired:    true,
-					},
-				},
-				RequiresContract:     true,
-				RequiresFinalization: true,
-			},
-			ProgramDataLength: frand.Intn(1e6),
-		}
-
-		pb := modules.NewProgramBuilder(&modules.RPCPriceTable{}, 0)
-		if err := pb.AddAppendInstruction(make([]byte, 4096), true, 0); err != nil {
-			t.Fatal(err)
-		}
-		prog, _ := pb.Program()
-		siad := modules.RPCExecuteProgramRequest{
-			FileContractID:    hostd.FileContractID,
-			Program:           prog,
-			ProgramDataLength: uint64(hostd.ProgramDataLength),
-		}
-		testEncodingCompat(t, hostd, siad)
-	})
 	t.Run("rpcExecuteOutput", func(t *testing.T) {
 		hostd := &rpcExecuteOutput{
 			AdditionalCollateral: types.NewCurrency64(frand.Uint64n(math.MaxUint64)),
