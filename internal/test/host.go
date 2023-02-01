@@ -65,6 +65,7 @@ func (h *Host) Close() error {
 	h.wallet.Close()
 	// h.rhpv3.Close()
 	h.rhpv2.Close()
+	h.storage.Close()
 	h.store.Close()
 	h.node.Close()
 	return nil

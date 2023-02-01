@@ -138,6 +138,8 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
+	defer sm.Close()
+
 	contractManager := contracts.NewManager(db, sm, chainManager, tp, w)
 
 	er := store.NewEphemeralRegistryStore(1000)
