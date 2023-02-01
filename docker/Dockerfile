@@ -21,11 +21,15 @@ ENV HOSTD_API_PASSWORD=
 COPY --from=builder /hostd/bin/* /usr/bin/
 VOLUME [ "/data" ]
 
+# API port
 EXPOSE 9980/tcp
+# RPC port
 EXPOSE 9981/tcp
+# RHP2 port
 EXPOSE 9982/tcp
+# RHP3 port
 EXPOSE 9983/tcp
 
 USER ${PUID}:${PGID}
 
-ENTRYPOINT [ "hostd", "--dir", "/data", "--http", ":8080" ]
+ENTRYPOINT [ "hostd", "--dir", "/data", "--http", ":9980" ]
