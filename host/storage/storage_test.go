@@ -39,6 +39,7 @@ func TestAddVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer vm.Close()
 
 	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
 	if err != nil {
@@ -79,6 +80,8 @@ func TestRemoveVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer vm.Close()
+
 	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +133,8 @@ func TestVolumeGrow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer vm.Close()
+
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
 	volume, err := vm.AddVolume(volumeFilePath, initialSectors)
 	if err != nil {
@@ -175,6 +180,8 @@ func TestVolumeShrink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer vm.Close()
+
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
 	volume, err := vm.AddVolume(volumeFilePath, sectors)
 	if err != nil {
@@ -296,6 +303,8 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer vm.Close()
+
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
 	volume, err := vm.AddVolume(volumeFilePath, sectors)
 	if err != nil {
@@ -364,6 +373,8 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer vm.Close()
+
 	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
 	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
 	if err != nil {
@@ -403,6 +414,8 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer vm.Close()
+
 	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
 	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
 	if err != nil {

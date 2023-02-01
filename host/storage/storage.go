@@ -1,11 +1,14 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"sync"
+
+	"go.sia.tech/hostd/internal/threadgroup"
 )
 
 type (
@@ -20,6 +23,7 @@ type (
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
 		vs VolumeStore
+		tg *threadgroup.ThreadGroup
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int]*volume
@@ -91,7 +95,7 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
 	return vm.Sync()
 }
 
-func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64) error {
+func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
 	const batchSize = 256
 
 	if oldMaxSectors > newMaxSectors {
@@ -104,6 +108,13 @@ func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64)
 	}
 
 	for current := oldMaxSectors; current < newMaxSectors; current += batchSize {
+		// stop early if the context is cancelled
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		target := current + batchSize
 		if target > newMaxSectors {
 			target = newMaxSectors
@@ -120,9 +131,7 @@ func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64)
 	return nil
 }
 
-func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint64) error {
-	const batchSize = 256
-
+func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
 	}
@@ -138,38 +147,89 @@ func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint6
 		return fmt.Errorf("failed to migrate sectors: %w", err)
 	}
 
+	var batchSize uint64 = 256
 	for current := oldMaxSectors; current > newMaxSectors; current -= batchSize {
+		// stop early if the context is cancelled
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		var target uint64
 		if current < batchSize {
-			current = newMaxSectors
+			target = newMaxSectors
+			batchSize = 0
+		} else {
+			target = current - batchSize
 		}
 		// shrink in chunks to prevent holding a lock for too long and to
 		// track progress.
-		if err := vm.vs.ShrinkVolume(id, current); err != nil {
+		if err := vm.vs.ShrinkVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
-		} else if err := volume.Resize(current); err != nil {
+		} else if err := volume.Resize(target); err != nil {
 			return fmt.Errorf("failed to expand volume data: %w", err)
 		}
 	}
 	return nil
 }
 
+func (vm *VolumeManager) Close() error {
+	// wait for all operations to stop
+	vm.tg.Stop()
+
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	// sync and close all open volumes
+	for id, vol := range vm.volumes {
+		if err := vol.Sync(); err != nil {
+			log.Printf("[WARN] failed to sync volume %v: %v", id, err)
+		} else if err := vol.Close(); err != nil {
+			log.Printf("[WARN] failed to close volume %v: %v", id, err)
+		}
+		delete(vm.volumes, id)
+	}
+	return nil
+}
+
 // Usage returns the total and used storage space, in bytes, in the storage manager.
 func (vm *VolumeManager) Usage() (usedBytes uint64, totalBytes uint64, err error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer done()
 	return vm.vs.StorageUsage()
 }
 
 // Volumes returns a list of all volumes in the storage manager.
 func (vm *VolumeManager) Volumes() ([]Volume, error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	return vm.vs.Volumes()
 }
 
 // Volume returns a volume by its ID.
 func (vm *VolumeManager) Volume(id int) (Volume, error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return Volume{}, err
+	}
+	defer done()
 	return vm.vs.Volume(id)
 }
 
 // AddVolume adds a new volume to the storage manager
 func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume, error) {
+	ctx, cancel, err := vm.tg.AddContext(context.Background())
+	if err != nil {
+		return Volume{}, err
+	}
+	defer cancel()
+
 	f, err := os.Create(localPath)
 	if err != nil {
 		return Volume{}, fmt.Errorf("failed to create volume file: %w", err)
@@ -198,7 +258,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 	defer release()
 
 	// grow the volume to the desired size
-	if err := vm.growVolume(volumeID, 0, maxSectors); err != nil {
+	if err := vm.growVolume(ctx, volumeID, 0, maxSectors); err != nil {
 		return Volume{}, fmt.Errorf("failed to grow volume: %w", err)
 	}
 	return vm.vs.Volume(volumeID)
@@ -206,6 +266,12 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 
 // SetReadOnly sets the read-only status of a volume.
 func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
@@ -220,6 +286,12 @@ func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
 
 // RemoveVolume removes a volume from the manager.
 func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
+	ctx, cancel, err := vm.tg.AddContext(context.Background())
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
 	// lock the volume during removal to prevent concurrent operations
 	release, err := vm.lockVolume(id)
 	if err != nil {
@@ -232,7 +304,14 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
 	// migrate sectors to other volumes
-	err = vm.vs.MigrateSectors(id, 0, vm.migrateSectors)
+	err = vm.vs.MigrateSectors(id, 0, func(locations []SectorLocation) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		return vm.migrateSectors(locations)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to migrate sector data: %w", err)
 	}
@@ -241,6 +320,12 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 
 // ResizeVolume resizes a volume to the specified size.
 func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
+	ctx, cancel, err := vm.tg.AddContext(context.Background())
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
@@ -262,13 +347,13 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
 		return nil
 	} else if vol.TotalSectors > maxSectors {
 		// volume is shrinking
-		if err := vm.shrinkVolume(id, vol.TotalSectors, maxSectors); err != nil {
+		if err := vm.shrinkVolume(ctx, id, vol.TotalSectors, maxSectors); err != nil {
 			return fmt.Errorf("failed to shrink volume to %v sectors: %w", maxSectors, err)
 		}
 		return nil
 	}
 	// volume is growing
-	if err := vm.growVolume(id, vol.TotalSectors, maxSectors); err != nil {
+	if err := vm.growVolume(ctx, id, vol.TotalSectors, maxSectors); err != nil {
 		return fmt.Errorf("failed to grow volume: %w", err)
 	}
 	return nil
@@ -276,6 +361,12 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
 
 // RemoveSector deletes a sector's metadata and zeroes its data.
 func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	// get and lock the sector's current location
 	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
@@ -306,6 +397,12 @@ func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
 
 // Read reads the sector with the given root
 func (vm *VolumeManager) Read(root SectorRoot) ([]byte, error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate sector %v: %w", root, err)
@@ -324,6 +421,12 @@ func (vm *VolumeManager) Read(root SectorRoot) ([]byte, error) {
 
 // Sync syncs the data files of changed volumes.
 func (vm *VolumeManager) Sync() error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	vm.mu.Lock()
 	var toSync []int
 	for id := range vm.changedVolumes {
@@ -347,6 +450,12 @@ func (vm *VolumeManager) Sync() error {
 // Write writes a sector to a volume. release should only be called after the
 // contract roots have been committed to prevent the sector from being deleted.
 func (vm *VolumeManager) Write(root SectorRoot, data []byte) (release func() error, _ error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	return vm.vs.StoreSector(root, func(loc SectorLocation, exists bool) error {
 		if exists {
 			return nil
@@ -372,6 +481,8 @@ func NewVolumeManager(vs VolumeStore) (*VolumeManager, error) {
 
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
+
+		tg: threadgroup.New(),
 	}
 	// load the volumes into memory
 	for _, vol := range volumes {
