@@ -139,6 +139,10 @@ func TestVolumeGrow(t *testing.T) {
 		t.Fatal(err)
 	} else if err := checkFileSize(volumeFilePath, int64(newSectors*sectorSize)); err != nil {
 		t.Fatal(err)
+	}
+	volume, err = vm.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
 	} else if volume.TotalSectors != newSectors {
 		t.Fatalf("expected %v total sectors, got %v", newSectors, volume.TotalSectors)
 	} else if volume.UsedSectors != 0 {
@@ -238,6 +242,15 @@ func TestVolumeShrink(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	volume, err = vm.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != remainingSectors {
+		t.Fatalf("expected %v total sectors, got %v", remainingSectors, volume.TotalSectors)
+	} else if volume.UsedSectors != remainingSectors {
+		t.Fatalf("expected %v used sectors, got %v", remainingSectors, volume.UsedSectors)
+	}
+
 	// validate that the sectors were moved to the beginning of the volume
 	for i, root := range roots {
 		loc, release, err := db.SectorLocation(root)
@@ -251,6 +264,72 @@ func TestVolumeShrink(t *testing.T) {
 			t.Fatalf("expected sector %v to be at index %v, got %v", root, i, loc.Index)
 		} else if err := release(); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestVolumeManagerReadWrite(t *testing.T) {
+	const sectors = 32
+	dir := t.TempDir()
+
+	// create the database
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm := storage.NewVolumeManager(db)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	volume, err := vm.AddVolume(volumeFilePath, sectors)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := checkFileSize(volumeFilePath, int64(sectors*sectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != sectors {
+		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
+	} else if volume.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
+	}
+
+	roots := make([]storage.SectorRoot, 0, sectors)
+	// fill the volume
+	for i := 0; i < cap(roots); i++ {
+		sector := make([]byte, 1<<22)
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		root := storage.SectorRoot(merkle.SectorRoot(sector))
+		release, err := vm.Write(root, sector)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		defer release()
+		roots = append(roots, root)
+
+		// validate the volume stats are correct
+		volumes, err := vm.Volumes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if volumes[0].UsedSectors != uint64(i+1) {
+			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// read the sectors back
+	frand.Shuffle(len(roots), func(i, j int) { roots[i], roots[j] = roots[j], roots[i] })
+	for _, root := range roots {
+		sector, err := vm.Read(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		retrievedRoot := storage.SectorRoot(merkle.SectorRoot(sector))
+		if retrievedRoot != root {
+			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
 		}
 	}
 }

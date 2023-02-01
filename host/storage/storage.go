@@ -120,20 +120,21 @@ func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint6
 		return fmt.Errorf("failed to migrate sectors: %w", err)
 	}
 
-	current := oldMaxSectors - newMaxSectors
 	n := uint64(256)
-	for i := current; i > newMaxSectors; i -= n {
-		if current > i-n {
-			n = i - current
+	for current := oldMaxSectors; current > newMaxSectors; current -= n {
+		if current < n {
+			n = 0
+			current = newMaxSectors
 		}
 		// shrink in chunks to prevent holding a lock for too long and to
 		// track progress.
-		if err := vm.vs.ShrinkVolume(id, n); err != nil {
+		if err := vm.vs.ShrinkVolume(id, current); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
+		} else if err := volume.Resize(current); err != nil {
+			return fmt.Errorf("failed to expand volume data: %w", err)
 		}
 	}
-	// resize the data file
-	return volume.Resize(newMaxSectors)
+	return nil
 }
 
 // Usage returns the total and used storage space, in bytes, in the storage manager.
@@ -144,6 +145,11 @@ func (vm *VolumeManager) Usage() (usedBytes uint64, totalBytes uint64, err error
 // Volumes returns a list of all volumes in the storage manager.
 func (vm *VolumeManager) Volumes() ([]Volume, error) {
 	return vm.vs.Volumes()
+}
+
+// Volume returns a volume by its ID.
+func (vm *VolumeManager) Volume(id int) (Volume, error) {
+	return vm.vs.Volume(id)
 }
 
 // AddVolume adds a new volume to the storage manager
