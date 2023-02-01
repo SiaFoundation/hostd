@@ -96,7 +96,7 @@ func (vm *VolumeManager) growVolume(id int, oldMaxSectors, newMaxSectors uint64)
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
 		// progress tracking.
-		if v.Resize(current * sectorSize); err != nil {
+		if v.Resize(current); err != nil {
 			return fmt.Errorf("failed to expand volume data: %w", err)
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
@@ -134,7 +134,7 @@ func (vm *VolumeManager) shrinkVolume(id int, oldMaxSectors, newMaxSectors uint6
 		}
 	}
 	// resize the data file
-	return volume.Resize(newMaxSectors * sectorSize)
+	return volume.Resize(newMaxSectors)
 }
 
 // Usage returns the total and used storage space, in bytes, in the storage manager.
@@ -243,7 +243,7 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int, maxSectors ui
 	} else if vol.TotalSectors > maxSectors {
 		// volume is shrinking
 		if err := vm.shrinkVolume(id, vol.TotalSectors, maxSectors); err != nil {
-			return fmt.Errorf("failed to shrink volume from volume: %w", err)
+			return fmt.Errorf("failed to shrink volume to %v sectors: %w", maxSectors, err)
 		}
 		return nil
 	}
