@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/ed25519"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -10,8 +8,9 @@ import (
 	"os"
 	"os/signal"
 
+	"go.sia.tech/core/types"
+	"go.sia.tech/core/wallet"
 	"go.sia.tech/hostd/build"
-	"go.sia.tech/hostd/wallet"
 	"golang.org/x/term"
 )
 
@@ -37,7 +36,7 @@ func getAPIPassword() string {
 	return apiPassword
 }
 
-func getWalletKey() ed25519.PrivateKey {
+func getWalletKey() types.PrivateKey {
 	phrase := os.Getenv("HOSTD_WALLET_SEED")
 	if phrase != "" {
 		fmt.Println("Using HOSTD_WALLET_SEED environment variable")
@@ -48,11 +47,11 @@ func getWalletKey() ed25519.PrivateKey {
 		fmt.Println()
 		phrase = string(pw)
 	}
-	key, err := wallet.KeyFromPhrase(phrase)
-	if err != nil {
+	var seed [32]byte
+	if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
 		log.Fatal(err)
 	}
-	return key
+	return wallet.KeyFromSeed(&seed, 0)
 }
 
 func main() {
@@ -84,7 +83,7 @@ func main() {
 		}
 	}()
 	log.Println("p2p: Listening on", n.g.Address())
-	log.Println("host public key:", "ed25519:"+hex.EncodeToString(walletKey.Public().(ed25519.PublicKey)))
+	log.Println("host public key:", walletKey)
 
 	l, err := net.Listen("tcp", *apiAddr)
 	if err != nil {

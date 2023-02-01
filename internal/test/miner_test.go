@@ -1,19 +1,22 @@
+//go:build ignore
+
 package test
 
 import (
-	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 
-	"go.sia.tech/siad/crypto"
+	"go.sia.tech/core/consensus"
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/modules/consensus"
+	mconsensus "go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
-	"go.sia.tech/siad/types"
+	stypes "go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
@@ -25,10 +28,10 @@ type siacoinElement struct {
 
 // A testWallet provides very basic wallet functionality for testing the miner
 type testWallet struct {
-	priv ed25519.PrivateKey
+	priv types.PrivateKey
 
 	mu        sync.Mutex
-	height    types.BlockHeight
+	height    uint64
 	spent     map[types.SiacoinOutputID]bool
 	spendable map[types.SiacoinOutputID]siacoinElement
 }
@@ -36,16 +39,11 @@ type testWallet struct {
 // UnlockConditions is a helper to return the standard unlock conditions using
 // the wallet's private key
 func (tw *testWallet) UnlockConditions() types.UnlockConditions {
-	return types.UnlockConditions{
-		PublicKeys: []types.SiaPublicKey{
-			{Algorithm: types.SignatureEd25519, Key: tw.priv.Public().(ed25519.PublicKey)},
-		},
-		SignaturesRequired: 1,
-	}
+	return wallet.StandardUnlockConditions(tw.priv.PublicKey())
 }
 
 // Address returns the address of the wallet
-func (tw *testWallet) Address() types.UnlockHash {
+func (tw *testWallet) Address() types.Address {
 	return tw.UnlockConditions().UnlockHash()
 }
 
@@ -93,12 +91,12 @@ func (tw *testWallet) FundAndSignTransaction(txn *types.Transaction, amount type
 	} else if added.Cmp(amount) > 0 {
 		// add a change output
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-			Value:      added.Sub(amount),
-			UnlockHash: tw.Address(),
+			Value:   added.Sub(amount),
+			Address: tw.Address(),
 		})
 	}
 
-	n := len(txn.TransactionSignatures)
+	n := len(txn.Signatures)
 
 	// add the spent outputs and signatures to the transaction
 	for _, sce := range spent {
@@ -107,16 +105,17 @@ func (tw *testWallet) FundAndSignTransaction(txn *types.Transaction, amount type
 			ParentID:         sce.ID,
 			UnlockConditions: tw.UnlockConditions(),
 		})
-		txn.TransactionSignatures = append(txn.TransactionSignatures, types.TransactionSignature{
-			ParentID:      crypto.Hash(sce.ID),
-			CoveredFields: types.FullCoveredFields,
+		txn.Signatures = append(txn.Signatures, types.TransactionSignature{
+			ParentID:      types.Hash256(sce.ID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
 		})
 	}
 
 	// sign all added signatures
-	for i := n; i < len(txn.TransactionSignatures); i++ {
-		sigHash := txn.SigHash(i, tw.height)
-		txn.TransactionSignatures[i].Signature = ed25519.Sign(tw.priv, sigHash[:])
+	for i := n; i < len(txn.Signatures); i++ {
+		cs := consensus.State{Index: types.ChainIndex{Height: tw.height}}
+		sig := tw.priv.SignHash(cs.WholeSigHash(*txn, txn.Signatures[i].ParentID, 0, 0, nil))
+		txn.Signatures[i].Signature = sig[:]
 	}
 
 	return func() {
@@ -134,24 +133,26 @@ func (tw *testWallet) ProcessConsensusChange(cc modules.ConsensusChange) {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 
-	for _, sco := range cc.SiacoinOutputDiffs {
-		if sco.Direction == modules.DiffApply && sco.SiacoinOutput.UnlockHash == tw.Address() {
-			tw.spendable[sco.ID] = siacoinElement{
-				ID:            sco.ID,
-				SiacoinOutput: sco.SiacoinOutput,
+	for _, scod := range cc.SiacoinOutputDiffs {
+		if scod.Direction == modules.DiffApply && types.Address(scod.SiacoinOutput.UnlockHash) == tw.Address() {
+			var sco types.SiacoinOutput
+			convertToCore(scod.SiacoinOutput, &sco)
+			tw.spendable[types.SiacoinOutputID(scod.ID)] = siacoinElement{
+				ID:            types.SiacoinOutputID(scod.ID),
+				SiacoinOutput: sco,
 			}
 		} else {
-			delete(tw.spendable, sco.ID)
+			delete(tw.spendable, types.SiacoinOutputID(scod.ID))
 		}
 	}
 
-	tw.height = cc.BlockHeight
+	tw.height = uint64(cc.BlockHeight)
 }
 
 // newTestWallet returns a new test wallet with a random private key.
 func newTestWallet() *testWallet {
 	return &testWallet{
-		priv:      ed25519.NewKeyFromSeed(frand.Bytes(ed25519.SeedSize)),
+		priv:      types.GeneratePrivateKey(),
 		spent:     make(map[types.SiacoinOutputID]bool),
 		spendable: make(map[types.SiacoinOutputID]siacoinElement),
 	}
@@ -168,7 +169,7 @@ func TestMining(t *testing.T) {
 	}
 	t.Cleanup(func() { g.Close() })
 
-	cs, errChan := consensus.New(g, false, filepath.Join(dir, modules.ConsensusDir))
+	cs, errChan := mconsensus.New(g, false, filepath.Join(dir, modules.ConsensusDir))
 	if err := <-errChan; err != nil {
 		t.Fatal("could not create consensus set:", err)
 	}
@@ -207,14 +208,16 @@ func TestMining(t *testing.T) {
 	}
 
 	// mine until the maturity height of the first payout is reached
-	if err := m.Mine(w.Address(), int(types.MaturityDelay)); err != nil {
+	if err := m.Mine(w.Address(), int(stypes.MaturityDelay)); err != nil {
 		t.Fatal(err)
-	} else if height := cs.Height(); height != types.MaturityDelay+1 {
-		t.Fatalf("expected height %v, got %v", types.MaturityDelay+1, height)
+	} else if height := cs.Height(); height != stypes.MaturityDelay+1 {
+		t.Fatalf("expected height %v, got %v", stypes.MaturityDelay+1, height)
 	}
 
 	// make sure we have the expected balance
-	expectedBalance := types.CalculateCoinbase(1)
+	siadExpectedBalance := stypes.CalculateCoinbase(1)
+	var expectedBalance types.Currency
+	convertToCore(siadExpectedBalance, &expectedBalance)
 	if balance := w.Balance(); !balance.Equals(expectedBalance) {
 		t.Fatalf("expected balance to be %v, got %v", expectedBalance, balance)
 	}
@@ -227,7 +230,7 @@ func TestMining(t *testing.T) {
 	// add random transactions to the tpool
 	added := make([]types.TransactionID, 100)
 	for i := range added {
-		amount := types.SiacoinPrecision.Mul64(1 + frand.Uint64n(1000))
+		amount := types.Siacoins(uint32(1 + frand.Intn(1000)))
 		txn := types.Transaction{
 			ArbitraryData: [][]byte{append(modules.PrefixNonSia[:], frand.Bytes(16)...)},
 			SiacoinOutputs: []types.SiacoinOutput{

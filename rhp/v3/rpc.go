@@ -1,26 +1,17 @@
 package rhp
 
 import (
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	rhpv3 "go.sia.tech/core/rhp/v3"
+	"go.sia.tech/core/types"
 	"go.sia.tech/mux/v1"
 )
 
 var (
-	// RPC IDs
-	rpcAccountBalance       = newSpecifier("AccountBalance")
-	rpcUpdatePriceTable     = newSpecifier("UpdatePriceTable")
-	rpcExecuteProgram       = newSpecifier("ExecuteProgram")
-	rpcFundAccount          = newSpecifier("FundAccount")
-	rpcLatestRevision       = newSpecifier("LatestRevision")
-	rpcRegistrySubscription = newSpecifier("Subscription")
-	rpcFormContract         = newSpecifier("FormContract")
-	rpcRenewContract        = newSpecifier("RenewContract")
-
 	// ErrTxnMissingContract is returned if the transaction set does not contain
 	// any transactions or if the transaction does not contain exactly one
 	// contract.
@@ -34,23 +25,32 @@ var (
 	ErrInvalidRenterSignature = errors.New("invalid renter signature")
 )
 
+func readRequest(s *rhpv3.Stream, req rhpv3.ProtocolObject, maxLen uint64, timeout time.Duration) error {
+	s.SetDeadline(time.Now().Add(30 * time.Second))
+	if err := s.ReadRequest(req, maxLen); err != nil {
+		return err
+	}
+	s.SetDeadline(time.Time{})
+	return nil
+}
+
 // handleRPCPriceTable sends the host's price table to the renter.
-func (sh *SessionHandler) handleRPCPriceTable(s *rpcSession) error {
+func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream) error {
 	pt, err := sh.PriceTable()
 	if err != nil {
-		s.WriteError(ErrHostInternalError)
+		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to get price table: %w", err)
 	}
 	buf, err := json.Marshal(pt)
 	if err != nil {
-		s.WriteError(ErrHostInternalError)
+		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to marshal price table: %w", err)
 	}
 
-	resp := &rpcUpdatePriceTableResponse{
+	resp := &rhpv3.RPCUpdatePriceTableResponse{
 		PriceTableJSON: buf,
 	}
-	if err := s.WriteObjects(resp); err != nil {
+	if err := s.WriteResponse(resp); err != nil {
 		return fmt.Errorf("failed to send price table: %w", err)
 	}
 
@@ -60,125 +60,126 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rpcSession) error {
 	if errors.Is(err, mux.ErrPeerClosedStream) || errors.Is(err, mux.ErrPeerClosedConn) {
 		return nil
 	} else if err != nil {
-		return s.WriteError(fmt.Errorf("failed to process payment: %w", err))
+		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
 	}
 	defer budget.Rollback()
 
 	if err := budget.Spend(pt.UpdatePriceTableCost); err != nil {
-		return s.WriteError(fmt.Errorf("failed to pay %v for price table: %w", pt.UpdatePriceTableCost, err))
+		return s.WriteResponseErr(fmt.Errorf("failed to pay %v for price table: %w", pt.UpdatePriceTableCost, err))
 	}
 
 	// register the price table for future use
 	sh.priceTables.Register(pt)
 	if err := budget.Commit(); err != nil {
-		s.WriteError(ErrHostInternalError)
+		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit payment: %w", err)
-	} else if err := s.WriteObjects(&rpcTrackingResponse{}); err != nil {
+	} else if err := s.WriteResponse(&rhpv3.RPCPriceTableResponse{}); err != nil {
 		return fmt.Errorf("failed to send tracking response: %w", err)
 	}
 	return nil
 }
 
-func (sh *SessionHandler) handleRPCFundAccount(s *rpcSession) error {
+func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream) error {
 	// read the price table ID from the stream
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
-		return s.WriteError(fmt.Errorf("failed to read price table: %w", err))
+		return s.WriteResponseErr(fmt.Errorf("failed to read price table: %w", err))
 	}
 
 	// read the fund request from the stream
-	var fundReq rpcFundAccountRequest
-	if err := s.ReadObject(&fundReq, 32, 30*time.Second); err != nil {
+	var fundReq rhpv3.RPCFundAccountRequest
+	if err := readRequest(s, &fundReq, 32, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read fund account request: %w", err)
 	}
 
 	// process the payment for funding the account
 	budget, err := sh.processPayment(s)
 	if err != nil {
-		return s.WriteError(fmt.Errorf("failed to process payment: %w", err))
+		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
 	}
 	defer budget.Rollback()
 
 	// subtract the cost of funding the account
 	if err := budget.Spend(pt.FundAccountCost); err != nil {
-		return s.WriteError(fmt.Errorf("failed to pay %v for fund account: %w", pt.FundAccountCost, err))
+		return s.WriteResponseErr(fmt.Errorf("failed to pay %v for fund account: %w", pt.FundAccountCost, err))
 	}
 
 	// commit the budget and fund the account with the remaining balance
 	// note: may need to add an atomic transfer?
 	fundAmount := budget.Empty()
 	if err := budget.Commit(); err != nil {
-		s.WriteError(ErrHostInternalError)
+		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit payment: %w", err)
 	}
 	balance, err := sh.accounts.Credit(fundReq.Account, fundAmount)
 	if err != nil {
-		s.WriteError(ErrHostInternalError)
+		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to credit account: %w", err)
 	}
 
-	fundResp := &rpcFundAccountResponse{
+	fundResp := &rhpv3.RPCFundAccountResponse{
 		Balance: balance,
-		Receipt: fundReceipt{
+		Receipt: rhpv3.FundAccountReceipt{
 			Host:      sh.HostKey(),
 			Account:   fundReq.Account,
 			Amount:    fundAmount,
 			Timestamp: time.Now(),
 		},
 	}
-	sigHash := hashFundReceipt(fundResp.Receipt)
-	copy(fundResp.Signature[:], ed25519.Sign(sh.privateKey, sigHash[:]))
+	h := types.NewHasher()
+	fundResp.Receipt.EncodeTo(h.E)
+	fundResp.Signature = sh.privateKey.SignHash(h.Sum())
 
 	// send the response
-	if err := s.WriteObjects(fundResp); err != nil {
+	if err := s.WriteResponse(fundResp); err != nil {
 		return fmt.Errorf("failed to send fund account response: %w", err)
 	}
 	return nil
 }
 
-func (sh *SessionHandler) handleRPCAccountBalance(s *rpcSession) error {
+func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream) error {
 	// get the price table to use for payment
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
-		return s.WriteError(fmt.Errorf("failed to read price table: %w", err))
+		return s.WriteResponseErr(fmt.Errorf("failed to read price table: %w", err))
 	}
 
 	// read the payment from the stream
 	budget, err := sh.processPayment(s)
 	if err != nil {
-		return s.WriteError(fmt.Errorf("failed to process payment: %w", err))
+		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
 	}
 	defer budget.Rollback()
 
 	// subtract the cost of the RPC
 	if err := budget.Spend(pt.AccountBalanceCost); err != nil {
-		return s.WriteError(fmt.Errorf("failed to pay %v for account balance: %w", pt.AccountBalanceCost, err))
+		return s.WriteResponseErr(fmt.Errorf("failed to pay %v for account balance: %w", pt.AccountBalanceCost, err))
 	}
 
 	// read the account balance request from the stream
-	var req rpcAccountBalanceRequest
-	if err := s.ReadObject(&req, 32, 30*time.Second); err != nil {
+	var req rhpv3.RPCAccountBalanceRequest
+	if err := readRequest(s, &req, 32, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read account balance request: %w", err)
 	}
 
 	// get the account balance
-	balance, err := sh.accounts.Balance(req.AccountID)
+	balance, err := sh.accounts.Balance(req.Account)
 	if err != nil {
-		s.WriteError(ErrHostInternalError)
+		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to get account balance: %w", err)
 	}
 
-	resp := &rpcAccountBalanceResponse{
+	resp := &rhpv3.RPCAccountBalanceResponse{
 		Balance: balance,
 	}
 	if err := budget.Commit(); err != nil {
 		return fmt.Errorf("failed to commit payment: %w", err)
-	} else if err := s.WriteObjects(resp); err != nil {
+	} else if err := s.WriteResponse(resp); err != nil {
 		return fmt.Errorf("failed to send account balance response: %w", err)
 	}
 	return nil
 }
 
-func (sh *SessionHandler) handleRPCLatestRevision(s *rpcSession) error {
+func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
 	return nil
 }

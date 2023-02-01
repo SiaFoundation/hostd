@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"time"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
 
@@ -44,16 +44,16 @@ type (
 
 	// EventRPCStart records the start of an RPC.
 	EventRPCStart struct {
-		RPC        Specifier `json:"rpc"`
-		SessionUID UniqueID  `json:"sessionUID"`
-		Timestamp  time.Time `json:"timestamp"`
+		RPC        types.Specifier `json:"rpc"`
+		SessionUID UniqueID        `json:"sessionUID"`
+		Timestamp  time.Time       `json:"timestamp"`
 	}
 
 	// EventRPCEnd records the end of an RPC.
 	EventRPCEnd struct {
-		RPC        Specifier `json:"rpc"`
-		SessionUID UniqueID  `json:"sessionUID"`
-		Error      error     `json:"error"`
+		RPC        types.Specifier `json:"rpc"`
+		SessionUID UniqueID        `json:"sessionUID"`
+		Error      error           `json:"error"`
 
 		Spending   types.Currency `json:"spending"`
 		ReadBytes  uint64         `json:"readBytes"`
@@ -97,17 +97,17 @@ func (sh *SessionHandler) recordSessionStart(s *session) func() {
 	}
 }
 
-func (sh *SessionHandler) recordRPC(id Specifier, s *session) func(error) {
+func (sh *SessionHandler) recordRPC(id types.Specifier, s *session) func(error) {
 	start := time.Now()
 	sh.metrics.Report(EventRPCStart{
 		RPC:        id,
 		SessionUID: s.uid,
 		Timestamp:  start,
 	})
-	rs, ws := s.conn.usage()
+	rs, ws := s.conn.Usage()
 	spent := s.spent
 	return func(err error) {
-		re, we := s.conn.usage()
+		re, we := s.conn.Usage()
 
 		sh.metrics.Report(EventRPCEnd{
 			RPC:        id,

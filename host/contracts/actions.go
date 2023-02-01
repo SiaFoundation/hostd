@@ -1,15 +1,12 @@
 package contracts
 
 import (
-	"encoding/binary"
 	"fmt"
-	"math/bits"
 
+	"go.sia.tech/core/consensus"
+	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/internal/merkle"
-	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
-	"golang.org/x/crypto/blake2b"
 )
 
 // An action determines what lifecycle event should be performed on a contract.
@@ -24,28 +21,9 @@ type (
 	LifecycleAction string
 )
 
-// storageProofSegment returns the segment index for which a storage proof must
-// be provided, given a contract and the block at the beginning of its proof
-// window.
-func storageProofSegment(bid types.BlockID, fcid types.FileContractID, filesize uint64) uint64 {
-	if filesize == 0 {
-		return 0
-	}
-	seed := blake2b.Sum256(append(bid[:], fcid[:]...))
-	numSegments := filesize / merkle.LeafSize
-	if filesize%merkle.LeafSize != 0 {
-		numSegments++
-	}
-	var r uint64
-	for i := 0; i < 4; i++ {
-		_, r = bits.Div64(r, binary.BigEndian.Uint64(seed[i*8:]), numSegments)
-	}
-	return r
-}
-
 func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint64) (types.StorageProof, error) {
-	sectorIndex := index / merkle.LeavesPerSector
-	segmentIndex := index % merkle.LeavesPerSector
+	sectorIndex := index / rhpv2.LeavesPerSector
+	segmentIndex := index % rhpv2.LeavesPerSector
 
 	roots, err := cm.SectorRoots(id, 0, 0)
 	if err != nil {
@@ -56,13 +34,13 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 	if err != nil {
 		return types.StorageProof{}, err
 	}
-	segmentProof := merkle.ConvertProofOrdering(merkle.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
-	sectorProof := merkle.ConvertProofOrdering(merkle.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
+	segmentProof := rhpv2.ConvertProofOrdering(rhpv2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
+	sectorProof := rhpv2.ConvertProofOrdering(rhpv2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
 	sp := types.StorageProof{
 		ParentID: id,
-		HashSet:  append(segmentProof, sectorProof...),
+		Proof:    append(segmentProof, sectorProof...),
 	}
-	copy(sp.Segment[:], sector[segmentIndex*merkle.LeafSize:])
+	copy(sp.Leaf[:], sector[segmentIndex*rhpv2.LeafSize:])
 	return sp, nil
 }
 
@@ -72,6 +50,8 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
 	}
+
+	cs := consensus.State{Index: types.ChainIndex{Height: cm.blockHeight}}
 
 	switch action {
 	case ActionBroadcastFormation:
@@ -85,40 +65,40 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 	case ActionBroadcastFinalRevision:
 		revisionTxn := types.Transaction{
 			FileContractRevisions: []types.FileContractRevision{contract.Revision},
-			TransactionSignatures: []types.TransactionSignature{
+			Signatures: []types.TransactionSignature{
 				{
-					ParentID:      crypto.Hash(contract.Revision.ParentID),
+					ParentID:      types.Hash256(contract.Revision.ParentID),
 					CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 					Signature:     contract.RenterSignature[:],
 				},
 				{
-					ParentID:      crypto.Hash(contract.Revision.ParentID),
+					ParentID:      types.Hash256(contract.Revision.ParentID),
 					CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 					Signature:     contract.HostSignature[:],
 				},
 			},
 		}
 
-		_, max := cm.tpool.FeeEstimation()
-		fee := max.Mul64(1000)
+		fee := cm.tpool.RecommendedFee().Mul64(1000)
 		revisionTxn.MinerFees = append(revisionTxn.MinerFees, fee)
 		toSign, discard, err := cm.wallet.FundTransaction(&revisionTxn, fee)
 		if err != nil {
 			return fmt.Errorf("failed to fund revision txn: %w", err)
 		}
 		defer discard()
-		if err := cm.wallet.SignTransaction(&revisionTxn, toSign, types.FullCoveredFields); err != nil {
+		if err := cm.wallet.SignTransaction(cs, &revisionTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 			return fmt.Errorf("failed to sign revision txn: %w", err)
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{revisionTxn}); err != nil {
 			return fmt.Errorf("failed to broadcast revision txn: %w", err)
 		}
 	case ActionBroadcastResolution:
-		state, err := cm.chain.IndexAtHeight(uint64(contract.Revision.NewWindowStart - 1))
+		windowStart, err := cm.chain.IndexAtHeight(uint64(contract.Revision.WindowStart - 1))
 		if err != nil {
-			return fmt.Errorf("failed to get chain index at height %v: %w", contract.Revision.NewWindowStart-1, err)
+			return fmt.Errorf("failed to get chain index at height %v: %w", contract.Revision.WindowStart-1, err)
 		}
-		index := storageProofSegment(state.ID, contract.Revision.ParentID, contract.Revision.NewFileSize)
-		sp, err := cm.buildStorageProof(contract.Revision.ParentID, index)
+		// get the proof
+		leafIndex := cs.StorageProofLeafIndex(contract.Revision.Filesize, windowStart, contract.Revision.ParentID)
+		sp, err := cm.buildStorageProof(contract.Revision.ParentID, leafIndex)
 		if err != nil {
 			return fmt.Errorf("failed to build storage proof: %w", err)
 		}
@@ -127,15 +107,14 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		resolutionTxn := types.Transaction{
 			StorageProofs: []types.StorageProof{sp},
 		}
-		_, max := cm.tpool.FeeEstimation()
-		fee := max.Mul64(1000)
+		fee := cm.tpool.RecommendedFee().Mul64(1000)
 		resolutionTxn.MinerFees = append(resolutionTxn.MinerFees, fee)
 		toSign, discard, err := cm.wallet.FundTransaction(&resolutionTxn, fee)
 		if err != nil {
 			return fmt.Errorf("failed to fund resolution txn: %w", err)
 		}
 		defer discard()
-		if err := cm.wallet.SignTransaction(&resolutionTxn, toSign, types.FullCoveredFields); err != nil {
+		if err := cm.wallet.SignTransaction(cs, &resolutionTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 			return fmt.Errorf("failed to sign resolution txn: %w", err)
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{resolutionTxn}); err != nil {
 			return fmt.Errorf("failed to broadcast resolution txn: %w", err)

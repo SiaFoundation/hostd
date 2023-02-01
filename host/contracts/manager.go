@@ -4,42 +4,41 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"go.sia.tech/hostd/consensus"
+	"go.sia.tech/core/consensus"
+	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
 )
 
 type (
 	// ChainManager defines the interface required by the contract manager to
 	// interact with the consensus set.
 	ChainManager interface {
-		IndexAtHeight(height uint64) (consensus.ChainIndex, error)
+		IndexAtHeight(height uint64) (types.ChainIndex, error)
 	}
 
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
-		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []crypto.Hash, release func(), err error)
-		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
+		Address() types.Address
+		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []types.Hash256, release func(), err error)
+		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
 	}
 
 	// A TransactionPool broadcasts transactions to the network.
 	TransactionPool interface {
 		AcceptTransactionSet([]types.Transaction) error
-		FeeEstimation() (min types.Currency, max types.Currency)
+		RecommendedFee() types.Currency
 	}
 
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
 		// Read reads a sector from the store
-		Read(root storage.SectorRoot) ([]byte, error)
+		Read(root storage.SectorRoot) (*[rhpv2.SectorSize]byte, error)
 	}
 
 	locker struct {
@@ -120,18 +119,18 @@ func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []t
 // RenewContract renews a contract. It is expected that the existing
 // contract will be cleared.
 func (cm *ContractManager) RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
-	if existing.Revision.NewFileMerkleRoot != (crypto.Hash{}) {
+	if existing.Revision.FileMerkleRoot != (types.Hash256{}) {
 		return errors.New("existing contract must be cleared")
-	} else if existing.Revision.NewFileSize != 0 {
+	} else if existing.Revision.Filesize != 0 {
 		return errors.New("existing contract must be cleared")
-	} else if existing.Revision.NewRevisionNumber != math.MaxUint64 {
+	} else if existing.Revision.RevisionNumber != types.MaxRevisionNumber {
 		return errors.New("existing contract must be cleared")
 	}
 	return cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, negotationHeight)
 }
 
 // SectorRoots returns the roots of all sectors stored by the contract.
-func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset uint64) ([]crypto.Hash, error) {
+func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error) {
 	return cm.store.SectorRoots(id, limit, offset)
 }
 

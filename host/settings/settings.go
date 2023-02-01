@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 	"golang.org/x/time/rate"
 )
 
@@ -71,19 +71,19 @@ var (
 		NetAddress:          "",
 		MaxContractDuration: 6 * blocksPerMonth, // 6 months
 
-		ContractPrice:     types.SiacoinPrecision.Div64(5),
+		ContractPrice:     types.Siacoins(1).Div64(5),
 		BaseRPCPrice:      types.NewCurrency64(1),
 		SectorAccessPrice: types.NewCurrency64(1),
 
-		Collateral:    types.SiacoinPrecision.Mul64(100).Div64(1 << 40).Div64(blocksPerMonth), // 100 SC / TB / month
-		MaxCollateral: types.SiacoinPrecision.Mul64(1000),
+		Collateral:    types.Siacoins(100).Div64(1 << 40).Div64(blocksPerMonth), // 100 SC / TB / month
+		MaxCollateral: types.Siacoins(1000),
 
-		MinStoragePrice: types.SiacoinPrecision.Mul64(50).Div64(1 << 40).Div64(blocksPerMonth), // 50 SC / TB / month
-		MinEgressPrice:  types.SiacoinPrecision.Mul64(250).Div64(1 << 40),                      // 250 SC / TB
-		MinIngressPrice: types.SiacoinPrecision.Mul64(10).Div64(1 << 40),                       // 10 SC / TB
+		MinStoragePrice: types.Siacoins(50).Div64(1 << 40).Div64(blocksPerMonth), // 50 SC / TB / month
+		MinEgressPrice:  types.Siacoins(250).Div64(1 << 40),                      // 250 SC / TB
+		MinIngressPrice: types.Siacoins(10).Div64(1 << 40),                       // 10 SC / TB
 
-		AccountExpiry:     144 * 30,                         // 30 days
-		MaxAccountBalance: types.SiacoinPrecision.Mul64(10), // 10SC
+		AccountExpiry:     144 * 30,           // 30 days
+		MaxAccountBalance: types.Siacoins(10), // 10SC
 	}
 	// ErrNoSettings must be returned by the store if the host has no settings yet
 	ErrNoSettings = errors.New("no settings found")

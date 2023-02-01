@@ -1,9 +1,8 @@
 package contracts
 
 import (
-	"go.sia.tech/siad/crypto"
+	"go.sia.tech/core/types"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
 )
 
 type (
@@ -11,13 +10,13 @@ type (
 	// associated sector roots.
 	UpdateContractTransaction interface {
 		// AppendSector appends a sector root to the end of the contract
-		AppendSector(root crypto.Hash) error
+		AppendSector(root types.Hash256) error
 		// SwapSectors swaps the sector roots at the given indices.
 		SwapSectors(i, j uint64) error
 		// TrimSectors removes the last n sector roots from the contract.
 		TrimSectors(n uint64) error
 		// UpdateSector updates the sector root at the given index.
-		UpdateSector(index uint64, newRoot crypto.Hash) error
+		UpdateSector(index uint64, newRoot types.Hash256) error
 
 		// ReviseContract updates the current revision associated with a contract.
 		ReviseContract(revision SignedRevision) error
@@ -53,7 +52,7 @@ type (
 		RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
 		// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
 		// are returned.
-		SectorRoots(id types.FileContractID, limit, offset uint64) ([]crypto.Hash, error)
+		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
 		// ContractAction calls contractFn on every contract in the store that
 		// needs a lifecycle action performed.
 		ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, LifecycleAction) error) error

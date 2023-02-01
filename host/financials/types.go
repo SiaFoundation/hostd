@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 )
 
 const (

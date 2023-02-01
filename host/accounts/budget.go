@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 )
 
 type (

@@ -1,13 +1,15 @@
 package main
 
 import (
-	"crypto/ed25519"
+	"bytes"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 
-	"go.sia.tech/hostd/consensus"
+	"gitlab.com/NebulousLabs/encoding"
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
@@ -18,10 +20,79 @@ import (
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
-	mconsensus "go.sia.tech/siad/modules/consensus"
+	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
+	stypes "go.sia.tech/siad/types"
 )
+
+func convertToSiad(core types.EncoderTo, siad encoding.SiaUnmarshaler) {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	core.EncodeTo(e)
+	e.Flush()
+	if err := siad.UnmarshalSia(&buf); err != nil {
+		panic(err)
+	}
+}
+
+func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
+	var buf bytes.Buffer
+	siad.MarshalSia(&buf)
+	d := types.NewBufDecoder(buf.Bytes())
+	core.DecodeFrom(d)
+	if d.Err() != nil {
+		panic(d.Err())
+	}
+}
+
+type txpool struct {
+	tp modules.TransactionPool
+}
+
+func (tp txpool) RecommendedFee() (fee types.Currency) {
+	_, max := tp.tp.FeeEstimation()
+	convertToCore(&max, &fee)
+	return
+}
+
+func (tp txpool) Transactions() []types.Transaction {
+	stxns := tp.tp.Transactions()
+	txns := make([]types.Transaction, len(stxns))
+	for i := range txns {
+		convertToCore(&stxns[i], &txns[i])
+	}
+	return txns
+}
+
+func (tp txpool) AcceptTransactionSet(txns []types.Transaction) error {
+	stxns := make([]stypes.Transaction, len(txns))
+	for i := range stxns {
+		convertToSiad(&txns[i], &stxns[i])
+	}
+	return tp.tp.AcceptTransactionSet(stxns)
+}
+
+func (tp txpool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error) {
+	pool := tp.Transactions()
+	outputToParent := make(map[types.SiacoinOutputID]*types.Transaction)
+	for i, txn := range pool {
+		for j := range txn.SiacoinOutputs {
+			outputToParent[txn.SiacoinOutputID(j)] = &pool[i]
+		}
+	}
+	var parents []types.Transaction
+	seen := make(map[types.TransactionID]bool)
+	for _, sci := range txn.SiacoinInputs {
+		if parent, ok := outputToParent[sci.ParentID]; ok {
+			if txid := parent.ID(); !seen[txid] {
+				seen[txid] = true
+				parents = append(parents, *parent)
+			}
+		}
+	}
+	return parents, nil
+}
 
 type node struct {
 	g     modules.Gateway
@@ -50,7 +121,7 @@ func (n *node) Close() error {
 	return nil
 }
 
-func startRHP2(hostKey ed25519.PrivateKey, addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager) (*rhpv2.SessionHandler, error) {
+func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager) (*rhpv2.SessionHandler, error) {
 	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, stdoutmetricReporter{})
 	if err != nil {
 		return nil, err
@@ -68,7 +139,7 @@ func startRHP2(hostKey ed25519.PrivateKey, addr string, cs rhpv2.ChainManager, t
 	return rhp3, nil
 }*/
 
-func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey ed25519.PrivateKey) (*node, error) {
+func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey) (*node, error) {
 	gatewayDir := filepath.Join(dir, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create gateway dir: %w", err)
@@ -81,7 +152,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err := os.MkdirAll(consensusDir, 0700); err != nil {
 		return nil, err
 	}
-	cs, errCh := mconsensus.New(g, bootstrap, consensusDir)
+	cs, errCh := consensus.New(g, bootstrap, consensusDir)
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -108,7 +179,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, fmt.Errorf("failed to create sqlite store: %w", err)
 	}
 
-	chainManager, err := consensus.NewChainManager(cs)
+	chainManager, err := chain.NewManager(cs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
@@ -140,12 +211,12 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 	defer sm.Close()
 
-	contractManager := contracts.NewManager(db, sm, chainManager, tp, w)
+	contractManager := contracts.NewManager(db, sm, chainManager, txpool{tp}, w)
 
 	er := store.NewEphemeralRegistryStore(1000)
 	registryManager := registry.NewManager(walletKey, er)
 
-	rhp2, err := startRHP2(walletKey, rhp2Addr, chainManager, tp, w, contractManager, sr, sm)
+	rhp2, err := startRHP2(walletKey, rhp2Addr, chainManager, txpool{tp}, w, contractManager, sr, sm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp2: %w", err)
 	}

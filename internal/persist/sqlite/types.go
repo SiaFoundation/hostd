@@ -3,18 +3,18 @@ package sqlite
 import (
 	"database/sql/driver"
 	"fmt"
-	"math/big"
 	"strconv"
 	"time"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 )
 
 type (
-	sqlUint64   uint64 // sqlite does not support uint64, this will marshal it as a string for when we need to store the high bits
-	sqlCurrency types.Currency
-	sqlHash     [32]byte
-	sqlTime     time.Time
+	sqlUint64    uint64 // sqlite does not support uint64, this will marshal it as a string for when we need to store the high bits
+	sqlCurrency  types.Currency
+	sqlHash      [32]byte
+	sqlSignature [64]byte
+	sqlTime      time.Time
 )
 
 func (su *sqlUint64) Scan(src interface{}) error {
@@ -42,26 +42,26 @@ func (su *sqlUint64) Value() (driver.Value, error) {
 
 // Scan implements the sql.Scanner interface.
 func (sc *sqlCurrency) Scan(src interface{}) error {
-	var i big.Int
-	var ok bool
+	var s string
 	switch src := src.(type) {
 	case []byte:
-		_, ok = i.SetString(string(src), 10)
+		s = string(src)
 	case string:
-		_, ok = i.SetString(src, 10)
+		s = src
 	default:
 		return fmt.Errorf("cannot scan %T to Currency", src)
 	}
-	if !ok {
-		return fmt.Errorf("failed to scan %v to Currency", src)
+	c, err := types.ParseCurrency(s)
+	if err != nil {
+		return err
 	}
-	*sc = (sqlCurrency)(types.NewCurrency(&i))
+	*sc = sqlCurrency(c)
 	return nil
 }
 
 // Value implements the driver.Valuer interface.
 func (sc sqlCurrency) Value() (driver.Value, error) {
-	return types.Currency(sc).String(), nil
+	return types.Currency(sc).ExactString(), nil
 }
 
 // Scan implements the sql.Scanner interface.
@@ -76,6 +76,20 @@ func (sh *sqlHash) Scan(src interface{}) error {
 // Value implements the driver.Valuer interface.
 func (sh sqlHash) Value() (driver.Value, error) {
 	return sh[:], nil
+}
+
+// Scan implements the sql.Scanner interface.
+func (ss *sqlSignature) Scan(src interface{}) error {
+	n := copy(ss[:], src.([]byte))
+	if n != len(ss) {
+		return fmt.Errorf("expected %d bytes, got %d", len(ss), n)
+	}
+	return nil
+}
+
+// Value implements the driver.Valuer interface.
+func (ss sqlSignature) Value() (driver.Value, error) {
+	return ss[:], nil
 }
 
 func (st *sqlTime) Scan(src interface{}) error {
@@ -106,6 +120,14 @@ func scanHash(h *[32]byte) *sqlHash {
 
 func valueHash(h [32]byte) sqlHash {
 	return (sqlHash)(h)
+}
+
+func scanSignature(s *types.Signature) *sqlSignature {
+	return (*sqlSignature)(s)
+}
+
+func valueSignature(s types.Signature) sqlSignature {
+	return (sqlSignature)(s)
 }
 
 func scanTime(t *time.Time) *sqlTime {

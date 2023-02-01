@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
-	"go.sia.tech/siad/types"
 )
 
 // An EphemeralAccountStore is an in-memory implementation of the account

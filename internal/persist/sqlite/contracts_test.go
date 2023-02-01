@@ -6,13 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
-func rootsEqual(a, b []crypto.Hash) error {
+func rootsEqual(a, b []types.Hash256) error {
 	if len(a) != len(b) {
 		return errors.New("length mismatch")
 	}
@@ -34,13 +33,13 @@ func TestUpdateContractRoots(t *testing.T) {
 	// add a contract to the database
 	contract := contracts.SignedRevision{
 		Revision: types.FileContractRevision{
-			ParentID:          frand.Entropy256(),
-			NewRevisionNumber: 1,
-			NewWindowStart:    100,
-			NewWindowEnd:      200,
+			ParentID: frand.Entropy256(),
+			FileContract: types.FileContract{
+				RevisionNumber: 1,
+				WindowStart:    100,
+				WindowEnd:      200,
+			},
 		},
-		HostSignature:   frand.Bytes(64),
-		RenterSignature: frand.Bytes(64),
 	}
 
 	if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, 0); err != nil {
@@ -48,7 +47,7 @@ func TestUpdateContractRoots(t *testing.T) {
 	}
 
 	// add some sector roots
-	roots := make([]crypto.Hash, 10)
+	roots := make([]types.Hash256, 10)
 	for i := range roots {
 		roots[i] = frand.Entropy256()
 	}
