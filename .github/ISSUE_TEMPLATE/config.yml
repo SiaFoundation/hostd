@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Support
+    url: https://github.com/SiaFoundation/hostd/discussions/categories/questions-support
+    about: Please check the support category before asking a question.
+  - name: Sia Community Discord
+    url: https://discord.gg/sia
+    about: Join the Sia community discord for more help with Sia or hostd.
+  - name: Request a Feature
+    url: https://github.com/SiaFoundation/hostd/discussions/categories/feature-requests
+    about: Request a feature for hostd
