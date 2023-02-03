@@ -11,6 +11,19 @@ import (
 	"lukechampine.com/frand"
 )
 
+// addVolume is a helper to add a new volume to the database
+func addVolume(db *Store, name string, size uint64) (storage.Volume, error) {
+	volumeID, err := db.AddVolume(name, false)
+	if err != nil {
+		return storage.Volume{}, fmt.Errorf("failed to add volume: %w", err)
+	} else if err := db.GrowVolume(volumeID, size); err != nil {
+		return storage.Volume{}, fmt.Errorf("failed to grow volume: %w", err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		return storage.Volume{}, fmt.Errorf("failed to set volume available: %w", err)
+	}
+	return db.Volume(volumeID)
+}
+
 func TestVolumeSetReadOnly(t *testing.T) {
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -18,10 +31,9 @@ func TestVolumeSetReadOnly(t *testing.T) {
 	}
 	defer db.Close()
 
-	volumeID, err := db.AddVolume("test", false)
+	// add a volume that is available and writable
+	volume, err := addVolume(db, "test", 10)
 	if err != nil {
-		t.Fatal(err)
-	} else if db.GrowVolume(volumeID, 100) != nil {
 		t.Fatal(err)
 	}
 
@@ -34,7 +46,7 @@ func TestVolumeSetReadOnly(t *testing.T) {
 	}
 
 	// set the volume to read-only
-	if err := db.SetReadOnly(volumeID, true); err != nil {
+	if err := db.SetReadOnly(volume.ID, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,6 +67,8 @@ func TestAddSector(t *testing.T) {
 
 	volumeID, err := db.AddVolume("test", false)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -194,7 +208,7 @@ func TestVolumeAdd(t *testing.T) {
 	}
 }
 
-func TestVolumeGrow(t *testing.T) {
+func TestGrowVolume(t *testing.T) {
 	const initialSectors = 64
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -202,10 +216,8 @@ func TestVolumeGrow(t *testing.T) {
 	}
 	defer db.Close()
 
-	volumeID, err := db.AddVolume("test", false)
+	volume, err := addVolume(db, "test", initialSectors)
 	if err != nil {
-		t.Fatal(err)
-	} else if err := db.GrowVolume(volumeID, initialSectors); err != nil {
 		t.Fatal(err)
 	}
 
@@ -221,7 +233,7 @@ func TestVolumeGrow(t *testing.T) {
 	}
 
 	// double the number of sectors in the volume
-	if err := db.GrowVolume(volumeID, initialSectors*2); err != nil {
+	if err := db.GrowVolume(volume.ID, initialSectors*2); err != nil {
 		t.Fatal(err)
 	}
 
@@ -238,17 +250,15 @@ func TestVolumeGrow(t *testing.T) {
 	}
 
 	// add a second volume
-	volume2ID, err := db.AddVolume("test2", false)
+	volume2, err := addVolume(db, "test2", initialSectors/2)
 	if err != nil {
-		t.Fatal(err)
-	} else if err := db.GrowVolume(volume2ID, initialSectors/2); err != nil {
 		t.Fatal(err)
 	}
 
-	if volume, err := db.Volume(volume2ID); err != nil {
+	if volume, err := db.Volume(volume2.ID); err != nil {
 		t.Fatal(err)
-	} else if volume.ID != volume2ID {
-		t.Fatalf("expected volume ID %v, got %v", volume2ID, volume.ID)
+	} else if volume.ID != volume2.ID {
+		t.Fatalf("expected volume ID %v, got %v", volume2.ID, volume.ID)
 	} else if volume.UsedSectors != 0 {
 		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
 	} else if volume.TotalSectors != initialSectors/2 {
@@ -269,7 +279,7 @@ func TestVolumeGrow(t *testing.T) {
 	}
 }
 
-func TestVolumeShrink(t *testing.T) {
+func TestShrinkVolume(t *testing.T) {
 	const initialSectors = 64
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -277,23 +287,21 @@ func TestVolumeShrink(t *testing.T) {
 	}
 	defer db.Close()
 
-	volumeID, err := db.AddVolume("test", false)
+	volume, err := addVolume(db, "test", initialSectors)
 	if err != nil {
-		t.Fatal(err)
-	} else if err := db.GrowVolume(volumeID, initialSectors); err != nil {
 		t.Fatal(err)
 	}
 
 	// shrink the volume by half
-	if err := db.ShrinkVolume(volumeID, initialSectors/2); err != nil {
+	if err := db.ShrinkVolume(volume.ID, initialSectors/2); err != nil {
 		t.Fatal(err)
 	}
 
 	// add a few sectors
 	for i := 0; i < 5; i++ {
 		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
-			if loc.Volume != volumeID {
-				t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
+			if loc.Volume != volume.ID {
+				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index 0, got %v", loc.Index)
 			} else if exists {
@@ -309,12 +317,12 @@ func TestVolumeShrink(t *testing.T) {
 	}
 
 	// check that the volume cannot be shrunk below the used sectors
-	if err := db.ShrinkVolume(volumeID, 2); !errors.Is(err, storage.ErrVolumeNotEmpty) {
+	if err := db.ShrinkVolume(volume.ID, 2); !errors.Is(err, storage.ErrVolumeNotEmpty) {
 		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
 	}
 
 	// check that the volume can be shrunk to the used sectors
-	if err := db.ShrinkVolume(volumeID, 5); err != nil {
+	if err := db.ShrinkVolume(volume.ID, 5); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -327,31 +335,27 @@ func TestRemoveVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	volumeID, err := db.AddVolume("test", false)
+	volume, err := addVolume(db, "test", initialSectors)
 	if err != nil {
-		t.Fatal(err)
-	} else if err := db.GrowVolume(volumeID, initialSectors); err != nil {
 		t.Fatal(err)
 	}
 
 	// check that the empty volume can be removed
-	if err := db.RemoveVolume(volumeID, false); err != nil {
+	if err := db.RemoveVolume(volume.ID, false); err != nil {
 		t.Fatal(err)
 	}
 
 	// add another volume
-	volumeID, err = db.AddVolume("test", false)
+	volume, err = addVolume(db, "test", initialSectors)
 	if err != nil {
-		t.Fatal(err)
-	} else if err := db.GrowVolume(volumeID, initialSectors); err != nil {
 		t.Fatal(err)
 	}
 
 	// add a few sectors
 	for i := 0; i < 5; i++ {
 		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
-			if loc.Volume != volumeID {
-				t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
+			if loc.Volume != volume.ID {
+				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index 0, got %v", loc.Index)
 			} else if exists {
@@ -367,12 +371,12 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the volume cannot be removed
-	if err := db.RemoveVolume(volumeID, false); !errors.Is(err, storage.ErrVolumeNotEmpty) {
+	if err := db.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrVolumeNotEmpty) {
 		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
 	}
 
 	// check that the volume can be force removed
-	if err := db.RemoveVolume(volumeID, true); err != nil {
+	if err := db.RemoveVolume(volume.ID, true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -385,10 +389,8 @@ func TestMigrateSectors(t *testing.T) {
 	}
 	defer db.Close()
 
-	volumeID, err := db.AddVolume("test", false)
+	volume, err := addVolume(db, "test", initialSectors)
 	if err != nil {
-		t.Fatal(err)
-	} else if err := db.GrowVolume(volumeID, initialSectors); err != nil {
 		t.Fatal(err)
 	}
 
@@ -398,8 +400,8 @@ func TestMigrateSectors(t *testing.T) {
 		root := frand.Entropy256()
 		roots[i] = root
 		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
-			if loc.Volume != volumeID {
-				t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
+			if loc.Volume != volume.ID {
+				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
 			} else if exists {
@@ -425,10 +427,10 @@ func TestMigrateSectors(t *testing.T) {
 
 	var i int
 	// migrate the remaining sectors to the first half of the volume
-	err = db.MigrateSectors(volumeID, initialSectors/2, func(locations []storage.SectorLocation) error {
+	err = db.MigrateSectors(volume.ID, initialSectors/2, func(locations []storage.SectorLocation) error {
 		for _, loc := range locations {
-			if loc.Volume != volumeID {
-				t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
+			if loc.Volume != volume.ID {
+				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
 			} else if loc.Root != roots[i] {
@@ -449,8 +451,8 @@ func TestMigrateSectors(t *testing.T) {
 	for i, root := range roots {
 		if loc, release, err := db.SectorLocation(root); err != nil {
 			t.Fatal(err)
-		} else if loc.Volume != volumeID {
-			t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
+		} else if loc.Volume != volume.ID {
+			t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 		} else if loc.Index != uint64(i) {
 			t.Fatalf("expected sector index %v, got %v", i, loc.Index)
 		} else if err := release(); err != nil {
@@ -459,15 +461,13 @@ func TestMigrateSectors(t *testing.T) {
 	}
 
 	// add a second volume with only a quarter of the initial space
-	volume2ID, err := db.AddVolume("test2", false)
+	volume2, err := addVolume(db, "test2", initialSectors/4)
 	if err != nil {
-		t.Fatal(err)
-	} else if err := db.GrowVolume(volume2ID, initialSectors/4); err != nil {
 		t.Fatal(err)
 	}
 
 	// migrate the remaining sectors from the first volume; should partially complete
-	err = db.MigrateSectors(volumeID, 0, func(locations []storage.SectorLocation) error {
+	err = db.MigrateSectors(volume.ID, 0, func(locations []storage.SectorLocation) error {
 		if len(locations) > initialSectors/4 {
 			t.Fatalf("expected only %v migrations, got %v", initialSectors/4, len(locations))
 		}
@@ -478,21 +478,21 @@ func TestMigrateSectors(t *testing.T) {
 	}
 
 	// check that volume 2 is now full
-	v2, err := db.Volume(volume2ID)
+	v2, err := db.Volume(volume2.ID)
 	if err != nil {
 		t.Fatal(err)
-	} else if v2.ID != volume2ID {
-		t.Fatalf("expected volume ID %v, got %v", volume2ID, v2.ID)
+	} else if v2.ID != volume2.ID {
+		t.Fatalf("expected volume ID %v, got %v", volume2.ID, v2.ID)
 	} else if v2.UsedSectors != v2.TotalSectors {
 		t.Fatalf("expected volume to be full, got %v/%v", v2.UsedSectors, v2.TotalSectors)
 	}
 
 	// check that volume 1 was reduced by the same amount
-	v1, err := db.Volume(volumeID)
+	v1, err := db.Volume(volume.ID)
 	if err != nil {
 		t.Fatal(err)
-	} else if v1.ID != volumeID {
-		t.Fatalf("expected volume ID %v, got %v", volumeID, v1.ID)
+	} else if v1.ID != volume.ID {
+		t.Fatalf("expected volume ID %v, got %v", volume.ID, v1.ID)
 	} else if v1.UsedSectors != initialSectors/4 {
 		t.Fatalf("expected volume to have %v sectors, got %v/%v", initialSectors/4, v1.UsedSectors, v1.TotalSectors)
 	}

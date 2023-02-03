@@ -32,7 +32,8 @@ CREATE TABLE accounts (
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
 	disk_path TEXT UNIQUE NOT NULL,
-	writeable BOOLEAN NOT NULL
+	read_only BOOLEAN NOT NULL,
+	available BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE TABLE volume_sectors (

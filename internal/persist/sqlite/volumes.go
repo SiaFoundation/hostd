@@ -29,11 +29,13 @@ func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
 
 // Volumes returns a list of all volumes.
 func (s *Store) Volumes() ([]storage.Volume, error) {
-	const query = `SELECT v.id, v.disk_path, NOT v.writeable, COUNT(s.id) AS total_sectors, COUNT(s.sector_root) AS used_sectors
-	FROM storage_volumes v
-	LEFT JOIN volume_sectors s ON (s.volume_id = v.id)
-	GROUP BY v.id
-	ORDER BY v.id ASC`
+	const query = `SELECT v.id, v.disk_path, v.read_only, v.available, 
+	COUNT(s.id) AS total_sectors, 
+	COUNT(s.sector_root) AS used_sectors
+FROM storage_volumes v
+LEFT JOIN volume_sectors s ON (s.volume_id = v.id)
+GROUP BY v.id
+ORDER BY v.id ASC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
@@ -53,7 +55,7 @@ func (s *Store) Volumes() ([]storage.Volume, error) {
 
 // Volume returns a volume by its ID.
 func (s *Store) Volume(id int) (storage.Volume, error) {
-	const query = `SELECT v.id, v.disk_path, NOT v.writeable, 
+	const query = `SELECT v.id, v.disk_path, v.read_only, v.available,
 	COUNT(s.id) AS total_sectors,
 	COUNT(s.id) FILTER (WHERE s.sector_root IS NOT NULL) AS used_sectors
 FROM storage_volumes v
@@ -69,7 +71,7 @@ WHERE v.id=$1`
 	return vol, nil
 }
 
-// StoreSector calls fn with an empty location in a writeable volume. If
+// StoreSector calls fn with an empty location in a writable volume. If
 // the sector root already exists, fn is called with the existing
 // location and exists is true. Unless exists is true, The sector must
 // be written to disk within fn. If fn returns an error, the metadata is
@@ -85,7 +87,7 @@ func (s *Store) StoreSector(root storage.SectorRoot, fn func(loc storage.SectorL
 FROM volume_sectors s
 INNER JOIN storage_volumes v
 LEFT JOIN locked_volume_sectors l ON s.id=l.volume_sector_id
-WHERE s.sector_root=? OR l.volume_sector_id IS NULL AND v.writeable=true AND s.sector_root IS NULL
+WHERE s.sector_root=? OR l.volume_sector_id IS NULL AND v.read_only=false AND v.available=true AND s.sector_root IS NULL
 ORDER BY s.sector_root DESC, s.volume_index ASC LIMIT 1;`
 
 	var location storage.SectorLocation
@@ -215,8 +217,8 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 // store. GrowVolume must be called afterwards to initialize the volume
 // to its desired size.
 func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err error) {
-	const query = `INSERT INTO storage_volumes (disk_path, writeable) VALUES (?, ?) RETURNING id;`
-	err = s.db.QueryRow(query, localPath, !readOnly).Scan(&volumeID)
+	const query = `INSERT INTO storage_volumes (disk_path, read_only) VALUES (?, ?) RETURNING id;`
+	err = s.db.QueryRow(query, localPath, readOnly).Scan(&volumeID)
 	return
 }
 
@@ -307,8 +309,15 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 
 // SetReadOnly sets the read-only flag on a volume.
 func (s *Store) SetReadOnly(volumeID int, readOnly bool) error {
-	const query = `UPDATE storage_volumes SET writeable=? WHERE id=?;`
-	_, err := s.db.Exec(query, !readOnly, volumeID)
+	const query = `UPDATE storage_volumes SET read_only=$1 WHERE id=$2;`
+	_, err := s.db.Exec(query, readOnly, volumeID)
+	return err
+}
+
+// SetAvailable sets the available flag on a volume.
+func (s *Store) SetAvailable(volumeID int, available bool) error {
+	const query = `UPDATE storage_volumes SET available=$1 WHERE id=$2;`
+	_, err := s.db.Exec(query, available, volumeID)
 	return err
 }
 
@@ -340,7 +349,7 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 }
 
 // locationsForMigration returns a list of locations to migrate to. Locations
-// are guaranteed to be empty and in a writeable volume. As a special case,
+// are guaranteed to be empty and in a writable volume. As a special case,
 // sectors may be migrated to empty indices less than startIndex within the
 // given volume even if the volue is read-only. The locations are ordered by
 // volume index and the returned list will contain at most batchSize locations.
@@ -349,7 +358,7 @@ func locationsForMigration(tx txn, volumeID int, startIndex uint64, batchSize in
 	FROM volume_sectors s
 	INNER JOIN storage_volumes v ON (s.volume_id=v.id)
 	LEFT JOIN locked_volume_sectors l ON (s.id=l.volume_sector_id)
-	WHERE l.volume_sector_id IS NULL AND s.sector_root IS NULL AND ((v.writeable=true AND s.volume_id <> $1) OR (s.volume_id=$1 AND s.volume_index<$2))
+	WHERE l.volume_sector_id IS NULL AND s.sector_root IS NULL AND v.available=true AND ((v.read_only=false AND s.volume_id <> $1) OR (s.volume_id=$1 AND s.volume_index<$2))
 	ORDER BY s.volume_index LIMIT $3;`
 
 	rows, err := tx.Query(query, volumeID, startIndex, batchSize)
@@ -370,6 +379,6 @@ func locationsForMigration(tx txn, volumeID int, startIndex uint64, batchSize in
 }
 
 func scanVolume(scanner row) (volume storage.Volume, err error) {
-	err = scanner.Scan(&volume.ID, &volume.LocalPath, &volume.ReadOnly, &volume.TotalSectors, &volume.UsedSectors)
+	err = scanner.Scan(&volume.ID, &volume.LocalPath, &volume.ReadOnly, &volume.Available, &volume.TotalSectors, &volume.UsedSectors)
 	return
 }
