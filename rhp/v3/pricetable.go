@@ -126,7 +126,7 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 		MemoryTimeCost:      oneHasting,
 		DropSectorsBaseCost: oneHasting,
 		DropSectorsUnitCost: oneHasting,
-		SwapSectorCost:      oneHasting,
+		SwapSectorBaseCost:  oneHasting,
 
 		ReadBaseCost:    settings.SectorAccessPrice,
 		ReadLengthCost:  oneHasting,
