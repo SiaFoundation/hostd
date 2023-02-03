@@ -22,7 +22,6 @@ type (
 
 	// VolumeStats contains statistics about a volume
 	VolumeStats struct {
-		Available        bool    `json:"available"`
 		FailedReads      uint64  `json:"failedReads"`
 		FailedWrites     uint64  `json:"failedWrites"`
 		SuccessfulReads  uint64  `json:"successfulReads"`
@@ -37,9 +36,7 @@ type (
 		UsedSectors  uint64 `json:"usedSectors"`
 		TotalSectors uint64 `json:"totalSectors"`
 		ReadOnly     bool   `json:"readOnly"`
-
-		// the following fields are not persisted
-		// Stats VolumeStats `json:"stats"`
+		Available    bool   `json:"available"`
 	}
 
 	// A volume stores and retrieves sector data

@@ -247,9 +247,6 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 	vm.mu.Lock()
 	vm.volumes[volumeID] = &volume{
 		data: f,
-		stats: VolumeStats{
-			Available: true,
-		},
 	}
 	vm.mu.Unlock()
 
@@ -263,6 +260,8 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 	// grow the volume to the desired size
 	if err := vm.growVolume(ctx, volumeID, 0, maxSectors); err != nil {
 		return Volume{}, fmt.Errorf("failed to grow volume: %w", err)
+	} else if err := vm.vs.SetAvailable(volumeID, true); err != nil {
+		return Volume{}, fmt.Errorf("failed to set volume available: %w", err)
 	}
 	return vm.vs.Volume(volumeID)
 }
@@ -486,12 +485,50 @@ func (vm *VolumeManager) Write(root SectorRoot, data *[rhpv2.SectorSize]byte) (r
 	})
 }
 
+// loadVolumes opens all volumes. Volumes that are already loaded are skipped.
+func (vm *VolumeManager) loadVolumes() error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return fmt.Errorf("failed to add to threadgroup: %w", err)
+	}
+	defer done()
+
+	volumes, err := vm.vs.Volumes()
+	if err != nil {
+		return fmt.Errorf("failed to load volumes: %w", err)
+	}
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	// load the volumes into memory
+	for _, vol := range volumes {
+		// skip volumes that are already loaded
+		if vm.volumes[vol.ID] != nil {
+			continue
+		}
+
+		// open the volume file
+		f, err := os.Open(vol.LocalPath)
+		if err != nil {
+			// mark the volume as unavailable
+			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
+				return fmt.Errorf("failed to mark volume %v as unavailable: %w", vol.ID, err)
+			}
+			log.Printf("failed to open volume file %v: %v", vol.LocalPath, err)
+		}
+		// add the volume to the memory map
+		vm.volumes[vol.ID] = &volume{
+			data: f,
+		}
+		// mark the volume as available
+		if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
+			log.Printf("failed to mark volume %v as available: %v", vol.ID, err)
+		}
+	}
+	return nil
+}
+
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore) (*VolumeManager, error) {
-	volumes, err := vs.Volumes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load volumes: %w", err)
-	}
 	vm := &VolumeManager{
 		vs: vs,
 
@@ -500,16 +537,8 @@ func NewVolumeManager(vs VolumeStore) (*VolumeManager, error) {
 
 		tg: threadgroup.New(),
 	}
-	// load the volumes into memory
-	for _, vol := range volumes {
-		f, err := os.Open(vol.LocalPath)
-		if err != nil {
-			log.Printf("failed to open volume file %v: %v", vol.LocalPath, err)
-			continue
-		}
-		vm.volumes[vol.ID] = &volume{
-			data: f,
-		}
+	if err := vm.loadVolumes(); err != nil {
+		return nil, err
 	}
 	return vm, nil
 }

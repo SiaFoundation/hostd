@@ -38,13 +38,15 @@ type (
 
 		// SetReadOnly sets the read-only flag on a volume.
 		SetReadOnly(volumeID int, readOnly bool) error
+		// SetAvailable sets the available flag on a volume.
+		SetAvailable(volumeID int, available bool) error
 
 		// MigrateSectors returns a new location for each occupied sector of a volume
 		// starting at min. The sector data should be copied to the new volume and
 		// synced to disk during migrateFn. Iteration is stopped if migrateFn returns an
 		// error.
 		MigrateSectors(volumeID int, min uint64, migrateFn func(newLocations []SectorLocation) error) error
-		// StoreSector calls fn with an empty location in a writeable volume. If
+		// StoreSector calls fn with an empty location in a writable volume. If
 		// the sector root already exists, fn is called with the existing
 		// location and exists is true. Unless exists is true, The sector must
 		// be written to disk within fn. If fn returns an error, the metadata is

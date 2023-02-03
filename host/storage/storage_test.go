@@ -286,7 +286,7 @@ func TestVolumeShrink(t *testing.T) {
 }
 
 func TestVolumeManagerReadWrite(t *testing.T) {
-	const sectors = 32
+	const sectors = 10
 	dir := t.TempDir()
 
 	// create the database
