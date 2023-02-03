@@ -7,11 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"go.sia.tech/hostd/internal/merkle"
+	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/test"
-	"go.sia.tech/hostd/rhp/v2"
-	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
@@ -69,7 +67,7 @@ func TestUploadDownload(t *testing.T) {
 	defer host.Close()
 
 	// form a contract
-	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.SiacoinPrecision.Mul64(10), types.SiacoinPrecision.Mul64(20), 200)
+	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,27 +84,29 @@ func TestUploadDownload(t *testing.T) {
 	defer session.Close()
 
 	// generate a sector
-	sector := make([]byte, rhp.SectorSize)
+	var sector [rhpv2.SectorSize]byte
 	frand.Read(sector[:256])
-	sectorRoot := merkle.SectorRoot(sector)
+	sectorRoot := rhpv2.SectorRoot(&sector)
 
 	// calculate the remaining duration of the contract
 	var remainingDuration uint64
-	contractExpiration := uint64(session.Revision().NewWindowEnd)
+	contractExpiration := uint64(session.Revision().Revision.WindowEnd)
 	currentHeight := renter.TipState().Index.Height
 	if contractExpiration < currentHeight {
 		t.Fatal("contract expired")
 	}
 	// upload the sector
 	remainingDuration = contractExpiration - currentHeight
-	if writtenRoot, err := session.Append(context.Background(), sector, remainingDuration); err != nil {
+	price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+	if writtenRoot, err := session.Append(context.Background(), &sector, price, collateral); err != nil {
 		t.Fatal(err)
 	} else if writtenRoot != sectorRoot {
 		t.Fatal("sector root mismatch")
 	}
 
 	// check the host's sector roots matches the sector we just uploaded
-	roots, err := session.SectorRoots(context.Background(), 0, 1)
+	price = rhpv2.RPCSectorRootsCost(session.Settings(), 1)
+	roots, err := session.SectorRoots(context.Background(), 0, 1, price)
 	if err != nil {
 		t.Fatal(err)
 	} else if roots[0] != sectorRoot {
@@ -114,11 +114,11 @@ func TestUploadDownload(t *testing.T) {
 	}
 
 	// check that the revision fields are correct
-	revision := session.Revision()
+	revision := session.Revision().Revision
 	switch {
-	case revision.NewFileSize != rhp.SectorSize:
+	case revision.Filesize != rhpv2.SectorSize:
 		t.Fatal("wrong filesize")
-	case revision.NewFileMerkleRoot != sectorRoot:
+	case revision.FileMerkleRoot != sectorRoot:
 		t.Fatal("wrong merkle root")
 	}
 }
@@ -136,7 +136,7 @@ func BenchmarkUpload(b *testing.B) {
 	}
 
 	// form a contract
-	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.SiacoinPrecision.Mul64(10), types.SiacoinPrecision.Mul64(20), 200)
+	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func BenchmarkUpload(b *testing.B) {
 
 	// calculate the remaining duration of the contract
 	var remainingDuration uint64
-	contractExpiration := uint64(session.Revision().NewWindowEnd)
+	contractExpiration := uint64(session.Revision().Revision.WindowEnd)
 	currentHeight := renter.TipState().Index.Height
 	if contractExpiration < currentHeight {
 		b.Fatal("contract expired")
@@ -163,16 +163,17 @@ func BenchmarkUpload(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	b.SetBytes(rhp.SectorSize)
+	b.SetBytes(rhpv2.SectorSize)
 
 	// upload b.N sectors
 	for i := 0; i < b.N; i++ {
 		// generate a sector
-		sector := make([]byte, rhp.SectorSize)
+		var sector [rhpv2.SectorSize]byte
 		frand.Read(sector[:256])
 
 		// upload the sector
-		if _, err := session.Append(context.Background(), sector, remainingDuration); err != nil {
+		price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+		if _, err := session.Append(context.Background(), &sector, price, collateral); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -191,7 +192,7 @@ func BenchmarkDownload(b *testing.B) {
 	}
 
 	// form a contract
-	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.SiacoinPrecision.Mul64(10), types.SiacoinPrecision.Mul64(20), 200)
+	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -209,22 +210,23 @@ func BenchmarkDownload(b *testing.B) {
 
 	// calculate the remaining duration of the contract
 	var remainingDuration uint64
-	contractExpiration := uint64(session.Revision().NewWindowEnd)
+	contractExpiration := uint64(session.Revision().Revision.WindowEnd)
 	currentHeight := renter.TipState().Index.Height
 	if contractExpiration < currentHeight {
 		b.Fatal("contract expired")
 	}
 	remainingDuration = contractExpiration - currentHeight
 
-	var uploaded []crypto.Hash
+	var uploaded []types.Hash256
 	// upload b.N sectors
 	for i := 0; i < b.N; i++ {
 		// generate a sector
-		sector := make([]byte, rhp.SectorSize)
+		var sector [rhpv2.SectorSize]byte
 		frand.Read(sector[:256])
 
 		// upload the sector
-		root, err := session.Append(context.Background(), sector, remainingDuration)
+		price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+		root, err := session.Append(context.Background(), &sector, price, collateral)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -233,11 +235,17 @@ func BenchmarkDownload(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	b.SetBytes(rhp.SectorSize)
+	b.SetBytes(rhpv2.SectorSize)
 
 	for _, root := range uploaded {
 		// download the sector
-		if err := session.Read(context.Background(), io.Discard, root, 0, rhp.SectorSize); err != nil {
+		sections := []rhpv2.RPCReadRequestSection{{
+			MerkleRoot: root,
+			Offset:     0,
+			Length:     rhpv2.SectorSize,
+		}}
+		price := rhpv2.RPCReadCost(session.Settings(), sections)
+		if err := session.Read(context.Background(), io.Discard, sections, price); err != nil {
 			b.Fatal(err)
 		}
 	}

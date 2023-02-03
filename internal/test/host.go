@@ -1,11 +1,13 @@
 package test
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"path/filepath"
 
-	"go.sia.tech/hostd/consensus"
+	crhpv2 "go.sia.tech/core/rhp/v2"
+	crhpv3 "go.sia.tech/core/rhp/v3"
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
@@ -17,7 +19,7 @@ import (
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
+	stypes "go.sia.tech/siad/types"
 )
 
 type stubMetricReporter struct{}
@@ -43,20 +45,20 @@ type Host struct {
 // DefaultSettings returns the default settings for the test host
 var DefaultSettings = settings.Settings{
 	AcceptingContracts:  true,
-	MaxContractDuration: uint64(types.BlocksPerMonth) * 3,
-	MaxCollateral:       types.SiacoinPrecision.Mul64(5000),
+	MaxContractDuration: uint64(stypes.BlocksPerMonth) * 3,
+	MaxCollateral:       types.Siacoins(5000),
 
-	ContractPrice: types.SiacoinPrecision.Div64(4),
+	ContractPrice: types.Siacoins(1).Div64(4),
 
 	BaseRPCPrice:      types.NewCurrency64(100),
 	SectorAccessPrice: types.NewCurrency64(100),
 
-	Collateral:      types.SiacoinPrecision.Mul64(200).Div64(1e12).Div64(uint64(types.BlocksPerMonth)),
-	MinStoragePrice: types.SiacoinPrecision.Mul64(100).Div64(1e12).Div64(uint64(types.BlocksPerMonth)),
-	MinEgressPrice:  types.SiacoinPrecision.Mul64(100).Div64(1e12),
-	MinIngressPrice: types.SiacoinPrecision.Mul64(100).Div64(1e12),
+	Collateral:      types.Siacoins(200).Div64(1e12).Div64(uint64(stypes.BlocksPerMonth)),
+	MinStoragePrice: types.Siacoins(100).Div64(1e12).Div64(uint64(stypes.BlocksPerMonth)),
+	MinEgressPrice:  types.Siacoins(100).Div64(1e12),
+	MinIngressPrice: types.Siacoins(100).Div64(1e12),
 
-	MaxAccountBalance: types.SiacoinPrecision.Mul64(10),
+	MaxAccountBalance: types.Siacoins(10),
 }
 
 // Close shutsdown the host
@@ -93,22 +95,22 @@ func (h *Host) UpdateSettings(settings settings.Settings) error {
 }
 
 // RHPv2Settings returns the host's current RHPv2 settings
-func (h *Host) RHPv2Settings() (rhpv2.HostSettings, error) {
+func (h *Host) RHPv2Settings() (crhpv2.HostSettings, error) {
 	return h.rhpv2.Settings()
 }
 
 // RHPv3PriceTable returns the host's current RHPv3 price table
-func (h *Host) RHPv3PriceTable() (rhpv3.PriceTable, error) {
+func (h *Host) RHPv3PriceTable() (crhpv3.HostPriceTable, error) {
 	return h.rhpv3.PriceTable()
 }
 
 // WalletAddress returns the host's wallet address
-func (h *Host) WalletAddress() types.UnlockHash {
+func (h *Host) WalletAddress() types.Address {
 	return h.wallet.Address()
 }
 
 // NewHost initializes a new test host
-func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
+func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	node, err := newNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
@@ -119,7 +121,7 @@ func NewHost(privKey ed25519.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
 
-	cm, err := consensus.NewChainManager(node.cs)
+	cm, err := chain.NewManager(node.cs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}

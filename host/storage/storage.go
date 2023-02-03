@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 
+	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/hostd/internal/threadgroup"
 )
 
@@ -67,7 +68,7 @@ func (vm *VolumeManager) lockVolume(id int) (func(), error) {
 
 // writeSector writes a sector to a volume. The volume is not synced after the
 // sector is written. The location is assumed to be empty and locked.
-func (vm *VolumeManager) writeSector(data []byte, loc SectorLocation) error {
+func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLocation) error {
 	vol, err := vm.getVolume(loc.Volume)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
@@ -388,8 +389,8 @@ func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
 	}
 
 	// zero the sector and immediately sync the volume
-	zeroes := make([]byte, sectorSize)
-	if err := vol.WriteSector(zeroes, loc.Index); err != nil {
+	var zeroes [rhpv2.SectorSize]byte
+	if err := vol.WriteSector(&zeroes, loc.Index); err != nil {
 		return fmt.Errorf("failed to zero sector %v: %w", root, err)
 	} else if err := vol.Sync(); err != nil {
 		return fmt.Errorf("failed to sync volume %v: %w", loc.Volume, err)
@@ -411,7 +412,7 @@ func (vm *VolumeManager) LockSector(root SectorRoot) (func() error, error) {
 }
 
 // Read reads the sector with the given root
-func (vm *VolumeManager) Read(root SectorRoot) ([]byte, error) {
+func (vm *VolumeManager) Read(root SectorRoot) (*[rhpv2.SectorSize]byte, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
@@ -464,7 +465,7 @@ func (vm *VolumeManager) Sync() error {
 
 // Write writes a sector to a volume. release should only be called after the
 // contract roots have been committed to prevent the sector from being deleted.
-func (vm *VolumeManager) Write(root SectorRoot, data []byte) (release func() error, _ error) {
+func (vm *VolumeManager) Write(root SectorRoot, data *[rhpv2.SectorSize]byte) (release func() error, _ error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err

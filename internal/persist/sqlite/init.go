@@ -1,7 +1,7 @@
 package sqlite
 
 import (
-	_ "embed"
+	_ "embed" // for init.sql
 
 	"fmt"
 )

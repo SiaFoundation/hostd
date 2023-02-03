@@ -7,12 +7,44 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.com/NebulousLabs/encoding"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
 )
+
+func encodeRevision(fcr types.FileContractRevision) []byte {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	fcr.EncodeTo(e)
+	e.Flush()
+	return buf.Bytes()
+}
+
+func decodeRevision(b []byte, fcr *types.FileContractRevision) error {
+	d := types.NewBufDecoder(b)
+	fcr.DecodeFrom(d)
+	return d.Err()
+}
+
+func encodeTxnSet(txns []types.Transaction) []byte {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	e.WritePrefix(len(txns))
+	for i := range txns {
+		txns[i].EncodeTo(e)
+	}
+	e.Flush()
+	return buf.Bytes()
+}
+
+func decodeTxnSet(b []byte, txns *[]types.Transaction) error {
+	d := types.NewBufDecoder(b)
+	*txns = make([]types.Transaction, d.ReadPrefix())
+	for i := range *txns {
+		(*txns)[i].DecodeFrom(d)
+	}
+	return d.Err()
+}
 
 type (
 	// An updateContractTxn atomically updates a single contract and its
@@ -29,7 +61,7 @@ type (
 )
 
 // AppendSector appends a sector root to the end of the contract
-func (u *updateContractTxn) AppendSector(root crypto.Hash) error {
+func (u *updateContractTxn) AppendSector(root types.Hash256) error {
 	const query = `INSERT INTO contract_sector_roots (contract_id, sector_root, root_index) SELECT $1, $2, COALESCE(MAX(root_index) + 1, 0) FROM contract_sector_roots WHERE contract_id=$1;`
 	_, err := u.tx.Exec(query, valueHash(u.contractID), valueHash(root))
 	return err
@@ -38,12 +70,16 @@ func (u *updateContractTxn) AppendSector(root crypto.Hash) error {
 // ReviseContract updates the current revision associated with a contract.
 func (u *updateContractTxn) ReviseContract(revision contracts.SignedRevision) error {
 	const query = `UPDATE contracts SET (revision_number, window_start, window_end, raw_revision, host_sig, renter_sig) = ($1, $2, $3, $4, $5, $6) WHERE id=$7 RETURNING id;`
-	var buf bytes.Buffer
-	if err := revision.Revision.MarshalSia(&buf); err != nil {
-		return fmt.Errorf("failed to encode revision: %w", err)
-	}
 	var updatedID [32]byte
-	err := u.tx.QueryRow(query, revision.Revision.NewRevisionNumber, revision.Revision.NewWindowStart, revision.Revision.NewWindowEnd, buf.Bytes(), revision.HostSignature, revision.RenterSignature, valueHash(revision.Revision.ParentID)).Scan(scanHash(&updatedID))
+	err := u.tx.QueryRow(query,
+		revision.Revision.RevisionNumber,
+		revision.Revision.WindowStart,
+		revision.Revision.WindowEnd,
+		encodeRevision(revision.Revision),
+		scanSignature(&revision.HostSignature),
+		scanSignature(&revision.RenterSignature),
+		valueHash(revision.Revision.ParentID),
+	).Scan(scanHash(&updatedID))
 	if err != nil {
 		return fmt.Errorf("failed to update contract: %w", err)
 	} else if updatedID != u.contractID {
@@ -75,7 +111,7 @@ func (u *updateContractTxn) SwapSectors(i, j uint64) error {
 }
 
 // UpdateSector updates the sector root at the given index.
-func (u *updateContractTxn) UpdateSector(index uint64, root crypto.Hash) error {
+func (u *updateContractTxn) UpdateSector(index uint64, root types.Hash256) error {
 	const query = `UPDATE contract_sector_roots SET sector_root=$1 WHERE contract_id=$2 AND root_index=$3 RETURNING id;`
 	var id uint64
 	return u.tx.QueryRow(query, valueHash(root), valueHash(u.contractID), index).Scan(&id)
@@ -104,7 +140,7 @@ func (u *updateContractsTxn) ApplyContractFormation(id types.FileContractID) err
 // ApplyFinalRevision sets the confirmed revision number.
 func (u *updateContractsTxn) ApplyFinalRevision(id types.FileContractID, revision types.FileContractRevision) error {
 	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE id=$2;`
-	_, err := u.tx.Exec(query, valueUint64(revision.NewRevisionNumber), valueHash(id))
+	_, err := u.tx.Exec(query, valueUint64(revision.RevisionNumber), valueHash(id))
 	return err
 }
 
@@ -149,7 +185,18 @@ func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, 
 	const query = `SELECT id, contract_error, negotiation_height, formation_confirmed, revision_number=confirmed_revision_number AS revision_confirmed, resolution_confirmed, locked_collateral, raw_revision, host_sig, renter_sig FROM contracts WHERE id=$1;`
 	var contractID [32]byte
 	var errorStr sql.NullString
-	err = s.db.QueryRow(query, valueHash(id)).Scan(scanHash(&contractID), &errorStr, &contract.NegotiationHeight, &contract.FormationConfirmed, &contract.RevisionConfirmed, &contract.ResolutionConfirmed, scanCurrency(&contract.LockedCollateral), &revisionBuf, &contract.HostSignature, &contract.RenterSignature)
+	err = s.db.QueryRow(query,
+		valueHash(id)).Scan(scanHash(&contractID),
+		&errorStr,
+		&contract.NegotiationHeight,
+		&contract.FormationConfirmed,
+		&contract.RevisionConfirmed,
+		&contract.ResolutionConfirmed,
+		scanCurrency(&contract.LockedCollateral),
+		&revisionBuf,
+		scanSignature(&contract.HostSignature),
+		scanSignature(&contract.RenterSignature),
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return contract, contracts.ErrNotFound
 	} else if err != nil {
@@ -160,7 +207,7 @@ func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, 
 	if errorStr.Valid {
 		contract.Error = errors.New(errorStr.String)
 	}
-	if err := contract.Revision.UnmarshalSia(bytes.NewReader(revisionBuf)); err != nil {
+	if err := decodeRevision(revisionBuf, &contract.Revision); err != nil {
 		return contract, fmt.Errorf("failed to decode revision: %w", err)
 	} else if contract.Revision.ParentID != id {
 		panic("contract data corruption: revision parent id does not match contract id")
@@ -171,14 +218,19 @@ func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, 
 // AddContract adds a new contract to the database.
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
 	const query = `INSERT INTO contracts (id, locked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, raw_revision, host_sig, renter_sig) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id;`
-	var revisionBuf bytes.Buffer
-	if err := revision.Revision.MarshalSia(&revisionBuf); err != nil {
-		return fmt.Errorf("failed to encode revision: %w", err)
-	}
-	// encode the renewal txn set
-	formationTxnBuf := encoding.Marshal(&formationSet)
 	var id [32]byte
-	err := s.db.QueryRow(query, valueHash(revision.Revision.ParentID), valueCurrency(lockedCollateral), valueUint64(revision.Revision.NewRevisionNumber), negotationHeight, revision.Revision.NewWindowStart, revision.Revision.NewWindowEnd, formationTxnBuf, revisionBuf.Bytes(), revision.HostSignature, revision.RenterSignature).Scan(scanHash(&id))
+	err := s.db.QueryRow(query,
+		valueHash(revision.Revision.ParentID),
+		valueCurrency(lockedCollateral),
+		valueUint64(revision.Revision.RevisionNumber),
+		negotationHeight,
+		revision.Revision.WindowStart,
+		revision.Revision.WindowEnd,
+		encodeTxnSet(formationSet),
+		encodeRevision(revision.Revision),
+		scanSignature(&revision.HostSignature),
+		scanSignature(&revision.RenterSignature),
+	).Scan(scanHash(&id))
 	if err != nil {
 		return fmt.Errorf("failed to insert contract: %w", err)
 	} else if id != revision.Revision.ParentID {
@@ -194,12 +246,15 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contrac
 	return s.exclusiveTransaction(func(tx txn) error {
 		// update the existing contract
 		const clearQuery = `UPDATE contracts SET (renewed_to, revision_number, host_sig, renter_sig, raw_revision) = ($1, $2, $3, $4, $5) WHERE id=$6 RETURNING id;`
-		var clearingBuf bytes.Buffer
-		if err := existing.Revision.MarshalSia(&clearingBuf); err != nil {
-			return fmt.Errorf("failed to encode revision: %w", err)
-		}
 		var clearingID [32]byte
-		err := tx.QueryRow(clearQuery, valueHash(renewal.Revision.ParentID), valueUint64(existing.Revision.NewRevisionNumber), renewal.HostSignature, renewal.RenterSignature, clearingBuf.Bytes(), valueHash(existing.Revision.ParentID)).Scan(scanHash(&clearingID))
+		err := tx.QueryRow(clearQuery,
+			valueHash(renewal.Revision.ParentID),
+			valueUint64(existing.Revision.RevisionNumber),
+			scanSignature(&renewal.HostSignature),
+			scanSignature(&renewal.RenterSignature),
+			encodeRevision(existing.Revision),
+			valueHash(existing.Revision.ParentID),
+		).Scan(scanHash(&clearingID))
 		if err != nil {
 			return fmt.Errorf("failed to update existing contract: %w", err)
 		} else if clearingID != existing.Revision.ParentID {
@@ -208,14 +263,20 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contrac
 
 		// add the new contract
 		const renewQuery = `INSERT INTO contracts (id, renewed_from, locked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, raw_revision, host_sig, renter_sig) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id;`
-		var revisionBuf bytes.Buffer
-		if err := renewal.Revision.MarshalSia(&revisionBuf); err != nil {
-			return fmt.Errorf("failed to encode revision: %w", err)
-		}
-		// encode the renewal txn set
-		renewalTxnBuf := encoding.Marshal(&renewalTxnSet)
 		var renewalID [32]byte
-		err = tx.QueryRow(renewQuery, valueHash(renewal.Revision.ParentID), valueHash(existing.Revision.ParentID), valueCurrency(lockedCollateral), valueUint64(renewal.Revision.NewRevisionNumber), valueUint64(negotationHeight), valueUint64(uint64(renewal.Revision.NewWindowStart)), valueUint64(uint64(renewal.Revision.NewWindowEnd)), renewalTxnBuf, revisionBuf.Bytes(), renewal.HostSignature, renewal.RenterSignature).Scan(scanHash(&renewalID))
+		err = tx.QueryRow(renewQuery,
+			valueHash(renewal.Revision.ParentID),
+			valueHash(existing.Revision.ParentID),
+			valueCurrency(lockedCollateral),
+			valueUint64(renewal.Revision.RevisionNumber),
+			valueUint64(negotationHeight),
+			valueUint64(renewal.Revision.WindowStart),
+			valueUint64(renewal.Revision.WindowEnd),
+			encodeTxnSet(renewalTxnSet),
+			encodeRevision(renewal.Revision),
+			scanSignature(&renewal.HostSignature),
+			scanSignature(&renewal.RenterSignature),
+		).Scan(scanHash(&renewalID))
 		if err != nil {
 			return fmt.Errorf("failed to add renewed contract: %w", err)
 		} else if renewalID != renewal.Revision.ParentID {
@@ -231,7 +292,7 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contrac
 
 // SectorRoots returns the sector roots for a contract. If limit is 0, all roots
 // are returned.
-func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint64) ([]crypto.Hash, error) {
+func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint64) ([]types.Hash256, error) {
 	var query string
 	if limit <= 0 {
 		query = `SELECT sector_root FROM contract_sector_roots WHERE contract_id=$1 ORDER BY root_index ASC;`
@@ -245,9 +306,9 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 	}
 	defer rows.Close()
 
-	var roots []crypto.Hash
+	var roots []types.Hash256
 	for rows.Next() {
-		var root crypto.Hash
+		var root types.Hash256
 		if err := rows.Scan(scanHash((*[32]byte)(&root))); err != nil {
 			return nil, err
 		}
@@ -271,7 +332,7 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 		return nil, err
 	}
 	var txnSet []types.Transaction
-	if err := encoding.Unmarshal(buf, &txnSet); err != nil {
+	if err := decodeTxnSet(buf, &txnSet); err != nil {
 		return nil, err
 	}
 	return txnSet, nil

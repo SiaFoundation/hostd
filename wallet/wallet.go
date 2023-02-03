@@ -1,17 +1,38 @@
 package wallet
 
 import (
-	"crypto/ed25519"
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"go.sia.tech/hostd/consensus"
-	"go.sia.tech/siad/crypto"
+	"gitlab.com/NebulousLabs/encoding"
+	"go.sia.tech/core/consensus"
+	"go.sia.tech/core/types"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
+	stypes "go.sia.tech/siad/types"
 )
+
+func convertToSiad(core types.EncoderTo, siad encoding.SiaUnmarshaler) {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	core.EncodeTo(e)
+	e.Flush()
+	if err := siad.UnmarshalSia(&buf); err != nil {
+		panic(err)
+	}
+}
+
+func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
+	var buf bytes.Buffer
+	siad.MarshalSia(&buf)
+	d := types.NewBufDecoder(buf.Bytes())
+	core.DecodeFrom(d)
+	if d.Err() != nil {
+		panic(d.Err())
+	}
+}
 
 // transaction sources indicate the source of a transaction. Transactions can
 // either be created by sending Siacoins between unlock hashes or they can be
@@ -29,7 +50,7 @@ type (
 
 	// A ChainManager manages the current state of the blockchain.
 	ChainManager interface {
-		Tip() consensus.State
+		TipState() consensus.State
 		BlockAtHeight(height uint64) (types.Block, bool)
 	}
 
@@ -42,20 +63,20 @@ type (
 	// A Transaction is an on-chain transaction relevant to a particular wallet,
 	// paired with useful metadata.
 	Transaction struct {
-		ID          types.TransactionID  `json:"id"`
-		Index       consensus.ChainIndex `json:"index"`
-		Transaction types.Transaction    `json:"transaction"`
-		Inflow      types.Currency       `json:"inflow"`
-		Outflow     types.Currency       `json:"outflow"`
-		Source      TransactionSource    `json:"source"`
-		Timestamp   time.Time            `json:"timestamp"`
+		ID          types.TransactionID `json:"id"`
+		Index       types.ChainIndex    `json:"index"`
+		Transaction types.Transaction   `json:"transaction"`
+		Inflow      types.Currency      `json:"inflow"`
+		Outflow     types.Currency      `json:"outflow"`
+		Source      TransactionSource   `json:"source"`
+		Timestamp   time.Time           `json:"timestamp"`
 	}
 
 	// A SingleAddressWallet is a hot wallet that manages the outputs controlled by
 	// a single address.
 	SingleAddressWallet struct {
-		priv  ed25519.PrivateKey
-		addr  types.UnlockHash
+		priv  types.PrivateKey
+		addr  types.Address
 		cm    ChainManager
 		store SingleAddressStore
 
@@ -98,14 +119,36 @@ type (
 	}
 )
 
-func transactionIsRelevant(txn types.Transaction, addr types.UnlockHash) bool {
+// EncodeTo implements types.EncoderTo.
+func (txn Transaction) EncodeTo(e *types.Encoder) {
+	txn.ID.EncodeTo(e)
+	txn.Index.EncodeTo(e)
+	txn.Transaction.EncodeTo(e)
+	txn.Inflow.EncodeTo(e)
+	txn.Outflow.EncodeTo(e)
+	e.WriteString(string(txn.Source))
+	e.WriteTime(txn.Timestamp)
+}
+
+// DecodeFrom implements types.DecoderFrom.
+func (txn *Transaction) DecodeFrom(d *types.Decoder) {
+	txn.ID.DecodeFrom(d)
+	txn.Index.DecodeFrom(d)
+	txn.Transaction.DecodeFrom(d)
+	txn.Inflow.DecodeFrom(d)
+	txn.Outflow.DecodeFrom(d)
+	txn.Source = TransactionSource(d.ReadString())
+	txn.Timestamp = d.ReadTime()
+}
+
+func transactionIsRelevant(txn types.Transaction, addr types.Address) bool {
 	for i := range txn.SiacoinInputs {
 		if txn.SiacoinInputs[i].UnlockConditions.UnlockHash() == addr {
 			return true
 		}
 	}
 	for i := range txn.SiacoinOutputs {
-		if txn.SiacoinOutputs[i].UnlockHash == addr {
+		if txn.SiacoinOutputs[i].Address == addr {
 			return true
 		}
 	}
@@ -113,35 +156,35 @@ func transactionIsRelevant(txn types.Transaction, addr types.UnlockHash) bool {
 		if txn.SiafundInputs[i].UnlockConditions.UnlockHash() == addr {
 			return true
 		}
-		if txn.SiafundInputs[i].ClaimUnlockHash == addr {
+		if txn.SiafundInputs[i].ClaimAddress == addr {
 			return true
 		}
 	}
 	for i := range txn.SiafundOutputs {
-		if txn.SiafundOutputs[i].UnlockHash == addr {
+		if txn.SiafundOutputs[i].Address == addr {
 			return true
 		}
 	}
 	for i := range txn.FileContracts {
 		for _, sco := range txn.FileContracts[i].ValidProofOutputs {
-			if sco.UnlockHash == addr {
+			if sco.Address == addr {
 				return true
 			}
 		}
 		for _, sco := range txn.FileContracts[i].MissedProofOutputs {
-			if sco.UnlockHash == addr {
+			if sco.Address == addr {
 				return true
 			}
 		}
 	}
 	for i := range txn.FileContractRevisions {
-		for _, sco := range txn.FileContractRevisions[i].NewValidProofOutputs {
-			if sco.UnlockHash == addr {
+		for _, sco := range txn.FileContractRevisions[i].ValidProofOutputs {
+			if sco.Address == addr {
 				return true
 			}
 		}
-		for _, sco := range txn.FileContractRevisions[i].NewMissedProofOutputs {
-			if sco.UnlockHash == addr {
+		for _, sco := range txn.FileContractRevisions[i].MissedProofOutputs {
+			if sco.Address == addr {
 				return true
 			}
 		}
@@ -155,7 +198,7 @@ func (sw *SingleAddressWallet) Close() error {
 }
 
 // Address returns the address of the wallet.
-func (sw *SingleAddressWallet) Address() types.UnlockHash {
+func (sw *SingleAddressWallet) Address() types.Address {
 	return sw.addr
 }
 
@@ -192,7 +235,7 @@ func (sw *SingleAddressWallet) TransactionCount() (uint64, error) {
 // transaction. If necessary, a change output will also be added. The inputs
 // will not be available to future calls to FundTransaction unless ReleaseInputs
 // is called.
-func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
+func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 	if amount.IsZero() {
@@ -219,18 +262,18 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 		return nil, nil, errors.New("insufficient balance")
 	} else if inputSum.Cmp(amount) > 0 {
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-			Value:      inputSum.Sub(amount),
-			UnlockHash: sw.addr,
+			Value:   inputSum.Sub(amount),
+			Address: sw.addr,
 		})
 	}
 
-	toSign := make([]crypto.Hash, len(fundingElements))
+	toSign := make([]types.Hash256, len(fundingElements))
 	for i, sce := range fundingElements {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
 			ParentID:         types.SiacoinOutputID(sce.ID),
-			UnlockConditions: StandardUnlockConditions(sw.priv.Public().(ed25519.PublicKey)),
+			UnlockConditions: StandardUnlockConditions(sw.priv.PublicKey()),
 		})
-		toSign[i] = crypto.Hash(sce.ID)
+		toSign[i] = types.Hash256(sce.ID)
 		sw.locked[sce.ID] = true
 	}
 
@@ -245,22 +288,32 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	return toSign, release, nil
 }
 
-// SignTransaction adds a signature to each of the specified inputs using the
-// provided seed.
-func (sw *SingleAddressWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash, cf types.CoveredFields) error {
-	sigMap := make(map[crypto.Hash]bool)
-	for _, id := range toSign {
-		sigMap[id] = true
+// SignTransaction adds a signature to each of the specified inputs.
+func (sw *SingleAddressWallet) SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error {
+	// NOTE: siad uses different hardfork heights when -tags=testing is set,
+	// so we have to alter cs accordingly.
+	// TODO: remove this
+	switch {
+	case cs.Index.Height >= uint64(stypes.FoundationHardforkHeight):
+		cs.Index.Height = 298000
+	case cs.Index.Height >= uint64(stypes.ASICHardforkHeight):
+		cs.Index.Height = 179000
 	}
+
 	for _, id := range toSign {
-		i := len(txn.TransactionSignatures)
-		txn.TransactionSignatures = append(txn.TransactionSignatures, types.TransactionSignature{
+		var h types.Hash256
+		if cf.WholeTransaction {
+			h = cs.WholeSigHash(*txn, id, 0, 0, cf.Signatures)
+		} else {
+			h = cs.PartialSigHash(*txn, cf)
+		}
+		sig := sw.priv.SignHash(h)
+		txn.Signatures = append(txn.Signatures, types.TransactionSignature{
 			ParentID:       id,
 			CoveredFields:  cf,
 			PublicKeyIndex: 0,
+			Signature:      sig[:],
 		})
-		sigHash := txn.SigHash(i, types.BlockHeight(sw.cm.Tip().Index.Height))
-		txn.TransactionSignatures[i].Signature = ed25519.Sign(sw.priv, sigHash[:])
 	}
 	return nil
 }
@@ -281,9 +334,9 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 		var txnsetOutputs []types.SiacoinOutputID
 		for _, txn := range txnset.Transactions {
 			for _, sci := range txn.SiacoinInputs {
-				if sci.UnlockConditions.UnlockHash() == sw.addr {
-					sw.tpool[sci.ParentID] = true
-					txnsetOutputs = append(txnsetOutputs, sci.ParentID)
+				if types.Address(sci.UnlockConditions.UnlockHash()) == sw.addr {
+					sw.tpool[types.SiacoinOutputID(sci.ParentID)] = true
+					txnsetOutputs = append(txnsetOutputs, types.SiacoinOutputID(sci.ParentID))
 				}
 			}
 		}
@@ -302,27 +355,29 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 	// calculate the block height of the first applied diff
 	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + 1
 	for i := 0; i < len(cc.AppliedDiffs); i, blockHeight = i+1, blockHeight+1 {
-		block := cc.AppliedBlocks[i]
+		var block types.Block
+		convertToCore(cc.AppliedBlocks[i], &block)
 		diff := cc.AppliedDiffs[i]
-		index := consensus.ChainIndex{
+		index := types.ChainIndex{
 			ID:     block.ID(),
 			Height: blockHeight,
 		}
 
 		// determine the source of each delayed output
 		delayedOutputSources := make(map[types.SiacoinOutputID]TransactionSource)
-		if blockHeight > uint64(types.MaturityDelay) {
+		if blockHeight > uint64(stypes.MaturityDelay) {
 			// get the block that has matured
-			matureBlock, ok := sw.cm.BlockAtHeight(blockHeight - uint64(types.MaturityDelay))
+			matureBlock, ok := sw.cm.BlockAtHeight(blockHeight - uint64(stypes.MaturityDelay))
 			if !ok {
-				panic(fmt.Errorf("failed to get mature block at height %v", blockHeight-uint64(types.MaturityDelay)))
+				panic(fmt.Errorf("failed to get mature block at height %v", blockHeight-uint64(stypes.MaturityDelay)))
 			}
+			matureID := matureBlock.ID()
 			for i := range matureBlock.MinerPayouts {
-				delayedOutputSources[matureBlock.MinerPayoutID(uint64(i))] = TxnSourceMinerPayout
+				delayedOutputSources[matureID.MinerOutputID(i)] = TxnSourceMinerPayout
 			}
 			for _, txn := range matureBlock.Transactions {
 				for _, output := range txn.SiafundInputs {
-					delayedOutputSources[output.ParentID.SiaClaimOutputID()] = TxnSourceSiafundClaim
+					delayedOutputSources[output.ParentID.ClaimOutputID()] = TxnSourceSiafundClaim
 				}
 			}
 		}
@@ -330,19 +385,19 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		for _, dsco := range diff.DelayedSiacoinOutputDiffs {
 			// if a delayed output is reverted in an applied diff, the
 			// output has matured -- add a payout transaction.
-			if dsco.SiacoinOutput.UnlockHash != sw.addr || dsco.Direction != modules.DiffRevert {
+			if types.Address(dsco.SiacoinOutput.UnlockHash) != sw.addr || dsco.Direction != modules.DiffRevert {
 				continue
 			}
 			// contract payouts are harder to identify, any unknown output
 			// ID is assumed to be a contract payout.
 			var source TransactionSource
-			if s, ok := delayedOutputSources[dsco.ID]; ok {
+			if s, ok := delayedOutputSources[types.SiacoinOutputID(dsco.ID)]; ok {
 				source = s
 			} else {
 				source = TxnSourceContract
 			}
 			// append the payout transaction to the diff
-			appliedPayoutTxns[i] = append(appliedPayoutTxns[i], payoutTransaction(dsco.SiacoinOutput, index, source, time.Unix(int64(block.Timestamp), 0)))
+			appliedPayoutTxns[i] = append(appliedPayoutTxns[i], payoutTransaction(dsco.SiacoinOutput, index, source, block.Timestamp))
 		}
 	}
 
@@ -350,26 +405,28 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 	err := sw.store.UpdateWallet(func(tx UpdateTransaction) error {
 		// add new siacoin outputs and remove spent or reverted siacoin outputs
 		for _, diff := range cc.SiacoinOutputDiffs {
-			if diff.SiacoinOutput.UnlockHash != sw.addr {
+			if types.Address(diff.SiacoinOutput.UnlockHash) != sw.addr {
 				continue
 			}
 			if diff.Direction == modules.DiffApply {
+				var sco types.SiacoinOutput
+				convertToCore(diff.SiacoinOutput, &sco)
 				err := tx.AddSiacoinElement(SiacoinElement{
-					SiacoinOutput: diff.SiacoinOutput,
-					ID:            diff.ID,
+					SiacoinOutput: sco,
+					ID:            types.SiacoinOutputID(diff.ID),
 				})
 				if err != nil {
 					return fmt.Errorf("failed to add siacoin element %v: %w", diff.ID, err)
 				}
 			} else {
-				err := tx.RemoveSiacoinElement(diff.ID)
+				err := tx.RemoveSiacoinElement(types.SiacoinOutputID(diff.ID))
 				if err != nil {
 					return fmt.Errorf("failed to remove siacoin element %v: %w", diff.ID, err)
 				}
 				// release the locks on the spent outputs
 				sw.mu.Lock()
-				delete(sw.locked, diff.ID)
-				delete(sw.tpool, diff.ID)
+				delete(sw.locked, types.SiacoinOutputID(diff.ID))
+				delete(sw.tpool, types.SiacoinOutputID(diff.ID))
 				sw.mu.Unlock()
 			}
 		}
@@ -379,7 +436,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			for _, dsco := range reverted.DelayedSiacoinOutputDiffs {
 				// if a delayed output is applied in a revert diff, the output
 				// is no longer matured -- remove the payout transaction.
-				if dsco.SiacoinOutput.UnlockHash != sw.addr || dsco.Direction != modules.DiffApply {
+				if types.Address(dsco.SiacoinOutput.UnlockHash) != sw.addr || dsco.Direction != modules.DiffApply {
 					continue
 				}
 				err := tx.RemoveTransaction(payoutTransactionID(dsco.SiacoinOutput))
@@ -390,7 +447,9 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		}
 
 		// revert actual transactions
-		for _, block := range cc.RevertedBlocks {
+		for i := range cc.RevertedBlocks {
+			var block types.Block
+			convertToCore(cc.RevertedBlocks[i], &block)
 			for _, txn := range block.Transactions {
 				if transactionIsRelevant(txn, sw.addr) {
 					if err := tx.RemoveTransaction(txn.ID()); err != nil {
@@ -404,8 +463,9 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		blockHeight = uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + 1
 		// apply transactions
 		for i := 0; i < len(cc.AppliedBlocks); i, blockHeight = i+1, blockHeight+1 {
-			block := cc.AppliedBlocks[i]
-			index := consensus.ChainIndex{
+			var block types.Block
+			convertToCore(cc.AppliedBlocks[i], &block)
+			index := types.ChainIndex{
 				ID:     block.ID(),
 				Height: blockHeight,
 			}
@@ -428,7 +488,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				}
 				var inflow, outflow types.Currency
 				for _, out := range txn.SiacoinOutputs {
-					if out.UnlockHash == sw.addr {
+					if out.Address == sw.addr {
 						inflow = inflow.Add(out.Value)
 					}
 				}
@@ -446,7 +506,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					Outflow:     outflow,
 					Source:      TxnSourceTransaction,
 					Transaction: txn,
-					Timestamp:   time.Unix(int64(block.Timestamp), 0),
+					Timestamp:   block.Timestamp,
 				}, blockIndex)
 				if err != nil {
 					return fmt.Errorf("failed to add transaction %v: %w", txn.ID(), err)
@@ -468,32 +528,34 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 
 // payoutTransaction wraps a delayed siacoin output in a transaction for display
 // in the wallet.
-func payoutTransaction(output types.SiacoinOutput, index consensus.ChainIndex, source TransactionSource, timestamp time.Time) Transaction {
+func payoutTransaction(output stypes.SiacoinOutput, index types.ChainIndex, source TransactionSource, timestamp time.Time) Transaction {
 	txn := types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{output},
+		SiacoinOutputs: []types.SiacoinOutput{{}},
 	}
+	convertToCore(output, &txn.SiacoinOutputs[0])
 	return Transaction{
 		ID:          txn.ID(),
 		Index:       index,
 		Transaction: txn,
-		Inflow:      output.Value,
+		Inflow:      txn.SiacoinOutputs[0].Value,
 		Source:      source,
 		Timestamp:   timestamp,
 	}
 }
 
-func payoutTransactionID(output types.SiacoinOutput) types.TransactionID {
+func payoutTransactionID(output stypes.SiacoinOutput) types.TransactionID {
 	txn := types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{output},
+		SiacoinOutputs: []types.SiacoinOutput{{}},
 	}
+	convertToCore(output, &txn.SiacoinOutputs[0])
 	return txn.ID()
 }
 
 // NewSingleAddressWallet returns a new SingleAddressWallet using the provided private key and store.
-func NewSingleAddressWallet(priv ed25519.PrivateKey, cm ChainManager, store SingleAddressStore) *SingleAddressWallet {
+func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, store SingleAddressStore) *SingleAddressWallet {
 	return &SingleAddressWallet{
 		priv:    priv,
-		addr:    StandardAddress(priv.Public().(ed25519.PublicKey)),
+		addr:    StandardAddress(priv.PublicKey()),
 		store:   store,
 		locked:  make(map[types.SiacoinOutputID]bool),
 		tpool:   make(map[types.SiacoinOutputID]bool),
@@ -504,17 +566,14 @@ func NewSingleAddressWallet(priv ed25519.PrivateKey, cm ChainManager, store Sing
 
 // StandardUnlockConditions returns the standard unlock conditions for a single
 // Ed25519 key.
-func StandardUnlockConditions(pub ed25519.PublicKey) types.UnlockConditions {
+func StandardUnlockConditions(pk types.PublicKey) types.UnlockConditions {
 	return types.UnlockConditions{
-		PublicKeys: []types.SiaPublicKey{{
-			Algorithm: types.SignatureEd25519,
-			Key:       pub,
-		}},
+		PublicKeys:         []types.UnlockKey{pk.UnlockKey()},
 		SignaturesRequired: 1,
 	}
 }
 
 // StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(pub ed25519.PublicKey) types.UnlockHash {
-	return StandardUnlockConditions(pub).UnlockHash()
+func StandardAddress(pk types.PublicKey) types.Address {
+	return StandardUnlockConditions(pk).UnlockHash()
 }

@@ -1,37 +1,33 @@
 package registry_test
 
 import (
-	"crypto/ed25519"
 	"reflect"
 	"testing"
 
+	rhpv3 "go.sia.tech/core/rhp/v3"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/internal/store"
-	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
-func randomValue(key ed25519.PrivateKey) (value registry.Value) {
+func randomValue(key types.PrivateKey) (value rhpv3.RegistryEntry) {
 	value.Tweak = frand.Entropy256()
 	value.Data = frand.Bytes(32)
-	value.Type = registry.EntryTypeArbitrary
-	value.PublicKey = types.SiaPublicKey{
-		Algorithm: types.SignatureEd25519,
-		Key:       key.Public().(ed25519.PublicKey),
-	}
-	sigHash := value.Hash()
-	value.Signature = ed25519.Sign(key, sigHash[:])
+	value.Type = rhpv3.EntryTypeArbitrary
+	value.PublicKey = key.PublicKey()
+	value.Signature = key.SignHash(value.Hash())
 	return
 }
 
-func testRegistry(priKey ed25519.PrivateKey, limit uint64) *registry.Manager {
-	return registry.NewManager(priKey, store.NewEphemeralRegistryStore(limit))
+func testRegistry(privKey types.PrivateKey, limit uint64) *registry.Manager {
+	return registry.NewManager(privKey, store.NewEphemeralRegistryStore(limit))
 }
 
 func TestRegistryPut(t *testing.T) {
 	const registryCap = 10
-	hostPriv := ed25519.NewKeyFromSeed(frand.Bytes(32))
-	renterPriv := ed25519.NewKeyFromSeed(frand.Bytes(32))
+	hostPriv := types.GeneratePrivateKey()
+	renterPriv := types.GeneratePrivateKey()
 	reg := testRegistry(hostPriv, registryCap)
 
 	// store a random value in the registry
@@ -53,18 +49,18 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// test updating the value's revision number and data; should succeed
-	value := registry.Value{
-		Tweak:    original.Tweak,
-		Data:     original.Data,
-		Revision: 1,
-		Type:     registry.EntryTypeArbitrary,
-		PublicKey: types.SiaPublicKey{
-			Algorithm: types.SignatureEd25519,
-			Key:       renterPriv.Public().(ed25519.PublicKey),
+	value := rhpv3.RegistryEntry{
+		RegistryKey: rhpv3.RegistryKey{
+			PublicKey: renterPriv.PublicKey(),
+			Tweak:     original.Tweak,
+		},
+		RegistryValue: rhpv3.RegistryValue{
+			Data:     original.Data,
+			Revision: 1,
+			Type:     rhpv3.EntryTypeArbitrary,
 		},
 	}
-	sigHash := value.Hash()
-	value.Signature = ed25519.Sign(renterPriv, sigHash[:])
+	value.Signature = renterPriv.SignHash(value.Hash())
 	updated, err = reg.Put(value, 10)
 	if err != nil {
 		t.Fatalf("expected update to succeed, got %s", err)
@@ -73,25 +69,21 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// test updating the value's work; should succeed
-	value = registry.Value{
-		Tweak:    original.Tweak,
-		Data:     make([]byte, 32),
-		Revision: 1,
-		Type:     registry.EntryTypeArbitrary,
-		PublicKey: types.SiaPublicKey{
-			Algorithm: types.SignatureEd25519,
-			Key:       renterPriv.Public().(ed25519.PublicKey),
+	value = rhpv3.RegistryEntry{
+		RegistryKey: rhpv3.RegistryKey{
+			PublicKey: renterPriv.PublicKey(),
+			Tweak:     original.Tweak,
+		},
+		RegistryValue: rhpv3.RegistryValue{
+			Data:     make([]byte, 32),
+			Revision: 1,
+			Type:     rhpv3.EntryTypeArbitrary,
 		},
 	}
-	var i int
-	for i = 0; i < 1e6; i++ {
+	for rhpv3.CompareRegistryWork(value, updated) <= 0 {
 		frand.Read(value.Data)
-		if value.Work().Cmp(updated.Work()) > 0 {
-			break
-		}
 	}
-	sigHash = value.Hash()
-	value.Signature = ed25519.Sign(renterPriv, sigHash[:])
+	value.Signature = renterPriv.SignHash(value.Hash())
 	updated, err = reg.Put(value, 10)
 	if err != nil {
 		t.Fatalf("expected update to succeed, got %s", err)
@@ -100,19 +92,19 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// test setting the value to a primary value; should succeed
-	hostID := registry.HostID(hostPriv.Public().(ed25519.PublicKey))
-	value = registry.Value{
-		Tweak:    original.Tweak,
-		Data:     append([]byte(hostID[:20]), updated.Data...),
-		Revision: 1,
-		Type:     registry.EntryTypePubKey,
-		PublicKey: types.SiaPublicKey{
-			Algorithm: types.SignatureEd25519,
-			Key:       renterPriv.Public().(ed25519.PublicKey),
+	hostID := rhpv3.RegistryHostID(hostPriv.PublicKey())
+	value = rhpv3.RegistryEntry{
+		RegistryKey: rhpv3.RegistryKey{
+			PublicKey: renterPriv.PublicKey(),
+			Tweak:     original.Tweak,
+		},
+		RegistryValue: rhpv3.RegistryValue{
+			Data:     append([]byte(hostID[:20]), updated.Data...),
+			Revision: 1,
+			Type:     rhpv3.EntryTypePubKey,
 		},
 	}
-	sigHash = value.Hash()
-	value.Signature = ed25519.Sign(renterPriv, sigHash[:])
+	value.Signature = renterPriv.SignHash(value.Hash())
 	updated, err = reg.Put(value, 10)
 	if err != nil {
 		t.Fatalf("expected update to succeed, got %s", err)

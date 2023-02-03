@@ -1,32 +1,25 @@
-// Package rhp implements the host side of the Sia renter-host protocol version 2
 package rhp
 
 import (
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"time"
 
-	"go.sia.tech/hostd/consensus"
+	"go.sia.tech/core/consensus"
+	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
-	"golang.org/x/crypto/blake2b"
-	"golang.org/x/crypto/chacha20poly1305"
+	"go.sia.tech/hostd/rhp"
 	"golang.org/x/time/rate"
-	"lukechampine.com/frand"
 )
 
 const (
 	defaultBatchSize = 20 * (1 << 20) // 20 MiB
-
-	// SectorSize is the size of a sector in bytes.
-	SectorSize = 1 << 22 // 4 MiB
 
 	// Version is the current version of the RHP2 protocol.
 	Version = "2.0.0"
@@ -51,7 +44,7 @@ type (
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
 		// SectorRoots returns the sector roots of the contract with the given ID.
-		SectorRoots(id types.FileContractID, limit, offset uint64) ([]crypto.Hash, error)
+		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
 	}
 
 	// A StorageManager manages the storage of sectors on disk.
@@ -61,29 +54,29 @@ type (
 		// Write writes a sector to persistent storage. release should only be
 		// called after the contract roots have been committed to prevent the
 		// sector from being deleted.
-		Write(root storage.SectorRoot, data []byte) (release func() error, _ error)
+		Write(root storage.SectorRoot, data *[rhpv2.SectorSize]byte) (release func() error, _ error)
 		// Read reads the sector with the given root from the manager.
-		Read(root storage.SectorRoot) ([]byte, error)
+		Read(root storage.SectorRoot) (*[rhpv2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 	}
 
 	// A ChainManager provides access to the current state of the blockchain.
 	ChainManager interface {
-		Tip() consensus.State
+		TipState() consensus.State
 	}
 
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
-		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error)
-		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
+		Address() types.Address
+		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
+		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
 	}
 
 	// A TransactionPool broadcasts transactions to the network.
 	TransactionPool interface {
 		AcceptTransactionSet([]types.Transaction) error
-		FeeEstimation() (min types.Currency, max types.Currency)
+		RecommendedFee() types.Currency
 	}
 
 	// A SettingsReporter reports the host's current configuration.
@@ -105,7 +98,7 @@ type (
 	// A SessionHandler handles the host side of the renter-host protocol and
 	// manages renter sessions
 	SessionHandler struct {
-		privateKey ed25519.PrivateKey
+		privateKey types.PrivateKey
 
 		listener net.Listener
 
@@ -122,47 +115,21 @@ type (
 
 // upgrade performs the RHP2 handshake and begins handling RPCs
 func (sh *SessionHandler) upgrade(conn net.Conn) error {
-	var req loopKeyExchangeRequest
-	if err := req.readFrom(conn); err != nil {
-		return fmt.Errorf("failed to read key exchange request: %w", err)
-	}
-
-	var supportsChaCha bool
-	for _, c := range req.Ciphers {
-		if c == cipherChaCha20Poly1305 {
-			supportsChaCha = true
-			break
-		}
-	}
-	if !supportsChaCha {
-		// note: ignore the write error since the connection will be closed
-		(&loopKeyExchangeResponse{
-			Cipher: cipherNoOverlap,
-		}).writeTo(conn)
-		return fmt.Errorf("renter does not support ChaCha20Poly1305")
-	}
-	xsk, xpk := crypto.GenerateX25519KeyPair()
-	sigHash := blake2b.Sum256(append(append(make([]byte, 0, len(req.PublicKey)+len(xpk)), req.PublicKey[:]...), xpk[:]...))
-	resp := &loopKeyExchangeResponse{
-		Cipher:    cipherChaCha20Poly1305,
-		PublicKey: xpk,
-		Signature: ed25519.Sign(sh.privateKey, sigHash[:]),
-	}
-	if err := resp.writeTo(conn); err != nil {
-		return fmt.Errorf("failed to write key exchange response: %w", err)
-	}
-
-	cipherKey := crypto.DeriveSharedSecret(xsk, req.PublicKey)
-	aead, _ := chacha20poly1305.New(cipherKey[:]) // no error possible
 	// wrap the conn with the bandwidth limiters
 	ingressLimiter, egressLimiter := sh.settings.BandwidthLimiters()
-	sess := &session{
-		conn:      newRPCConn(conn, ingressLimiter, egressLimiter),
-		aead:      aead,
-		metrics:   sh.metrics,
-		challenge: frand.Entropy128(),
+	conn = rhp.NewConn(conn, ingressLimiter, egressLimiter)
+
+	t, err := rhpv2.NewHostTransport(conn, sh.privateKey)
+	if err != nil {
+		return err
 	}
-	defer sess.Close()
+
+	sess := &session{
+		conn:    conn.(*rhp.Conn),
+		t:       t,
+		metrics: sh.metrics,
+	}
+	defer t.Close()
 
 	recordEnd := sh.recordSessionStart(sess)
 	defer recordEnd()
@@ -172,39 +139,27 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 		}
 	}()
 
-	// hack: cast challenge to Specifier to make it a ProtocolObject
-	if err := sess.writeMessage((*Specifier)(&sess.challenge)); err != nil {
-		return fmt.Errorf("failed to write challenge: %w", err)
-	}
-
 	for {
-		id, err := sess.ReadID()
-		if errors.Is(err, ErrRenterClosed) {
+		id, err := t.ReadID()
+		if errors.Is(err, rhpv2.ErrRenterClosed) {
 			return nil
 		} else if err != nil {
 			return fmt.Errorf("failed to read RPC ID: %w", err)
 		}
 
 		var rpcFn func(*session) error
-		switch id {
-		case rpcFormContractID:
-			rpcFn = sh.rpcFormContract
-		case rpcRenewClearContractID:
-			rpcFn = sh.rpcRenewAndClearContract
-		case rpcLockID:
-			rpcFn = sh.rpcLock
-		case rpcUnlockID:
-			rpcFn = sh.rpcUnlock
-		case rpcSectorRootsID:
-			rpcFn = sh.rpcSectorRoots
-		case rpcReadID:
-			rpcFn = sh.rpcRead
-		case rpcSettingsID:
-			rpcFn = sh.rpcSettings
-		case rpcWriteID:
-			rpcFn = sh.rpcWrite
-		default:
-			return sess.WriteError(fmt.Errorf("unknown RPC ID %q", id))
+		rpcFn, ok := map[types.Specifier]func(*session) error{
+			rhpv2.RPCFormContractID:       sh.rpcFormContract,
+			rhpv2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
+			rhpv2.RPCLockID:               sh.rpcLock,
+			rhpv2.RPCUnlockID:             sh.rpcUnlock,
+			rhpv2.RPCSectorRootsID:        sh.rpcSectorRoots,
+			rhpv2.RPCReadID:               sh.rpcRead,
+			rhpv2.RPCSettingsID:           sh.rpcSettings,
+			rhpv2.RPCWriteID:              sh.rpcWrite,
+		}[id]
+		if !ok {
+			return t.WriteResponseErr(fmt.Errorf("unknown RPC ID %q", id))
 		}
 		recordEnd := sh.recordRPC(id, sess)
 		err = rpcFn(sess)
@@ -221,21 +176,21 @@ func (sh *SessionHandler) Close() error {
 }
 
 // Settings returns the host's current settings
-func (sh *SessionHandler) Settings() (HostSettings, error) {
+func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 	settings, err := sh.settings.Settings()
 	if err != nil {
-		return HostSettings{}, fmt.Errorf("failed to get host settings: %w", err)
+		return rhpv2.HostSettings{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 	used, total, err := sh.storage.Usage()
 	if err != nil {
-		return HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
+		return rhpv2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
 	}
-	return HostSettings{
+	return rhpv2.HostSettings{
 		// protocol version
 		Version: Version,
 
 		// host info
-		UnlockHash:       sh.wallet.Address(),
+		Address:          sh.wallet.Address(),
 		NetAddress:       settings.NetAddress,
 		TotalStorage:     total,
 		RemainingStorage: total - used,
@@ -243,7 +198,7 @@ func (sh *SessionHandler) Settings() (HostSettings, error) {
 		// network defaults
 		MaxDownloadBatchSize: defaultBatchSize,
 		MaxReviseBatchSize:   defaultBatchSize,
-		SectorSize:           SectorSize,
+		SectorSize:           rhpv2.SectorSize,
 		WindowSize:           144,
 
 		// contract formation
@@ -275,7 +230,7 @@ func (sh *SessionHandler) Serve() error {
 		}
 		go func() {
 			ingress, egress := sh.settings.BandwidthLimiters()
-			if err := sh.upgrade(newRPCConn(conn, ingress, egress)); err != nil {
+			if err := sh.upgrade(rhp.NewConn(conn, ingress, egress)); err != nil {
 				log.Printf("failed to upgrade connection: %v", err)
 			}
 			conn.Close()
@@ -289,7 +244,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter) (*SessionHandler, error) {
+func NewSessionHandler(hostKey types.PrivateKey, addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter) (*SessionHandler, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on addr: %w", err)

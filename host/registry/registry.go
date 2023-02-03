@@ -1,12 +1,12 @@
 package registry
 
 import (
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"sync"
 
-	"go.sia.tech/siad/crypto"
+	rhpv3 "go.sia.tech/core/rhp/v3"
+	"go.sia.tech/core/types"
 )
 
 var (
@@ -21,9 +21,9 @@ type (
 	Store interface {
 		// Get returns the registry value for the given key. If the key is not
 		// found should return ErrEntryNotFound.
-		Get(crypto.Hash) (Value, error)
+		Get(types.Hash256) (rhpv3.RegistryEntry, error)
 		// Set sets the registry value for the given key.
-		Set(key crypto.Hash, value Value, expiration uint64) (Value, error)
+		Set(key types.Hash256, value rhpv3.RegistryEntry, expiration uint64) (rhpv3.RegistryEntry, error)
 		// Len returns the number of entries in the registry.
 		Len() uint64
 		// Cap returns the maximum number of entries the registry can hold.
@@ -34,7 +34,7 @@ type (
 
 	// A Manager manages registry entries stored in a RegistryStore.
 	Manager struct {
-		hostID crypto.Hash
+		hostID types.Hash256
 		store  Store
 
 		// registry entries must be locked while they are being modified
@@ -58,7 +58,7 @@ func (r *Manager) Len() uint64 {
 }
 
 // Get returns the registry value for the provided key.
-func (r *Manager) Get(key crypto.Hash) (Value, error) {
+func (r *Manager) Get(key types.Hash256) (rhpv3.RegistryEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.store.Get(key)
@@ -66,16 +66,16 @@ func (r *Manager) Get(key crypto.Hash) (Value, error) {
 
 // Put creates or updates the registry value for the provided key. If err is nil
 // the new value is returned, otherwise the previous value is returned.
-func (r *Manager) Put(value Value, expirationHeight uint64) (Value, error) {
+func (r *Manager) Put(value rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3.RegistryEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if err := validateValue(value); err != nil {
-		return Value{}, fmt.Errorf("invalid registry entry: %w", err)
+	if err := rhpv3.ValidateRegistryEntry(value); err != nil {
+		return rhpv3.RegistryEntry{}, fmt.Errorf("invalid registry entry: %w", err)
 	}
 
 	// get the current value.
-	key := value.Key()
+	key := value.RegistryKey.Hash()
 	old, err := r.store.Get(key)
 	// if the key doesn't exist, we don't need to validate it further.
 	if errors.Is(err, ErrEntryNotFound) {
@@ -87,7 +87,7 @@ func (r *Manager) Put(value Value, expirationHeight uint64) (Value, error) {
 		return old, fmt.Errorf("failed to get registry value: %w", err)
 	}
 
-	if err := validateUpdate(old, value, r.hostID); err != nil {
+	if err := rhpv3.ValidateRegistryUpdate(old, value, r.hostID); err != nil {
 		return old, fmt.Errorf("invalid registry update: %w", err)
 	}
 
@@ -95,9 +95,9 @@ func (r *Manager) Put(value Value, expirationHeight uint64) (Value, error) {
 }
 
 // NewManager returns a new registry manager.
-func NewManager(privkey ed25519.PrivateKey, store Store) *Manager {
+func NewManager(privkey types.PrivateKey, store Store) *Manager {
 	return &Manager{
-		hostID: HostID(privkey.Public().(ed25519.PublicKey)),
+		hostID: rhpv3.RegistryHostID(privkey.PublicKey()),
 		store:  store,
 	}
 }

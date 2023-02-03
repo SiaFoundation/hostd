@@ -2,29 +2,25 @@ package rhp
 
 import (
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"time"
 
-	"go.sia.tech/hostd/consensus"
+	"go.sia.tech/core/consensus"
+	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhpv3 "go.sia.tech/core/rhp/v3"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
-	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/rhp/v3/internal/mux"
-	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
+	"go.sia.tech/hostd/rhp"
 	"golang.org/x/time/rate"
 )
 
 const (
-	// SectorSize is the size of a sector in bytes.
-	SectorSize = 1 << 22 // 4 MiB
-
 	// Version is the current version of the RHP3 protocol.
 	Version = "2.0.0"
 )
@@ -32,9 +28,9 @@ const (
 type (
 	// An AccountManager manages deposits and withdrawals for accounts.
 	AccountManager interface {
-		Balance(accountID accounts.AccountID) (types.Currency, error)
-		Credit(accountID accounts.AccountID, amount types.Currency) (balance types.Currency, err error)
-		Budget(ctx context.Context, accountID accounts.AccountID, amount types.Currency) (accounts.Budget, error)
+		Balance(accountID rhpv3.Account) (types.Currency, error)
+		Credit(accountID rhpv3.Account, amount types.Currency) (balance types.Currency, err error)
+		Budget(ctx context.Context, accountID rhpv3.Account, amount types.Currency) (accounts.Budget, error)
 	}
 
 	// A ContractManager manages the set of contracts that the host is currently
@@ -47,11 +43,11 @@ type (
 		// Unlock unlocks the contract with the given ID.
 		Unlock(id types.FileContractID)
 
-		SectorRoots(id types.FileContractID) ([]crypto.Hash, error)
-		SetRoots(id types.FileContractID, roots []crypto.Hash) error
+		SectorRoots(id types.FileContractID) ([]types.Hash256, error)
+		SetRoots(id types.FileContractID, roots []types.Hash256) error
 
 		AddContract(revision contracts.SignedRevision, txnset []types.Transaction) error
-		ReviseContract(revision types.FileContractRevision, renterSig, hostSig []byte) error
+		ReviseContract(revision types.FileContractRevision, renterSig, hostSig types.Signature) error
 	}
 
 	// A RegistryManager manages registry entries stored in a RegistryStore.
@@ -59,8 +55,8 @@ type (
 		Cap() uint64
 		Len() uint64
 
-		Get(key crypto.Hash) (registry.Value, error)
-		Put(value registry.Value, expirationHeight uint64) (registry.Value, error)
+		Get(key types.Hash256) (rhpv3.RegistryValue, error)
+		Put(value rhpv3.RegistryValue, expirationHeight uint64) (rhpv3.RegistryValue, error)
 	}
 
 	// A StorageManager manages the storage of sectors on disk.
@@ -68,13 +64,13 @@ type (
 		Usage() (used, total uint64, _ error)
 
 		// HasSector returns true if the sector is stored on disk.
-		HasSector(crypto.Hash) (bool, error)
+		HasSector(types.Hash256) (bool, error)
 		// AddSector adds a sector to the storage manager.
-		AddSector(root crypto.Hash, sector []byte, refs int) error
+		AddSector(root types.Hash256, sector *[rhpv2.SectorSize]byte, refs int) error
 		// DeleteSector deletes the sector with the given root.
-		DeleteSector(root crypto.Hash, refs int) error
+		DeleteSector(root types.Hash256, refs int) error
 		// Sector reads a sector from the store
-		Sector(root crypto.Hash) ([]byte, error)
+		Sector(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
 	}
 
 	// A ChainManager provides access to the current state of the blockchain.
@@ -84,15 +80,15 @@ type (
 
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
-		Address() types.UnlockHash
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]crypto.Hash, func(), error)
-		SignTransaction(*types.Transaction, []crypto.Hash, types.CoveredFields) error
+		Address() types.Address
+		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.Hash256, func(), error)
+		SignTransaction(*types.Transaction, []types.Hash256, types.CoveredFields) error
 	}
 
 	// A TransactionPool broadcasts transactions to the network.
 	TransactionPool interface {
 		AcceptTransactionSet([]types.Transaction) error
-		FeeEstimation() (min types.Currency, max types.Currency)
+		RecommendedFee() types.Currency
 	}
 
 	// A SettingsReporter reports the host's current configuration.
@@ -114,7 +110,7 @@ type (
 	// A SessionHandler handles the host side of the renter-host protocol and
 	// manages renter sessions
 	SessionHandler struct {
-		privateKey ed25519.PrivateKey
+		privateKey types.PrivateKey
 
 		listener net.Listener
 
@@ -134,31 +130,29 @@ type (
 )
 
 // handleHostStream handles streams routed to the "host" subscriber
-func (sh *SessionHandler) handleHostStream(stream *mux.SubscriberStream) {
-	sess := &rpcSession{
-		stream: stream,
-	}
-	var rpcID Specifier
-	if err := sess.ReadObject(&rpcID, 16, 30*time.Second); err != nil {
+func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream) {
+	s.SetDeadline(time.Now().Add(30 * time.Second))
+	rpcID, err := s.ReadID()
+	s.SetDeadline(time.Time{})
+	if err != nil {
 		log.Println("failed to read RPC ID:", err)
 		return
 	}
 
-	var err error
 	switch rpcID {
-	case rpcAccountBalance:
-		err = sh.handleRPCAccountBalance(sess)
-	case rpcUpdatePriceTable:
-		err = sh.handleRPCPriceTable(sess)
-	case rpcExecuteProgram:
-		// err = sh.handleRPCExecute(sess)
-	case rpcFundAccount:
-		err = sh.handleRPCFundAccount(sess)
-	case rpcLatestRevision:
-		err = sh.handleRPCLatestRevision(sess)
-	case rpcRegistrySubscription:
-	case rpcFormContract:
-	case rpcRenewContract:
+	case rhpv3.RPCAccountBalanceID:
+		err = sh.handleRPCAccountBalance(s)
+	case rhpv3.RPCUpdatePriceTableID:
+		err = sh.handleRPCPriceTable(s)
+	case rhpv3.RPCExecuteProgramID:
+		// err = sh.handleRPCExecute(s)
+	case rhpv3.RPCFundAccountID:
+		err = sh.handleRPCFundAccount(s)
+	case rhpv3.RPCLatestRevisionID:
+		err = sh.handleRPCLatestRevision(s)
+	case rhpv3.RPCRegistrySubscriptionID:
+	case rhpv3.RPCFormContractID:
+	case rhpv3.RPCRenewContractID:
 	default:
 		err = fmt.Errorf("unrecognized RPC ID, %q", rpcID)
 	}
@@ -168,9 +162,8 @@ func (sh *SessionHandler) handleHostStream(stream *mux.SubscriberStream) {
 }
 
 // HostKey returns the host's ed25519 public key
-func (sh *SessionHandler) HostKey() types.SiaPublicKey {
-	pub := (*[32]byte)(sh.privateKey.Public().(ed25519.PublicKey))
-	return types.Ed25519PublicKey(*pub)
+func (sh *SessionHandler) HostKey() types.UnlockKey {
+	return sh.privateKey.PublicKey().UnlockKey()
 }
 
 // Close closes the session handler and stops accepting new connections.
@@ -188,25 +181,20 @@ func (sh *SessionHandler) Serve() error {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 		ingress, egress := sh.settings.BandwidthLimiters()
-		m, err := mux.AcceptSubscriber(newRPCConn(conn, ingress, egress), sh.privateKey)
+		t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, ingress, egress), sh.privateKey)
 		if err != nil {
 			return fmt.Errorf("failed to upgrade conn: %w", err)
 		}
 
 		go func() {
-			defer m.Close()
+			defer t.Close()
 
 			for {
-				stream, subscriber, err := m.AcceptSubscriberStream()
+				stream, err := t.AcceptStream()
 				if err != nil {
 					log.Println("failed to accept stream:", err)
 					return
-				} else if subscriber != "host" {
-					log.Println("unrecognized subscriber:", subscriber)
-					stream.Close()
-					continue
 				}
-
 				go sh.handleHostStream(stream)
 			}
 		}()
@@ -219,7 +207,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(hostKey ed25519.PrivateKey, addr string, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter) (*SessionHandler, error) {
+func NewSessionHandler(hostKey types.PrivateKey, addr string, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter) (*SessionHandler, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on addr: %w", err)

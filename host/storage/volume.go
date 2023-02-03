@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"io"
 	"sync"
-)
 
-const sectorSize = 1 << 22 // 4 MiB
+	rhpv2 "go.sia.tech/core/rhp/v2"
+)
 
 type (
 	// volumeData wraps the methods needed to read and write sector data to a
@@ -56,9 +56,9 @@ type (
 )
 
 // ReadSector reads the sector at index from the volume
-func (v *volume) ReadSector(index uint64) ([]byte, error) {
-	buf := make([]byte, sectorSize)
-	_, err := v.data.ReadAt(buf, int64(index*sectorSize))
+func (v *volume) ReadSector(index uint64) (*[rhpv2.SectorSize]byte, error) {
+	var sector [rhpv2.SectorSize]byte
+	_, err := v.data.ReadAt(sector[:], int64(index*rhpv2.SectorSize))
 	v.mu.Lock()
 	if err != nil {
 		v.stats.FailedReads++
@@ -70,12 +70,12 @@ func (v *volume) ReadSector(index uint64) ([]byte, error) {
 		v.stats.SuccessfulReads++
 	}
 	v.mu.Unlock()
-	return buf, err
+	return &sector, err
 }
 
 // WriteSector writes a sector to the volume at index
-func (v *volume) WriteSector(data []byte, index uint64) error {
-	_, err := v.data.WriteAt(data, int64(index*sectorSize))
+func (v *volume) WriteSector(data *[rhpv2.SectorSize]byte, index uint64) error {
+	_, err := v.data.WriteAt(data[:], int64(index*rhpv2.SectorSize))
 	v.mu.Lock()
 	if err != nil {
 		v.stats.FailedWrites++
@@ -105,7 +105,7 @@ func (v *volume) Sync() (err error) {
 }
 
 func (v *volume) Resize(sectors uint64) error {
-	return v.data.Truncate(int64(sectors * sectorSize))
+	return v.data.Truncate(int64(sectors * rhpv2.SectorSize))
 }
 
 // Close closes the volume

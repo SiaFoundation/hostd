@@ -1,13 +1,11 @@
 package contracts
 
 import (
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 
-	"go.sia.tech/hostd/internal/merkle"
-	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
+	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 )
 
 const (
@@ -30,8 +28,8 @@ type (
 	SignedRevision struct {
 		Revision types.FileContractRevision
 
-		HostSignature   []byte
-		RenterSignature []byte
+		HostSignature   types.Signature
+		RenterSignature types.Signature
 	}
 
 	// A Contract contains metadata on the current lifecycle stage of a file
@@ -62,7 +60,7 @@ type (
 	// A contractSectorAction defines an action to be performed on a contract's
 	// sectors.
 	contractSectorAction struct {
-		Root   crypto.Hash
+		Root   types.Hash256
 		A, B   uint64
 		Action sectorActionType
 	}
@@ -73,7 +71,7 @@ type (
 		store ContractStore
 
 		sectorActions []contractSectorAction
-		sectorRoots   []crypto.Hash
+		sectorRoots   []types.Hash256
 	}
 )
 
@@ -95,8 +93,8 @@ var (
 )
 
 // RenterKey returns the renter's public key.
-func (sr SignedRevision) RenterKey() ed25519.PublicKey {
-	return ed25519.PublicKey(sr.Revision.UnlockConditions.PublicKeys[0].Key)
+func (sr SignedRevision) RenterKey() types.PublicKey {
+	return *(*types.PublicKey)(sr.Revision.UnlockConditions.PublicKeys[0].Key)
 }
 
 // Signatures returns the host and renter transaction signatures for the
@@ -104,12 +102,12 @@ func (sr SignedRevision) RenterKey() ed25519.PublicKey {
 func (sr SignedRevision) Signatures() []types.TransactionSignature {
 	return []types.TransactionSignature{
 		{
-			ParentID:      crypto.Hash(sr.Revision.ParentID),
+			ParentID:      types.Hash256(sr.Revision.ParentID),
 			Signature:     sr.RenterSignature[:],
 			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 		},
 		{
-			ParentID:      crypto.Hash(sr.Revision.ParentID),
+			ParentID:      types.Hash256(sr.Revision.ParentID),
 			Signature:     sr.HostSignature[:],
 			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 		},
@@ -117,7 +115,7 @@ func (sr SignedRevision) Signatures() []types.TransactionSignature {
 }
 
 // AppendSector appends a sector to the contract.
-func (cu *ContractUpdater) AppendSector(root crypto.Hash) {
+func (cu *ContractUpdater) AppendSector(root types.Hash256) {
 	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
 		Root:   root,
 		Action: sectorActionAppend,
@@ -153,7 +151,7 @@ func (cu *ContractUpdater) TrimSectors(n uint64) error {
 }
 
 // UpdateSector updates the Merkle root of the sector at the given index.
-func (cu *ContractUpdater) UpdateSector(root crypto.Hash, i uint64) error {
+func (cu *ContractUpdater) UpdateSector(root types.Hash256, i uint64) error {
 	if i >= uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector index %v", i)
 	}
@@ -172,21 +170,21 @@ func (cu *ContractUpdater) SectorLength() uint64 {
 }
 
 // SectorRoot returns the Merkle root of the sector at the given index.
-func (cu *ContractUpdater) SectorRoot(i uint64) (crypto.Hash, error) {
+func (cu *ContractUpdater) SectorRoot(i uint64) (types.Hash256, error) {
 	if i >= uint64(len(cu.sectorRoots)) {
-		return crypto.Hash{}, fmt.Errorf("invalid sector index %v", i)
+		return types.Hash256{}, fmt.Errorf("invalid sector index %v", i)
 	}
 	return cu.sectorRoots[i], nil
 }
 
 // MerkleRoot returns the merkle root of the contract's sector roots.
-func (cu *ContractUpdater) MerkleRoot() crypto.Hash {
-	return merkle.MetaRoot(cu.sectorRoots)
+func (cu *ContractUpdater) MerkleRoot() types.Hash256 {
+	return rhpv2.MetaRoot(cu.sectorRoots)
 }
 
 // SectorRoots returns a copy of the current state of the contract's sector roots.
-func (cu *ContractUpdater) SectorRoots() []crypto.Hash {
-	return append([]crypto.Hash(nil), cu.sectorRoots...)
+func (cu *ContractUpdater) SectorRoots() []types.Hash256 {
+	return append([]types.Hash256(nil), cu.sectorRoots...)
 }
 
 // Commit atomically applies all changes to the contract to the store.
