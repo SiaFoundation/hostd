@@ -90,5 +90,7 @@ func TestTransportReadWriteCompat(t *testing.T) {
 	var resp smods.RPCUpdatePriceTableResponse
 	if err := smods.RPCRead(stream, &resp); err != nil {
 		t.Fatal(err)
+	} else if string(resp.PriceTableJSON) != "hello world" {
+		t.Fatal("unexpected response")
 	}
 }
