@@ -2,15 +2,11 @@ package storage
 
 import (
 	"errors"
+
+	"go.sia.tech/core/types"
 )
 
 type (
-	// A TempSectorUpdateTransaction atomically updates the temporary sector
-	// store.
-	TempSectorUpdateTransaction interface {
-		// AddTempSector adds a sector to the temporary sector store
-		AddTempSector(root SectorRoot, expirationHeight uint64) error
-	}
 
 	// A VolumeStore stores and retrieves information about storage volumes.
 	VolumeStore interface {
@@ -55,14 +51,14 @@ type (
 		//
 		// The sector should be referenced by either a contract or temp store
 		// before release is called to prevent Prune() from removing it.
-		StoreSector(root SectorRoot, fn func(loc SectorLocation, exists bool) error) (release func() error, err error)
+		StoreSector(root types.Hash256, fn func(loc SectorLocation, exists bool) error) (release func() error, err error)
 		// RemoveSector removes the metadata of a sector and returns its
 		// location in the volume.
-		RemoveSector(root SectorRoot) error
+		RemoveSector(root types.Hash256) error
 		// SectorLocation returns the location of a sector or an error if the
 		// sector is not found. The location is locked until release is
 		// called.
-		SectorLocation(root SectorRoot) (loc SectorLocation, release func() error, err error)
+		SectorLocation(root types.Hash256) (loc SectorLocation, release func() error, err error)
 		// Prune removes the metadata of all sectors that are no longer
 		// referenced by either a contract or temporary storage.
 		Prune() error

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 )
 
@@ -31,7 +32,7 @@ func (s *Store) unlockSectorFn(id uint64) func() error {
 
 // RemoveSector removes the metadata of a sector and returns its
 // location in the volume.
-func (s *Store) RemoveSector(root storage.SectorRoot) (err error) {
+func (s *Store) RemoveSector(root types.Hash256) (err error) {
 	var id uint64
 	const query = `UPDATE volume_sectors SET sector_root=null WHERE sector_root=$1 RETURNING id;`
 	err = s.db.QueryRow(query, valueHash(root)).Scan(&id)
@@ -44,7 +45,7 @@ func (s *Store) RemoveSector(root storage.SectorRoot) (err error) {
 // SectorLocation returns the location of a sector or an error if the
 // sector is not found. The location is locked until release is
 // called.
-func (s *Store) SectorLocation(root storage.SectorRoot) (loc storage.SectorLocation, release func() error, err error) {
+func (s *Store) SectorLocation(root types.Hash256) (loc storage.SectorLocation, release func() error, err error) {
 	var lockID uint64
 	err = s.exclusiveTransaction(func(tx txn) error {
 		err = s.db.QueryRow(`SELECT id, volume_id, volume_index FROM volume_sectors WHERE sector_root=?;`, valueHash(root)).Scan(&loc.ID, &loc.Volume, &loc.Index)

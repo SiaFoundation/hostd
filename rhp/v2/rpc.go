@@ -9,7 +9,6 @@ import (
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 )
 
@@ -476,7 +475,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 			sector := (*[rhpv2.SectorSize]byte)(action.Data)
 			root := rhpv2.SectorRoot(sector)
 
-			release, err := sh.storage.Write(storage.SectorRoot(root), sector)
+			release, err := sh.storage.Write(root, sector)
 			if err != nil {
 				return s.t.WriteResponseErr(fmt.Errorf("append action: failed to write sector: %w", err))
 			}
@@ -496,7 +495,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 				return s.t.WriteResponseErr(fmt.Errorf("update action: failed to get sector root: %w", err))
 			}
 
-			sector, err := sh.storage.Read(storage.SectorRoot(root))
+			sector, err := sh.storage.Read(root)
 			if err != nil {
 				s.t.WriteResponseErr(ErrHostInternalError)
 				return fmt.Errorf("failed to read sector %v: %w", root, err)
@@ -515,7 +514,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 			if err := contractUpdater.UpdateSector(newRoot, i); err != nil {
 				return s.t.WriteResponseErr(fmt.Errorf("update action: failed to update sector: %w", err))
 			}
-			release, err := sh.storage.Write(storage.SectorRoot(root), sector)
+			release, err := sh.storage.Write(root, sector)
 			if err != nil {
 				return s.t.WriteResponseErr(fmt.Errorf("append action: failed to write sector: %w", err))
 			}
@@ -674,7 +673,7 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 
 	// enter response loop
 	for i, sec := range req.Sections {
-		sector, err := sh.storage.Read(storage.SectorRoot(sec.MerkleRoot))
+		sector, err := sh.storage.Read(sec.MerkleRoot)
 		if err != nil {
 			return s.t.WriteResponseErr(fmt.Errorf("failed to get sector: %w", err))
 		}

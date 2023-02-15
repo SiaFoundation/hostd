@@ -11,7 +11,6 @@ import (
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/siad/modules"
 )
 
@@ -38,7 +37,7 @@ type (
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
 		// Read reads a sector from the store
-		Read(root storage.SectorRoot) (*[rhpv2.SectorSize]byte, error)
+		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
 	}
 
 	locker struct {

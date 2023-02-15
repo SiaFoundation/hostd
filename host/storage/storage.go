@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/threadgroup"
 )
 
@@ -18,7 +19,7 @@ type (
 		ID     uint64
 		Volume int
 		Index  uint64
-		Root   SectorRoot
+		Root   types.Hash256
 	}
 
 	// A VolumeManager manages storage using local volumes.
@@ -86,10 +87,11 @@ func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLoc
 // are synced after all sectors have been written.
 func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
 	for _, loc := range locations {
+		// read the sector from the old location
 		sector, err := vm.Read(loc.Root)
 		if err != nil {
 			return fmt.Errorf("failed to read sector %v: %w", loc.Root, err)
-		} else if err := vm.writeSector(sector, loc); err != nil {
+		} else if err := vm.writeSector(sector, loc); err != nil { // write the sector to the new location
 			return fmt.Errorf("failed to write sector %v to %v:%v: %w", loc.Root, loc.Volume, loc.Index, err)
 		}
 	}
@@ -362,7 +364,7 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
 }
 
 // RemoveSector deletes a sector's metadata and zeroes its data.
-func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
+func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return err
@@ -400,7 +402,7 @@ func (vm *VolumeManager) RemoveSector(root SectorRoot) error {
 // LockSector prevents the sector with the given root from being pruned. If the
 // sector does not exist, an error is returned. Release must be called when the
 // sector is no longer needed.
-func (vm *VolumeManager) LockSector(root SectorRoot) (func() error, error) {
+func (vm *VolumeManager) LockSector(root types.Hash256) (func() error, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
@@ -411,7 +413,7 @@ func (vm *VolumeManager) LockSector(root SectorRoot) (func() error, error) {
 }
 
 // Read reads the sector with the given root
-func (vm *VolumeManager) Read(root SectorRoot) (*[rhpv2.SectorSize]byte, error) {
+func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
@@ -464,7 +466,7 @@ func (vm *VolumeManager) Sync() error {
 
 // Write writes a sector to a volume. release should only be called after the
 // contract roots have been committed to prevent the sector from being deleted.
-func (vm *VolumeManager) Write(root SectorRoot, data *[rhpv2.SectorSize]byte) (release func() error, _ error) {
+func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (release func() error, _ error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err

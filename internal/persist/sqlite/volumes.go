@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 )
 
@@ -80,7 +81,7 @@ WHERE v.id=$1`
 //
 // The sector should be referenced by either a contract or temp store
 // before release is called to prevent Prune() from removing it.
-func (s *Store) StoreSector(root storage.SectorRoot, fn func(loc storage.SectorLocation, exists bool) error) (release func() error, err error) {
+func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation, exists bool) error) (release func() error, err error) {
 	// SQLite sorts nulls first -- sort by sector_root DESC, volume_index
 	// ASC to push the existing index to the top.
 	const locQuery = `SELECT s.id, s.volume_id, s.volume_index, s.sector_root IS NOT NULL AS sector_exists

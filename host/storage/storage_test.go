@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/persist/sqlite"
 	"lukechampine.com/frand"
@@ -89,7 +90,7 @@ func TestRemoveVolume(t *testing.T) {
 	if _, err := frand.Read(sector[:256]); err != nil {
 		t.Fatal(err)
 	}
-	root := storage.SectorRoot(rhpv2.SectorRoot(&sector))
+	root := rhpv2.SectorRoot(&sector)
 
 	// write the sector
 	release, err := vm.Write(root, &sector)
@@ -192,14 +193,14 @@ func TestVolumeShrink(t *testing.T) {
 		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
 	}
 
-	roots := make([]storage.SectorRoot, 0, sectors)
+	roots := make([]types.Hash256, 0, sectors)
 	// fill the volume
 	for i := 0; i < cap(roots); i++ {
 		var sector [rhpv2.SectorSize]byte
 		if _, err := frand.Read(sector[:256]); err != nil {
 			t.Fatal(err)
 		}
-		root := storage.SectorRoot(rhpv2.SectorRoot(&sector))
+		root := rhpv2.SectorRoot(&sector)
 		release, err := vm.Write(root, &sector)
 		if err != nil {
 			t.Fatal(i, err)
@@ -315,14 +316,14 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
 	}
 
-	roots := make([]storage.SectorRoot, 0, sectors)
+	roots := make([]types.Hash256, 0, sectors)
 	// fill the volume
 	for i := 0; i < cap(roots); i++ {
 		var sector [rhpv2.SectorSize]byte
 		if _, err := frand.Read(sector[:256]); err != nil {
 			t.Fatal(err)
 		}
-		root := storage.SectorRoot(rhpv2.SectorRoot(&sector))
+		root := rhpv2.SectorRoot(&sector)
 		release, err := vm.Write(root, &sector)
 		if err != nil {
 			t.Fatal(i, err)
@@ -349,7 +350,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		retrievedRoot := storage.SectorRoot(rhpv2.SectorRoot(sector))
+		retrievedRoot := rhpv2.SectorRoot(sector)
 		if retrievedRoot != root {
 			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
 		}
@@ -387,7 +388,7 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var sector [rhpv2.SectorSize]byte
 		frand.Read(sector[:256])
-		root := storage.SectorRoot(rhpv2.SectorRoot(&sector))
+		root := rhpv2.SectorRoot(&sector)
 		release, err := vm.Write(root, &sector)
 		if err != nil {
 			b.Fatal(i, err)
@@ -421,11 +422,11 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	}
 
 	// fill the volume
-	written := make([]storage.SectorRoot, 0, b.N)
+	written := make([]types.Hash256, 0, b.N)
 	for i := 0; i < b.N; i++ {
 		var sector [rhpv2.SectorSize]byte
 		frand.Read(sector[:256])
-		root := storage.SectorRoot(rhpv2.SectorRoot(&sector))
+		root := rhpv2.SectorRoot(&sector)
 		release, err := vm.Write(root, &sector)
 		if err != nil {
 			b.Fatal(i, err)
@@ -443,5 +444,58 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 		if _, err := vm.Read(root); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func BenchmarkVolumeRemove(b *testing.B) {
+	dir := b.TempDir()
+
+	// create the database
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
+	volume1, err := vm.AddVolume(volumeFilePath, uint64(b.N))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// fill the volume
+	for i := 0; i < b.N; i++ {
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhpv2.SectorRoot(&sector)
+		release, err := vm.Write(root, &sector)
+		if err != nil {
+			b.Fatal(i, err)
+		} else if err := release(); err != nil {
+			b.Fatal(i, err)
+		}
+	}
+
+	// add a new volume
+	volume2FilePath := filepath.Join(b.TempDir(), "hostdata2.dat")
+	_, err = vm.AddVolume(volume2FilePath, uint64(b.N))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.SetBytes(rhpv2.SectorSize)
+
+	// migrate the sectors
+	if err := vm.RemoveVolume(volume1.ID, false); err != nil {
+		b.Fatal(err)
 	}
 }

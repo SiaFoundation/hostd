@@ -11,7 +11,7 @@ require (
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
 	go.sia.tech/core v0.1.7
 	go.sia.tech/mux v1.1.1
-	go.sia.tech/renterd v0.0.0-20230203174634-267812a549cd
+	go.sia.tech/renterd v0.0.0-20230215150045-824643b00d73
 	go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db
 	golang.org/x/crypto v0.5.0 // indirect
 	golang.org/x/sys v0.5.0 // indirect

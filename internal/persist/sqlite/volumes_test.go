@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 	"lukechampine.com/frand"
 )
@@ -395,7 +396,7 @@ func TestMigrateSectors(t *testing.T) {
 	}
 
 	// store enough sectors to fill the volume
-	roots := make([]storage.SectorRoot, initialSectors)
+	roots := make([]types.Hash256, initialSectors)
 	for i := range roots {
 		root := frand.Entropy256()
 		roots[i] = root

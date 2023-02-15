@@ -6,7 +6,6 @@ import (
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/storage"
 )
 
 // An action determines what lifecycle event should be performed on a contract.
@@ -30,7 +29,7 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 		return types.StorageProof{}, err
 	}
 	root := roots[sectorIndex]
-	sector, err := cm.storage.Read(storage.SectorRoot(root))
+	sector, err := cm.storage.Read(root)
 	if err != nil {
 		return types.StorageProof{}, err
 	}

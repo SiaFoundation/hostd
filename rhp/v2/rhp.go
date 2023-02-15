@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"golang.org/x/time/rate"
 )
@@ -54,9 +53,9 @@ type (
 		// Write writes a sector to persistent storage. release should only be
 		// called after the contract roots have been committed to prevent the
 		// sector from being deleted.
-		Write(root storage.SectorRoot, data *[rhpv2.SectorSize]byte) (release func() error, _ error)
+		Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (release func() error, _ error)
 		// Read reads the sector with the given root from the manager.
-		Read(root storage.SectorRoot) (*[rhpv2.SectorSize]byte, error)
+		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 	}
