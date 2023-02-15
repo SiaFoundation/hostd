@@ -9,12 +9,12 @@ require (
 	gitlab.com/NebulousLabs/fastrand v0.0.0-20181126182046-603482d69e40 // indirect
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
-	go.sia.tech/core v0.1.6-0.20230204014433-a941639f03b6
-	go.sia.tech/mux v1.1.1-0.20230119180453-05591decec67
+	go.sia.tech/core v0.1.7
+	go.sia.tech/mux v1.1.1
 	go.sia.tech/renterd v0.0.0-20230203174634-267812a549cd
 	go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db
 	golang.org/x/crypto v0.5.0 // indirect
-	golang.org/x/sys v0.4.0 // indirect
+	golang.org/x/sys v0.5.0 // indirect
 	golang.org/x/term v0.4.0
 	golang.org/x/time v0.3.0
 	lukechampine.com/frand v1.4.2
@@ -32,8 +32,8 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.7.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.2 // indirect
-	github.com/klauspost/reedsolomon v1.11.3 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
+	github.com/klauspost/reedsolomon v1.11.7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	gitlab.com/NebulousLabs/bolt v1.4.4 // indirect
 	gitlab.com/NebulousLabs/demotemutex v0.0.0-20151003192217-235395f71c40 // indirect
@@ -54,7 +54,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.12.0 // indirect
 	go.opentelemetry.io/otel/trace v1.12.0 // indirect
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
-	go.sia.tech/jape v0.7.0 // indirect
+	go.sia.tech/jape v0.8.1-0.20230215161333-94c8e9eb7186 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	go.uber.org/zap v1.24.0 // indirect
