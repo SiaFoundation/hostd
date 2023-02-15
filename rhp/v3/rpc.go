@@ -1,6 +1,7 @@
 package rhp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,7 +9,9 @@ import (
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/mux/v1"
+	"lukechampine.com/frand"
 )
 
 var (
@@ -181,5 +184,69 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream) error {
 }
 
 func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
+	return nil
+}
+
+// handleRPCExecute handles an RPCExecuteProgram request.
+func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
+	// read the price table
+	pt, err := sh.readPriceTable(s)
+	if err != nil {
+		return s.WriteResponseErr(fmt.Errorf("failed to read price table: %w", err))
+	}
+
+	// create the program budget
+	budget, err := sh.processPayment(s)
+	if err != nil {
+		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
+	}
+	defer budget.Rollback()
+
+	// read the program request
+	var executeReq rhpv3.RPCExecuteProgramRequest
+	if err := s.ReadRequest(&executeReq, 4096); err != nil {
+		return fmt.Errorf("failed to read execute request: %w", err)
+	}
+	instructions := executeReq.Program
+
+	var requiresContract, requiresFinalization bool
+	for _, instr := range instructions {
+		requiresContract = requiresContract || instr.RequiresContract()
+		requiresFinalization = requiresFinalization || instr.RequiresFinalization()
+	}
+
+	// if the program requires a contract, lock it
+	var contract contracts.SignedRevision
+	if requiresContract || requiresFinalization {
+		if executeReq.FileContractID == (types.FileContractID{}) {
+			return s.WriteResponseErr(ErrContractRequired)
+		}
+
+		contract, err = sh.contracts.Lock(executeReq.FileContractID, 30*time.Second)
+		if err != nil {
+			return s.WriteResponseErr(fmt.Errorf("failed to lock contract: %w", err))
+		}
+		defer sh.contracts.Unlock(contract.Revision.ParentID)
+	}
+
+	// generate a cancellation token and write it to the stream. Currently just
+	// a placeholder.
+	cancelToken := types.Specifier(frand.Entropy128())
+	if err := s.WriteResponse(&cancelToken); err != nil {
+		return fmt.Errorf("failed to write cancel token: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// create the program executor
+	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, contract.Revision, requiresFinalization)
+	if err != nil {
+		s.WriteResponseErr(ErrHostInternalError)
+		return fmt.Errorf("failed to create program executor: %w", err)
+	} else if err := executor.Execute(ctx, s); err != nil {
+		return s.WriteResponseErr(fmt.Errorf("failed to execute program: %w", err))
+	}
+
 	return nil
 }

@@ -8,18 +8,66 @@ import (
 	"go.sia.tech/core/types"
 )
 
-// HashRevision returns the hash of rev.
-func HashRevision(rev types.FileContractRevision) types.Hash256 {
-	h := types.NewHasher()
-	rev.EncodeTo(h.E)
-	return h.Sum()
-}
-
 func contractUnlockConditions(hostKey, renterKey types.UnlockKey) types.UnlockConditions {
 	return types.UnlockConditions{
 		PublicKeys:         []types.UnlockKey{renterKey, hostKey},
 		SignaturesRequired: 2,
 	}
+}
+
+// validateStdRevision verifies that a new revision is valid given the current
+// revision. Only the revision number and proof output values are allowed to
+// change
+func validateStdRevision(current, revision types.FileContractRevision) error {
+	var oldPayout, validPayout, missedPayout types.Currency
+	for _, o := range current.ValidProofOutputs {
+		oldPayout = oldPayout.Add(o.Value)
+	}
+	for i := range revision.ValidProofOutputs {
+		if revision.ValidProofOutputs[i].Address != current.ValidProofOutputs[i].Address {
+			return fmt.Errorf("valid proof output %v address should not change", i)
+		}
+		validPayout = validPayout.Add(revision.ValidProofOutputs[i].Value)
+	}
+	for i := range revision.MissedProofOutputs {
+		if revision.MissedProofOutputs[i].Address != current.MissedProofOutputs[i].Address {
+			return fmt.Errorf("missed proof output %v address should not change", i)
+		}
+		missedPayout = missedPayout.Add(revision.MissedProofOutputs[i].Value)
+	}
+
+	switch {
+	case validPayout.Cmp(oldPayout) != 0:
+		return errors.New("valid proof output sum must not change")
+	case missedPayout.Cmp(oldPayout) != 0:
+		return errors.New("missed proof output sum must not change")
+	case revision.UnlockHash != current.UnlockHash:
+		return errors.New("unlock hash must not change")
+	case revision.UnlockConditions.UnlockHash() != current.UnlockConditions.UnlockHash():
+		return errors.New("unlock conditions must not change")
+	case revision.RevisionNumber <= current.RevisionNumber:
+		return errors.New("revision number must increase")
+	case revision.WindowStart != current.WindowStart:
+		return errors.New("window start must not change")
+	case revision.WindowEnd != current.WindowEnd:
+		return errors.New("window end must not change")
+	case len(revision.ValidProofOutputs) != len(current.ValidProofOutputs):
+		return errors.New("valid proof outputs must not change")
+	case len(revision.MissedProofOutputs) != len(current.MissedProofOutputs):
+		return errors.New("missed proof outputs must not change")
+	case revision.ValidProofOutputs[0].Value.Cmp(current.ValidProofOutputs[0].Value) > 0:
+		return errors.New("renter valid proof output must not increase")
+	case revision.MissedProofOutputs[0].Value.Cmp(current.MissedProofOutputs[0].Value) > 0:
+		return errors.New("renter missed proof output must not increase")
+	}
+	return nil
+}
+
+// HashRevision returns the hash of rev.
+func HashRevision(rev types.FileContractRevision) types.Hash256 {
+	h := types.NewHasher()
+	rev.EncodeTo(h.E)
+	return h.Sum()
 }
 
 // InitialRevision returns the first revision of a file contract formation
@@ -46,6 +94,8 @@ func InitialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey t
 func Revise(revision types.FileContractRevision, revisionNumber uint64, validOutputs, missedOutputs []types.Currency) (types.FileContractRevision, error) {
 	if len(validOutputs) != len(revision.ValidProofOutputs) || len(missedOutputs) != len(revision.MissedProofOutputs) {
 		return types.FileContractRevision{}, errors.New("incorrect number of outputs")
+	} else if revisionNumber <= revision.RevisionNumber {
+		return types.FileContractRevision{}, fmt.Errorf("revision number must be greater than %v", revision.RevisionNumber)
 	}
 	revision.RevisionNumber = revisionNumber
 	oldValid, oldMissed := revision.ValidProofOutputs, revision.MissedProofOutputs
@@ -182,53 +232,72 @@ func ValidateClearingRevision(current, final types.FileContractRevision) error {
 // revision. Only the revision number and proof output values are allowed to
 // change
 func ValidateRevision(current, revision types.FileContractRevision, payment, collateral types.Currency) error {
-	var oldPayout, validPayout, missedPayout types.Currency
-	for _, o := range current.ValidProofOutputs {
-		oldPayout = oldPayout.Add(o.Value)
-	}
-	for i := range revision.ValidProofOutputs {
-		if revision.ValidProofOutputs[i].Address != current.ValidProofOutputs[i].Address {
-			return fmt.Errorf("valid proof output %v address should not change", i)
-		}
-		validPayout = validPayout.Add(revision.ValidProofOutputs[i].Value)
-	}
-	for i := range revision.MissedProofOutputs {
-		if revision.MissedProofOutputs[i].Address != current.MissedProofOutputs[i].Address {
-			return fmt.Errorf("missed proof output %v address should not change", i)
-		}
-		missedPayout = missedPayout.Add(revision.MissedProofOutputs[i].Value)
+	if err := validateStdRevision(current, revision); err != nil {
+		return err
 	}
 
+	if current.ValidProofOutputs[0].Value.Cmp(payment) < 0 {
+		return errors.New("renter valid proof output must be greater than the payment amount")
+	} else if current.MissedProofOutputs[0].Value.Cmp(payment) < 0 {
+		return errors.New("renter missed proof output must be greater than the payment amount")
+	} else if current.MissedProofOutputs[1].Value.Cmp(collateral) < 0 {
+		return errors.New("host missed proof output must be greater than the collateral amount")
+	}
+
+	// calculate the minimum and maximum values for the host valid and missed
+	// outputs.
 	minValid := current.ValidProofOutputs[1].Value.Add(payment)
 	maxMissed := current.MissedProofOutputs[1].Value.Sub(collateral)
 
+	// validate that the host is being paid sufficiently and not burning
+	// too much collateral.
+	if revision.ValidProofOutputs[1].Value.Cmp(minValid) < 0 {
+		return fmt.Errorf("insufficient host valid payment: expected value at least %v, got %v", minValid.ExactString(), revision.ValidProofOutputs[1].Value.ExactString())
+	} else if revision.MissedProofOutputs[1].Value.Cmp(maxMissed) > 0 {
+		return fmt.Errorf("too much collateral transfer: expected value at most %v, got %v", maxMissed.ExactString(), revision.MissedProofOutputs[1].Value.ExactString())
+	}
+	return nil
+}
+
+// ValidateProgramRevision verifies that a contract program revision is valid
+// and only the missed host output value is modified by the expected burn amount
+// all other usage will have been paid for by the RPC budget.
+func ValidateProgramRevision(current, revision types.FileContractRevision, storage, collateral types.Currency) error {
+	if err := validateStdRevision(current, revision); err != nil {
+		return err
+	}
+
+	expectedBurn := storage.Add(collateral)
+	if expectedBurn.Cmp(current.MissedProofOutputs[1].Value) > 0 {
+		return errors.New("expected burn amount is greater than the missed host output value")
+	}
+	// validate that the burn amount was subtracted from the host's missed proof
+	// output
+	maxMissedHostValue := current.MissedProofOutputs[1].Value.Sub(expectedBurn)
+	if revision.MissedProofOutputs[1].Value.Cmp(maxMissedHostValue) < 0 {
+		return fmt.Errorf("host expected to burn at most %v, but burned %v", maxMissedHostValue.ExactString(), revision.MissedProofOutputs[1].Value.ExactString())
+	}
+	return nil
+}
+
+// ValidatePaymentRevision verifies that a payment revision is valid and the
+// amount is properly deducted from both renter outputs and added to both host
+// outputs. Signatures are not validated.
+func ValidatePaymentRevision(current, revision types.FileContractRevision, payment types.Currency) error {
+	if err := validateStdRevision(current, revision); err != nil {
+		return err
+	}
+	// validate that all outputs are consistent with only transferring the
+	// payment from the renter payouts to the host payouts.
 	switch {
-	case validPayout.Cmp(oldPayout) != 0:
-		return errors.New("valid proof output sum must not change")
-	case missedPayout.Cmp(oldPayout) != 0:
-		return errors.New("missed proof output sum must not change")
-	case revision.UnlockHash != current.UnlockHash:
-		return errors.New("unlock hash must not change")
-	case revision.UnlockConditions.UnlockHash() != current.UnlockConditions.UnlockHash():
-		return errors.New("unlock conditions must not change")
-	case revision.RevisionNumber <= current.RevisionNumber:
-		return errors.New("revision number must increase")
-	case revision.WindowStart != current.WindowStart:
-		return errors.New("window start must not change")
-	case revision.WindowEnd != current.WindowEnd:
-		return errors.New("window end must not change")
-	case len(revision.ValidProofOutputs) != len(current.ValidProofOutputs):
-		return errors.New("valid proof outputs must not change")
-	case len(revision.MissedProofOutputs) != len(current.MissedProofOutputs):
-		return errors.New("missed proof outputs must not change")
-	case revision.ValidProofOutputs[0].Value.Cmp(current.ValidProofOutputs[0].Value) > 0:
-		return errors.New("renter valid proof output must not increase")
-	case revision.MissedProofOutputs[0].Value.Cmp(current.MissedProofOutputs[0].Value) > 0:
-		return errors.New("renter missed proof output must not increase")
-	case revision.ValidProofOutputs[1].Value.Cmp(minValid) < 0:
-		return fmt.Errorf("insufficient host valid payment: expected value at least %v, got %v", minValid, revision.ValidProofOutputs[1].Value)
-	case revision.MissedProofOutputs[1].Value.Cmp(maxMissed) > 0:
-		return fmt.Errorf("too much collateral transfer: expected value at most %v, got %v", maxMissed, revision.MissedProofOutputs[1].Value)
+	case revision.ValidProofOutputs[0].Value.Cmp(current.ValidProofOutputs[0].Value.Sub(payment)) != 0:
+		return errors.New("renter valid proof output is not reduced by the payment amount")
+	case revision.MissedProofOutputs[0].Value.Cmp(current.MissedProofOutputs[0].Value.Sub(payment)) != 0:
+		return errors.New("renter missed proof output is not reduced by the payment amount")
+	case revision.ValidProofOutputs[1].Value.Cmp(current.ValidProofOutputs[1].Value.Add(payment)) != 0:
+		return errors.New("host valid proof output is not increased by the payment amount")
+	case revision.MissedProofOutputs[1].Value.Cmp(current.MissedProofOutputs[1].Value.Add(payment)) != 0:
+		return errors.New("host missed proof output is not increased by the payment amount")
 	}
 	return nil
 }

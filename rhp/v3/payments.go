@@ -9,6 +9,7 @@ import (
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
+	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
 )
 
@@ -31,9 +32,15 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	if err != nil {
 		return nil, s.WriteResponseErr(fmt.Errorf("failed to revise contract: %w", err))
 	}
+
+	// calculate the funding amount
+	if revision.ValidProofOutputs[0].Value.Cmp(current.ValidProofOutputs[0].Value) < 0 {
+		return nil, s.WriteResponseErr(errors.New("invalid payment revision: new valid proof output is less than current valid proof output"))
+	}
+	fundAmount := revision.ValidProofOutputs[0].Value.Sub(current.ValidProofOutputs[0].Value)
+
 	// validate that new revision
-	fundAmount, err := validatePaymentRevision(current, revision)
-	if err != nil {
+	if err := rhp.ValidatePaymentRevision(current, revision, fundAmount); err != nil {
 		return nil, s.WriteResponseErr(fmt.Errorf("invalid payment revision: %w", err))
 	}
 
@@ -51,7 +58,16 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 
 	// update the host signature and the contract
 	hostSig := sh.privateKey.SignHash(sigHash)
-	if err := sh.contracts.ReviseContract(revision, req.Signature, hostSig); err != nil {
+	signedRevision := contracts.SignedRevision{
+		Revision:        revision,
+		HostSignature:   hostSig,
+		RenterSignature: req.Signature,
+	}
+	updater, err := sh.contracts.ReviseContract(req.ContractID)
+	if err != nil {
+		s.WriteResponseErr(ErrHostInternalError)
+		return nil, fmt.Errorf("failed to create contract revision updater: %w", err)
+	} else if err := updater.Commit(signedRevision); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return nil, fmt.Errorf("failed to update stored contract revision: %w", err)
 	}

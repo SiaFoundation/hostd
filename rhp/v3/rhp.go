@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
-	rhpv2 "go.sia.tech/core/rhp/v2"
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
@@ -17,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/rhp"
+	"go.sia.tech/siad/crypto"
 	"golang.org/x/time/rate"
 )
 
@@ -43,11 +43,33 @@ type (
 		// Unlock unlocks the contract with the given ID.
 		Unlock(id types.FileContractID)
 
-		SectorRoots(id types.FileContractID) ([]types.Hash256, error)
-		SetRoots(id types.FileContractID, roots []types.Hash256) error
+		// AddContract adds a new contract to the manager.
+		AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		// RenewContract renews an existing contract.
+		RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		// ReviseContract atomically revises a contract and its sector roots
+		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
-		AddContract(revision contracts.SignedRevision, txnset []types.Transaction) error
-		ReviseContract(revision types.FileContractRevision, renterSig, hostSig types.Signature) error
+		// SectorRoots returns the sector roots of the contract with the given ID.
+		SectorRoots(id types.FileContractID, limit, offset uint64) ([]crypto.Hash, error)
+	}
+
+	// A StorageManager manages the storage of sectors on disk.
+	StorageManager interface {
+		Usage() (used, total uint64, _ error)
+
+		// LockSector locks the sector with the given root. If the sector does not
+		// exist, an error is returned. Release must be called when the sector is no
+		// longer needed.
+		LockSector(root types.Hash256) (func() error, error)
+		// Write writes a sector to persistent storage. release should only be
+		// called after the contract roots have been committed to prevent the
+		// sector from being deleted.
+		Write(root types.Hash256, data []byte) (release func() error, _ error)
+		// Read reads the sector with the given root from the manager.
+		Read(root types.Hash256) ([]byte, error)
+		// Sync syncs the data files of changed volumes.
+		Sync() error
 	}
 
 	// A RegistryManager manages registry entries stored in a RegistryStore.
@@ -57,20 +79,6 @@ type (
 
 		Get(key types.Hash256) (rhpv3.RegistryValue, error)
 		Put(value rhpv3.RegistryValue, expirationHeight uint64) (rhpv3.RegistryValue, error)
-	}
-
-	// A StorageManager manages the storage of sectors on disk.
-	StorageManager interface {
-		Usage() (used, total uint64, _ error)
-
-		// HasSector returns true if the sector is stored on disk.
-		HasSector(types.Hash256) (bool, error)
-		// AddSector adds a sector to the storage manager.
-		AddSector(root types.Hash256, sector *[rhpv2.SectorSize]byte, refs int) error
-		// DeleteSector deletes the sector with the given root.
-		DeleteSector(root types.Hash256, refs int) error
-		// Sector reads a sector from the store
-		Sector(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
 	}
 
 	// A ChainManager provides access to the current state of the blockchain.
@@ -129,6 +137,41 @@ type (
 	}
 )
 
+var (
+	// ErrNoContractLocked is returned when a contract revision is attempted
+	// without a contract being locked.
+	ErrNoContractLocked = errors.New("no contract locked")
+	// ErrContractRevisionLimit is returned when a contract revision would
+	// exceed the maximum revision number.
+	ErrContractRevisionLimit = errors.New("max revision number reached")
+	// ErrContractProofWindowStarted is returned when a contract revision is
+	// attempted after the proof window has started.
+	ErrContractProofWindowStarted = errors.New("proof window has started")
+	// ErrContractExpired is returned when a contract revision is attempted
+	// after the contract has expired.
+	ErrContractExpired = errors.New("contract has expired")
+
+	// ErrInvalidSectorLength is returned when a sector is not the correct
+	// length.
+	ErrInvalidSectorLength = errors.New("length of sector data must be exactly 4MiB")
+
+	// ErrTrimOutOfBounds is returned when a trim operation exceeds the total
+	// number of sectors
+	ErrTrimOutOfBounds = errors.New("trim size exceeds number of sectors")
+	// ErrSwapOutOfBounds is returned when one of the swap indices exceeds the
+	// total number of sectors
+	ErrSwapOutOfBounds = errors.New("swap index is out of bounds")
+	// ErrUpdateOutOfBounds is returned when the update index exceeds the total
+	// number of sectors
+	ErrUpdateOutOfBounds = errors.New("update index is out of bounds")
+	// ErrOffsetOutOfBounds is returned when the offset exceeds and length
+	// exceed the sector size.
+	ErrOffsetOutOfBounds = errors.New("update section is out of bounds")
+	// ErrUpdateProofSize is returned when a proof is requested for an update
+	// operation that is not a multiple of 64 bytes.
+	ErrUpdateProofSize = errors.New("update section is not a multiple of the segment size")
+)
+
 // handleHostStream handles streams routed to the "host" subscriber
 func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream) {
 	s.SetDeadline(time.Now().Add(30 * time.Second))
@@ -145,7 +188,7 @@ func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream) {
 	case rhpv3.RPCUpdatePriceTableID:
 		err = sh.handleRPCPriceTable(s)
 	case rhpv3.RPCExecuteProgramID:
-		// err = sh.handleRPCExecute(s)
+		err = sh.handleRPCExecute(s)
 	case rhpv3.RPCFundAccountID:
 		err = sh.handleRPCFundAccount(s)
 	case rhpv3.RPCLatestRevisionID:
