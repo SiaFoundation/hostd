@@ -35,7 +35,7 @@ func (s *Store) unlockSectorFn(id uint64) func() error {
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
 	var id uint64
 	const query = `UPDATE volume_sectors SET sector_root=null WHERE sector_root=$1 RETURNING id;`
-	err = s.db.QueryRow(query, valueHash(root)).Scan(&id)
+	err = s.db.QueryRow(query, sqlHash256(root)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.ErrSectorNotFound
 	}
@@ -47,8 +47,8 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 // called.
 func (s *Store) SectorLocation(root types.Hash256) (loc storage.SectorLocation, release func() error, err error) {
 	var lockID uint64
-	err = s.exclusiveTransaction(func(tx txn) error {
-		err = s.db.QueryRow(`SELECT id, volume_id, volume_index FROM volume_sectors WHERE sector_root=?;`, valueHash(root)).Scan(&loc.ID, &loc.Volume, &loc.Index)
+	err = s.transaction(func(tx txn) error {
+		err = s.db.QueryRow(`SELECT id, volume_id, volume_index FROM volume_sectors WHERE sector_root=?;`, sqlHash256(root)).Scan(&loc.ID, &loc.Volume, &loc.Index)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrSectorNotFound
 		} else if err != nil {

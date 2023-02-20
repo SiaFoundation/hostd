@@ -7,12 +7,15 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // import sqlite3 driver
+	"go.uber.org/zap"
 )
 
+const longQueryDuration = 10 * time.Millisecond
+
 type (
-	// A row is a common interface for scanning either sql.Rows or sql.Row.
-	row interface {
-		Scan(dest ...any) error
+	// A scanner is an interface that wraps the Scan method of sql.Rows and sql.Row
+	scanner interface {
+		Scan(dest ...interface{}) error
 	}
 
 	// A txn is an interface for executing queries within a transaction.
@@ -24,7 +27,7 @@ type (
 		// Multiple queries or executions may be run concurrently from the
 		// returned statement. The caller must call the statement's Close method
 		// when the statement is no longer needed.
-		Prepare(query string) (*sql.Stmt, error)
+		Prepare(query string) (*loggedStmt, error)
 		// Query executes a query that returns rows, typically a SELECT. The
 		// args are for any placeholder parameters in the query.
 		Query(query string, args ...any) (*sql.Rows, error)
@@ -38,41 +41,203 @@ type (
 
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
-		db *sql.DB
+		db  *sql.DB
+		log *zap.Logger
 	}
 
-	txnWrapper struct {
-		*sql.Conn
+	// A dbTxn wraps a Store and implements the txn interface.
+	dbTxn struct {
+		store *Store
+	}
+
+	loggedStmt struct {
+		*sql.Stmt
+		query string
+		log   *zap.Logger
+	}
+
+	loggedTxn struct {
+		*sql.Tx
+		log *zap.Logger
 	}
 )
 
-// Exec executes a query without returning any rows. The args are for any
-// placeholder parameters in the query.
-func (tw *txnWrapper) Exec(query string, args ...any) (sql.Result, error) {
-	return tw.Conn.ExecContext(context.Background(), query, args...)
+func (ls *loggedStmt) Exec(args ...any) (sql.Result, error) {
+	return ls.ExecContext(context.Background(), args...)
+}
+
+func (ls *loggedStmt) ExecContext(ctx context.Context, args ...any) (sql.Result, error) {
+	start := time.Now()
+	result, err := ls.Stmt.ExecContext(ctx, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		ls.log.Debug("slow exec", zap.String("query", ls.query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return result, err
+}
+
+func (ls *loggedStmt) Query(args ...any) (*sql.Rows, error) {
+	return ls.QueryContext(context.Background(), args...)
+}
+
+func (ls *loggedStmt) QueryContext(ctx context.Context, args ...any) (*sql.Rows, error) {
+	start := time.Now()
+	rows, err := ls.Stmt.QueryContext(ctx, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		ls.log.Debug("slow query", zap.String("query", ls.query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return rows, err
+}
+
+func (ls *loggedStmt) QueryRow(args ...any) *sql.Row {
+	return ls.QueryRowContext(context.Background(), args...)
+}
+
+func (ls *loggedStmt) QueryRowContext(ctx context.Context, args ...any) *sql.Row {
+	start := time.Now()
+	row := ls.Stmt.QueryRowContext(ctx, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		ls.log.Debug("slow query row", zap.String("query", ls.query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return row
+}
+
+// exec executes a query without returning any rows. The args are for
+// any placeholder parameters in the query.
+func (s *Store) exec(query string, args ...any) (sql.Result, error) {
+	start := time.Now()
+	result, err := s.db.Exec(query, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		s.log.Debug("slow exec", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return result, err
+}
+
+// prepare creates a prepared statement for later queries or executions.
+// Multiple queries or executions may be run concurrently from the
+// returned statement. The caller must call the statement's Close method
+// when the statement is no longer needed.
+func (s *Store) prepare(query string) (*loggedStmt, error) {
+	start := time.Now()
+	stmt, err := s.db.Prepare(query)
+	if dur := time.Since(start); dur > longQueryDuration {
+		s.log.Debug("slow prepare", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	} else if err != nil {
+		return nil, err
+	}
+	return &loggedStmt{
+		Stmt:  stmt,
+		query: query,
+		log:   s.log.Named("statement"),
+	}, nil
+}
+
+// query executes a query that returns rows, typically a SELECT. The
+// args are for any placeholder parameters in the query.
+func (s *Store) query(query string, args ...any) (*sql.Rows, error) {
+	start := time.Now()
+	rows, err := s.db.Query(query, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		s.log.Debug("slow query", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return rows, err
+}
+
+// queryRow executes a query that is expected to return at most one row.
+// QueryRow always returns a non-nil value. Errors are deferred until
+// Row's Scan method is called. If the query selects no rows, the *Row's
+// Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
+// first selected row and discards the rest.
+func (s *Store) queryRow(query string, args ...any) *sql.Row {
+	start := time.Now()
+	row := s.db.QueryRow(query, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		s.log.Debug("slow query row", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return row
+}
+
+// Exec executes a query without returning any rows. The args are for
+// any placeholder parameters in the query.
+func (lt *loggedTxn) Exec(query string, args ...any) (sql.Result, error) {
+	start := time.Now()
+	result, err := lt.Tx.Exec(query, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		lt.log.Debug("slow exec", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return result, err
 }
 
 // Prepare creates a prepared statement for later queries or executions.
-// Multiple queries or executions may be run concurrently from the returned
-// statement. The caller must call the statement's Close method when the
-// statement is no longer needed.
-func (tw *txnWrapper) Prepare(query string) (*sql.Stmt, error) {
-	return tw.Conn.PrepareContext(context.Background(), query)
+// Multiple queries or executions may be run concurrently from the
+// returned statement. The caller must call the statement's Close method
+// when the statement is no longer needed.
+func (lt *loggedTxn) Prepare(query string) (*loggedStmt, error) {
+	start := time.Now()
+	stmt, err := lt.Tx.Prepare(query)
+	if dur := time.Since(start); dur > longQueryDuration {
+		lt.log.Debug("slow prepare", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	} else if err != nil {
+		return nil, err
+	}
+	return &loggedStmt{
+		Stmt:  stmt,
+		query: query,
+		log:   lt.log.Named("statement"),
+	}, nil
 }
 
-// Query executes a query that returns rows, typically a SELECT. The args are
-// for any placeholder parameters in the query.
-func (tw *txnWrapper) Query(query string, args ...any) (*sql.Rows, error) {
-	return tw.Conn.QueryContext(context.Background(), query, args...)
+// Query executes a query that returns rows, typically a SELECT. The
+// args are for any placeholder parameters in the query.
+func (lt *loggedTxn) Query(query string, args ...any) (*sql.Rows, error) {
+	start := time.Now()
+	rows, err := lt.Tx.Query(query, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		lt.log.Debug("slow query", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return rows, err
 }
 
 // QueryRow executes a query that is expected to return at most one row.
 // QueryRow always returns a non-nil value. Errors are deferred until
-// Row's Scan method is called. If the query selects no rows, the *Row's Scan
-// will return ErrNoRows. Otherwise, the *Row's Scan scans the first selected
-// row and discards the rest.
-func (tw *txnWrapper) QueryRow(query string, args ...any) *sql.Row {
-	return tw.Conn.QueryRowContext(context.Background(), query, args...)
+// Row's Scan method is called. If the query selects no rows, the *Row's
+// Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
+// first selected row and discards the rest.
+func (lt *loggedTxn) QueryRow(query string, args ...any) *sql.Row {
+	start := time.Now()
+	row := lt.Tx.QueryRow(query, args...)
+	if dur := time.Since(start); dur > longQueryDuration {
+		lt.log.Debug("slow query row", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+	}
+	return row
+}
+
+// Exec executes a query without returning any rows. The args are for
+// any placeholder parameters in the query.
+func (dt *dbTxn) Exec(query string, args ...any) (sql.Result, error) {
+	return dt.store.exec(query, args...)
+}
+
+// Prepare creates a prepared statement for later queries or executions.
+// Multiple queries or executions may be run concurrently from the
+// returned statement. The caller must call the statement's Close method
+// when the statement is no longer needed.
+func (dt *dbTxn) Prepare(query string) (*loggedStmt, error) {
+	return dt.store.prepare(query)
+}
+
+// Query executes a query that returns rows, typically a SELECT. The
+// args are for any placeholder parameters in the query.
+func (dt *dbTxn) Query(query string, args ...any) (*sql.Rows, error) {
+	return dt.store.query(query, args...)
+}
+
+// QueryRow executes a query that is expected to return at most one row.
+// QueryRow always returns a non-nil value. Errors are deferred until
+// Row's Scan method is called. If the query selects no rows, the *Row's
+// Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
+// first selected row and discards the rest.
+func (dt *dbTxn) QueryRow(query string, args ...any) *sql.Row {
+	return dt.store.queryRow(query, args...)
 }
 
 // transaction executes a function within a database transaction. If the
@@ -83,40 +248,18 @@ func (s *Store) transaction(fn func(txn) error) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	if err := fn(tx); err != nil {
+	log := s.log.Named("transaction")
+	ltx := &loggedTxn{
+		Tx:  tx,
+		log: log,
+	}
+
+	if err := fn(ltx); err != nil {
 		if err := tx.Rollback(); err != nil {
 			return fmt.Errorf("failed to rollback transaction: %w", err)
 		}
 		return fmt.Errorf("failed to execute transaction: %w", err)
 	} else if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-	return nil
-}
-
-// exclusiveTransaction executes a function within an exclusive transaction.
-//
-// note: the sqlite3 library does not support setting BEGIN EXCLUSIVE at the
-// transaction level, so it's done manually here. It may be preferable to make
-// all transactions exclusive.
-func (s *Store) exclusiveTransaction(fn func(txn) error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get connection: %w", err)
-	}
-	defer conn.Close()
-
-	if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err != nil {
-		return fmt.Errorf("failed to begin exclusive transaction: %w", err)
-	} else if err := fn(&txnWrapper{conn}); err != nil {
-		if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
-			return fmt.Errorf("failed to rollback transaction: %w", err)
-		}
-		return err
-	} else if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
@@ -129,7 +272,7 @@ func (s *Store) Close() error {
 
 // getDBVersion returns the current version of the database.
 func getDBVersion(tx txn) (version uint64) {
-	const query = `SELECT db_version FROM global_settings;`
+	const query = `SELECT COALESCE(db_version, 0) FROM global_settings;`
 	err := tx.QueryRow(query).Scan(&version)
 	if err != nil {
 		return 0
@@ -146,12 +289,15 @@ func setDBVersion(tx txn, version uint64) error {
 
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
-func OpenDatabase(fp string) (*Store, error) {
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%v?_busy_timeout=30000&_journal_mode=WAL&_foreign_keys=true", fp))
+func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%v?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=true&_secure_delete=false", fp))
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{db: db}
+	store := &Store{
+		db:  db,
+		log: log,
+	}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}

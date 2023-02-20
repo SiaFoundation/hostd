@@ -7,6 +7,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
+	"go.uber.org/zap"
 )
 
 // A Wallet is an ephemeral wallet that can be used for testing.
@@ -51,7 +52,11 @@ func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logger: %w", err)
+	}
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}

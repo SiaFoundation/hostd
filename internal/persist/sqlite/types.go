@@ -1,7 +1,10 @@
 package sqlite
 
 import (
+	"database/sql"
 	"database/sql/driver"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"time"
@@ -10,12 +13,60 @@ import (
 )
 
 type (
-	sqlUint64    uint64 // sqlite does not support uint64, this will marshal it as a string for when we need to store the high bits
-	sqlCurrency  types.Currency
-	sqlHash      [32]byte
-	sqlSignature [64]byte
-	sqlTime      time.Time
+	sqlUint64   uint64 // sqlite does not support uint64, this will marshal it as a BLOB for when we need to store the high bits
+	sqlCurrency types.Currency
+	sqlHash256  [32]byte
+	sqlHash512  [64]byte
+	sqlTime     time.Time
+
+	sqlNullable[T sql.Scanner] struct {
+		Value T
+		Valid bool
+	}
 )
+
+func (sn *sqlNullable[T]) Scan(src interface{}) error {
+	if src == nil {
+		sn.Valid = false
+		return nil
+	} else if err := sn.Value.Scan(src); err != nil {
+		return err
+	}
+	sn.Valid = true
+	return nil
+}
+
+func (sh *sqlHash256) Scan(src interface{}) error {
+	switch src := src.(type) {
+	case string:
+		hex.Decode(sh[:], []byte(src))
+	case []byte:
+		copy(sh[:], src)
+	default:
+		return fmt.Errorf("cannot scan %T to Hash256", src)
+	}
+	return nil
+}
+
+func (sh sqlHash256) Value() (driver.Value, error) {
+	return sh[:], nil
+}
+
+func (sh *sqlHash512) Scan(src interface{}) error {
+	switch src := src.(type) {
+	case string:
+		hex.Decode(sh[:], []byte(src))
+	case []byte:
+		copy(sh[:], src)
+	default:
+		return fmt.Errorf("cannot scan %T to Hash256", src)
+	}
+	return nil
+}
+
+func (sh sqlHash512) Value() (driver.Value, error) {
+	return sh[:], nil
+}
 
 func (su *sqlUint64) Scan(src interface{}) error {
 	switch src := src.(type) {
@@ -30,66 +81,40 @@ func (su *sqlUint64) Scan(src interface{}) error {
 			return fmt.Errorf("cannot scan %v to uint64", src)
 		}
 		*su = sqlUint64(src)
+	case []byte:
+		*su = sqlUint64(binary.LittleEndian.Uint64(src))
 	default:
 		return fmt.Errorf("cannot scan %T to uint64", src)
 	}
 	return nil
 }
 
-func (su *sqlUint64) Value() (driver.Value, error) {
-	return strconv.FormatUint(uint64(*su), 10), nil
+func (su sqlUint64) Value() (driver.Value, error) {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(su))
+	return buf, nil
 }
 
 // Scan implements the sql.Scanner interface.
 func (sc *sqlCurrency) Scan(src interface{}) error {
-	var s string
-	switch src := src.(type) {
-	case []byte:
-		s = string(src)
-	case string:
-		s = src
-	default:
+	buf, ok := src.([]byte)
+	if !ok {
 		return fmt.Errorf("cannot scan %T to Currency", src)
+	} else if len(buf) != 16 {
+		return fmt.Errorf("cannot scan %d bytes to Currency", len(buf))
 	}
-	c, err := types.ParseCurrency(s)
-	if err != nil {
-		return err
-	}
-	*sc = sqlCurrency(c)
+
+	sc.Lo = binary.LittleEndian.Uint64(buf[:8])
+	sc.Hi = binary.LittleEndian.Uint64(buf[8:])
 	return nil
 }
 
 // Value implements the driver.Valuer interface.
 func (sc sqlCurrency) Value() (driver.Value, error) {
-	return types.Currency(sc).ExactString(), nil
-}
-
-// Scan implements the sql.Scanner interface.
-func (sh *sqlHash) Scan(src interface{}) error {
-	n := copy(sh[:], src.([]byte))
-	if n != len(sh) {
-		return fmt.Errorf("expected %d bytes, got %d", len(sh), n)
-	}
-	return nil
-}
-
-// Value implements the driver.Valuer interface.
-func (sh sqlHash) Value() (driver.Value, error) {
-	return sh[:], nil
-}
-
-// Scan implements the sql.Scanner interface.
-func (ss *sqlSignature) Scan(src interface{}) error {
-	n := copy(ss[:], src.([]byte))
-	if n != len(ss) {
-		return fmt.Errorf("expected %d bytes, got %d", len(ss), n)
-	}
-	return nil
-}
-
-// Value implements the driver.Valuer interface.
-func (ss sqlSignature) Value() (driver.Value, error) {
-	return ss[:], nil
+	buf := make([]byte, 16)
+	binary.LittleEndian.PutUint64(buf[:8], sc.Lo)
+	binary.LittleEndian.PutUint64(buf[8:], sc.Hi)
+	return buf, nil
 }
 
 func (st *sqlTime) Scan(src interface{}) error {
@@ -106,38 +131,6 @@ func (st sqlTime) Value() (driver.Value, error) {
 	return time.Time(st).Unix(), nil
 }
 
-func scanCurrency(c *types.Currency) *sqlCurrency {
-	return (*sqlCurrency)(c)
-}
-
-func valueCurrency(c types.Currency) sqlCurrency {
-	return (sqlCurrency)(c)
-}
-
-func scanHash(h *[32]byte) *sqlHash {
-	return (*sqlHash)(h)
-}
-
-func valueHash(h [32]byte) sqlHash {
-	return (sqlHash)(h)
-}
-
-func scanSignature(s *types.Signature) *sqlSignature {
-	return (*sqlSignature)(s)
-}
-
-func valueSignature(s types.Signature) sqlSignature {
-	return (sqlSignature)(s)
-}
-
-func scanTime(t *time.Time) *sqlTime {
-	return (*sqlTime)(t)
-}
-
-func valueTime(t time.Time) sqlTime {
-	return (sqlTime)(t)
-}
-
-func valueUint64(u uint64) sqlUint64 {
-	return (sqlUint64)(u)
+func nullable[T sql.Scanner](v T) *sqlNullable[T] {
+	return &sqlNullable[T]{Value: v}
 }

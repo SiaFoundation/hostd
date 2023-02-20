@@ -8,6 +8,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
@@ -24,7 +25,11 @@ func rootsEqual(a, b []types.Hash256) error {
 }
 
 func TestUpdateContractRoots(t *testing.T) {
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}

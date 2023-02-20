@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/hostd/internal/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/renterd/worker"
+	"go.uber.org/zap"
 )
 
 type (
@@ -178,16 +179,20 @@ func explicitCoveredFields(txn types.Transaction) (cf types.CoveredFields) {
 func NewRenter(privKey types.PrivateKey, dir string) (*Renter, error) {
 	node, err := newNode(privKey, dir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "renter.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logger: %w", err)
+	}
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "renter.db"), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
 	wallet := wallet.NewSingleAddressWallet(privKey, node.cm, db)
 	ccid, err := db.LastWalletChange()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get last wallet change: %w", err)
 	} else if err := node.cs.ConsensusSetSubscribe(wallet, ccid, nil); err != nil {
 		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
 	}

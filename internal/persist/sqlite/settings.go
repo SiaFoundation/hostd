@@ -16,11 +16,11 @@ func (s *Store) Settings() (config settings.Settings, err error) {
 	ingress_limit, egress_limit
 FROM host_settings;`
 	err = s.db.QueryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
-		&config.NetAddress, scanCurrency(&config.ContractPrice),
-		scanCurrency(&config.BaseRPCPrice), scanCurrency(&config.SectorAccessPrice),
-		scanCurrency(&config.Collateral), scanCurrency(&config.MaxCollateral),
-		scanCurrency(&config.MinStoragePrice), scanCurrency(&config.MinEgressPrice),
-		scanCurrency(&config.MinIngressPrice), scanCurrency(&config.MaxAccountBalance),
+		&config.NetAddress, (*sqlCurrency)(&config.ContractPrice),
+		(*sqlCurrency)(&config.BaseRPCPrice), (*sqlCurrency)(&config.SectorAccessPrice),
+		(*sqlCurrency)(&config.Collateral), (*sqlCurrency)(&config.MaxCollateral),
+		(*sqlCurrency)(&config.MinStoragePrice), (*sqlCurrency)(&config.MinEgressPrice),
+		(*sqlCurrency)(&config.MinIngressPrice), (*sqlCurrency)(&config.MaxAccountBalance),
 		&config.AccountExpiry, &config.MaxContractDuration, &config.IngressLimit,
 		&config.EgressLimit)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -49,11 +49,11 @@ ON CONFLICT (id) DO UPDATE SET settings_revision=settings_revision+1,
 	egress_limit=excluded.egress_limit`
 
 	_, err := s.db.Exec(query, settings.AcceptingContracts,
-		settings.NetAddress, valueCurrency(settings.ContractPrice),
-		valueCurrency(settings.BaseRPCPrice), valueCurrency(settings.SectorAccessPrice),
-		valueCurrency(settings.Collateral), valueCurrency(settings.MaxCollateral),
-		valueCurrency(settings.MinStoragePrice), valueCurrency(settings.MinEgressPrice),
-		valueCurrency(settings.MinIngressPrice), valueCurrency(settings.MaxAccountBalance),
+		settings.NetAddress, sqlCurrency(settings.ContractPrice),
+		sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),
+		sqlCurrency(settings.Collateral), sqlCurrency(settings.MaxCollateral),
+		sqlCurrency(settings.MinStoragePrice), sqlCurrency(settings.MinEgressPrice),
+		sqlCurrency(settings.MinIngressPrice), sqlCurrency(settings.MaxAccountBalance),
 		settings.AccountExpiry, settings.MaxContractDuration,
 		settings.IngressLimit, settings.EgressLimit)
 	return err

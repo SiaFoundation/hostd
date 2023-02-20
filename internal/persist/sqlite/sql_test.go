@@ -3,11 +3,17 @@ package sqlite
 import (
 	"path/filepath"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func TestInit(t *testing.T) {
 	fp := filepath.Join(t.TempDir(), "test.db")
-	db, err := OpenDatabase(fp)
+	log, err := zap.NewDevelopmentConfig().Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(fp, log)
 	if err != nil {
 		t.Fatal(err)
 	}

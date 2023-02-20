@@ -20,6 +20,7 @@ import (
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
+	"go.uber.org/zap"
 )
 
 type stubMetricReporter struct{}
@@ -116,7 +117,12 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
 
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}

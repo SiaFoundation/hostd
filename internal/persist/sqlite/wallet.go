@@ -33,14 +33,14 @@ type updateWalletTxn struct {
 
 // AddSiacoinElement adds a spendable siacoin output to the wallet.
 func (tx *updateWalletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
-	_, err := tx.tx.Exec(`INSERT INTO wallet_utxos (id, amount, unlock_hash) VALUES (?, ?, ?)`, valueHash(utxo.ID), valueCurrency(utxo.Value), valueHash(utxo.Address))
+	_, err := tx.tx.Exec(`INSERT INTO wallet_utxos (id, amount, unlock_hash) VALUES (?, ?, ?)`, sqlHash256(utxo.ID), sqlCurrency(utxo.Value), sqlHash256(utxo.Address))
 	return err
 }
 
 // RemoveSiacoinElement removes a spendable siacoin output from the wallet
 // either due to a spend or a reorg.
 func (tx *updateWalletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error {
-	_, err := tx.tx.Exec(`DELETE FROM wallet_utxos WHERE id=?`, valueHash(id))
+	_, err := tx.tx.Exec(`DELETE FROM wallet_utxos WHERE id=?`, sqlHash256(id))
 	return err
 }
 
@@ -48,22 +48,22 @@ func (tx *updateWalletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error 
 func (tx *updateWalletTxn) AddTransaction(txn wallet.Transaction, idx uint64) error {
 	const query = `INSERT INTO wallet_transactions (id, block_id, block_height, block_index, source, inflow, outflow, raw_data, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := tx.tx.Exec(query,
-		valueHash(txn.ID),
-		valueHash(txn.Index.ID),
+		sqlHash256(txn.ID),
+		sqlHash256(txn.Index.ID),
 		txn.Index.Height,
 		idx,
 		txn.Source,
-		valueCurrency(txn.Inflow),
-		valueCurrency(txn.Outflow),
+		sqlCurrency(txn.Inflow),
+		sqlCurrency(txn.Outflow),
 		encodeTransaction(txn),
-		valueTime(txn.Timestamp),
+		sqlTime(txn.Timestamp),
 	)
 	return err
 }
 
 // RemoveTransaction removes a transaction from the wallet.
 func (tx *updateWalletTxn) RemoveTransaction(id types.TransactionID) error {
-	_, err := tx.tx.Exec(`DELETE FROM wallet_transactions WHERE id=?`, valueHash(id))
+	_, err := tx.tx.Exec(`DELETE FROM wallet_transactions WHERE id=?`, sqlHash256(id))
 	return err
 }
 
@@ -102,7 +102,7 @@ func (s *Store) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err err
 	defer rows.Close()
 	for rows.Next() {
 		var utxo wallet.SiacoinElement
-		if err := rows.Scan(scanHash((*[32]byte)(&utxo.ID)), scanCurrency(&utxo.Value), scanHash((*[32]byte)(&utxo.Address))); err != nil {
+		if err := rows.Scan((*sqlHash256)(&utxo.ID), (*sqlCurrency)(&utxo.Value), (*sqlHash256)(&utxo.Address)); err != nil {
 			return nil, fmt.Errorf("failed to scan unspent siacoin element: %w", err)
 		}
 		utxos = append(utxos, utxo)
@@ -121,7 +121,7 @@ func (s *Store) Transactions(limit, offset int) (txns []wallet.Transaction, err 
 	for rows.Next() {
 		var txn wallet.Transaction
 		var buf []byte
-		if err := rows.Scan(scanHash((*[32]byte)(&txn.ID)), scanHash((*[32]byte)(&txn.Index.ID)), &txn.Index.Height, &txn.Source, scanCurrency(&txn.Inflow), scanCurrency(&txn.Outflow), &buf, scanTime(&txn.Timestamp)); err != nil {
+		if err := rows.Scan((*sqlHash256)(&txn.ID), (*sqlHash256)(&txn.Index.ID), &txn.Index.Height, &txn.Source, (*sqlCurrency)(&txn.Inflow), (*sqlCurrency)(&txn.Outflow), &buf, (*sqlTime)(&txn.Timestamp)); err != nil {
 			return nil, fmt.Errorf("failed to scan transaction: %w", err)
 		} else if err := decodeTransaction(buf, &txn); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal transaction data: %w", err)

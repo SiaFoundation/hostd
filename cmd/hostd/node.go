@@ -24,6 +24,7 @@ import (
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
 	stypes "go.sia.tech/siad/types"
+	"go.uber.org/zap"
 )
 
 func convertToSiad(core types.EncoderTo, siad encoding.SiaUnmarshaler) {
@@ -139,7 +140,7 @@ func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp 
 	return rhp3, nil
 }*/
 
-func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey) (*node, error) {
+func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey, logger *zap.Logger) (*node, error) {
 	gatewayDir := filepath.Join(dir, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create gateway dir: %w", err)
@@ -174,7 +175,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, fmt.Errorf("failed to create tpool: %w", err)
 	}
 
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), logger.Named("store"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sqlite store: %w", err)
 	}

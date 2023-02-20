@@ -94,10 +94,10 @@ ORDER BY s.sector_root DESC, s.volume_index ASC LIMIT 1;`
 	var location storage.SectorLocation
 	var exists bool
 	var lockID uint64
-	err = s.exclusiveTransaction(func(tx txn) error {
+	err = s.transaction(func(tx txn) error {
 		// get a sector location. If no rows are returned, there is no remaining
 		// space.
-		err := tx.QueryRow(locQuery, valueHash(root)).Scan(&location.ID, &location.Volume, &location.Index, &exists)
+		err := tx.QueryRow(locQuery, sqlHash256(root)).Scan(&location.ID, &location.Volume, &location.Index, &exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrNotEnoughStorage
 		} else if err != nil {
@@ -120,7 +120,7 @@ ORDER BY s.sector_root DESC, s.volume_index ASC LIMIT 1;`
 	}
 	// commit the sector location
 	var updatedID uint64
-	err = s.db.QueryRow(`UPDATE volume_sectors SET sector_root=$1 WHERE id=$2 RETURNING id`, valueHash(root), location.ID).Scan(&updatedID)
+	err = s.db.QueryRow(`UPDATE volume_sectors SET sector_root=$1 WHERE id=$2 RETURNING id`, sqlHash256(root), location.ID).Scan(&updatedID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit sector location: %w", err)
 	} else if updatedID != location.ID {
@@ -138,7 +138,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		// get a batch of sectors to migrate
 		var oldLocations, newLocations []storage.SectorLocation
 		var locks []uint64
-		err := s.exclusiveTransaction(func(tx txn) (err error) {
+		err := s.transaction(func(tx txn) (err error) {
 			oldLocations, err = sectorsForMigration(tx, volumeID, startIndex, batchSize)
 			if err != nil {
 				return fmt.Errorf("failed to get sectors for migration: %w", err)
@@ -176,7 +176,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		} else if len(oldLocations) == 0 {
 			return nil // no more sectors to migrate
 		}
-		defer unlockSectorBatch(s.db, locks...)
+		defer unlockSectorBatch(&dbTxn{s}, locks...)
 
 		// call migrateFn with the new locations, data should be copied to the
 		// new locations and synced to disk
@@ -185,7 +185,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		}
 
 		// update the sector locations in a separate transaction
-		err = s.exclusiveTransaction(func(tx txn) error {
+		err = s.transaction(func(tx txn) error {
 			var oldIDs []string
 			for _, loc := range oldLocations {
 				oldIDs = append(oldIDs, strconv.FormatUint(loc.ID, 10))
@@ -202,7 +202,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 			defer updateStmt.Close()
 			for _, loc := range newLocations {
 				var newID uint64
-				if err = updateStmt.QueryRow(valueHash(loc.Root), loc.ID).Scan(&newID); err != nil {
+				if err = updateStmt.QueryRow(sqlHash256(loc.Root), loc.ID).Scan(&newID); err != nil {
 					return fmt.Errorf("failed to update sector location: %w", err)
 				}
 			}
@@ -227,7 +227,7 @@ func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err er
 // are used sectors in the volume, ErrVolumeNotEmpty is returned. If force is
 // true, the volume is removed regardless of whether it is empty.
 func (s *Store) RemoveVolume(id int, force bool) error {
-	return s.exclusiveTransaction(func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		if !force {
 			// check if the volume is empty
 			var count int
@@ -259,7 +259,7 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 	if maxSectors == 0 {
 		panic("maxSectors must be greater than 0") // dev error
 	}
-	return s.exclusiveTransaction(func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		var nextIndex uint64
 		err := tx.QueryRow(`SELECT COALESCE(MAX(volume_index)+1, 0) AS next_index FROM volume_sectors WHERE volume_id=?;`, id).Scan(&nextIndex)
 		if err != nil {
@@ -291,7 +291,7 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 	if maxSectors == 0 {
 		panic("maxSectors must be greater than 0") // dev error
 	}
-	return s.exclusiveTransaction(func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		// check if there are any used sectors in the shrink range
 		var count uint64
 		err := tx.QueryRow(`SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_root IS NOT NULL;`, id, maxSectors).Scan(&count)
@@ -341,7 +341,7 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 	// scan the old locations
 	for rows.Next() {
 		var loc storage.SectorLocation
-		if err := rows.Scan(&loc.ID, scanHash((*[32]byte)(&loc.Root)), &loc.Volume, &loc.Index); err != nil {
+		if err := rows.Scan(&loc.ID, (*sqlHash256)(&loc.Root), &loc.Volume, &loc.Index); err != nil {
 			return nil, fmt.Errorf("failed to scan volume sector: %w", err)
 		}
 		sectors = append(sectors, loc)
@@ -379,7 +379,7 @@ func locationsForMigration(tx txn, volumeID int, startIndex uint64, batchSize in
 	return locations, nil
 }
 
-func scanVolume(scanner row) (volume storage.Volume, err error) {
-	err = scanner.Scan(&volume.ID, &volume.LocalPath, &volume.ReadOnly, &volume.Available, &volume.TotalSectors, &volume.UsedSectors)
+func scanVolume(s scanner) (volume storage.Volume, err error) {
+	err = s.Scan(&volume.ID, &volume.LocalPath, &volume.ReadOnly, &volume.Available, &volume.TotalSectors, &volume.UsedSectors)
 	return
 }

@@ -9,6 +9,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
@@ -26,7 +27,11 @@ func addVolume(db *Store, name string, size uint64) (storage.Volume, error) {
 }
 
 func TestVolumeSetReadOnly(t *testing.T) {
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +65,11 @@ func TestVolumeSetReadOnly(t *testing.T) {
 }
 
 func TestAddSector(t *testing.T) {
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +165,11 @@ func TestAddSector(t *testing.T) {
 }
 
 func TestVolumeAdd(t *testing.T) {
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +224,11 @@ func TestVolumeAdd(t *testing.T) {
 
 func TestGrowVolume(t *testing.T) {
 	const initialSectors = 64
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +299,11 @@ func TestGrowVolume(t *testing.T) {
 
 func TestShrinkVolume(t *testing.T) {
 	const initialSectors = 64
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +351,11 @@ func TestShrinkVolume(t *testing.T) {
 
 func TestRemoveVolume(t *testing.T) {
 	const initialSectors = 64
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +409,11 @@ func TestRemoveVolume(t *testing.T) {
 
 func TestMigrateSectors(t *testing.T) {
 	const initialSectors = 64
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +529,11 @@ func TestMigrateSectors(t *testing.T) {
 }
 
 func BenchmarkVolumeGrow(b *testing.B) {
-	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		b.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -522,7 +555,11 @@ func BenchmarkVolumeGrow(b *testing.B) {
 }
 
 func BenchmarkVolumeShrink(b *testing.B) {
-	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"))
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		b.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
 	if err != nil {
 		b.Fatal(err)
 	}
