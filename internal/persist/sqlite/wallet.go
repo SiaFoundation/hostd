@@ -3,7 +3,6 @@ package sqlite
 import (
 	"bytes"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -69,26 +68,17 @@ func (tx *updateWalletTxn) RemoveTransaction(id types.TransactionID) error {
 
 // SetLastChange sets the last processed consensus change.
 func (tx *updateWalletTxn) SetLastChange(id modules.ConsensusChangeID) error {
-	_, err := tx.tx.Exec(`INSERT INTO global_settings (wallet_last_processed_change) VALUES(?) ON CONFLICT (ID) DO UPDATE SET wallet_last_processed_change=excluded.wallet_last_processed_change`, hex.EncodeToString(id[:]))
+	_, err := tx.tx.Exec(`INSERT INTO global_settings (wallet_last_processed_change) VALUES($1) ON CONFLICT (ID) DO UPDATE SET wallet_last_processed_change=EXCLUDED.wallet_last_processed_change`, sqlHash256(id))
 	return err
 }
 
 // LastWalletChange gets the last consensus change processed by the wallet.
 func (s *Store) LastWalletChange() (id modules.ConsensusChangeID, err error) {
-	var consensusID string
-	err = s.db.QueryRow(`SELECT wallet_last_processed_change FROM global_settings`).Scan(&consensusID)
+	err = s.db.QueryRow(`SELECT wallet_last_processed_change FROM global_settings`).Scan(nullable((*sqlHash256)(&id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, nil
 	} else if err != nil {
 		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to query last wallet change: %w", err)
-	} else if len(consensusID) == 0 {
-		return modules.ConsensusChangeBeginning, nil
-	}
-	n, err := hex.Decode(id[:], []byte(consensusID))
-	if err != nil {
-		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to decode last wallet change: %w", err)
-	} else if n != len(id) {
-		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to decode last wallet change: expected %d bytes, got %d", len(id), n)
 	}
 	return
 }

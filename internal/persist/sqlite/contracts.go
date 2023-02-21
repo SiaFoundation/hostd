@@ -3,7 +3,6 @@ package sqlite
 import (
 	"bytes"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -174,8 +173,8 @@ func (u *updateContractsTxn) RevertContractResolution(id types.FileContractID) e
 
 // SetLastChangeID sets the last processed consensus change ID.
 func (u *updateContractsTxn) SetLastChangeID(ccID modules.ConsensusChangeID) error {
-	const query = `INSERT INTO global_settings (contracts_last_processed_change) VALUES ($1) ON CONFLICT (id) DO UPDATE SET contracts_last_processed_change=exluded.contracts_last_processed_change;`
-	_, err := u.tx.Exec(query, hex.EncodeToString(ccID[:]))
+	const query = `INSERT INTO global_settings (contracts_last_processed_change) VALUES ($1) ON CONFLICT (id) DO UPDATE SET contracts_last_processed_change=EXCLUDED.contracts_last_processed_change;`
+	_, err := u.tx.Exec(query, sqlHash256(ccID))
 	return err
 }
 
@@ -223,9 +222,9 @@ func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []ty
 		sqlHash256(revision.Revision.ParentID),
 		sqlCurrency(lockedCollateral),
 		sqlUint64(revision.Revision.RevisionNumber),
-		sqlUint64(negotationHeight),
-		sqlUint64(revision.Revision.WindowStart),
-		sqlUint64(revision.Revision.WindowEnd),
+		negotationHeight,              // stored as int64 for queries, should never overflow
+		revision.Revision.WindowStart, // stored as int64 for queries, should never overflow
+		revision.Revision.WindowEnd,   // stored as int64 for queries, should never overflow
 		encodeTxnSet(formationSet),
 		encodeRevision(revision.Revision),
 		sqlHash512(revision.HostSignature),
@@ -269,9 +268,9 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contrac
 			sqlHash256(existing.Revision.ParentID),
 			sqlCurrency(lockedCollateral),
 			sqlUint64(renewal.Revision.RevisionNumber),
-			sqlUint64(negotationHeight),
-			sqlUint64(renewal.Revision.WindowStart),
-			sqlUint64(renewal.Revision.WindowEnd),
+			negotationHeight,             // stored as int64 for queries, should never overflow
+			renewal.Revision.WindowStart, // stored as int64 for queries, should never overflow
+			renewal.Revision.WindowEnd,   // stored as int64 for queries, should never overflow
 			encodeTxnSet(renewalTxnSet),
 			encodeRevision(renewal.Revision),
 			sqlHash512(renewal.HostSignature),
@@ -341,20 +340,11 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // LastContractChange gets the last consensus change processed by the
 // contractor.
 func (s *Store) LastContractChange() (id modules.ConsensusChangeID, err error) {
-	var consensusID string
-	err = s.db.QueryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(&consensusID)
+	err = s.db.QueryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(nullable((*sqlHash256)(&id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, nil
 	} else if err != nil {
 		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to query last contract change: %w", err)
-	} else if len(consensusID) == 0 {
-		return modules.ConsensusChangeBeginning, nil
-	}
-	n, err := hex.Decode(id[:], []byte(consensusID))
-	if err != nil {
-		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to decode last contract change: %w", err)
-	} else if n != len(id) {
-		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to decode last contract change: expected %d bytes, got %d", len(id), n)
 	}
 	return
 }
