@@ -10,7 +10,7 @@ require (
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
 	go.sia.tech/core v0.1.8-0.20230219221407-bc0a972fae40
 	go.sia.tech/mux v1.2.0
-	go.sia.tech/renterd v0.0.0-20230215150045-824643b00d73
+	go.sia.tech/renterd v0.0.0-20230221152725-9df6d2a11045
 	go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db
 	go.uber.org/zap v1.24.0
 	golang.org/x/term v0.4.0
@@ -44,14 +44,14 @@ require (
 	gitlab.com/NebulousLabs/persist v0.0.0-20200605115618-007e5e23d877 // indirect
 	gitlab.com/NebulousLabs/ratelimit v0.0.0-20200811080431-99b8f0768b2e // indirect
 	gitlab.com/NebulousLabs/threadgroup v0.0.0-20200608151952-38921fbef213 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.38.0 // indirect
-	go.opentelemetry.io/otel v1.12.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.39.0 // indirect
+	go.opentelemetry.io/otel v1.13.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/internal/retry v1.12.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.12.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.12.0 // indirect
-	go.opentelemetry.io/otel/metric v0.35.0 // indirect
+	go.opentelemetry.io/otel/metric v0.36.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.12.0 // indirect
-	go.opentelemetry.io/otel/trace v1.12.0 // indirect
+	go.opentelemetry.io/otel/trace v1.13.0 // indirect
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
 	go.sia.tech/jape v0.8.1-0.20230215161333-94c8e9eb7186 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
