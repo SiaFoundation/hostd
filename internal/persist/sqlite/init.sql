@@ -10,18 +10,19 @@ CREATE TABLE wallet_utxos (
 );
 
 CREATE TABLE wallet_transactions (
-	id BLOB PRIMARY KEY,
-	source TEXT NOT NULL,
+	id INTEGER PRIMARY KEY,
+	transaction_id BLOB NOT NULL,
 	block_id BLOB NOT NULL,
 	inflow BLOB NOT NULL,
 	outflow BLOB NOT NULL,
+	raw_transaction BLOB NOT NULL, -- binary serialized transaction
+	source TEXT NOT NULL,
 	block_height INTEGER NOT NULL,
-	block_index INTEGER NOT NULL,
-	raw_data BLOB NOT NULL, -- binary serialized transaction
-	date_created INTEGER NOT NULL,
-	UNIQUE(block_height, block_index)
+	date_created INTEGER NOT NULL
 );
 CREATE INDEX wallet_transactions_date_created_index ON wallet_transactions(date_created);
+CREATE INDEX wallet_transactions_block_id ON wallet_transactions(block_id);
+CREATE INDEX wallet_transactions_date_created ON wallet_transactions(date_created);
 
 CREATE TABLE accounts (
 	id BLOB PRIMARY KEY,
@@ -43,23 +44,27 @@ CREATE TABLE volume_sectors (
 	sector_root BLOB UNIQUE, -- set null if the sector is not used
 	UNIQUE (volume_id, volume_index)
 );
-CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id, volume_index);
+CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
+CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index);
+CREATE INDEX volume_sectors_sector_root ON volume_sectors(sector_root);
 
 CREATE TABLE locked_volume_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
 	id INTEGER PRIMARY KEY,
 	volume_sector_id INTEGER REFERENCES volume_sectors(id) ON DELETE CASCADE
 );
+CREATE INDEX locked_volume_sectors_volume_sector_id ON locked_volume_sectors(volume_sector_id);
 
 CREATE TABLE contracts (
-	id BLOB PRIMARY KEY,
-	renewed_from BLOB REFERENCES contracts ON DELETE SET NULL,
-	renewed_to BLOB REFERENCES contracts ON DELETE SET NULL,
+	id INTEGER PRIMARY KEY,
+	renewed_from INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
+	renewed_to INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
+	contract_id BLOB UNIQUE NOT NULL,
 	locked_collateral BLOB NOT NULL,
 	contract_error TEXT,
 	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max on clearing revisions
-	confirmed_revision_number BLOB DEFAULT '0', -- determines if the final revision should be broadcast; stored as BLOB to support uint64_max on clearing revisions
-	formation_confirmed BOOLEAN NOT NULL DEFAULT false, -- true if the contract has been confirmed on the blockchain
-	resolution_confirmed BOOLEAN NOT NULL DEFAULT false, -- true if the storage proof/resolution has been confirmed on the blockchain
+	confirmed_revision_number BLOB, -- stored as BLOB to support uint64_max on clearing revisions
+	formation_confirmed BOOLEAN NOT NULL, -- true if the contract has been confirmed on the blockchain
+	resolution_confirmed BOOLEAN NOT NULL, -- true if the storage proof/resolution has been confirmed on the blockchain
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	window_start INTEGER NOT NULL,
 	window_end INTEGER NOT NULL,
@@ -68,12 +73,16 @@ CREATE TABLE contracts (
 	host_sig BLOB NOT NULL,
 	renter_sig BLOB NOT NULL
 );
+CREATE INDEX contracts_contract_id ON contracts(contract_id);
+CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
+CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
+CREATE INDEX contracts_negotiation_height_index ON contracts(negotiation_height);
 CREATE INDEX contracts_window_start_index ON contracts(window_start);
 CREATE INDEX contracts_window_end_index ON contracts(window_end);
 
 CREATE TABLE contract_sector_roots (
 	id INTEGER PRIMARY KEY,
-	contract_id BLOB REFERENCES contracts(id) ON DELETE CASCADE,
+	contract_id INTEGER REFERENCES contracts(id) ON DELETE CASCADE,
 	sector_root BLOB NOT NULL,
 	root_index INTEGER NOT NULL,
 	UNIQUE(contract_id, root_index)
@@ -85,6 +94,7 @@ CREATE TABLE temp_storage (
 	sector_root BLOB PRIMARY KEY,
 	expiration_height INTEGER NOT NULL
 );
+CREATE INDEX temp_storage_expiration_height ON temp_storage(expiration_height);
 
 CREATE TABLE financial_account_funding (
 	source BLOB NOT NULL,
@@ -110,7 +120,7 @@ CREATE INDEX financial_records_source_id ON financial_records(source_id);
 CREATE INDEX financial_records_date_created ON financial_records(date_created);
 
 CREATE TABLE host_settings (
-	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	settings_revision INTEGER NOT NULL,
 	accepting_contracts BOOLEAN NOT NULL,
 	net_address TEXT NOT NULL,
@@ -130,12 +140,12 @@ CREATE TABLE host_settings (
 );
 
 CREATE TABLE global_settings (
-	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
-	db_version INTEGER NOT NULL DEFAULT 0, -- used for migrations
+	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+	db_version INTEGER NOT NULL, -- used for migrations
 	host_key BLOB, -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
 	host_last_processed_change BLOB, -- last processed consensus change for the host
 	wallet_last_processed_change BLOB, -- last processed consensus change for the wallet
 	contracts_last_processed_change BLOB -- last processed consensus change for the contract manager
 );
 
-INSERT INTO global_settings (db_version) VALUES (1); -- version must be updated when the schema changes
+INSERT INTO global_settings (id, db_version) VALUES (0, 1); -- version must be updated when the schema changes
