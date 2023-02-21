@@ -1,17 +1,18 @@
 package contracts
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
+	"go.uber.org/zap"
 )
 
 type (
@@ -47,7 +48,10 @@ type (
 
 	// A ContractManager manages contracts' lifecycle
 	ContractManager struct {
-		store   ContractStore
+		store ContractStore
+		tg    *threadgroup.ThreadGroup
+		log   *zap.Logger
+
 		storage StorageManager
 		chain   ChainManager
 		tpool   TransactionPool
@@ -62,7 +66,13 @@ type (
 )
 
 // Lock locks a contract for modification.
-func (cm *ContractManager) Lock(id types.FileContractID, timeout time.Duration) (SignedRevision, error) {
+func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (SignedRevision, error) {
+	ctx, cancel, err := cm.tg.AddContext(ctx)
+	if err != nil {
+		return SignedRevision{}, err
+	}
+	defer cancel()
+
 	cm.mu.Lock()
 	contract, err := cm.store.Contract(id)
 	if err != nil {
@@ -89,8 +99,8 @@ func (cm *ContractManager) Lock(id types.FileContractID, timeout time.Duration) 
 			return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
 		}
 		return contract.SignedRevision, nil
-	case <-time.After(timeout):
-		return SignedRevision{}, errors.New("contract lock timeout")
+	case <-ctx.Done():
+		return SignedRevision{}, ctx.Err()
 	}
 }
 
@@ -112,12 +122,23 @@ func (cm *ContractManager) Unlock(id types.FileContractID) {
 // AddContract stores the provided contract, should error if the contract
 // already exists.
 func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
+	done, err := cm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
 	return cm.store.AddContract(revision, formationSet, lockedCollateral, negotationHeight)
 }
 
 // RenewContract renews a contract. It is expected that the existing
 // contract will be cleared.
 func (cm *ContractManager) RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
+	done, err := cm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	if existing.Revision.FileMerkleRoot != (types.Hash256{}) {
 		return errors.New("existing contract must be cleared")
 	} else if existing.Revision.Filesize != 0 {
@@ -130,22 +151,40 @@ func (cm *ContractManager) RenewContract(renewal SignedRevision, existing Signed
 
 // SectorRoots returns the roots of all sectors stored by the contract.
 func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error) {
+	done, err := cm.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	return cm.store.SectorRoots(id, limit, offset)
 }
 
 // ProcessConsensusChange applies a block update to the contract manager.
 func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
+	done, err := cm.tg.Add()
+	if err != nil {
+		return
+	}
+	defer done()
+
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	err := cm.store.ContractAction(&cc, cm.handleContractAction)
+	err = cm.store.ContractAction(&cc, cm.handleContractAction)
 	if err != nil {
-		log.Println("CONTRACTOR ERROR:", err)
+		cm.log.Error("failed to process consensus change", zap.Error(err))
+		return
 	}
 	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))
 }
 
 // ReviseContract initializes a new contract updater for the given contract.
 func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*ContractUpdater, error) {
+	done, err := cm.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+
 	roots, err := cm.store.SectorRoots(contractID, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sector roots: %w", err)
@@ -153,18 +192,30 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 	return &ContractUpdater{
 		store:       cm.store,
 		sectorRoots: roots,
+
+		done: done, // decrements the threadgroup counter after the updater is closed
 	}, nil
 }
 
+// Close closes the contract manager.
+func (cm *ContractManager) Close() error {
+	cm.tg.Stop()
+	return nil
+}
+
 // NewManager creates a new contract manager.
-func NewManager(store ContractStore, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet) *ContractManager {
+func NewManager(store ContractStore, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) *ContractManager {
 	cm := &ContractManager{
-		store:   store,
+		store: store,
+		tg:    threadgroup.New(),
+		log:   log,
+
 		storage: storage,
 		chain:   chain,
 		tpool:   tpool,
 		wallet:  wallet,
-		locks:   make(map[types.FileContractID]*locker),
+
+		locks: make(map[types.FileContractID]*locker),
 	}
 	return cm
 }

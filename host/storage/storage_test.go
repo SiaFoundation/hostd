@@ -33,13 +33,13 @@ func TestAddVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,14 +77,14 @@ func TestRemoveVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,14 +134,14 @@ func TestVolumeGrow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,14 +185,14 @@ func TestVolumeShrink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,14 +312,14 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,14 +386,14 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -431,14 +431,14 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -484,14 +484,14 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db)
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}

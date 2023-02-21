@@ -109,6 +109,11 @@ func (m *Manager) AcceptBlock(b types.Block) error {
 	return m.cs.AcceptBlock(sb)
 }
 
+// Subscribe subscribes to the consensus set.
+func (m *Manager) Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error {
+	return m.cs.ConsensusSetSubscribe(s, ccID, cancel)
+}
+
 // NewManager creates a new chain manager.
 func NewManager(cs modules.ConsensusSet) (*Manager, error) {
 	height := cs.Height()

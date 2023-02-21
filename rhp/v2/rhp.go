@@ -1,11 +1,10 @@
 package rhp
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
-	"time"
 
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -14,6 +13,7 @@ import (
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/rhp"
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -31,7 +31,7 @@ type (
 		// Lock locks the contract with the given ID. Will wait for the given
 		// duration before giving up. Unlock must be called to unlock the
 		// contract.
-		Lock(id types.FileContractID, wait time.Duration) (contracts.SignedRevision, error)
+		Lock(ctx context.Context, id types.FileContractID) (contracts.SignedRevision, error)
 		// Unlock unlocks the contract with the given ID.
 		Unlock(id types.FileContractID)
 
@@ -109,6 +109,7 @@ type (
 		metrics   MetricReporter
 		settings  SettingsReporter
 		storage   StorageManager
+		log       *zap.Logger
 	}
 )
 
@@ -164,6 +165,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 		err = rpcFn(sess)
 		recordEnd(err)
 		if err != nil {
+			sh.log.Warn("RPC error", zap.Stringer("RPC", id), zap.Error(err), zap.String("remote", conn.RemoteAddr().String()))
 			return fmt.Errorf("RPC %q error: %w", id, err)
 		}
 	}
@@ -228,11 +230,12 @@ func (sh *SessionHandler) Serve() error {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 		go func() {
+			defer conn.Close()
+
 			ingress, egress := sh.settings.BandwidthLimiters()
 			if err := sh.upgrade(rhp.NewConn(conn, ingress, egress)); err != nil {
-				log.Printf("failed to upgrade connection: %v", err)
+				sh.log.Debug("failed to upgrade connection", zap.Error(err), zap.String("remoteAddr", conn.RemoteAddr().String()))
 			}
-			conn.Close()
 		}()
 	}
 }
@@ -243,7 +246,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(hostKey types.PrivateKey, addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter) (*SessionHandler, error) {
+func NewSessionHandler(hostKey types.PrivateKey, addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on addr: %w", err)
@@ -260,6 +263,7 @@ func NewSessionHandler(hostKey types.PrivateKey, addr string, cm ChainManager, t
 		metrics:   metrics,
 		settings:  settings,
 		storage:   storage,
+		log:       log,
 	}
 	return sh, nil
 }

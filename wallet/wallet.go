@@ -10,19 +10,11 @@ import (
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
+	"go.uber.org/zap"
 )
-
-func convertToSiad(core types.EncoderTo, siad encoding.SiaUnmarshaler) {
-	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
-	core.EncodeTo(e)
-	e.Flush()
-	if err := siad.UnmarshalSia(&buf); err != nil {
-		panic(err)
-	}
-}
 
 func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 	var buf bytes.Buffer
@@ -52,6 +44,12 @@ type (
 	ChainManager interface {
 		TipState() consensus.State
 		BlockAtHeight(height uint64) (types.Block, bool)
+		Subscribe(subscriber modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
+	}
+
+	// A TransactionPool manages unconfirmed transactions.
+	TransactionPool interface {
+		Subscribe(subscriber modules.TransactionPoolSubscriber)
 	}
 
 	// A SiacoinElement is a SiacoinOutput along with its ID.
@@ -75,10 +73,13 @@ type (
 	// A SingleAddressWallet is a hot wallet that manages the outputs controlled by
 	// a single address.
 	SingleAddressWallet struct {
-		priv  types.PrivateKey
-		addr  types.Address
+		priv types.PrivateKey
+		addr types.Address
+
 		cm    ChainManager
 		store SingleAddressStore
+		log   *zap.Logger
+		tg    *threadgroup.ThreadGroup
 
 		mu sync.Mutex // protects the following fields
 		// txnsets maps a transaction set to its SiacoinOutputIDs.
@@ -193,6 +194,7 @@ func transactionIsRelevant(txn types.Transaction, addr types.Address) bool {
 
 // Close closes the wallet
 func (sw *SingleAddressWallet) Close() error {
+	sw.tg.Stop()
 	return nil
 }
 
@@ -203,6 +205,12 @@ func (sw *SingleAddressWallet) Address() types.Address {
 
 // Balance returns the balance of the wallet.
 func (sw *SingleAddressWallet) Balance() (spendable, confirmed types.Currency, err error) {
+	done, err := sw.tg.Add()
+	if err != nil {
+		return types.Currency{}, types.Currency{}, err
+	}
+	defer done()
+
 	outputs, err := sw.store.UnspentSiacoinElements()
 	if err != nil {
 		return types.Currency{}, types.Currency{}, fmt.Errorf("failed to get unspent outputs: %w", err)
@@ -222,11 +230,21 @@ func (sw *SingleAddressWallet) Balance() (spendable, confirmed types.Currency, e
 // height descending. If no more transactions are available, (nil, nil) is
 // returned.
 func (sw *SingleAddressWallet) Transactions(limit, offset int) ([]Transaction, error) {
+	done, err := sw.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	return sw.store.Transactions(limit, offset)
 }
 
 // TransactionCount returns the total number of transactions in the wallet.
 func (sw *SingleAddressWallet) TransactionCount() (uint64, error) {
+	done, err := sw.tg.Add()
+	if err != nil {
+		return 0, err
+	}
+	defer done()
 	return sw.store.TransactionCount()
 }
 
@@ -235,6 +253,12 @@ func (sw *SingleAddressWallet) TransactionCount() (uint64, error) {
 // will not be available to future calls to FundTransaction unless ReleaseInputs
 // is called.
 func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error) {
+	done, err := sw.tg.Add()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer done()
+
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 	if amount.IsZero() {
@@ -289,6 +313,12 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 
 // SignTransaction adds a signature to each of the specified inputs.
 func (sw *SingleAddressWallet) SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error {
+	done, err := sw.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	// NOTE: siad uses different hardfork heights when -tags=testing is set,
 	// so we have to alter cs accordingly.
 	// TODO: remove this
@@ -319,6 +349,12 @@ func (sw *SingleAddressWallet) SignTransaction(cs consensus.State, txn *types.Tr
 
 // ReceiveUpdatedUnconfirmedTransactions implements modules.TransactionPoolSubscriber.
 func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modules.TransactionPoolDiff) {
+	done, err := sw.tg.Add()
+	if err != nil {
+		return
+	}
+	defer done()
+
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
@@ -343,10 +379,20 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 			sw.txnsets[txnset.ID] = txnsetOutputs
 		}
 	}
+	sw.log.Debug("processed txpool diff", zap.Int("applied", len(diff.AppliedTransactions)), zap.Int("reverted", len(diff.RevertedTransactions)))
 }
 
 // ProcessConsensusChange implements modules.ConsensusSetSubscriber.
 func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange) {
+	done, err := sw.tg.Add()
+	if err != nil {
+		return
+	}
+	defer done()
+
+	sw.log.Debug("processing consensus change", zap.Int("applied", len(cc.AppliedBlocks)), zap.Int("reverted", len(cc.RevertedBlocks)))
+	start := time.Now()
+
 	// create payout transactions for each matured siacoin output. Each diff
 	// should correspond to an applied block. This is done outside of the
 	// database transaction to reduce lock contention.
@@ -365,10 +411,13 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		// determine the source of each delayed output
 		delayedOutputSources := make(map[types.SiacoinOutputID]TransactionSource)
 		if blockHeight > uint64(stypes.MaturityDelay) {
+			matureHeight := blockHeight - uint64(stypes.MaturityDelay)
 			// get the block that has matured
-			matureBlock, ok := sw.cm.BlockAtHeight(blockHeight - uint64(stypes.MaturityDelay))
+			matureBlock, ok := sw.cm.BlockAtHeight(matureHeight)
 			if !ok {
-				panic(fmt.Errorf("failed to get mature block at height %v", blockHeight-uint64(stypes.MaturityDelay)))
+				sw.log.Error("failed to get matured block", zap.Uint64("height", blockHeight), zap.Uint64("maturedHeight", matureHeight))
+				sw.Close()
+				return
 			}
 			matureID := matureBlock.ID()
 			for i := range matureBlock.MinerPayouts {
@@ -407,7 +456,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 	}
 
 	// begin a database transaction to update the wallet state
-	err := sw.store.UpdateWallet(cc.ID, func(tx UpdateTransaction) error {
+	err = sw.store.UpdateWallet(cc.ID, func(tx UpdateTransaction) error {
 		// add new siacoin outputs and remove spent or reverted siacoin outputs
 		for _, diff := range cc.SiacoinOutputDiffs {
 			if types.Address(diff.SiacoinOutput.UnlockHash) != sw.addr {
@@ -420,6 +469,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					SiacoinOutput: sco,
 					ID:            types.SiacoinOutputID(diff.ID),
 				})
+				sw.log.Debug("added utxo", zap.String("id", diff.ID.String()), zap.String("value", sco.Value.ExactString()), zap.String("address", sco.Address.String()))
 				if err != nil {
 					return fmt.Errorf("failed to add siacoin element %v: %w", diff.ID, err)
 				}
@@ -428,6 +478,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				if err != nil {
 					return fmt.Errorf("failed to remove siacoin element %v: %w", diff.ID, err)
 				}
+				sw.log.Debug("removed utxo", zap.String("id", diff.ID.String()), zap.String("value", diff.SiacoinOutput.Value.String()), zap.String("address", diff.SiacoinOutput.UnlockHash.String()))
 				// release the locks on the spent outputs
 				sw.mu.Lock()
 				delete(sw.locked, types.SiacoinOutputID(diff.ID))
@@ -499,8 +550,10 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		return nil
 	})
 	if err != nil {
-		panic(err)
+		sw.log.Error("failed to update wallet", zap.Error(err), zap.String("changeID", cc.ID.String()), zap.Uint64("height", uint64(cc.BlockHeight)))
+		sw.Close()
 	}
+	sw.log.Debug("applied consensus change", zap.String("changeID", cc.ID.String()), zap.Int("applied", len(cc.AppliedBlocks)), zap.Int("reverted", len(cc.RevertedBlocks)), zap.Uint64("height", uint64(cc.BlockHeight)), zap.Duration("elapsed", time.Since(start)), zap.String("address", sw.addr.String()))
 }
 
 // payoutTransaction wraps a delayed siacoin output in a transaction for display
@@ -519,16 +572,33 @@ func payoutTransaction(output SiacoinElement, index types.ChainIndex, source Tra
 }
 
 // NewSingleAddressWallet returns a new SingleAddressWallet using the provided private key and store.
-func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, store SingleAddressStore) *SingleAddressWallet {
-	return &SingleAddressWallet{
-		priv:    priv,
+func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp TransactionPool, store SingleAddressStore, log *zap.Logger) (*SingleAddressWallet, error) {
+	sw := &SingleAddressWallet{
+		priv:  priv,
+		store: store,
+		cm:    cm,
+		log:   log,
+		tg:    threadgroup.New(),
+
 		addr:    StandardAddress(priv.PublicKey()),
-		store:   store,
 		locked:  make(map[types.SiacoinOutputID]bool),
 		tpool:   make(map[types.SiacoinOutputID]bool),
 		txnsets: make(map[modules.TransactionSetID][]types.SiacoinOutputID),
-		cm:      cm,
 	}
+
+	changeID, err := store.LastWalletChange()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last wallet change: %w", err)
+	}
+
+	go func() {
+		// note: start in goroutine to avoid blocking remaining startup
+		if err := cm.Subscribe(sw, changeID, sw.tg.Done()); err != nil {
+			sw.log.Error("failed to subscribe to consensus changes", zap.Error(err))
+		}
+	}()
+	tp.Subscribe(sw)
+	return sw, nil
 }
 
 // StandardUnlockConditions returns the standard unlock conditions for a single

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/siad/crypto"
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -127,6 +127,7 @@ type (
 		metrics   MetricReporter
 		registry  RegistryManager
 		storage   StorageManager
+		log       *zap.Logger
 
 		chain    ChainManager
 		settings SettingsReporter
@@ -173,12 +174,12 @@ var (
 )
 
 // handleHostStream handles streams routed to the "host" subscriber
-func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream) {
+func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 	s.SetDeadline(time.Now().Add(30 * time.Second))
 	rpcID, err := s.ReadID()
 	s.SetDeadline(time.Time{})
 	if err != nil {
-		log.Println("failed to read RPC ID:", err)
+		sh.log.Debug("failed to read RPC ID", zap.Error(err))
 		return
 	}
 
@@ -200,7 +201,7 @@ func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream) {
 		err = fmt.Errorf("unrecognized RPC ID, %q", rpcID)
 	}
 	if err != nil {
-		log.Printf("error handling RPC %q: %v", rpcID, err)
+		sh.log.Warn("rpc error", zap.String("rpc", rpcID.String()), zap.Error(err), zap.String("remoteAddress", remoteAddr))
 	}
 }
 
@@ -235,10 +236,10 @@ func (sh *SessionHandler) Serve() error {
 			for {
 				stream, err := t.AcceptStream()
 				if err != nil {
-					log.Println("failed to accept stream:", err)
+					sh.log.Debug("failed to accept stream", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
 					return
 				}
-				go sh.handleHostStream(stream)
+				go sh.handleHostStream(conn.RemoteAddr().String(), stream)
 			}
 		}()
 	}
@@ -250,7 +251,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(hostKey types.PrivateKey, addr string, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter) (*SessionHandler, error) {
+func NewSessionHandler(hostKey types.PrivateKey, addr string, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on addr: %w", err)
@@ -270,6 +271,7 @@ func NewSessionHandler(hostKey types.PrivateKey, addr string, chain ChainManager
 		registry:  registry,
 		settings:  settings,
 		storage:   storage,
+		log:       log,
 
 		priceTables: newPriceTableManager(),
 	}

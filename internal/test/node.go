@@ -89,6 +89,10 @@ func (tp txpool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction,
 	return parents, nil
 }
 
+func (tp txpool) Subscribe(subscriber modules.TransactionPoolSubscriber) {
+	tp.tp.TransactionPoolSubscribe(subscriber)
+}
+
 type (
 	// A node is a base Sia node that can be extended by a Renter or Host
 	node struct {

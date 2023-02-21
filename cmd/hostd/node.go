@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -95,6 +94,10 @@ func (tp txpool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction,
 	return parents, nil
 }
 
+func (tp txpool) Subscribe(s modules.TransactionPoolSubscriber) {
+	tp.tp.TransactionPoolSubscribe(s)
+}
+
 type node struct {
 	g     modules.Gateway
 	cs    modules.ConsensusSet
@@ -114,6 +117,8 @@ type node struct {
 func (n *node) Close() error {
 	// n.rhp3.Close()
 	n.rhp2.Close()
+	n.storage.Close()
+	n.contracts.Close()
 	n.w.Close()
 	n.tp.Close()
 	n.cs.Close()
@@ -122,8 +127,8 @@ func (n *node) Close() error {
 	return nil
 }
 
-func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager) (*rhpv2.SessionHandler, error) {
-	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, stdoutmetricReporter{})
+func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager, log *zap.Logger) (*rhpv2.SessionHandler, error) {
+	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, stdoutmetricReporter{}, log)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +167,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	default:
 		go func() {
 			if err := <-errCh; err != nil {
-				log.Println("WARNING: consensus initialization returned an error:", err)
+				logger.Warn("consensus error", zap.Error(err))
 			}
 		}()
 	}
@@ -175,7 +180,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, fmt.Errorf("failed to create tpool: %w", err)
 	}
 
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), logger.Named("store"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), logger.Named("sqlite"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sqlite store: %w", err)
 	}
@@ -185,18 +190,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
 
-	w := wallet.NewSingleAddressWallet(walletKey, chainManager, db)
-	go func() {
-		walletChangeID, err := db.LastWalletChange()
-		if err != nil {
-			panic(fmt.Errorf("failed to get last wallet change: %w", err))
-		}
-		// note: start in goroutine for now to avoid blocking the main thread
-		if err := cs.ConsensusSetSubscribe(w, walletChangeID, nil); err != nil {
-			panic(fmt.Errorf("failed to subscribe wallet to consensus: %w", err))
-		}
-	}()
-	tp.TransactionPoolSubscribe(w)
+	w, err := wallet.NewSingleAddressWallet(walletKey, chainManager, txpool{tp}, db, logger.Named("wallet"))
 
 	sr, err := settings.NewConfigManager(db)
 	if err != nil {
@@ -206,18 +200,18 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	as := store.NewEphemeralAccountStore()
 	accountManager := accounts.NewManager(as)
 
-	sm, err := storage.NewVolumeManager(db)
+	sm, err := storage.NewVolumeManager(db, logger.Named("volumes"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 	defer sm.Close()
 
-	contractManager := contracts.NewManager(db, sm, chainManager, txpool{tp}, w)
+	contractManager := contracts.NewManager(db, sm, chainManager, txpool{tp}, w, logger.Named("contracts"))
 
 	er := store.NewEphemeralRegistryStore(1000)
 	registryManager := registry.NewManager(walletKey, er)
 
-	rhp2, err := startRHP2(walletKey, rhp2Addr, chainManager, txpool{tp}, w, contractManager, sr, sm)
+	rhp2, err := startRHP2(walletKey, rhp2Addr, chainManager, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp2: %w", err)
 	}

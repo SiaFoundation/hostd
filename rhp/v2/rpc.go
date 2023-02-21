@@ -1,6 +1,7 @@
 package rhp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,7 +58,10 @@ func (sh *SessionHandler) rpcLock(s *session) error {
 		return s.t.WriteResponseErr(ErrContractAlreadyLocked)
 	}
 
-	contract, err := sh.contracts.Lock(req.ContractID, time.Duration(req.Timeout)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	contract, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
 		return s.t.WriteResponseErr(fmt.Errorf("failed to lock contract: %w", err))
 	}
@@ -408,7 +412,10 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
-	} else if err := updater.Commit(signedRevision); err != nil {
+	}
+	defer updater.Close()
+
+	if err := updater.Commit(signedRevision); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract revision: %w", err)
 	}
@@ -465,6 +472,8 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
 	}
+	defer contractUpdater.Close()
+
 	oldRoots := contractUpdater.SectorRoots()
 	for _, action := range req.Actions {
 		switch action.Type {
@@ -647,7 +656,10 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
-	} else if err := updater.Commit(signedRevision); err != nil {
+	}
+	defer updater.Close()
+
+	if err := updater.Commit(signedRevision); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract revision: %w", err)
 	}

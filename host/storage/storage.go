@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/threadgroup"
+	"go.uber.org/zap"
 )
 
 type (
@@ -24,7 +24,9 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
-		vs VolumeStore
+		vs  VolumeStore
+		log *zap.Logger
+
 		tg *threadgroup.ThreadGroup
 
 		mu      sync.Mutex // protects the following fields
@@ -188,9 +190,9 @@ func (vm *VolumeManager) Close() error {
 	// sync and close all open volumes
 	for id, vol := range vm.volumes {
 		if err := vol.Sync(); err != nil {
-			log.Printf("[WARN] failed to sync volume %v: %v", id, err)
+			vm.log.Error("failed to sync volume", zap.Int("id", id), zap.Error(err))
 		} else if err := vol.Close(); err != nil {
-			log.Printf("[WARN] failed to close volume %v: %v", id, err)
+			vm.log.Error("failed to close volume", zap.Int("id", id), zap.Error(err))
 		}
 		delete(vm.volumes, id)
 	}
@@ -513,9 +515,9 @@ func (vm *VolumeManager) loadVolumes() error {
 		if err != nil {
 			// mark the volume as unavailable
 			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
-				return fmt.Errorf("failed to mark volume %v as unavailable: %w", vol.ID, err)
+				return fmt.Errorf("failed to mark volume '%v' as unavailable: %w", vol.LocalPath, err)
 			}
-			log.Printf("failed to open volume file %v: %v", vol.LocalPath, err)
+			vm.log.Error("unable to open volume", zap.Error(err), zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
 		}
 		// add the volume to the memory map
 		vm.volumes[vol.ID] = &volume{
@@ -523,16 +525,17 @@ func (vm *VolumeManager) loadVolumes() error {
 		}
 		// mark the volume as available
 		if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
-			log.Printf("failed to mark volume %v as available: %v", vol.ID, err)
+			return fmt.Errorf("failed to mark volume '%v' as available: %w", vol.LocalPath, err)
 		}
 	}
 	return nil
 }
 
 // NewVolumeManager creates a new VolumeManager.
-func NewVolumeManager(vs VolumeStore) (*VolumeManager, error) {
+func NewVolumeManager(vs VolumeStore, log *zap.Logger) (*VolumeManager, error) {
 	vm := &VolumeManager{
-		vs: vs,
+		vs:  vs,
+		log: log,
 
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),

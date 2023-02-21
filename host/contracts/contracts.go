@@ -70,6 +70,8 @@ type (
 	ContractUpdater struct {
 		store ContractStore
 
+		done func() // done is called when the updater is closed.
+
 		sectorActions []contractSectorAction
 		sectorRoots   []types.Hash256
 	}
@@ -187,9 +189,15 @@ func (cu *ContractUpdater) SectorRoots() []types.Hash256 {
 	return append([]types.Hash256(nil), cu.sectorRoots...)
 }
 
-// Commit atomically applies all changes to the contract to the store.
+// Close must be called when the contract updater is no longer needed.
+func (cu *ContractUpdater) Close() error {
+	cu.done()
+	return nil
+}
+
+// Commit atomically applies all changes to the contract store.
 func (cu *ContractUpdater) Commit(revision SignedRevision) error {
-	return cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
+	err := cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
 		for i, action := range cu.sectorActions {
 			switch action.Action {
 			case sectorActionAppend:
@@ -216,4 +224,7 @@ func (cu *ContractUpdater) Commit(revision SignedRevision) error {
 		}
 		return nil
 	})
+	// clear the committed sector actions
+	cu.sectorActions = cu.sectorActions[:0]
+	return err
 }

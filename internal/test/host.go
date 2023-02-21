@@ -7,7 +7,6 @@ import (
 	crhpv2 "go.sia.tech/core/rhp/v2"
 	crhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
@@ -18,7 +17,6 @@ import (
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
-	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap"
 )
@@ -64,10 +62,10 @@ var DefaultSettings = settings.Settings{
 
 // Close shutsdown the host
 func (h *Host) Close() error {
-	h.settings.Close()
-	h.wallet.Close()
 	// h.rhpv3.Close()
 	h.rhpv2.Close()
+	h.settings.Close()
+	h.wallet.Close()
 	h.storage.Close()
 	h.store.Close()
 	h.node.Close()
@@ -122,27 +120,22 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
 
-	cm, err := chain.NewManager(node.cs)
+	wallet, err := wallet.NewSingleAddressWallet(privKey, node.cm, node.tp, db, log.Named("wallet"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create chain manager: %w", err)
+		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	wallet := wallet.NewSingleAddressWallet(privKey, cm, db)
-	if err := node.cs.ConsensusSetSubscribe(wallet, modules.ConsensusChangeBeginning, nil); err != nil {
-		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
-	}
-
-	storage, err := storage.NewVolumeManager(db)
+	storage, err := storage.NewVolumeManager(db, log.Named("storage"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 	storage.AddVolume(filepath.Join(dir, "storage"), 64)
-	contracts := contracts.NewManager(db, storage, cm, node.tp, wallet)
+	contracts := contracts.NewManager(db, storage, node.cm, node.tp, wallet, log.Named("contracts"))
 	settings, err := settings.NewConfigManager(db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
@@ -151,7 +144,7 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	registry := registry.NewManager(privKey, store.NewEphemeralRegistryStore(1000))
 	accounts := accounts.NewManager(store.NewEphemeralAccountStore())
 
-	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{})
+	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{}, log.Named("rhpv2"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
 	}

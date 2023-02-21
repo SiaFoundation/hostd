@@ -392,6 +392,10 @@ func (pe *programExecutor) rollback() error {
 		return nil
 	}
 
+	if pe.updater != nil {
+		pe.updater.Close()
+	}
+
 	// release all of the locked sectors. Any sectors not referenced by a
 	// contract or temporary storage will eventually be garbage collected.
 	if err := pe.release(); err != nil {
@@ -413,6 +417,7 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 
 	// finalize the program
 	if pe.finalize {
+		defer pe.updater.Close() // close the updater
 		// read the finalize request
 		var req rhpv3.RPCFinalizeProgramRequest
 		if err := s.ReadResponse(&req, 1024); err != nil {

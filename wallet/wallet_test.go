@@ -44,6 +44,7 @@ func TestWallet(t *testing.T) {
 	if err := node1.MineBlocks(types.Address{}, int(stypes.MaturityDelay)); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(500 * time.Millisecond) // sleep for consensus sync
 
 	// check the wallet's reported balance
 	expectedBalance := (consensus.State{}).BlockReward()
@@ -89,7 +90,7 @@ func TestWallet(t *testing.T) {
 	if err := node1.MineBlocks(w.Address(), 1); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	// check that the wallet's balance is the same
 	_, balance, err = w.Balance()
@@ -135,6 +136,7 @@ func TestWallet(t *testing.T) {
 	if err := node1.MineBlocks(w.Address(), 1); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(500 * time.Millisecond)
 
 	// check that the wallet now has 22 transactions
 	count, err = w.TransactionCount()

@@ -18,6 +18,11 @@ type (
 // ErrClosed is returned when the threadgroup has already been stopped
 var ErrClosed = errors.New("threadgroup closed")
 
+// Done returns a channel that will be closed when the threadgroup is stopped
+func (tg *ThreadGroup) Done() <-chan struct{} {
+	return tg.closed
+}
+
 // Add adds a new thread to the group, done must be called to signal that the
 // thread is done. Returns ErrClosed if the threadgroup is already closed.
 func (tg *ThreadGroup) Add() (func(), error) {

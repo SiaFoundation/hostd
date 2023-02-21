@@ -56,18 +56,14 @@ func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
-	wallet := wallet.NewSingleAddressWallet(privKey, node.cm, db)
-	ccid, err := db.LastWalletChange()
+	wallet, err := wallet.NewSingleAddressWallet(privKey, node.cm, node.tp, db, log.Named("wallet"))
 	if err != nil {
-		return nil, err
-	} else if err := node.cs.ConsensusSetSubscribe(wallet, ccid, nil); err != nil {
-		return nil, fmt.Errorf("failed to subscribe wallet to consensus set: %w", err)
+		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
-	node.tp.tp.TransactionPoolSubscribe(wallet)
 	return &Wallet{
 		node:   node,
 		store:  db,

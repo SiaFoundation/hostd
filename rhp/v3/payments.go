@@ -67,7 +67,10 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return nil, fmt.Errorf("failed to create contract revision updater: %w", err)
-	} else if err := updater.Commit(signedRevision); err != nil {
+	}
+	defer updater.Close()
+
+	if err := updater.Commit(signedRevision); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return nil, fmt.Errorf("failed to update stored contract revision: %w", err)
 	}
