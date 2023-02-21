@@ -126,17 +126,16 @@ CREATE TABLE host_settings (
 	max_account_age INTEGER NOT NULL,
 	max_contract_duration INTEGER NOT NULL,
 	ingress_limit INTEGER NOT NULL,
-	egress_limit INTEGER NOT NULL,
-	last_processed_consensus_change BLOB NOT NULL
+	egress_limit INTEGER NOT NULL
 );
 
 CREATE TABLE global_settings (
 	id INT PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL DEFAULT 0, -- used for migrations
-	host_key BLOB NOT NULL DEFAULT "", -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
-	host_last_processed_change BLOB NOT NULL DEFAULT "", -- last processed consensus change for the host
-	wallet_last_processed_change BLOB NOT NULL DEFAULT "", -- last processed consensus change for the wallet
-	contracts_last_processed_change BLOB NOT NULL DEFAULT "" -- last processed consensus change for the contract manager
+	host_key BLOB, -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
+	host_last_processed_change BLOB, -- last processed consensus change for the host
+	wallet_last_processed_change BLOB, -- last processed consensus change for the wallet
+	contracts_last_processed_change BLOB -- last processed consensus change for the contract manager
 );
 
 INSERT INTO global_settings (db_version) VALUES (1); -- version must be updated when the schema changes
