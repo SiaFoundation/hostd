@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/internal/dyndns"
 )
 
@@ -34,10 +35,10 @@ var (
 	c = &http.Client{
 		Timeout: time.Second * 15,
 	}
-	noIPUserAgent = fmt.Sprintf("Sia Central Host Manager/%s-%s hi@siacentral.com", runtime.GOOS, "v0.0.1")
+	noIPUserAgent = fmt.Sprintf("hostd/%s-%s hi@sia.tech", runtime.GOOS, build.Version())
 
 	// ErrClientBlocked is returned if the client is blocked by No-IP.
-	ErrClientBlocked = errors.New("host manager client blocked")
+	ErrClientBlocked = errors.New("client blocked")
 	// ErrInvalidAuth is returned if the provided email and password are incorrect.
 	ErrInvalidAuth = errors.New("incorrect email or password")
 	// ErrServerError is returned if No-IP is having issues.
