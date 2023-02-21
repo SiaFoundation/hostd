@@ -282,9 +282,9 @@ func getDBVersion(tx txn) (version uint64) {
 
 // setDBVersion sets the current version of the database.
 func setDBVersion(tx txn, version uint64) error {
-	const query = `INSERT INTO global_settings (db_version) VALUES (?) ON CONFLICT (id) DO UPDATE SET db_version=excluded.db_version;`
-	_, err := tx.Exec(query, version)
-	return err
+	const query = `UPDATE global_settings SET db_version=$1 RETURNING id;`
+	var dbID int64
+	return tx.QueryRow(query, version).Scan(&dbID)
 }
 
 // OpenDatabase creates a new SQLite store and initializes the database. If the

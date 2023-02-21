@@ -31,12 +31,12 @@ FROM host_settings;`
 
 // UpdateSettings updates the host's stored settings.
 func (s *Store) UpdateSettings(settings settings.Settings) error {
-	const query = `INSERT INTO host_settings (settings_revision, 
+	const query = `INSERT INTO host_settings (id, settings_revision, 
 		accepting_contracts, net_address, contract_price, base_rpc_price, 
 		sector_access_price, collateral, max_collateral, min_storage_price, 
 		min_egress_price, min_ingress_price, max_account_balance, 
 		max_account_age, max_contract_duration, ingress_limit, egress_limit) 
-		VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+		VALUES (0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
 ON CONFLICT (id) DO UPDATE SET settings_revision=settings_revision+1, 
 	accepting_contracts=excluded.accepting_contracts, 
 	net_address=excluded.net_address, contract_price=excluded.contract_price, 

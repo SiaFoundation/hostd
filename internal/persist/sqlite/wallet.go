@@ -30,6 +30,13 @@ type updateWalletTxn struct {
 	tx txn
 }
 
+// setLastChange sets the last processed consensus change.
+func (tx *updateWalletTxn) setLastChange(id modules.ConsensusChangeID) error {
+	var dbID int64 // unused, but required by QueryRow to ensure exactly one row is updated
+	err := tx.tx.QueryRow(`UPDATE global_settings SET wallet_last_processed_change=$1 RETURNING id`, sqlHash256(id)).Scan(&dbID)
+	return err
+}
+
 // AddSiacoinElement adds a spendable siacoin output to the wallet.
 func (tx *updateWalletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
 	_, err := tx.tx.Exec(`INSERT INTO wallet_utxos (id, amount, unlock_hash) VALUES (?, ?, ?)`, sqlHash256(utxo.ID), sqlCurrency(utxo.Value), sqlHash256(utxo.Address))
@@ -44,13 +51,12 @@ func (tx *updateWalletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error 
 }
 
 // AddTransaction adds a transaction to the wallet.
-func (tx *updateWalletTxn) AddTransaction(txn wallet.Transaction, idx uint64) error {
-	const query = `INSERT INTO wallet_transactions (id, block_id, block_height, block_index, source, inflow, outflow, raw_data, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+func (tx *updateWalletTxn) AddTransaction(txn wallet.Transaction) error {
+	const query = `INSERT INTO wallet_transactions (transaction_id, block_id, block_height, source, inflow, outflow, raw_transaction, date_created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := tx.tx.Exec(query,
 		sqlHash256(txn.ID),
 		sqlHash256(txn.Index.ID),
 		txn.Index.Height,
-		idx,
 		txn.Source,
 		sqlCurrency(txn.Inflow),
 		sqlCurrency(txn.Outflow),
@@ -60,15 +66,10 @@ func (tx *updateWalletTxn) AddTransaction(txn wallet.Transaction, idx uint64) er
 	return err
 }
 
-// RemoveTransaction removes a transaction from the wallet.
-func (tx *updateWalletTxn) RemoveTransaction(id types.TransactionID) error {
-	_, err := tx.tx.Exec(`DELETE FROM wallet_transactions WHERE id=?`, sqlHash256(id))
-	return err
-}
-
-// SetLastChange sets the last processed consensus change.
-func (tx *updateWalletTxn) SetLastChange(id modules.ConsensusChangeID) error {
-	_, err := tx.tx.Exec(`INSERT INTO global_settings (wallet_last_processed_change) VALUES($1) ON CONFLICT (ID) DO UPDATE SET wallet_last_processed_change=EXCLUDED.wallet_last_processed_change`, sqlHash256(id))
+// RevertBlock removes all transactions that occurred within the block from the
+// wallet.
+func (tx *updateWalletTxn) RevertBlock(blockID types.BlockID) error {
+	_, err := tx.tx.Exec(`DELETE FROM wallet_transactions WHERE block_id=?`, sqlHash256(blockID))
 	return err
 }
 
@@ -103,7 +104,7 @@ func (s *Store) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err err
 // Transactions returns a paginated list of transactions ordered by block height
 // descending. If no transactions are found, (nil, nil) is returned.
 func (s *Store) Transactions(limit, offset int) (txns []wallet.Transaction, err error) {
-	rows, err := s.db.Query(`SELECT id, block_id, block_height, source, inflow, outflow, raw_data, date_created FROM wallet_transactions ORDER BY block_height DESC, block_index ASC LIMIT ? OFFSET ?`, limit, offset)
+	rows, err := s.db.Query(`SELECT transaction_id, block_id, block_height, source, inflow, outflow, raw_transaction, date_created FROM wallet_transactions ORDER BY block_height DESC, id ASC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transactions: %w", err)
 	}
@@ -128,8 +129,14 @@ func (s *Store) TransactionCount() (count uint64, err error) {
 }
 
 // UpdateWallet begins an update transaction on the wallet store.
-func (s *Store) UpdateWallet(fn func(wallet.UpdateTransaction) error) error {
+func (s *Store) UpdateWallet(ccID modules.ConsensusChangeID, fn func(wallet.UpdateTransaction) error) error {
 	return s.transaction(func(tx txn) error {
-		return fn(&updateWalletTxn{tx})
+		utx := &updateWalletTxn{tx}
+		if err := fn(utx); err != nil {
+			return err
+		} else if err := utx.setLastChange(ccID); err != nil {
+			return fmt.Errorf("failed to set last wallet change: %w", err)
+		}
+		return nil
 	})
 }
