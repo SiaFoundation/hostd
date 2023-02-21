@@ -271,17 +271,14 @@ func (s *Store) Close() error {
 }
 
 // getDBVersion returns the current version of the database.
-func getDBVersion(tx txn) (version uint64) {
-	const query = `SELECT COALESCE(db_version, 0) FROM global_settings;`
-	err := tx.QueryRow(query).Scan(&version)
-	if err != nil {
-		return 0
-	}
+func getDBVersion(tx txn) (version int64) {
+	// error is ignored -- the database may not have been initialized yet.
+	tx.QueryRow(`SELECT COALESCE(db_version, 0) FROM global_settings;`).Scan(&version)
 	return
 }
 
 // setDBVersion sets the current version of the database.
-func setDBVersion(tx txn, version uint64) error {
+func setDBVersion(tx txn, version int64) error {
 	const query = `UPDATE global_settings SET db_version=$1 RETURNING id;`
 	var dbID int64
 	return tx.QueryRow(query, version).Scan(&dbID)

@@ -19,8 +19,8 @@ func TestInit(t *testing.T) {
 	}
 	defer db.Close()
 
-	var version uint64
-	err = db.transaction(func(tx txn) (err error) {
+	var version int64
+	err = db.transaction(func(tx txn) error {
 		version = getDBVersion(tx)
 		return nil
 	})
