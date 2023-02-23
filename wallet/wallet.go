@@ -10,6 +10,7 @@ import (
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/core/wallet"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
@@ -294,7 +295,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	for i, sce := range fundingElements {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
 			ParentID:         types.SiacoinOutputID(sce.ID),
-			UnlockConditions: StandardUnlockConditions(sw.priv.PublicKey()),
+			UnlockConditions: wallet.StandardUnlockConditions(sw.priv.PublicKey()),
 		})
 		toSign[i] = types.Hash256(sce.ID)
 		sw.locked[sce.ID] = true
@@ -580,7 +581,7 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		log:   log,
 		tg:    threadgroup.New(),
 
-		addr:    StandardAddress(priv.PublicKey()),
+		addr:    wallet.StandardAddress(priv.PublicKey()),
 		locked:  make(map[types.SiacoinOutputID]bool),
 		tpool:   make(map[types.SiacoinOutputID]bool),
 		txnsets: make(map[modules.TransactionSetID][]types.SiacoinOutputID),
@@ -592,25 +593,11 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 	}
 
 	go func() {
-		// note: start in goroutine to avoid blocking remaining startup
+		// note: start in goroutine to avoid blocking startup
 		if err := cm.Subscribe(sw, changeID, sw.tg.Done()); err != nil {
 			sw.log.Error("failed to subscribe to consensus changes", zap.Error(err))
 		}
 	}()
 	tp.Subscribe(sw)
 	return sw, nil
-}
-
-// StandardUnlockConditions returns the standard unlock conditions for a single
-// Ed25519 key.
-func StandardUnlockConditions(pk types.PublicKey) types.UnlockConditions {
-	return types.UnlockConditions{
-		PublicKeys:         []types.UnlockKey{pk.UnlockKey()},
-		SignaturesRequired: 1,
-	}
-}
-
-// StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(pk types.PublicKey) types.Address {
-	return StandardUnlockConditions(pk).UnlockHash()
 }
