@@ -96,28 +96,9 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream) error {
 	}
 
 	// process the payment for funding the account
-	budget, err := sh.processPayment(s)
+	fundAmount, balance, err := sh.processFundAccountPayment(pt, s, fundReq.Account)
 	if err != nil {
 		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
-	}
-	defer budget.Rollback()
-
-	// subtract the cost of funding the account
-	if err := budget.Spend(pt.FundAccountCost); err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to pay %v for fund account: %w", pt.FundAccountCost, err))
-	}
-
-	// commit the budget and fund the account with the remaining balance
-	// note: may need to add an atomic transfer?
-	fundAmount := budget.Empty()
-	if err := budget.Commit(); err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to commit payment: %w", err)
-	}
-	balance, err := sh.accounts.Credit(fundReq.Account, fundAmount)
-	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to credit account: %w", err)
 	}
 
 	fundResp := &rhpv3.RPCFundAccountResponse{
@@ -222,7 +203,10 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 			return s.WriteResponseErr(ErrContractRequired)
 		}
 
-		contract, err = sh.contracts.Lock(executeReq.FileContractID, 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		contract, err = sh.contracts.Lock(ctx, executeReq.FileContractID)
 		if err != nil {
 			return s.WriteResponseErr(fmt.Errorf("failed to lock contract: %w", err))
 		}

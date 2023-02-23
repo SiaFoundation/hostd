@@ -468,12 +468,12 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 }
 
 // Sector returns a sector and its root from the program's data.
-func (pd programData) Sector(offset uint64) (types.Hash256, []byte, error) {
+func (pd programData) Sector(offset uint64) (types.Hash256, *[rhpv2.SectorSize]byte, error) {
 	if offset+rhpv2.SectorSize > uint64(len(pd)) {
 		return types.Hash256{}, nil, fmt.Errorf("sector offset %v is out of bounds", offset)
 	}
 
-	sector := pd[offset : offset+rhpv2.SectorSize]
+	sector := (*[rhpv2.SectorSize]byte)(pd[offset : offset+rhpv2.SectorSize])
 	root := rhpv2.SectorRoot((*[rhpv2.SectorSize]byte)(sector))
 	return root, sector, nil
 }

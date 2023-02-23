@@ -108,8 +108,13 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to get settings: %w", err)
 	}
 
+	count, max, err := sh.registry.Entries()
+	if err != nil {
+		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to get registry entries: %w", err)
+	}
+
 	fee := sh.tpool.RecommendedFee()
-	currentHeight := sh.chain.Tip().Index.Height
+	currentHeight := sh.chain.TipState().Index.Height
 	oneHasting := types.NewCurrency64(1)
 	return rhpv3.HostPriceTable{
 		UID:             frand.Entropy128(),
@@ -154,8 +159,8 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 		RenewContractCost: types.Siacoins(100).Div64(1e9),
 
 		// Registry related fields.
-		RegistryEntriesLeft:  sh.registry.Cap() - sh.registry.Len(),
-		RegistryEntriesTotal: sh.registry.Cap(),
+		RegistryEntriesLeft:  max - count,
+		RegistryEntriesTotal: max,
 
 		// Subscription related fields.
 		SubscriptionMemoryCost:       oneHasting,
