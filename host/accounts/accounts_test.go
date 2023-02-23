@@ -32,7 +32,7 @@ func TestCredit(t *testing.T) {
 	} else if balance, err := am.store.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(amount) != 0 {
-		t.Fatal("expected balance to be equal to amount", balance, amount)
+		t.Fatalf("expected balance %v to be equal to amount %v", balance, amount)
 	}
 }
 

@@ -28,9 +28,12 @@ func (s *Store) CreditAccount(accountID rhpv3.Account, amount types.Currency, ex
 	err = s.transaction(func(tx txn) error {
 		// get current balance
 		balance, err = accountBalance(tx, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to query balance: %w", err)
+		}
 		// update balance
 		balance = balance.Add(amount)
-		_, err = tx.Exec(`INSERT INTO accounts (id, balance, expiration_timestamp) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET balance=EXCLUDED.balance, expiration_timestamp=EXCLUDED.expiration_timestamp`, sqlCurrency(balance), sqlHash256(accountID), sqlTime(expiration))
+		_, err = tx.Exec(`INSERT INTO accounts (id, balance, expiration_timestamp) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET balance=EXCLUDED.balance, expiration_timestamp=EXCLUDED.expiration_timestamp`, sqlHash256(accountID), sqlCurrency(balance), sqlTime(expiration))
 		return err
 	})
 	return
