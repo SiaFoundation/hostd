@@ -32,7 +32,7 @@ type (
 		SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) error
 		// RegistryEntries returns the current number of entries as well as the
 		// maximum number of entries the registry can hold.
-		RegistryEntries() (uint64, uint64, error)
+		RegistryEntries() (count uint64, total uint64, err error)
 	}
 
 	// A Manager manages registry entries stored in a RegistryStore.
@@ -50,8 +50,9 @@ func (r *Manager) Close() error {
 	return nil
 }
 
-// Cap returns the maximum number of entries the registry can hold.
-func (r *Manager) Entries() (uint64, uint64, error) {
+// Entries returns the current and maximum number of entries the registry can
+// hold.
+func (r *Manager) Entries() (count uint64, total uint64, err error) {
 	return r.store.RegistryEntries()
 }
 

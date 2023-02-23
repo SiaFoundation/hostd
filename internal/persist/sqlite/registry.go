@@ -57,11 +57,11 @@ func (s *Store) SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) e
 
 // RegistryEntries returns the current number of entries as well as the
 // maximum number of entries the registry can hold.
-func (s *Store) RegistryEntries() (total, max uint64, err error) {
+func (s *Store) RegistryEntries() (count, max uint64, err error) {
 	return registryLimits(&dbTxn{s})
 }
 
-func registryLimits(tx txn) (total, max uint64, err error) {
-	err = tx.QueryRow(`SELECT COALESCE(COUNT(re.registry_key), 0), COALESCE(hs.registry_limit, 0) FROM host_settings hs LEFT JOIN registry_entries re ON (true);`).Scan(&total, &max)
+func registryLimits(tx txn) (count, max uint64, err error) {
+	err = tx.QueryRow(`SELECT COALESCE(COUNT(re.registry_key), 0), COALESCE(hs.registry_limit, 0) FROM host_settings hs LEFT JOIN registry_entries re ON (true);`).Scan(&count, &max)
 	return
 }
