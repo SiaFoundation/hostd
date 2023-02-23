@@ -13,6 +13,8 @@ import (
 )
 
 const (
+	announcementTxnSize = 1000
+
 	blocksPerMonth = 144 * 30 // 144 blocks per day * 30 days
 
 	// defaultBurstSize allow for large reads and writes on the limiter
@@ -86,6 +88,7 @@ type (
 		settings Store
 
 		cm     ChainManager
+		tp     TransactionPool
 		wallet Wallet
 
 		ingressLimit *rate.Limiter
@@ -153,10 +156,32 @@ func (m *ConfigManager) Announce() error {
 		return fmt.Errorf("failed to get settings: %w", err)
 	}
 
-	_ = types.Transaction{
+	minerFee := m.tp.RecommendedFee().Mul64(announcementTxnSize)
+
+	txn := types.Transaction{
 		ArbitraryData: [][]byte{
 			createAnnouncement(m.hostKey, settings.NetAddress),
 		},
+		MinerFees: []types.Currency{minerFee},
+	}
+
+	// fund the transaction
+	toSign, release, err := m.wallet.FundTransaction(&txn, minerFee)
+	if err != nil {
+		return fmt.Errorf("failed to fund transaction: %w", err)
+	}
+	defer release()
+
+	// sign the transaction
+	err = m.wallet.SignTransaction(m.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
+	if err != nil {
+		return fmt.Errorf("failed to sign transaction: %w", err)
+	}
+
+	// broadcast the transaction
+	err = m.tp.AcceptTransactionSet([]types.Transaction{txn})
+	if err != nil {
+		return fmt.Errorf("failed to broadcast transaction: %w", err)
 	}
 	return nil
 }
@@ -205,6 +230,7 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, tp
 		hostKey:  hostKey,
 		settings: store,
 		cm:       cm,
+		tp:       tp,
 		wallet:   w,
 
 		// initialize the rate limiters
