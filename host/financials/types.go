@@ -37,11 +37,13 @@ type (
 
 	// A Record records spending from a funding source
 	Record struct {
-		Source  FundSource     `json:"source"`
-		Egress  types.Currency `json:"egress"`
-		Ingress types.Currency `json:"ingress"`
-		Fees    types.Currency `json:"fees"`
-		Storage types.Currency `json:"storage"`
+		Source        FundSource     `json:"source"`
+		Egress        types.Currency `json:"egress"`
+		Ingress       types.Currency `json:"ingress"`
+		Fees          types.Currency `json:"fees"`
+		Storage       types.Currency `json:"storage"`
+		RegistryRead  types.Currency `json:"registryRead"`
+		RegistryWrite types.Currency `json:"registryWrite"`
 
 		Timestamp time.Time `json:"timestamp"`
 	}
@@ -49,10 +51,12 @@ type (
 	// Revenue tracks the host's earnings from all possible sources for a given
 	// period
 	Revenue struct {
-		Storage types.Currency `json:"storage"`
-		Ingress types.Currency `json:"ingress"`
-		Egress  types.Currency `json:"egress"`
-		Fees    types.Currency `json:"fees"`
+		Storage       types.Currency `json:"storage"`
+		Ingress       types.Currency `json:"ingress"`
+		Egress        types.Currency `json:"egress"`
+		RegistryRead  types.Currency `json:"registryRead"`
+		RegistryWrite types.Currency `json:"registryWrite"`
+		Fees          types.Currency `json:"fees"`
 
 		// AccountDrift tracks funds that were transferred to an account but are
 		// no longer backed by a contract due to a reorg or other consensus

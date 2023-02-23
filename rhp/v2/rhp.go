@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -161,6 +162,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 		if !ok {
 			return t.WriteResponseErr(fmt.Errorf("unknown RPC ID %q", id))
 		}
+		start := time.Now()
 		recordEnd := sh.recordRPC(id, sess)
 		err = rpcFn(sess)
 		recordEnd(err)
@@ -168,6 +170,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 			sh.log.Warn("RPC error", zap.Stringer("RPC", id), zap.Error(err), zap.String("remote", conn.RemoteAddr().String()))
 			return fmt.Errorf("RPC %q error: %w", id, err)
 		}
+		sh.log.Debug("RPC complete", zap.Stringer("RPC", id), zap.String("remote", conn.RemoteAddr().String()), zap.Duration("elapsed", time.Since(start)))
 	}
 }
 

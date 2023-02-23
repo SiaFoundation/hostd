@@ -181,6 +181,7 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 		return
 	}
 
+	start := time.Now()
 	switch rpcID {
 	case rhpv3.RPCAccountBalanceID:
 		err = sh.handleRPCAccountBalance(s)
@@ -200,7 +201,9 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 	}
 	if err != nil {
 		sh.log.Warn("rpc error", zap.String("rpc", rpcID.String()), zap.Error(err), zap.String("remoteAddress", remoteAddr))
+		return
 	}
+	sh.log.Debug("rpc success", zap.String("rpc", rpcID.String()), zap.String("remoteAddress", remoteAddr), zap.Duration("elapsed", time.Since(start)))
 }
 
 // HostKey returns the host's ed25519 public key
