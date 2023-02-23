@@ -2,81 +2,34 @@ package accounts
 
 import (
 	"context"
-	"errors"
-	"sync"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
-// An EphemeralAccountStore is an in-memory implementation of the account store;
-// implements host.AccountStore.
-type EphemeralAccountStore struct {
-	mu       sync.Mutex
-	balances map[AccountID]types.Currency
-}
-
-// Balance returns the balance of the ephemeral account.
-func (eas *EphemeralAccountStore) Balance(accountID AccountID) (types.Currency, error) {
-	eas.mu.Lock()
-	defer eas.mu.Unlock()
-	return eas.balances[accountID], nil
-}
-
-// Credit adds the specified amount to the account, returning the current
-// balance.
-func (eas *EphemeralAccountStore) Credit(accountID AccountID, amount types.Currency) (types.Currency, error) {
-	eas.mu.Lock()
-	defer eas.mu.Unlock()
-	eas.balances[accountID] = eas.balances[accountID].Add(amount)
-	return eas.balances[accountID], nil
-}
-
-// Refund returns the amount to the ephemeral account.
-func (eas *EphemeralAccountStore) Refund(accountID AccountID, amount types.Currency) error {
-	eas.mu.Lock()
-	defer eas.mu.Unlock()
-
-	eas.balances[accountID] = eas.balances[accountID].Add(amount)
-	return nil
-}
-
-// Debit subtracts the specified amount from the account, returning the current
-// balance.
-func (eas *EphemeralAccountStore) Debit(accountID AccountID, amount types.Currency) (types.Currency, error) {
-	eas.mu.Lock()
-	defer eas.mu.Unlock()
-
-	bal, exists := eas.balances[accountID]
-	if !exists || bal.Cmp(amount) < 0 {
-		return bal, errors.New("insufficient funds")
-	}
-
-	eas.balances[accountID] = eas.balances[accountID].Sub(amount)
-	return eas.balances[accountID], nil
-}
-
-func (eas *EphemeralAccountStore) Close() error {
-	return nil
-}
-
-// NewEphemeralAccountStore intializes a new AccountStore.
-func NewEphemeralAccountStore() *EphemeralAccountStore {
-	return &EphemeralAccountStore{
-		balances: make(map[AccountID]types.Currency),
-	}
-}
-
 func TestCredit(t *testing.T) {
-	am := NewManager(NewEphemeralAccountStore())
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "hostd.db"), log.Named("accounts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := NewManager(db)
 	accountID := frand.Entropy256()
 
 	// attempt to credit the account
 	amount := types.NewCurrency64(50)
-	if _, err := am.Credit(accountID, amount); err != nil {
+	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute)); err != nil {
 		t.Fatal("expected successful credit", err)
-	} else if balance, err := am.store.Balance(accountID); err != nil {
+	} else if balance, err := am.store.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(amount) != 0 {
 		t.Fatal("expected balance to be equal to amount", balance, amount)
@@ -84,12 +37,21 @@ func TestCredit(t *testing.T) {
 }
 
 func TestBudget(t *testing.T) {
-	am := NewManager(NewEphemeralAccountStore())
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "hostd.db"), log.Named("accounts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := NewManager(db)
 	accountID := frand.Entropy256()
 
 	// credit the account
 	amount := types.NewCurrency64(50)
-	if _, err := am.Credit(accountID, amount); err != nil {
+	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute)); err != nil {
 		t.Fatal("expected successful credit", err)
 	}
 
@@ -133,7 +95,7 @@ func TestBudget(t *testing.T) {
 	// check that the account balance has been updated and only the spent
 	// amount has been deducted
 	expectedBalance = expectedBalance.Add(budgetAmount.Sub(spendAmount))
-	if balance, err := am.store.Balance(accountID); err != nil {
+	if balance, err := am.store.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(expectedBalance) != 0 {
 		t.Fatalf("expected balance to be equal to %v, got %v", expectedBalance, balance)

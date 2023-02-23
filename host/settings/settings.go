@@ -1,11 +1,14 @@
 package settings
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -49,6 +52,9 @@ type (
 		IngressLimit uint64 `json:"ingressLimit"`
 		EgressLimit  uint64 `json:"egressLimit"`
 
+		// Registry settings
+		MaxRegistryEntries uint64 `json:"maxRegistryEntries"`
+
 		// RHP3 settings
 		AccountExpiry     time.Duration  `json:"accountExpiry"`
 		MaxAccountBalance types.Currency `json:"maxAccountBalance"`
@@ -56,9 +62,31 @@ type (
 		Revision uint64 `json:"revision"`
 	}
 
+	// A TransactionPool broadcasts transactions to the network.
+	TransactionPool interface {
+		AcceptTransactionSet([]types.Transaction) error
+		RecommendedFee() types.Currency
+	}
+
+	// A ChainManager manages the current consensus state
+	ChainManager interface {
+		TipState() consensus.State
+	}
+
+	// A Wallet manages funds and signs transactions
+	Wallet interface {
+		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
+		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
+	}
+
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
+		hostKey types.PrivateKey
+
 		settings Store
+
+		cm     ChainManager
+		wallet Wallet
 
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
@@ -72,8 +100,8 @@ var (
 		MaxContractDuration: 6 * blocksPerMonth, // 6 months
 
 		ContractPrice:     types.Siacoins(1).Div64(5),
-		BaseRPCPrice:      types.NewCurrency64(1),
-		SectorAccessPrice: types.NewCurrency64(1),
+		BaseRPCPrice:      types.NewCurrency64(100),
+		SectorAccessPrice: types.NewCurrency64(100),
 
 		Collateral:    types.Siacoins(100).Div64(1 << 40).Div64(blocksPerMonth), // 100 SC / TB / month
 		MaxCollateral: types.Siacoins(1000),
@@ -84,9 +112,13 @@ var (
 
 		AccountExpiry:     144 * 30,           // 30 days
 		MaxAccountBalance: types.Siacoins(10), // 10SC
+
+		MaxRegistryEntries: 100000,
 	}
 	// ErrNoSettings must be returned by the store if the host has no settings yet
 	ErrNoSettings = errors.New("no settings found")
+
+	specifierAnnouncement = types.NewSpecifier("HostAnnouncement")
 )
 
 // setRateLimit sets the bandwidth rate limit for the host
@@ -115,8 +147,18 @@ func (m *ConfigManager) Close() error {
 }
 
 // Announce announces the host to the network
-func (m *ConfigManager) Announce(netaddress string) error {
-	panic("not implemented")
+func (m *ConfigManager) Announce() error {
+	settings, err := m.settings.Settings()
+	if err != nil {
+		return fmt.Errorf("failed to get settings: %w", err)
+	}
+
+	_ = types.Transaction{
+		ArbitraryData: [][]byte{
+			createAnnouncement(m.hostKey, settings.NetAddress),
+		},
+	}
+	return nil
 }
 
 // UpdateSettings updates the host's settings.
@@ -135,10 +177,35 @@ func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
 }
 
+func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
+	// encode the announcement
+	var buf bytes.Buffer
+	pub := priv.PublicKey()
+	enc := types.NewEncoder(&buf)
+	specifierAnnouncement.EncodeTo(enc)
+	enc.WriteString(netaddress)
+	pub.UnlockKey().EncodeTo(enc)
+	if err := enc.Flush(); err != nil {
+		panic(err)
+	}
+	// hash without the signature
+	sigHash := types.HashBytes(buf.Bytes())
+	// sign
+	sig := priv.SignHash(sigHash)
+	sig.EncodeTo(enc)
+	if err := enc.Flush(); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
 // NewConfigManager initializes a new config manager
-func NewConfigManager(settingsStore Store) (*ConfigManager, error) {
+func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
 	m := &ConfigManager{
-		settings: settingsStore,
+		hostKey:  hostKey,
+		settings: store,
+		cm:       cm,
+		wallet:   w,
 
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
@@ -147,7 +214,7 @@ func NewConfigManager(settingsStore Store) (*ConfigManager, error) {
 
 	settings, err := m.settings.Settings()
 	if err != nil && errors.Is(err, ErrNoSettings) {
-		if err := settingsStore.UpdateSettings(defaultSettings); err != nil {
+		if err := store.UpdateSettings(defaultSettings); err != nil {
 			return nil, fmt.Errorf("failed to initialize settings: %w", err)
 		}
 		return m, nil

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 )
 
@@ -30,7 +31,7 @@ type (
 	}
 
 	budget struct {
-		accountID AccountID
+		accountID rhpv3.Account
 		max       types.Currency
 		spent     types.Currency
 		committed bool
@@ -109,32 +110,32 @@ func (b *budget) Rollback() error {
 // Commit commits the budget's spending to the account. If the budget has
 // already been committed, Commit will panic.
 func (b *budget) Commit() error {
+	b.am.mu.Lock()
+	defer b.am.mu.Unlock()
+
 	if b.committed {
-		panic("budget already committed")
+		return nil
 	}
 	// debit the account
-	_, err := b.am.store.Debit(b.accountID, b.spent)
+	_, err := b.am.store.DebitAccount(b.accountID, b.spent)
 	if err != nil {
 		return fmt.Errorf("failed to debit account: %w", err)
 	}
-
 	// calculate the remainder and zero out the budget
 	rem := b.max.Sub(b.spent)
+	// zero the budget
 	b.max, b.spent = types.ZeroCurrency, types.ZeroCurrency
-	// set the committed flag
 	b.committed = true
 
-	b.am.mu.Lock()
-	defer b.am.mu.Unlock()
 	// update the balance in memory
 	state, ok := b.am.balances[b.accountID]
 	if !ok {
 		panic("account missing from memory")
 	}
 	state.openTxns--
-	if state.openTxns == 0 {
-		// if there are no more open transactions, we can remove the account
-		// from memory without doing anything else
+	if state.openTxns <= 0 {
+		// if there are no more open transactions, remove the account
+		// from memory.
 		delete(b.am.balances, b.accountID)
 		return nil
 	}

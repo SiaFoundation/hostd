@@ -13,23 +13,26 @@ var (
 	// ErrEntryNotFound should be returned when a registry key does not exist
 	// in the registry.
 	ErrEntryNotFound = errors.New("entry not found")
+
+	// ErrNotEnoughSpace should be returned when the registry is full and
+	// there is no more space to store a new entry.
+	ErrNotEnoughSpace = errors.New("not enough space")
 )
 
 type (
 	// A Store stores host registry entries. The registry is a key/value
 	// store for small data.
 	Store interface {
-		// Get returns the registry value for the given key. If the key is not
+		// GetRegistryValue returns the registry value for the given key. If the key is not
 		// found should return ErrEntryNotFound.
-		Get(types.Hash256) (rhpv3.RegistryEntry, error)
-		// Set sets the registry value for the given key.
-		Set(key types.Hash256, value rhpv3.RegistryEntry, expiration uint64) (rhpv3.RegistryEntry, error)
-		// Len returns the number of entries in the registry.
-		Len() uint64
-		// Cap returns the maximum number of entries the registry can hold.
-		Cap() uint64
-
-		Close() error
+		GetRegistryValue(key rhpv3.RegistryKey) (entry rhpv3.RegistryValue, _ error)
+		// SetRegistryValue sets the registry value for the given key. If the
+		// value would exceed the maximum number of entries, should return
+		// ErrNotEnoughSpace.
+		SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) error
+		// RegistryEntries returns the current number of entries as well as the
+		// maximum number of entries the registry can hold.
+		RegistryEntries() (uint64, uint64, error)
 	}
 
 	// A Manager manages registry entries stored in a RegistryStore.
@@ -44,54 +47,53 @@ type (
 
 // Close closes the registry store.
 func (r *Manager) Close() error {
-	return r.store.Close()
+	return nil
 }
 
 // Cap returns the maximum number of entries the registry can hold.
-func (r *Manager) Cap() uint64 {
-	return r.store.Cap()
-}
-
-// Len returns the number of entries in the registry.
-func (r *Manager) Len() uint64 {
-	return r.store.Len()
+func (r *Manager) Entries() (uint64, uint64, error) {
+	return r.store.RegistryEntries()
 }
 
 // Get returns the registry value for the provided key.
-func (r *Manager) Get(key types.Hash256) (rhpv3.RegistryEntry, error) {
+func (r *Manager) Get(key rhpv3.RegistryKey) (rhpv3.RegistryValue, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.store.Get(key)
+	return r.store.GetRegistryValue(key)
 }
 
 // Put creates or updates the registry value for the provided key. If err is nil
 // the new value is returned, otherwise the previous value is returned.
-func (r *Manager) Put(value rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3.RegistryEntry, error) {
+func (r *Manager) Put(entry rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3.RegistryValue, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if err := rhpv3.ValidateRegistryEntry(value); err != nil {
-		return rhpv3.RegistryEntry{}, fmt.Errorf("invalid registry entry: %w", err)
+	if err := rhpv3.ValidateRegistryEntry(entry); err != nil {
+		return rhpv3.RegistryValue{}, fmt.Errorf("invalid registry entry: %w", err)
 	}
 
 	// get the current value.
-	key := value.RegistryKey.Hash()
-	old, err := r.store.Get(key)
+	old, err := r.store.GetRegistryValue(entry.RegistryKey)
 	// if the key doesn't exist, we don't need to validate it further.
 	if errors.Is(err, ErrEntryNotFound) {
-		if _, err = r.store.Set(key, value, expirationHeight); err != nil {
-			return value, fmt.Errorf("failed to create registry key: %w", err)
+		if err = r.store.SetRegistryValue(entry, expirationHeight); err != nil {
+			return entry.RegistryValue, fmt.Errorf("failed to create registry key: %w", err)
 		}
-		return value, nil
+		return entry.RegistryValue, nil
 	} else if err != nil {
 		return old, fmt.Errorf("failed to get registry value: %w", err)
 	}
-
-	if err := rhpv3.ValidateRegistryUpdate(old, value, r.hostID); err != nil {
-		return old, fmt.Errorf("invalid registry update: %w", err)
+	oldEntry := rhpv3.RegistryEntry{
+		RegistryKey:   entry.RegistryKey,
+		RegistryValue: old,
 	}
 
-	return r.store.Set(key, value, expirationHeight)
+	if err := rhpv3.ValidateRegistryUpdate(oldEntry, entry, r.hostID); err != nil {
+		return old, fmt.Errorf("invalid registry update: %w", err)
+	} else if err = r.store.SetRegistryValue(entry, expirationHeight); err != nil {
+		return old, fmt.Errorf("failed to update registry key: %w", err)
+	}
+	return entry.RegistryValue, nil
 }
 
 // NewManager returns a new registry manager.

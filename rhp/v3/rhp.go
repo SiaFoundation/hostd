@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	rhpv2 "go.sia.tech/core/rhp/v2"
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
@@ -15,7 +16,6 @@ import (
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/rhp"
-	"go.sia.tech/siad/crypto"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -29,7 +29,7 @@ type (
 	// An AccountManager manages deposits and withdrawals for accounts.
 	AccountManager interface {
 		Balance(accountID rhpv3.Account) (types.Currency, error)
-		Credit(accountID rhpv3.Account, amount types.Currency) (balance types.Currency, err error)
+		Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (balance types.Currency, err error)
 		Budget(ctx context.Context, accountID rhpv3.Account, amount types.Currency) (accounts.Budget, error)
 	}
 
@@ -39,7 +39,7 @@ type (
 		// Lock locks the contract with the given ID. Will wait for the given
 		// duration before giving up. Unlock must be called to unlock the
 		// contract.
-		Lock(id types.FileContractID, wait time.Duration) (contracts.SignedRevision, error)
+		Lock(ctx context.Context, id types.FileContractID) (contracts.SignedRevision, error)
 		// Unlock unlocks the contract with the given ID.
 		Unlock(id types.FileContractID)
 
@@ -51,7 +51,7 @@ type (
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
 		// SectorRoots returns the sector roots of the contract with the given ID.
-		SectorRoots(id types.FileContractID, limit, offset uint64) ([]crypto.Hash, error)
+		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
 	}
 
 	// A StorageManager manages the storage of sectors on disk.
@@ -65,32 +65,30 @@ type (
 		// Write writes a sector to persistent storage. release should only be
 		// called after the contract roots have been committed to prevent the
 		// sector from being deleted.
-		Write(root types.Hash256, data []byte) (release func() error, _ error)
+		Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (release func() error, _ error)
 		// Read reads the sector with the given root from the manager.
-		Read(root types.Hash256) ([]byte, error)
+		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 	}
 
 	// A RegistryManager manages registry entries stored in a RegistryStore.
 	RegistryManager interface {
-		Cap() uint64
-		Len() uint64
-
-		Get(key types.Hash256) (rhpv3.RegistryValue, error)
-		Put(value rhpv3.RegistryValue, expirationHeight uint64) (rhpv3.RegistryValue, error)
+		Get(key rhpv3.RegistryKey) (rhpv3.RegistryValue, error)
+		Put(value rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3.RegistryValue, error)
+		Entries() (count uint64, max uint64, err error)
 	}
 
 	// A ChainManager provides access to the current state of the blockchain.
 	ChainManager interface {
-		Tip() consensus.State
+		TipState() consensus.State
 	}
 
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.Address
-		FundTransaction(txn *types.Transaction, amount types.Currency, pool []types.Transaction) ([]types.Hash256, func(), error)
-		SignTransaction(*types.Transaction, []types.Hash256, types.CoveredFields) error
+		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
+		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
 	}
 
 	// A TransactionPool broadcasts transactions to the network.

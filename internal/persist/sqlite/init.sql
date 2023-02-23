@@ -24,12 +24,6 @@ CREATE INDEX wallet_transactions_date_created_index ON wallet_transactions(date_
 CREATE INDEX wallet_transactions_block_id ON wallet_transactions(block_id);
 CREATE INDEX wallet_transactions_date_created ON wallet_transactions(date_created);
 
-CREATE TABLE accounts (
-	id BLOB PRIMARY KEY,
-	balance BLOB NOT NULL,
-	expiration_height INTEGER NOT NULL
-);
-
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
 	disk_path TEXT UNIQUE NOT NULL,
@@ -96,6 +90,23 @@ CREATE TABLE temp_storage (
 );
 CREATE INDEX temp_storage_expiration_height ON temp_storage(expiration_height);
 
+CREATE TABLE accounts (
+	id BLOB PRIMARY KEY,
+	balance BLOB NOT NULL,
+	expiration_timestamp INTEGER NOT NULL
+);
+CREATE INDEX accounts_expiration_timestamp ON accounts(expiration_timestamp);
+
+CREATE TABLE registry_entries (
+	registry_key BLOB PRIMARY KEY,
+	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max
+	entry_data BLOB NOT NULL,
+	entry_signature BLOB NOT NULL,
+	entry_type INTEGER NOT NULL,
+	expiration_height INTEGER NOT NULL
+);
+CREATE INDEX registry_entries_expiration_height ON registry_entries(expiration_height);
+
 CREATE TABLE financial_account_funding (
 	source BLOB NOT NULL,
 	destination BLOB NOT NULL,
@@ -136,7 +147,8 @@ CREATE TABLE host_settings (
 	max_account_age INTEGER NOT NULL,
 	max_contract_duration INTEGER NOT NULL,
 	ingress_limit INTEGER NOT NULL,
-	egress_limit INTEGER NOT NULL
+	egress_limit INTEGER NOT NULL,
+	registry_limit INTEGER NOT NULL
 );
 
 CREATE TABLE global_settings (

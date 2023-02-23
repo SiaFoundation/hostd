@@ -17,7 +17,7 @@ const (
 type (
 	// A FundSource identifies the source of a financial record
 	FundSource struct {
-		ID   [32]byte
+		ID   types.Hash256
 		Type string
 	}
 
