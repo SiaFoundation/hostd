@@ -79,6 +79,25 @@ func main() {
 	flag.StringVar(&logLevel, "loglevel", "warn", "log level (debug, info, warn, error)")
 	flag.Parse()
 
+	log.Println("hostd", build.Version())
+	switch flag.Arg(0) {
+	case "version":
+		log.Println("Commit:", build.GitRevision())
+		log.Println("Build Date:", build.Date())
+		return
+	case "seed":
+		var seed [32]byte
+		phrase := wallet.NewSeedPhrase()
+		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
+			log.Fatal(err)
+		}
+		key := wallet.KeyFromSeed(&seed, 0)
+		address := wallet.StandardAddress(key.PublicKey())
+		log.Println("Recovery Phrase:", phrase)
+		log.Println("Address", address)
+		return
+	}
+
 	cfg := zap.NewProductionConfig()
 	if logStdOut {
 		cfg.OutputPaths = []string{"stdout"}
@@ -101,14 +120,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	log.Println("hostd", build.Version())
-	if flag.Arg(0) == "version" {
-		log.Println("Commit:", build.GitRevision())
-		log.Println("Build Date:", build.Date())
-		return
-	}
-
-	// apiPassword := getAPIPassword()
+	_ = getAPIPassword()
 	walletKey := getWalletKey()
 
 	node, err := newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir, bootstrap, walletKey, logger)
