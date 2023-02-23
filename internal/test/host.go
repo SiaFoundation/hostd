@@ -134,7 +134,10 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 	storage.AddVolume(filepath.Join(dir, "storage"), 64)
-	contracts := contracts.NewManager(db, storage, node.cm, node.tp, wallet, log.Named("contracts"))
+	contracts, err := contracts.NewManager(db, storage, node.cm, node.tp, wallet, log.Named("contracts"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create contract manager: %w", err)
+	}
 	settings, err := settings.NewConfigManager(privKey, db, node.cm, node.tp, wallet, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)

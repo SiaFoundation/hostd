@@ -20,6 +20,7 @@ type (
 	// interact with the consensus set.
 	ChainManager interface {
 		IndexAtHeight(height uint64) (types.ChainIndex, error)
+		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
 	}
 
 	// A Wallet manages Siacoins and funds transactions
@@ -204,7 +205,7 @@ func (cm *ContractManager) Close() error {
 }
 
 // NewManager creates a new contract manager.
-func NewManager(store ContractStore, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) *ContractManager {
+func NewManager(store ContractStore, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) (*ContractManager, error) {
 	cm := &ContractManager{
 		store: store,
 		tg:    threadgroup.New(),
@@ -217,5 +218,20 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 
 		locks: make(map[types.FileContractID]*locker),
 	}
-	return cm
+
+	changeID, err := store.LastContractChange()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last contract change: %w", err)
+	}
+
+	// subscribe to the consensus set in a separate goroutine to prevent
+	// blocking startup
+	go func() {
+		err := cm.chain.Subscribe(cm, changeID, cm.tg.Done())
+		if err != nil {
+			cm.log.Error("failed to subscribe to consensus set", zap.Error(err))
+		}
+	}()
+
+	return cm, nil
 }
