@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/persist/sqlite"
-	"go.sia.tech/hostd/internal/store"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
@@ -136,13 +135,13 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	}
 	storage.AddVolume(filepath.Join(dir, "storage"), 64)
 	contracts := contracts.NewManager(db, storage, node.cm, node.tp, wallet, log.Named("contracts"))
-	settings, err := settings.NewConfigManager(db)
+	settings, err := settings.NewConfigManager(privKey, db, node.cm, node.tp, wallet, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
-	registry := registry.NewManager(privKey, store.NewEphemeralRegistryStore(1000))
-	accounts := accounts.NewManager(store.NewEphemeralAccountStore())
+	registry := registry.NewManager(privKey, db)
+	accounts := accounts.NewManager(db)
 
 	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{}, log.Named("rhpv2"))
 	if err != nil {

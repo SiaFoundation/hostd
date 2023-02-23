@@ -15,8 +15,8 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/persist/sqlite"
-	"go.sia.tech/hostd/internal/store"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
+	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/modules/consensus"
@@ -111,11 +111,11 @@ type node struct {
 	storage   *storage.VolumeManager
 
 	rhp2 *rhpv2.SessionHandler
-	// rhp3 *rhpv3.SessionHandler
+	rhp3 *rhpv3.SessionHandler
 }
 
 func (n *node) Close() error {
-	// n.rhp3.Close()
+	n.rhp3.Close()
 	n.rhp2.Close()
 	n.storage.Close()
 	n.contracts.Close()
@@ -136,14 +136,14 @@ func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp 
 	return rhp2, nil
 }
 
-/*func startRHP3(hostKey ed25519.PrivateKey, addr string, cs rhpv3.ChainManager, tp rhpv3.TransactionPool, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, w rhpv3.Wallet) (*rhpv3.SessionHandler, error) {
-	rhp3, err := rhpv3.NewSessionHandler(hostKey, addr, cs, tp, w, am, cm, rm, sm, sr, stdoutmetricReporter{})
+func startRHP3(hostKey types.PrivateKey, addr string, cs rhpv3.ChainManager, tp rhpv3.TransactionPool, w rhpv3.Wallet, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, log *zap.Logger) (*rhpv3.SessionHandler, error) {
+	rhp3, err := rhpv3.NewSessionHandler(hostKey, addr, cs, tp, w, am, cm, rm, sm, sr, stdoutmetricReporter{}, log)
 	if err != nil {
 		return nil, err
 	}
 	go rhp3.Serve()
 	return rhp3, nil
-}*/
+}
 
 func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey, logger *zap.Logger) (*node, error) {
 	gatewayDir := filepath.Join(dir, "gateway")
@@ -185,20 +185,22 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, fmt.Errorf("failed to create sqlite store: %w", err)
 	}
 
-	chainManager, err := chain.NewManager(cs)
+	cm, err := chain.NewManager(cs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chain manager: %w", err)
 	}
 
-	w, err := wallet.NewSingleAddressWallet(walletKey, chainManager, txpool{tp}, db, logger.Named("wallet"))
+	w, err := wallet.NewSingleAddressWallet(walletKey, cm, txpool{tp}, db, logger.Named("wallet"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet: %w", err)
+	}
 
-	sr, err := settings.NewConfigManager(db)
+	sr, err := settings.NewConfigManager(walletKey, db, cm, txpool{tp}, w, logger.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
-	as := store.NewEphemeralAccountStore()
-	accountManager := accounts.NewManager(as)
+	accountManager := accounts.NewManager(db)
 
 	sm, err := storage.NewVolumeManager(db, logger.Named("volumes"))
 	if err != nil {
@@ -206,20 +208,18 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 	defer sm.Close()
 
-	contractManager := contracts.NewManager(db, sm, chainManager, txpool{tp}, w, logger.Named("contracts"))
+	contractManager := contracts.NewManager(db, sm, cm, txpool{tp}, w, logger.Named("contracts"))
+	registryManager := registry.NewManager(walletKey, db)
 
-	er := store.NewEphemeralRegistryStore(1000)
-	registryManager := registry.NewManager(walletKey, er)
-
-	rhp2, err := startRHP2(walletKey, rhp2Addr, chainManager, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
+	rhp2, err := startRHP2(walletKey, rhp2Addr, cm, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
-	/*rhp3, err := startRHP3(walletKey, rhp3Addr, chainManager, tp, accountManager, contractManager, registryManager, sr, sm, w)
+	rhp3, err := startRHP3(walletKey, rhp3Addr, cm, txpool{tp}, w, accountManager, contractManager, registryManager, sr, sm, logger.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp3: %w", err)
-	}*/
+	}
 
 	return &node{
 		g:  g,
@@ -233,6 +233,6 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		registry:  registryManager,
 
 		rhp2: rhp2,
-		// rhp3: rhp3,
+		rhp3: rhp3,
 	}, nil
 }
