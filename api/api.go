@@ -7,6 +7,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/wallet"
@@ -44,14 +45,21 @@ type (
 		RemoveSector(root types.Hash256) error
 	}
 
+	// A ContractManager manages the host's contracts
+	ContractManager interface {
+		Contracts(limit, offset int) ([]contracts.Contract, error)
+		Contract(id types.FileContractID) (contracts.Contract, error)
+	}
+
 	// An API provides an HTTP API for the host
 	API struct {
 		server *http.Server
 		log    *zap.Logger
 
-		volumes  VolumeManager
-		wallet   Wallet
-		settings Settings
+		contracts ContractManager
+		volumes   VolumeManager
+		wallet    Wallet
+		settings  Settings
 	}
 )
 

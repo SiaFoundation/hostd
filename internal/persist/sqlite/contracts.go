@@ -178,6 +178,47 @@ func (u *updateContractsTxn) SetLastChangeID(ccID modules.ConsensusChangeID) err
 	return err
 }
 
+// Contracts returns a paginated list of contracts.
+func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
+	const query = `SELECT contract_error, negotiation_height, formation_confirmed, revision_number=confirmed_revision_number AS revision_confirmed, resolution_confirmed, locked_collateral, raw_revision, host_sig, renter_sig FROM contracts ORDER BY window_end ASC LIMIT $1 OFFSET $2;`
+	rows, err := s.db.Query(query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var results []contracts.Contract
+	var revisionBuf []byte
+	for rows.Next() {
+		revisionBuf = revisionBuf[:0]
+		var contract contracts.Contract
+		var errorStr sql.NullString
+
+		err = rows.Scan(&errorStr,
+			&contract.NegotiationHeight,
+			&contract.FormationConfirmed,
+			&contract.RevisionConfirmed,
+			&contract.ResolutionConfirmed,
+			(*sqlCurrency)(&contract.LockedCollateral),
+			&revisionBuf,
+			(*sqlHash512)(&contract.HostSignature),
+			(*sqlHash512)(&contract.RenterSignature))
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+
+		if errorStr.Valid {
+			contract.Error = errors.New(errorStr.String)
+		}
+
+		if err := decodeRevision(revisionBuf, &contract.Revision); err != nil {
+			return nil, fmt.Errorf("failed to decode revision: %w", err)
+		}
+		results = append(results, contract)
+	}
+	return results, nil
+}
+
 // Contract returns the contract with the given ID.
 func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, err error) {
 	var revisionBuf []byte

@@ -39,6 +39,9 @@ type (
 	// contracts and determines which contracts need lifecycle actions.
 	ContractStore interface {
 		LastContractChange() (id modules.ConsensusChangeID, err error)
+		// Contracts returns a paginated list of contracts sorted by expiration
+		// asc.
+		Contracts(limit, offset int) ([]Contract, error)
 		// Contract returns the contract with the given ID.
 		Contract(types.FileContractID) (Contract, error)
 		// ContractFormationSet returns the formation transaction set for the

@@ -120,6 +120,17 @@ func (cm *ContractManager) Unlock(id types.FileContractID) {
 	lock.c <- struct{}{}
 }
 
+// Contracts returns a paginated list of contracts sorted by expiration
+// ascending.
+func (cm *ContractManager) Contracts(limit, offset int) ([]Contract, error) {
+	return cm.store.Contracts(limit, offset)
+}
+
+// Contract returns the contract with the given id.
+func (cm *ContractManager) Contract(id types.FileContractID) (Contract, error) {
+	return cm.store.Contract(id)
+}
+
 // AddContract stores the provided contract, should error if the contract
 // already exists.
 func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {

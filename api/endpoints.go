@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/jape"
@@ -60,11 +62,32 @@ func (a *API) handleGetFinancials(ctx jape.Context) {
 }
 
 func (a *API) handleGetContracts(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	limit, offset := parseLimitParams(ctx, 100, 500)
+	contracts, err := a.contracts.Contracts(limit, offset)
+	if err != nil {
+		ctx.Error(err, http.StatusInternalServerError)
+		a.log.Error("failed to get contracts", zap.Error(err))
+		return
+	}
+	ctx.Encode(contracts)
 }
 
 func (a *API) handleGetContract(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	var id types.FileContractID
+	if err := ctx.DecodeParam("id", &id); err != nil {
+		ctx.Error(err, http.StatusBadRequest)
+		return
+	}
+	contract, err := a.contracts.Contract(id)
+	if errors.Is(err, contracts.ErrNotFound) {
+		ctx.Error(err, http.StatusNotFound)
+		return
+	} else if err != nil {
+		ctx.Error(err, http.StatusInternalServerError)
+		a.log.Error("failed to get contract", zap.Error(err))
+		return
+	}
+	ctx.Encode(contract)
 }
 
 func (a *API) handleDeleteSector(ctx jape.Context) {
