@@ -12,6 +12,12 @@ type (
 		ReadOnly bool `json:"readOnly"`
 	}
 
+	WalletResponse struct {
+		ScanHeight uint64         `json:"scanHeight"`
+		Spendable  types.Currency `json:"spendable"`
+		Confirmed  types.Currency `json:"confirmed"`
+	}
+
 	WalletSendSiacoinsRequest struct {
 		Address types.Address  `json:"address"`
 		Amount  types.Currency `json:"amount"`

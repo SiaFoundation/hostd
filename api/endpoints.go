@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
@@ -47,17 +48,17 @@ func (a *API) handleGetSettings(ctx jape.Context) {
 }
 
 func (a *API) handlePutSettings(ctx jape.Context) {
-	var settings Settings
-	if err := ctx.Decode(&settings); err != nil {
+	var updated settings.Settings
+	if err := ctx.Decode(&updated); err != nil {
 		ctx.Error(err, http.StatusBadRequest)
 		return
 	}
-	if err := a.settings.UpdateSettings(settings); err != nil {
+	if err := a.settings.UpdateSettings(updated); err != nil {
 		ctx.Error(err, http.StatusInternalServerError)
 		a.log.Warn("failed to update settings", zap.Error(err))
 		return
 	}
-	ctx.Encode(settings)
+	ctx.Encode(updated)
 }
 
 func (a *API) handleGetFinancials(ctx jape.Context) {
@@ -186,14 +187,18 @@ func (a *API) handleGetWalletAddress(ctx jape.Context) {
 	ctx.Encode(a.wallet.Address())
 }
 
-func (a *API) handleGetWalletBalance(ctx jape.Context) {
-	balance, err := a.wallet.Balance()
+func (a *API) handleGetWallet(ctx jape.Context) {
+	spendable, confirmed, err := a.wallet.Balance()
 	if err != nil {
 		ctx.Error(err, http.StatusInternalServerError)
 		a.log.Warn("failed to get wallet balance", zap.Error(err))
 		return
 	}
-	ctx.Encode(balance)
+	ctx.Encode(WalletResponse{
+		ScanHeight: a.wallet.ScanHeight(),
+		Spendable:  spendable,
+		Confirmed:  confirmed,
+	})
 }
 
 func (a *API) handleGetWalletTransactions(ctx jape.Context) {

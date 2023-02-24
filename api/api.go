@@ -7,7 +7,9 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
 )
@@ -16,17 +18,18 @@ type (
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
-		Balance() (types.Currency, error)
+		ScanHeight() uint64
+		Balance() (spendable, confirmed types.Currency, err error)
 		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []types.Hash256, release func(), err error)
 		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
-		Transactions(limit, offset int) ([]types.Transaction, error)
+		Transactions(limit, offset int) ([]wallet.Transaction, error)
 	}
 
 	// Settings updates and retrieves the host's settings
 	Settings interface {
 		Announce() error
-		UpdateSettings(s Settings) error
-		Settings() (Settings, error)
+		UpdateSettings(s settings.Settings) error
+		Settings() (settings.Settings, error)
 	}
 
 	VolumeManager interface {
@@ -58,7 +61,7 @@ func (a *API) Close() error {
 	return a.server.Close()
 }
 
-func New(log *zap.Logger, vm VolumeManager, s Settings, w Wallet) *API {
+func NewServer(vm VolumeManager, s Settings, w Wallet, log *zap.Logger) *API {
 	a := &API{
 		volumes:  vm,
 		settings: s,
@@ -85,8 +88,8 @@ func New(log *zap.Logger, vm VolumeManager, s Settings, w Wallet) *API {
 		"DELETE	/volumes/:id":            a.handleDeleteVolume,
 		"PUT	/volumes/:id/resize":        a.handlePutVolumeResize,
 		"PUT 	/volumes/:id/check":        a.handlePutVolumeCheck,
+		"GET	/wallet":                    a.handleGetWallet,
 		"GET	/wallet/address":            a.handleGetWalletAddress,
-		"GET	/wallet/balance":            a.handleGetWalletBalance,
 		"GET	/wallet/transactions":       a.handleGetWalletTransactions,
 		"POST	/wallet/transactions/send": a.handlePostWalletSend,
 	})
