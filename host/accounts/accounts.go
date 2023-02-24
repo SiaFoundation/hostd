@@ -85,7 +85,7 @@ func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency,
 // amount will not be synced to the underlying store until Commit is called.
 // This function will block until the account has enough funds to cover the
 // budget or until the context is cancelled.
-func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, amount types.Currency) (Budget, error) {
+func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, amount types.Currency) (*Budget, error) {
 	// instead of monitoring each account, one global deposit channel wakes all
 	// waiting withdrawals. Since the account's balance may not have changed,
 	// the balance is checked in a loop.
@@ -96,6 +96,8 @@ func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, a
 		// if there are currently outstanding debits, use the in-memory balance
 		if state, ok := am.balances[accountID]; ok {
 			balance = state.balance
+			state.openTxns++
+			am.balances[accountID] = state
 		} else {
 			var err error
 			// otherwise, get the balance from the store
@@ -121,7 +123,7 @@ func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, a
 			state.balance = balance.Sub(amount)
 			am.balances[accountID] = state
 			am.mu.Unlock()
-			return &budget{
+			return &Budget{
 				accountID: accountID,
 				max:       amount,
 

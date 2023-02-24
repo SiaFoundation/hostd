@@ -50,7 +50,7 @@ func TestBudget(t *testing.T) {
 	accountID := frand.Entropy256()
 
 	// credit the account
-	amount := types.NewCurrency64(50)
+	amount := types.NewCurrency64(100)
 	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute)); err != nil {
 		t.Fatal("expected successful credit", err)
 	}
@@ -58,17 +58,17 @@ func TestBudget(t *testing.T) {
 	expectedBalance := amount
 
 	// initialize a new budget for half the account balance
-	budget, err := am.Budget(context.Background(), accountID, amount.Div64(2))
+	budgetAmount := amount.Div64(2)
+	budget, err := am.Budget(context.Background(), accountID, budgetAmount)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer budget.Rollback()
 
 	// check that the in-memory state is consistent
-	budgetAmount := amount.Div64(2)
 	expectedBalance = expectedBalance.Sub(budgetAmount)
 	if am.balances[accountID].balance.Cmp(expectedBalance) != 0 {
-		t.Fatalf("expected in-memory balance to be %v, got %v", expectedBalance, am.balances[accountID].balance)
+		t.Fatalf("expected in-memory balance to be %d, got %d", expectedBalance, am.balances[accountID].balance)
 	}
 
 	// spend half of the budget
@@ -79,25 +79,34 @@ func TestBudget(t *testing.T) {
 
 	// check that the in-memory state did not change
 	if am.balances[accountID].balance.Cmp(expectedBalance) != 0 {
-		t.Fatalf("expected in-memory balance to be %v, got %v", expectedBalance, am.balances[accountID].balance)
+		t.Fatalf("expected in-memory balance to be %d, got %d", expectedBalance, am.balances[accountID].balance)
 	}
+
+	// create a new budget to hold the balance in-memory
+	b2, err := am.Budget(context.Background(), accountID, types.NewCurrency64(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b2.Rollback()
 
 	// commit the budget
 	if err := budget.Commit(); err != nil {
 		t.Fatal(err)
 	}
 
-	// check that the in-memory state has been cleared
-	if _, exists := am.balances[accountID]; exists {
-		t.Fatal("expected in-memory balance to be cleared")
+	expectedBalance = amount.Sub(spendAmount)
+	// check that the in-memory state has been updated
+	if balance, exists := am.balances[accountID]; !exists {
+		t.Fatal("expected in-memory balance to exist")
+	} else if !balance.balance.Equals(expectedBalance) {
+		t.Fatalf("expected in-memory balance to be %d, got %d", expectedBalance, balance.balance)
 	}
 
 	// check that the account balance has been updated and only the spent
 	// amount has been deducted
-	expectedBalance = expectedBalance.Add(budgetAmount.Sub(spendAmount))
 	if balance, err := am.store.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
-	} else if balance.Cmp(expectedBalance) != 0 {
-		t.Fatalf("expected balance to be equal to %v, got %v", expectedBalance, balance)
+	} else if !balance.Equals(expectedBalance) {
+		t.Fatalf("expected balance to be equal to %d, got %d", expectedBalance, balance)
 	}
 }
