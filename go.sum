@@ -317,6 +317,8 @@ go.opentelemetry.io/proto/otlp v0.19.0 h1:IVN6GR+mhC4s5yfcTbmzHYODqvWAp3ZedA2SJP
 go.opentelemetry.io/proto/otlp v0.19.0/go.mod h1:H7XAot3MsfNsj7EXtrA2q5xSNQ10UqI405h3+duxN4U=
 go.sia.tech/core v0.1.10-0.20230224144927-5c2b3731d9e2 h1:OibOZG6EpiL82jhoXhNrRo6rCaBD88syWqRaE1kJvZ4=
 go.sia.tech/core v0.1.10-0.20230224144927-5c2b3731d9e2/go.mod h1:6p9xq0pd2WZmju7g8ncSmQRt8HWtsVIOoWKKMXpQCH0=
+go.sia.tech/core v0.1.10-0.20230224185832-5047682d37b0 h1:Oa8AGmexg04iECfYo5Y5VJFvJFhYkg6EwZfxmDsFBBI=
+go.sia.tech/core v0.1.10-0.20230224185832-5047682d37b0/go.mod h1:6p9xq0pd2WZmju7g8ncSmQRt8HWtsVIOoWKKMXpQCH0=
 go.sia.tech/jape v0.9.0 h1:kWgMFqALYhLMJYOwWBgJda5ko/fi4iZzRxHRP7pp8NY=
 go.sia.tech/jape v0.9.0/go.mod h1:4QqmBB+t3W7cNplXPj++ZqpoUb2PeiS66RLpXmEGap4=
 go.sia.tech/mux v1.2.0 h1:ofa1Us9mdymBbGMY2XH/lSpY8itFsKIo/Aq8zwe+GHU=
