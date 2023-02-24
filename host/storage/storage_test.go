@@ -25,6 +25,85 @@ func checkFileSize(fp string, expectedSize int64) error {
 	return nil
 }
 
+func TestVolumeLoad(t *testing.T) {
+	const expectedSectors = 150
+	dir := t.TempDir()
+
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// write a sector
+	var sector [rhpv2.SectorSize]byte
+	frand.Read(sector[:])
+	root := rhpv2.SectorRoot(&sector)
+	release, err := vm.Write(root, &sector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+
+	// close the volume manager
+	if err := vm.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// reopen the volume manager
+	vm, err = storage.NewVolumeManager(db, log.Named("volumes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	// check that the volume is still there
+	loaded, err := vm.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if loaded.ID != volume.ID {
+		t.Fatal("loaded volume has wrong ID")
+	} else if loaded.UsedSectors != 1 {
+		t.Fatal("loaded volume has wrong size")
+	} else if loaded.ReadOnly {
+		t.Fatal("loaded volume should be writable")
+	} else if loaded.TotalSectors != expectedSectors {
+		t.Fatal("loaded volume has wrong size")
+	}
+
+	// check that the sector is still there
+	sector2, err := vm.Read(root)
+	if err != nil {
+		t.Fatal(err)
+	} else if *sector2 != sector {
+		t.Fatal("sector was corrupted")
+	}
+
+	// write a new sector
+	frand.Read(sector[:])
+	root = rhpv2.SectorRoot(&sector)
+	release, err = vm.Write(root, &sector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+}
+
 func TestAddVolume(t *testing.T) {
 	const expectedSectors = 500
 	dir := t.TempDir()

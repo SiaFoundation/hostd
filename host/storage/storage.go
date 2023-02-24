@@ -511,13 +511,15 @@ func (vm *VolumeManager) loadVolumes() error {
 		}
 
 		// open the volume file
-		f, err := os.Open(vol.LocalPath)
+		f, err := os.OpenFile(vol.LocalPath, os.O_RDWR, 0700)
 		if err != nil {
+			vm.log.Error("unable to open volume", zap.Error(err), zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
 			// mark the volume as unavailable
 			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
+				f.Close()
 				return fmt.Errorf("failed to mark volume '%v' as unavailable: %w", vol.LocalPath, err)
 			}
-			vm.log.Error("unable to open volume", zap.Error(err), zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
+			continue
 		}
 		// add the volume to the memory map
 		vm.volumes[vol.ID] = &volume{
@@ -527,6 +529,7 @@ func (vm *VolumeManager) loadVolumes() error {
 		if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
 			return fmt.Errorf("failed to mark volume '%v' as available: %w", vol.LocalPath, err)
 		}
+		vm.log.Debug("loaded volume", zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
 	}
 	return nil
 }
