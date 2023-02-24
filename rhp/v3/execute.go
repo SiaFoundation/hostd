@@ -428,15 +428,21 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		existing := pe.revision
 		revision, err := rhp.Revise(existing, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 		if err != nil {
-			return s.WriteResponseErr(fmt.Errorf("failed to revise contract: %w", err))
+			err = fmt.Errorf("failed to revise contract: %w", err)
+			s.WriteResponseErr(err)
+			return err
 		} else if err := rhp.ValidateProgramRevision(existing, revision, pe.cost.Storage, pe.cost.Collateral); err != nil {
-			return s.WriteResponseErr(fmt.Errorf("failed to validate program revision: %w", err))
+			err = fmt.Errorf("failed to validate program revision: %w", err)
+			s.WriteResponseErr(err)
+			return err
 		}
 
 		// verify the renter signature
 		sigHash := rhp.HashRevision(revision)
 		if !pe.renterKey.VerifyHash(sigHash, req.Signature) {
-			return s.WriteResponseErr(ErrInvalidRenterSignature)
+			err = ErrInvalidRenterSignature
+			s.WriteResponseErr(err)
+			return err
 		}
 
 		// sign and commit the revision

@@ -62,12 +62,16 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream) error {
 	// likely did not intend to pay
 	budget, err := sh.processPayment(s)
 	if err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
+		err = fmt.Errorf("failed to process payment: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 	defer budget.Rollback()
 
 	if err := budget.Spend(pt.UpdatePriceTableCost); err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to pay %v for price table: %w", pt.UpdatePriceTableCost, err))
+		err = fmt.Errorf("failed to pay %v for price table: %w", pt.UpdatePriceTableCost, err)
+		s.WriteResponseErr(err)
+		return err
 	}
 
 	// register the price table for future use
@@ -85,7 +89,9 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream) error {
 	// read the price table ID from the stream
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to read price table: %w", err))
+		err = fmt.Errorf("failed to read price table: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 
 	// read the fund request from the stream
@@ -97,7 +103,9 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream) error {
 	// process the payment for funding the account
 	fundAmount, balance, err := sh.processFundAccountPayment(pt, s, fundReq.Account)
 	if err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
+		err = fmt.Errorf("failed to process payment: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 
 	fundResp := &rhpv3.RPCFundAccountResponse{
@@ -124,19 +132,25 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream) error {
 	// get the price table to use for payment
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to read price table: %w", err))
+		err = fmt.Errorf("failed to read price table: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 
 	// read the payment from the stream
 	budget, err := sh.processPayment(s)
 	if err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
+		err = fmt.Errorf("failed to process payment: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 	defer budget.Rollback()
 
 	// subtract the cost of the RPC
 	if err := budget.Spend(pt.AccountBalanceCost); err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to pay %v for account balance: %w", pt.AccountBalanceCost, err))
+		err = fmt.Errorf("failed to pay %v for account balance: %w", pt.AccountBalanceCost, err)
+		s.WriteResponseErr(err)
+		return err
 	}
 
 	// read the account balance request from the stream
@@ -172,13 +186,17 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	// read the price table
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to read price table: %w", err))
+		err = fmt.Errorf("failed to read price table: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 
 	// create the program budget
 	budget, err := sh.processPayment(s)
 	if err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
+		err = fmt.Errorf("failed to process payment: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 	defer budget.Rollback()
 
@@ -199,7 +217,9 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	var contract contracts.SignedRevision
 	if requiresContract || requiresFinalization {
 		if executeReq.FileContractID == (types.FileContractID{}) {
-			return s.WriteResponseErr(ErrContractRequired)
+			err = ErrContractRequired
+			s.WriteResponseErr(err)
+			return err
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -207,7 +227,9 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 
 		contract, err = sh.contracts.Lock(ctx, executeReq.FileContractID)
 		if err != nil {
-			return s.WriteResponseErr(fmt.Errorf("failed to lock contract: %w", err))
+			err = fmt.Errorf("failed to lock contract: %w", err)
+			s.WriteResponseErr(err)
+			return err
 		}
 		defer sh.contracts.Unlock(contract.Revision.ParentID)
 	}
@@ -228,7 +250,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to create program executor: %w", err)
 	} else if err := executor.Execute(ctx, s); err != nil {
-		return s.WriteResponseErr(fmt.Errorf("failed to execute program: %w", err))
+		return fmt.Errorf("failed to execute program: %w", err)
 	}
 
 	return nil
