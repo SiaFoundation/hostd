@@ -81,7 +81,7 @@ type (
 
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
-		Settings() (settings.Settings, error)
+		Settings() settings.Settings
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 
@@ -181,10 +181,7 @@ func (sh *SessionHandler) Close() error {
 
 // Settings returns the host's current settings
 func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
-	settings, err := sh.settings.Settings()
-	if err != nil {
-		return rhpv2.HostSettings{}, fmt.Errorf("failed to get host settings: %w", err)
-	}
+	settings := sh.settings.Settings()
 	used, total, err := sh.storage.Usage()
 	if err != nil {
 		return rhpv2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)

@@ -99,7 +99,7 @@ type (
 
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
-		Settings() (settings.Settings, error)
+		Settings() settings.Settings
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 

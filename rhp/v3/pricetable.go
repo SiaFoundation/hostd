@@ -103,11 +103,7 @@ func (pm *priceTableManager) Register(pt rhpv3.HostPriceTable) {
 
 // PriceTable returns the session handler's current price table.
 func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
-	settings, err := sh.settings.Settings()
-	if err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to get settings: %w", err)
-	}
-
+	settings := sh.settings.Settings()
 	count, max, err := sh.registry.Entries()
 	if err != nil {
 		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to get registry entries: %w", err)

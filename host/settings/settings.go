@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -85,12 +86,14 @@ type (
 	ConfigManager struct {
 		hostKey types.PrivateKey
 
-		settings Store
+		store Store
 
 		cm     ChainManager
 		tp     TransactionPool
 		wallet Wallet
 
+		mu           sync.Mutex // guards the following fields
+		settings     Settings   // in-memory cache of the host's settings
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
 	}
@@ -151,13 +154,10 @@ func (m *ConfigManager) Close() error {
 
 // Announce announces the host to the network
 func (m *ConfigManager) Announce() error {
-	settings, err := m.settings.Settings()
-	if err != nil {
-		return fmt.Errorf("failed to get settings: %w", err)
-	}
-
+	// get the current settings
+	settings := m.Settings()
+	// create a transaction with an announcement
 	minerFee := m.tp.RecommendedFee().Mul64(announcementTxnSize)
-
 	txn := types.Transaction{
 		ArbitraryData: [][]byte{
 			createAnnouncement(m.hostKey, settings.NetAddress),
@@ -171,13 +171,11 @@ func (m *ConfigManager) Announce() error {
 		return fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
-
 	// sign the transaction
 	err = m.wallet.SignTransaction(m.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
 	if err != nil {
 		return fmt.Errorf("failed to sign transaction: %w", err)
 	}
-
 	// broadcast the transaction
 	err = m.tp.AcceptTransactionSet([]types.Transaction{txn})
 	if err != nil {
@@ -188,13 +186,18 @@ func (m *ConfigManager) Announce() error {
 
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
+	m.mu.Lock()
+	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
-	return m.settings.UpdateSettings(s)
+	m.mu.Unlock()
+	return m.store.UpdateSettings(s)
 }
 
 // Settings returns the host's current settings.
-func (m *ConfigManager) Settings() (Settings, error) {
-	return m.settings.Settings()
+func (m *ConfigManager) Settings() Settings {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.settings
 }
 
 // BandwidthLimiters returns the rate limiters for all traffic
@@ -227,27 +230,29 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 // NewConfigManager initializes a new config manager
 func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
 	m := &ConfigManager{
-		hostKey:  hostKey,
-		settings: store,
-		cm:       cm,
-		tp:       tp,
-		wallet:   w,
+		hostKey: hostKey,
+		store:   store,
+		cm:      cm,
+		tp:      tp,
+		wallet:  w,
 
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
 		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
 	}
 
-	settings, err := m.settings.Settings()
+	settings, err := m.store.Settings()
 	if err != nil && errors.Is(err, ErrNoSettings) {
 		if err := store.UpdateSettings(defaultSettings); err != nil {
 			return nil, fmt.Errorf("failed to initialize settings: %w", err)
 		}
+		settings = defaultSettings // use the default settings
 		return m, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}
 
+	m.settings = settings
 	// update the global rate limiters from settings
 	m.setRateLimit(settings.IngressLimit, settings.EgressLimit)
 	return m, nil

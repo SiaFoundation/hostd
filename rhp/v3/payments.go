@@ -53,7 +53,7 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 		return rhpv3.ZeroAccount, types.ZeroCurrency, ErrInvalidRenterSignature
 	}
 
-	settings, err := sh.settings.Settings()
+	settings := sh.settings.Settings()
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
@@ -196,7 +196,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 		return types.ZeroCurrency, types.ZeroCurrency, ErrInvalidRenterSignature
 	}
 
-	settings, err := sh.settings.Settings()
+	settings := sh.settings.Settings()
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)

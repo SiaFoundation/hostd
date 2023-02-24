@@ -38,13 +38,7 @@ func (a *API) handlePostAnnounce(ctx jape.Context) {
 }
 
 func (a *API) handleGetSettings(ctx jape.Context) {
-	settings, err := a.settings.Settings()
-	if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to get settings", zap.Error(err))
-		return
-	}
-	ctx.Encode(settings)
+	ctx.Encode(a.settings.Settings())
 }
 
 func (a *API) handlePutSettings(ctx jape.Context) {

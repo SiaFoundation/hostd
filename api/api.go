@@ -29,7 +29,7 @@ type (
 	Settings interface {
 		Announce() error
 		UpdateSettings(s settings.Settings) error
-		Settings() (settings.Settings, error)
+		Settings() settings.Settings
 	}
 
 	// A VolumeManager manages the host's storage volumes
