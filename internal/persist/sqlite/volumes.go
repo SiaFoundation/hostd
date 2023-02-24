@@ -81,31 +81,25 @@ WHERE v.id=$1`
 //
 // The sector should be referenced by either a contract or temp store
 // before release is called to prevent Prune() from removing it.
-func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation, exists bool) error) (release func() error, err error) {
-	// SQLite sorts nulls first -- sort by sector_root DESC, volume_index
-	// ASC to push the existing index to the top.
-	const locQuery = `SELECT s.id, s.volume_id, s.volume_index, s.sector_root IS NOT NULL AS sector_exists
-FROM volume_sectors s
-INNER JOIN storage_volumes v
-LEFT JOIN locked_volume_sectors l ON s.id=l.volume_sector_id
-WHERE s.sector_root=? OR l.volume_sector_id IS NULL AND v.read_only=false AND v.available=true AND s.sector_root IS NULL
-ORDER BY s.sector_root DESC, s.volume_index ASC LIMIT 1;`
-
+func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation, exists bool) error) (func() error, error) {
+	var lockID uint64
 	var location storage.SectorLocation
 	var exists bool
-	var lockID uint64
-	err = s.transaction(func(tx txn) error {
-		// get a sector location. If no rows are returned, there is no remaining
-		// space.
-		err := tx.QueryRow(locQuery, sqlHash256(root)).Scan(&location.ID, &location.Volume, &location.Index, &exists)
-		if errors.Is(err, sql.ErrNoRows) {
-			return storage.ErrNotEnoughStorage
+	err := s.transaction(func(tx txn) error {
+		var err error
+		location, err = sectorLocation(tx, root)
+		exists = err == nil
+		if errors.Is(err, storage.ErrSectorNotFound) {
+			location, err = emptyLocation(tx)
+			if err != nil {
+				return fmt.Errorf("failed to get empty location: %w", err)
+			}
 		} else if err != nil {
-			return fmt.Errorf("failed to find open sector location: %w", err)
+			return fmt.Errorf("failed to check existing sector location: %w", err)
 		}
 
 		// lock the sector location
-		lockID, err = s.lockSector(tx, location.ID)
+		lockID, err = lockSector(tx, location.ID)
 		if err != nil {
 			return fmt.Errorf("failed to lock sector location: %w", err)
 		}
@@ -347,6 +341,29 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 		sectors = append(sectors, loc)
 	}
 	return sectors, nil
+}
+
+func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err error) {
+	const query = `SELECT id, volume_id, volume_index, sector_root FROM volume_sectors WHERE sector_root=?`
+	err = tx.QueryRow(query, sqlHash256(root)).Scan(&loc.ID, &loc.Volume, &loc.Index, (*sqlHash256)(&loc.Root))
+	if errors.Is(err, sql.ErrNoRows) {
+		err = storage.ErrSectorNotFound
+	}
+	return
+}
+
+func emptyLocation(txn txn) (loc storage.SectorLocation, err error) {
+	const query = `SELECT s.id, s.volume_id, s.volume_index
+FROM volume_sectors s
+INNER JOIN storage_volumes v ON (v.id = s.volume_id)
+LEFT JOIN locked_volume_sectors l ON (s.id=l.volume_sector_id)
+WHERE l.volume_sector_id IS NULL AND v.read_only=false AND v.available=true AND s.sector_root IS NULL
+LIMIT 1;`
+	err = txn.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = storage.ErrNotEnoughStorage
+	}
+	return
 }
 
 // locationsForMigration returns a list of locations to migrate to. Locations

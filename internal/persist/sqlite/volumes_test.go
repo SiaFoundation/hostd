@@ -94,7 +94,6 @@ func TestAddSector(t *testing.T) {
 	if err := db.GrowVolume(volumeID, 1); err != nil {
 		t.Fatal(err)
 	}
-
 	// store the sector
 	release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
 		// check that the sector was stored in the expected location
