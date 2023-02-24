@@ -129,7 +129,7 @@ func (n *node) Close() error {
 }
 
 func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager, log *zap.Logger) (*rhpv2.SessionHandler, error) {
-	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, stdoutmetricReporter{}, log)
+	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, discordMetricReporter{}, log)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp 
 }
 
 func startRHP3(hostKey types.PrivateKey, addr string, cs rhpv3.ChainManager, tp rhpv3.TransactionPool, w rhpv3.Wallet, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, log *zap.Logger) (*rhpv3.SessionHandler, error) {
-	rhp3, err := rhpv3.NewSessionHandler(hostKey, addr, cs, tp, w, am, cm, rm, sm, sr, stdoutmetricReporter{}, log)
+	rhp3, err := rhpv3.NewSessionHandler(hostKey, addr, cs, tp, w, am, cm, rm, sm, sr, discordMetricReporter{}, log)
 	if err != nil {
 		return nil, err
 	}

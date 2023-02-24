@@ -1,23 +1,7 @@
 package main
 
-import (
-	"fmt"
+type discordMetricReporter struct{}
 
-	"go.sia.tech/hostd/rhp/v2"
-)
-
-type stdoutmetricReporter struct{}
-
-func (mr stdoutmetricReporter) Report(metric any) error {
-	switch v := metric.(type) {
-	case rhp.EventSessionStart:
-		fmt.Printf("renter session started")
-	case rhp.EventSessionEnd:
-		fmt.Printf("renter session ended")
-	case rhp.EventRPCStart:
-		fmt.Printf("rpc started %v", v.RPC)
-	case rhp.EventRPCEnd:
-		fmt.Printf("rpc ended %v", v.RPC)
-	}
+func (mr discordMetricReporter) Report(metric any) error {
 	return nil
 }
