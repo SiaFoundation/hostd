@@ -3,6 +3,7 @@ package contracts
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
@@ -70,6 +71,7 @@ type (
 	ContractUpdater struct {
 		store ContractStore
 
+		once sync.Once
 		done func() // done is called when the updater is closed.
 
 		sectorActions []contractSectorAction
@@ -191,7 +193,7 @@ func (cu *ContractUpdater) SectorRoots() []types.Hash256 {
 
 // Close must be called when the contract updater is no longer needed.
 func (cu *ContractUpdater) Close() error {
-	cu.done()
+	cu.once.Do(cu.done)
 	return nil
 }
 
