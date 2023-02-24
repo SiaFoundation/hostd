@@ -33,7 +33,7 @@ CREATE TABLE storage_volumes (
 
 CREATE TABLE volume_sectors (
 	id INTEGER PRIMARY KEY,
-	volume_id INTEGER NOT NULL REFERENCES storage_volumes, -- all sectors will need to be migrated first when deleting a volume
+	volume_id INTEGER NOT NULL REFERENCES storage_volumes (id), -- all sectors will need to be migrated first when deleting a volume
 	volume_index INTEGER NOT NULL,
 	sector_root BLOB UNIQUE, -- set null if the sector is not used
 	UNIQUE (volume_id, volume_index)
