@@ -11,7 +11,6 @@ import (
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
-	"go.uber.org/zap"
 )
 
 // processContractPayment initializes an RPC budget using funds from a contract.
@@ -119,7 +118,7 @@ func (sh *SessionHandler) processAccountPayment(s *rhpv3.Stream, height uint64) 
 
 // processPayment initializes an RPC budget using funds from a contract or an
 // ephemeral account.
-func (sh *SessionHandler) processPayment(s *rhpv3.Stream) (accounts.Budget, error) {
+func (sh *SessionHandler) processPayment(s *rhpv3.Stream) (*accounts.Budget, error) {
 	var paymentType types.Specifier
 	if err := readRequest(s, &paymentType, 16, 30*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to read payment type: %w", err)
@@ -142,7 +141,6 @@ func (sh *SessionHandler) processPayment(s *rhpv3.Stream) (accounts.Budget, erro
 	default:
 		return nil, fmt.Errorf("unrecognized payment type: %q", paymentType)
 	}
-	sh.log.Debug("received payment", zap.String("account", account.String()), zap.String("amount", amount.ExactString()), zap.Uint64("height", currentHeight), zap.String("type", paymentType.String()))
 
 	// create a budget for the payment
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
