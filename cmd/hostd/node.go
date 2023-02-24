@@ -105,6 +105,7 @@ type node struct {
 	w     *wallet.SingleAddressWallet
 	store *sqlite.Store
 
+	settings  *settings.ConfigManager
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
 	registry  *registry.Manager
@@ -206,7 +207,6 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
-	defer sm.Close()
 
 	contractManager, err := contracts.NewManager(db, sm, cm, txpool{tp}, w, logger.Named("contracts"))
 	if err != nil {
@@ -225,11 +225,13 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 
 	return &node{
-		g:  g,
-		cs: cs,
-		tp: tp,
-		w:  w,
+		g:     g,
+		cs:    cs,
+		tp:    tp,
+		w:     w,
+		store: db,
 
+		settings:  sr,
 		accounts:  accountManager,
 		contracts: contractManager,
 		storage:   sm,

@@ -11,6 +11,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/core/wallet"
+	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
 	"go.uber.org/zap"
 	"golang.org/x/term"
@@ -35,9 +36,9 @@ func check(context string, err error) {
 }
 
 func getAPIPassword() string {
-	apiPassword := os.Getenv("HOSTD_API_PASSWORD")
+	apiPassword := os.Getenv(apiPasswordEnvVariable)
 	if apiPassword != "" {
-		fmt.Println("Using HOSTD_API_PASSWORD environment variable.")
+		fmt.Printf("Using %s environment variable.", apiPasswordEnvVariable)
 	} else {
 		fmt.Print("Enter API password: ")
 		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -51,9 +52,9 @@ func getAPIPassword() string {
 }
 
 func getWalletKey() types.PrivateKey {
-	phrase := os.Getenv("HOSTD_WALLET_SEED")
+	phrase := os.Getenv(walletSeedEnvVariable)
 	if phrase != "" {
-		fmt.Println("Using HOSTD_WALLET_SEED environment variable")
+		fmt.Printf("Using %s environment variable", walletSeedEnvVariable)
 	} else {
 		fmt.Print("Enter wallet seed: ")
 		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -69,14 +70,14 @@ func getWalletKey() types.PrivateKey {
 }
 
 func main() {
-	flag.StringVar(&gatewayAddr, "addr", ":0", "address to listen on for peer connections")
-	flag.StringVar(&rhp2Addr, "rhp2", ":9982", "address to listen on for RHP2 connections")
-	flag.StringVar(&rhp3Addr, "rhp3", ":9983", "address to listen on for RHP3 connections")
-	flag.StringVar(&apiAddr, "http", "localhost:9980", "address to serve API on")
+	flag.StringVar(&gatewayAddr, "addr", defaultGatewayAddr, "address to listen on for peer connections")
+	flag.StringVar(&rhp2Addr, "rhp2", defaultRHPv2Addr, "address to listen on for RHP2 connections")
+	flag.StringVar(&rhp3Addr, "rhp3", defaultRHPv3Addr, "address to listen on for RHP3 connections")
+	flag.StringVar(&apiAddr, "http", defaultAPIAddr, "address to serve API on")
 	flag.StringVar(&dir, "dir", ".", "directory to store hostd metadata")
 	flag.BoolVar(&bootstrap, "bootstrap", true, "bootstrap the gateway and consensus modules")
-	flag.BoolVar(&logStdOut, "stdout", false, "log to stdout instead of file")
-	flag.StringVar(&logLevel, "loglevel", "warn", "log level (debug, info, warn, error)")
+	flag.BoolVar(&logStdOut, "log.stdout", false, "log to stdout instead of file")
+	flag.StringVar(&logLevel, "log.level", "warn", "log level (debug, info, warn, error)")
 	flag.Parse()
 
 	log.Println("hostd", build.Version())
@@ -130,15 +131,21 @@ func main() {
 	defer node.Close()
 
 	log.Println("p2p: Listening on", node.g.Address())
-	log.Println("host public key:", walletKey)
+	log.Println("host public key:", walletKey.PublicKey())
 
 	l, err := net.Listen("tcp", apiAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer l.Close()
-	/*log.Println("api: Listening on", l.Addr())
-	go startWeb(l, n, apiPassword)*/
+
+	api := api.NewServer(node.storage, node.settings, node.w, logger.Named("api"))
+	go func() {
+		if err := api.Serve(l); err != nil {
+			log.Println("ERROR: failed to serve API:", err)
+		}
+	}()
+	defer api.Close()
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt)
