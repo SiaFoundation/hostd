@@ -195,6 +195,7 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 
 		// host info
 		Address:          sh.wallet.Address(),
+		SiaMuxPort:       "9983",
 		NetAddress:       settings.NetAddress,
 		TotalStorage:     total,
 		RemainingStorage: total - used,
