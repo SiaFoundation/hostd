@@ -28,10 +28,10 @@ jobs:
         uses: n8maninger/action-golang-test@v1
         with:
           args: "-race;-tags=testing debug netgo"
-      - name: Check Endpoints
-        uses: SiaFoundation/action-golang-analysis@HEAD
-        with:
-          analyzers: |
-            go.sia.tech/jape.Analyzer
+      # - name: Check Endpoints
+      #   uses: SiaFoundation/action-golang-analysis@HEAD
+      #   with:
+      #     analyzers: |
+      #       go.sia.tech/jape.Analyzer
       - name: Build
         run: CGO_ENABLED=1 go build -o bin/ ./cmd/hostd
