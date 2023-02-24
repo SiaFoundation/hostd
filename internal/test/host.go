@@ -151,11 +151,11 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
 	}
 	go rhpv2.Serve()
-	/*rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{})
+	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{}, log.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
-	go rhpv3.Serve()*/
+	go rhpv3.Serve()
 	return &Host{
 		node:      node,
 		store:     db,
@@ -167,6 +167,6 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 		contracts: contracts,
 
 		rhpv2: rhpv2,
-		// rhpv3: rhpv3,
+		rhpv3: rhpv3,
 	}, nil
 }
