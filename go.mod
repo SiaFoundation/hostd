@@ -8,7 +8,7 @@ require (
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
-	go.sia.tech/core v0.1.9
+	go.sia.tech/core v0.1.10-0.20230224010410-7fd7834ee560
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/mux v1.2.0
 	go.sia.tech/renterd v0.0.0-20230221152725-9df6d2a11045
