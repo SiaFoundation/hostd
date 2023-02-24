@@ -530,15 +530,16 @@ func (pe *programExecutor) Execute(ctx context.Context, s *rhpv3.Stream) error {
 	return pe.commit(s)
 }
 
-func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget accounts.Budget, revision types.FileContractRevision, finalize bool) (*programExecutor, error) {
+func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget accounts.Budget, revision contracts.SignedRevision, finalize bool) (*programExecutor, error) {
 	ex := &programExecutor{
+		renterKey:    revision.RenterKey(),
 		instructions: instructions,
 		programData:  programData(data),
 
 		priceTable: pt,
 		budget:     budget,
 
-		revision: revision,
+		revision: revision.Revision,
 		finalize: finalize,
 
 		contracts: sh.contracts,
@@ -547,7 +548,7 @@ func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []b
 	}
 
 	if finalize {
-		updater, err := sh.contracts.ReviseContract(revision.ParentID)
+		updater, err := sh.contracts.ReviseContract(revision.Revision.ParentID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create contract updater: %w", err)
 		}

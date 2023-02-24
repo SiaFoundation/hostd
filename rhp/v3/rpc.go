@@ -245,7 +245,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	defer cancel()
 
 	// create the program executor
-	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, contract.Revision, requiresFinalization)
+	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, contract, requiresFinalization)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to create program executor: %w", err)
