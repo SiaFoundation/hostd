@@ -13,6 +13,8 @@ import (
 	"lukechampine.com/frand"
 )
 
+const maxProgramRequestSize = 20 << 20 // 20 MiB
+
 var (
 	// ErrTxnMissingContract is returned if the transaction set does not contain
 	// any transactions or if the transaction does not contain exactly one
@@ -182,7 +184,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 
 	// read the program request
 	var executeReq rhpv3.RPCExecuteProgramRequest
-	if err := s.ReadRequest(&executeReq, 4096); err != nil {
+	if err := s.ReadRequest(&executeReq, maxProgramRequestSize); err != nil {
 		return fmt.Errorf("failed to read execute request: %w", err)
 	}
 	instructions := executeReq.Program
