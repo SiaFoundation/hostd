@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
@@ -474,17 +475,18 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 		return nil, err
 	}
 	defer done()
-
 	return vm.vs.StoreSector(root, func(loc SectorLocation, exists bool) error {
 		if exists {
 			return nil
 		}
+		start := time.Now()
 		vol, err := vm.getVolume(loc.Volume)
 		if err != nil {
 			return fmt.Errorf("failed to get volume %v: %w", loc.Volume, err)
 		} else if err := vol.WriteSector(data, loc.Index); err != nil {
 			return fmt.Errorf("failed to write sector %v: %w", root, err)
 		}
+		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		return nil
 	})
 }
