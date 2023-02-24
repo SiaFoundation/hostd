@@ -31,9 +31,9 @@ type updateWalletTxn struct {
 }
 
 // setLastChange sets the last processed consensus change.
-func (tx *updateWalletTxn) setLastChange(id modules.ConsensusChangeID) error {
+func (tx *updateWalletTxn) setLastChange(id modules.ConsensusChangeID, height uint64) error {
 	var dbID int64 // unused, but required by QueryRow to ensure exactly one row is updated
-	err := tx.tx.QueryRow(`UPDATE global_settings SET wallet_last_processed_change=$1 RETURNING id`, sqlHash256(id)).Scan(&dbID)
+	err := tx.tx.QueryRow(`UPDATE global_settings SET wallet_last_processed_change=$1, wallet_height=$2 RETURNING id`, sqlHash256(id), height).Scan(&dbID)
 	return err
 }
 
@@ -74,13 +74,15 @@ func (tx *updateWalletTxn) RevertBlock(blockID types.BlockID) error {
 }
 
 // LastWalletChange gets the last consensus change processed by the wallet.
-func (s *Store) LastWalletChange() (id modules.ConsensusChangeID, err error) {
-	err = s.db.QueryRow(`SELECT wallet_last_processed_change FROM global_settings`).Scan(nullable((*sqlHash256)(&id)))
+func (s *Store) LastWalletChange() (id modules.ConsensusChangeID, height uint64, err error) {
+	var nullHeight sql.NullInt64
+	err = s.db.QueryRow(`SELECT wallet_last_processed_change, wallet_height FROM global_settings`).Scan(nullable((*sqlHash256)(&id)), &nullHeight)
 	if errors.Is(err, sql.ErrNoRows) {
-		return modules.ConsensusChangeBeginning, nil
+		return modules.ConsensusChangeBeginning, 0, nil
 	} else if err != nil {
-		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to query last wallet change: %w", err)
+		return modules.ConsensusChangeBeginning, 0, fmt.Errorf("failed to query last wallet change: %w", err)
 	}
+	height = uint64(nullHeight.Int64)
 	return
 }
 
@@ -129,12 +131,12 @@ func (s *Store) TransactionCount() (count uint64, err error) {
 }
 
 // UpdateWallet begins an update transaction on the wallet store.
-func (s *Store) UpdateWallet(ccID modules.ConsensusChangeID, fn func(wallet.UpdateTransaction) error) error {
+func (s *Store) UpdateWallet(ccID modules.ConsensusChangeID, height uint64, fn func(wallet.UpdateTransaction) error) error {
 	return s.transaction(func(tx txn) error {
 		utx := &updateWalletTxn{tx}
 		if err := fn(utx); err != nil {
 			return err
-		} else if err := utx.setLastChange(ccID); err != nil {
+		} else if err := utx.setLastChange(ccID, height); err != nil {
 			return fmt.Errorf("failed to set last wallet change: %w", err)
 		}
 		return nil

@@ -155,9 +155,10 @@ CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
 	host_key BLOB, -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
-	host_last_processed_change BLOB, -- last processed consensus change for the host
 	wallet_last_processed_change BLOB, -- last processed consensus change for the wallet
-	contracts_last_processed_change BLOB -- last processed consensus change for the contract manager
+	contracts_last_processed_change BLOB, -- last processed consensus change for the contract manager
+	wallet_height INTEGER, -- height of the wallet as of the last processed change
+	contracts_height INTEGER -- height of the contract manager as of the last processed change
 );
 
 INSERT INTO global_settings (id, db_version) VALUES (0, 1); -- version must be updated when the schema changes
