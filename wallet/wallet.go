@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gitlab.com/NebulousLabs/encoding"
@@ -74,8 +75,9 @@ type (
 	// A SingleAddressWallet is a hot wallet that manages the outputs controlled by
 	// a single address.
 	SingleAddressWallet struct {
-		priv types.PrivateKey
-		addr types.Address
+		priv       types.PrivateKey
+		addr       types.Address
+		scanHeight uint64
 
 		cm    ChainManager
 		store SingleAddressStore
@@ -105,7 +107,7 @@ type (
 	// A SingleAddressStore stores the state of a single-address wallet.
 	// Implementations are assumed to be thread safe.
 	SingleAddressStore interface {
-		LastWalletChange() (modules.ConsensusChangeID, error)
+		LastWalletChange() (id modules.ConsensusChangeID, height uint64, err error)
 
 		UnspentSiacoinElements() ([]SiacoinElement, error)
 		// Transactions returns a paginated list of transactions ordered by
@@ -116,7 +118,7 @@ type (
 		// wallet.
 		TransactionCount() (uint64, error)
 
-		UpdateWallet(modules.ConsensusChangeID, func(UpdateTransaction) error) error
+		UpdateWallet(ccID modules.ConsensusChangeID, height uint64, fn func(UpdateTransaction) error) error
 	}
 )
 
@@ -348,6 +350,11 @@ func (sw *SingleAddressWallet) SignTransaction(cs consensus.State, txn *types.Tr
 	return nil
 }
 
+// ScanHeight returns the block height the wallet has scanned to.
+func (sw *SingleAddressWallet) ScanHeight() uint64 {
+	return atomic.LoadUint64(&sw.scanHeight)
+}
+
 // ReceiveUpdatedUnconfirmedTransactions implements modules.TransactionPoolSubscriber.
 func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modules.TransactionPoolDiff) {
 	done, err := sw.tg.Add()
@@ -457,7 +464,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 	}
 
 	// begin a database transaction to update the wallet state
-	err = sw.store.UpdateWallet(cc.ID, func(tx UpdateTransaction) error {
+	err = sw.store.UpdateWallet(cc.ID, uint64(cc.BlockHeight), func(tx UpdateTransaction) error {
 		// add new siacoin outputs and remove spent or reverted siacoin outputs
 		for _, diff := range cc.SiacoinOutputDiffs {
 			if types.Address(diff.SiacoinOutput.UnlockHash) != sw.addr {
@@ -554,6 +561,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		sw.log.Error("failed to update wallet", zap.Error(err), zap.String("changeID", cc.ID.String()), zap.Uint64("height", uint64(cc.BlockHeight)))
 		sw.Close()
 	}
+	atomic.StoreUint64(&sw.scanHeight, uint64(cc.BlockHeight))
 	sw.log.Debug("applied consensus change", zap.String("changeID", cc.ID.String()), zap.Int("applied", len(cc.AppliedBlocks)), zap.Int("reverted", len(cc.RevertedBlocks)), zap.Uint64("height", uint64(cc.BlockHeight)), zap.Duration("elapsed", time.Since(start)), zap.String("address", sw.addr.String()))
 }
 
@@ -574,8 +582,15 @@ func payoutTransaction(output SiacoinElement, index types.ChainIndex, source Tra
 
 // NewSingleAddressWallet returns a new SingleAddressWallet using the provided private key and store.
 func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp TransactionPool, store SingleAddressStore, log *zap.Logger) (*SingleAddressWallet, error) {
+	changeID, scanHeight, err := store.LastWalletChange()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last wallet change: %w", err)
+	}
+
 	sw := &SingleAddressWallet{
-		priv:  priv,
+		priv:       priv,
+		scanHeight: scanHeight,
+
 		store: store,
 		cm:    cm,
 		log:   log,
@@ -585,11 +600,6 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		locked:  make(map[types.SiacoinOutputID]bool),
 		tpool:   make(map[types.SiacoinOutputID]bool),
 		txnsets: make(map[modules.TransactionSetID][]types.SiacoinOutputID),
-	}
-
-	changeID, err := store.LastWalletChange()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last wallet change: %w", err)
 	}
 
 	go func() {
