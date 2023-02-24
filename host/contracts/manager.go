@@ -173,7 +173,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	defer cm.mu.Unlock()
 	err = cm.store.ContractAction(&cc, cm.handleContractAction)
 	if err != nil {
-		cm.log.Error("failed to process consensus change", zap.Error(err))
+		cm.log.Error("failed to process contract actions", zap.Error(err))
 		return
 	}
 	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))

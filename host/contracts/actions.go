@@ -6,6 +6,7 @@ import (
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.uber.org/zap"
 )
 
 // An action determines what lifecycle event should be performed on a contract.
@@ -45,6 +46,7 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 
 // handleContractAction performs a lifecycle action on a contract.
 func (cm *ContractManager) handleContractAction(id types.FileContractID, action LifecycleAction) error {
+	cm.log.Debug("performing contract action", zap.String("action", string(action)), zap.String("contract", id.String()))
 	contract, err := cm.store.Contract(id)
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
@@ -61,6 +63,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			// TODO: recalc financials
 			return fmt.Errorf("failed to broadcast formation txn: %w", err)
 		}
+		cm.log.Debug("broadcast formation txn", zap.String("contract", id.String()), zap.String("txn", formationSet[0].ID().String()))
 	case ActionBroadcastFinalRevision:
 		revisionTxn := types.Transaction{
 			FileContractRevisions: []types.FileContractRevision{contract.Revision},
@@ -90,6 +93,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{revisionTxn}); err != nil {
 			return fmt.Errorf("failed to broadcast revision txn: %w", err)
 		}
+		cm.log.Debug("broadcast revision txn", zap.String("contract", id.String()), zap.Uint64("finalRevisionNumber", contract.Revision.RevisionNumber), zap.String("txn", revisionTxn.ID().String()))
 	case ActionBroadcastResolution:
 		windowStart, err := cm.chain.IndexAtHeight(uint64(contract.Revision.WindowStart - 1))
 		if err != nil {
@@ -118,6 +122,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{resolutionTxn}); err != nil {
 			return fmt.Errorf("failed to broadcast resolution txn: %w", err)
 		}
+		cm.log.Debug("broadcast storage proof", zap.String("contract", id.String()), zap.String("txn", resolutionTxn.ID().String()))
 	}
 	return nil
 }
