@@ -30,7 +30,7 @@ type (
 	AccountManager interface {
 		Balance(accountID rhpv3.Account) (types.Currency, error)
 		Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (balance types.Currency, err error)
-		Budget(ctx context.Context, accountID rhpv3.Account, amount types.Currency) (accounts.Budget, error)
+		Budget(ctx context.Context, accountID rhpv3.Account, amount types.Currency) (*accounts.Budget, error)
 	}
 
 	// A ContractManager manages the set of contracts that the host is currently

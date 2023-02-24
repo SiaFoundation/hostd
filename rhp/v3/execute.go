@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	rhpv3 "go.sia.tech/core/rhp/v3"
@@ -13,16 +14,11 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
+	"go.uber.org/zap"
 )
 
 type (
 	programData []byte
-
-	programOutput struct {
-		rhpv3.RPCExecuteProgramResponse
-
-		output []byte
-	}
 
 	programExecutor struct {
 		hostKey   types.PrivateKey
@@ -32,7 +28,7 @@ type (
 		programData  programData
 		priceTable   rhpv3.HostPriceTable
 
-		budget accounts.Budget
+		budget *accounts.Budget
 		cost   rhpv3.ResourceCost
 
 		revision          types.FileContractRevision
@@ -42,6 +38,7 @@ type (
 		finalize     bool
 		releaseFuncs []func() error
 
+		log       *zap.Logger
 		contracts ContractManager
 		storage   StorageManager
 		registry  RegistryManager
@@ -56,14 +53,12 @@ var (
 	ErrContractRequired = errors.New("contract required")
 )
 
-func (pe *programExecutor) errorOutput(err error) *programOutput {
-	output := &programOutput{
-		RPCExecuteProgramResponse: rhpv3.RPCExecuteProgramResponse{
-			AdditionalCollateral: pe.cost.Collateral,
-			TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
-			FailureRefund:        pe.cost.Storage,
-			Error:                err,
-		},
+func (pe *programExecutor) errorOutput(err error) rhpv3.RPCExecuteProgramResponse {
+	output := rhpv3.RPCExecuteProgramResponse{
+		AdditionalCollateral: pe.cost.Collateral,
+		TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
+		FailureRefund:        pe.cost.Storage,
+		Error:                err,
 	}
 	if pe.updater != nil {
 		output.NewMerkleRoot = pe.updater.MerkleRoot()
@@ -72,16 +67,14 @@ func (pe *programExecutor) errorOutput(err error) *programOutput {
 	return output
 }
 
-func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash256) *programOutput {
-	po := &programOutput{
-		RPCExecuteProgramResponse: rhpv3.RPCExecuteProgramResponse{
-			AdditionalCollateral: pe.cost.Collateral,
-			TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
-			FailureRefund:        pe.cost.Storage,
-			OutputLength:         uint64(len(output)),
-			Proof:                proof,
-		},
-		output: output,
+func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash256) rhpv3.RPCExecuteProgramResponse {
+	po := rhpv3.RPCExecuteProgramResponse{
+		AdditionalCollateral: pe.cost.Collateral,
+		TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
+		FailureRefund:        pe.cost.Storage,
+		OutputLength:         uint64(len(output)),
+		Proof:                proof,
+		Output:               output,
 	}
 	if pe.updater != nil {
 		po.NewMerkleRoot = pe.updater.MerkleRoot()
@@ -100,22 +93,30 @@ func (pe *programExecutor) payForExecution(cost rhpv3.ResourceCost) error {
 }
 
 func (pe *programExecutor) executeAppendSector(instr *rhpv3.InstrAppendSector) ([]byte, []types.Hash256, error) {
+	log := pe.log.Named("appendSector")
+	start := time.Now()
 	root, sector, err := pe.programData.Sector(instr.SectorDataOffset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
+	log.Debug("read sector", zap.Duration("duration", time.Since(start)))
+	start = time.Now()
 	// pay for execution
 	if err := pe.payForExecution(pe.priceTable.AppendSectorCost(pe.remainingDuration)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
+	log.Debug("paid for execution", zap.Duration("duration", time.Since(start)))
+	start = time.Now()
 
 	release, err := pe.storage.Write(root, sector)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
 	}
+	log.Debug("wrote sector", zap.Duration("duration", time.Since(start)))
+	start = time.Now()
 	pe.releaseFuncs = append(pe.releaseFuncs, release)
 	pe.updater.AppendSector(root)
-
+	log.Debug("appended sector", zap.Duration("duration", time.Since(start)))
 	var proof []types.Hash256
 	return nil, proof, nil
 }
@@ -333,8 +334,8 @@ func (pe *programExecutor) executeUpdateSector(instr *rhpv3.InstrUpdateSector) (
 	return newRoot[:], nil, nil
 }
 
-func (pe *programExecutor) executeProgram(ctx context.Context) <-chan *programOutput {
-	outputs := make(chan *programOutput, len(pe.instructions))
+func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCExecuteProgramResponse {
+	outputs := make(chan rhpv3.RPCExecuteProgramResponse, len(pe.instructions))
 	go func() {
 		defer close(outputs)
 
@@ -349,36 +350,46 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan *programOu
 			default:
 			}
 
+			start := time.Now()
+			var logLabel string
 			// execute the instruction
 			switch instr := instruction.(type) {
 			case *rhpv3.InstrAppendSector:
 				output, proof, err = pe.executeAppendSector(instr)
+				logLabel = "append sector"
 			case *rhpv3.InstrAppendSectorRoot:
 				output, proof, err = pe.executeAppendSectorRoot(instr)
+				logLabel = "append sector root"
 			case *rhpv3.InstrDropSectors:
 				output, proof, err = pe.executeDropSectors(instr)
+				logLabel = "drop sectors"
 			case *rhpv3.InstrHasSector:
 				output, proof, err = pe.executeHasSector(instr)
+				logLabel = "has sector"
 			case *rhpv3.InstrReadOffset:
 				output, proof, err = pe.executeReadOffset(instr)
+				logLabel = "read offset"
 			case *rhpv3.InstrReadSector:
 				output, proof, err = pe.executeReadSector(instr)
+				logLabel = "read sector"
 			case *rhpv3.InstrSwapSector:
 				output, proof, err = pe.swapSector(instr)
+				logLabel = "swap sector"
 			case *rhpv3.InstrUpdateSector:
 				output, proof, err = pe.executeUpdateSector(instr)
+				logLabel = "update sector"
 			case *rhpv3.InstrStoreSector:
 				//output, proof, err = pe.executeStoreSector(instr)
 			case *rhpv3.InstrRevision:
 			case *rhpv3.InstrReadRegistry, *rhpv3.InstrReadRegistryNoVersion:
 			case *rhpv3.InstrUpdateRegistry, *rhpv3.InstrUpdateRegistryNoType:
 			}
-
 			if err != nil {
-				outputs <- pe.errorOutput(err)
+				outputs <- pe.errorOutput(fmt.Errorf("failed to execute instruction %v: %w", logLabel, err))
 				return
 			}
 			outputs <- pe.instructionOutput(output, proof)
+			pe.log.Debug("executed instruction", zap.String("instruction", logLabel), zap.Duration("elapsed", time.Since(start)))
 		}
 	}()
 	return outputs
@@ -409,7 +420,6 @@ func (pe *programExecutor) rollback() error {
 	}
 	// refund the storage spending
 	pe.budget.Refund(pe.cost.Storage)
-	// commit the execution spending
 	if err := pe.budget.Commit(); err != nil {
 		return fmt.Errorf("failed to commit budget: %w", err)
 	}
@@ -421,14 +431,24 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		panic("commit called multiple times")
 	}
 
+	pe.committed = true
+
+	// commit the renter's spending
+	if err := pe.budget.Commit(); err != nil {
+		return fmt.Errorf("failed to commit budget: %w", err)
+	}
+
 	// finalize the program
 	if pe.finalize {
+		start := time.Now()
 		defer pe.updater.Close() // close the updater
 		// read the finalize request
 		var req rhpv3.RPCFinalizeProgramRequest
 		if err := s.ReadResponse(&req, 1024); err != nil {
 			return fmt.Errorf("failed to read finalize request: %w", err)
 		}
+		pe.log.Debug("received finalize request", zap.Uint64("revision number", req.RevisionNumber), zap.String("contract", pe.revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
+		start = time.Now()
 
 		// revise the contract with the values received from the renter
 		existing := pe.revision
@@ -446,6 +466,8 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		// update the size and root of the contract
 		revision.FileMerkleRoot = pe.updater.MerkleRoot()
 		revision.Filesize = rhpv2.SectorSize * pe.updater.SectorCount()
+		pe.log.Debug("revised contract", zap.Uint64("revision number", revision.RevisionNumber), zap.String("root", revision.FileMerkleRoot.String()), zap.Uint64("size", revision.Filesize), zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
+		start = time.Now()
 
 		// verify the renter signature
 		sigHash := rhp.HashRevision(revision)
@@ -454,6 +476,7 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			s.WriteResponseErr(err)
 			return err
 		}
+		pe.log.Debug("verified renter signature", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
 
 		// sign and commit the revision
 		signedRevision := contracts.SignedRevision{
@@ -465,6 +488,7 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			s.WriteResponseErr(ErrHostInternalError)
 			return fmt.Errorf("failed to commit revision: %w", err)
 		}
+		pe.log.Debug("committed revision", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
 
 		// send the signature to the renter
 		resp := rhpv3.RPCFinalizeProgramResponse{
@@ -473,13 +497,14 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		if err := s.WriteResponse(&resp); err != nil {
 			return fmt.Errorf("failed to write finalize response: %w", err)
 		}
+		pe.log.Debug("sent finalize response", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
 	}
 
-	// commit the spending
-	if err := pe.budget.Commit(); err != nil {
-		return fmt.Errorf("failed to commit budget: %w", err)
+	// release all of the locked sectors. Any sectors not referenced by a
+	// contract or temporary storage will eventually be garbage collected.
+	if err := pe.release(); err != nil {
+		return fmt.Errorf("failed to release storage: %w", err)
 	}
-	pe.committed = true
 	return nil
 }
 
@@ -526,17 +551,21 @@ func (pe *programExecutor) Execute(ctx context.Context, s *rhpv3.Stream) error {
 	defer pe.rollback()
 
 	for output := range pe.executeProgram(ctx) {
-		if err := s.WriteResponse(output); err != nil {
+		if err := s.WriteResponse(&output); err != nil {
 			cancel() // if there was a write error, cancel execution
 			return fmt.Errorf("failed to write program output: %w", err)
 		} else if output.Error != nil {
-			return fmt.Errorf("failed to execute program: %w", output.Error)
+			return output.Error
 		}
 	}
-	return pe.commit(s)
+	if err := pe.commit(s); err != nil {
+		return fmt.Errorf("failed to commit program: %w", err)
+	}
+
+	return nil
 }
 
-func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget accounts.Budget, revision contracts.SignedRevision, finalize bool) (*programExecutor, error) {
+func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget *accounts.Budget, revision contracts.SignedRevision, finalize bool, log *zap.Logger) (*programExecutor, error) {
 	ex := &programExecutor{
 		hostKey:   sh.privateKey,
 		renterKey: revision.RenterKey(),
@@ -550,6 +579,7 @@ func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []b
 		revision: revision.Revision,
 		finalize: finalize,
 
+		log:       log,
 		contracts: sh.contracts,
 		storage:   sh.storage,
 		registry:  sh.registry,

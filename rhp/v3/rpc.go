@@ -10,6 +10,7 @@ import (
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
@@ -245,7 +246,9 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	defer cancel()
 
 	// create the program executor
-	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, contract, requiresFinalization)
+	log := sh.log.Named("mdm")
+	log.Debug("executing program", zap.Int("instructions", len(instructions)), zap.String("budget", budget.Remaining().ExactString()), zap.String("contract", contract.Revision.ParentID.String()), zap.Bool("requiresFinalization", requiresFinalization))
+	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, contract, requiresFinalization, log)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to create program executor: %w", err)
