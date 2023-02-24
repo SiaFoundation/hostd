@@ -544,7 +544,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 
 	// apply the new merkle root and file size to the revision
 	revision.FileMerkleRoot = writeResp.NewMerkleRoot
-	revision.Filesize = uint64(contractUpdater.SectorLength()) * rhpv2.SectorSize
+	revision.Filesize = contractUpdater.SectorCount() * rhpv2.SectorSize
 
 	// read the renter's signature
 	var renterSigResponse rhpv2.RPCWriteResponse

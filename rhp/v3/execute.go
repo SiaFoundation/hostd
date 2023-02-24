@@ -64,7 +64,7 @@ func (pe *programExecutor) errorOutput(err error) *programOutput {
 			FailureRefund:        pe.cost.Storage,
 			Error:                err,
 			NewMerkleRoot:        pe.updater.MerkleRoot(),
-			NewSize:              pe.updater.SectorLength() * rhpv2.SectorSize,
+			NewSize:              pe.updater.SectorCount() * rhpv2.SectorSize,
 		},
 	}
 }
@@ -77,7 +77,7 @@ func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash25
 			FailureRefund:        pe.cost.Storage,
 			OutputLength:         uint64(len(output)),
 			NewMerkleRoot:        pe.updater.MerkleRoot(),
-			NewSize:              pe.updater.SectorLength() * rhpv2.SectorSize,
+			NewSize:              pe.updater.SectorCount() * rhpv2.SectorSize,
 			Proof:                proof,
 		},
 		output: output,
@@ -152,7 +152,7 @@ func (pe *programExecutor) executeDropSectors(instr *rhpv3.InstrDropSectors) ([]
 
 	var proof []types.Hash256
 	if instr.ProofRequired {
-		n := pe.updater.SectorLength()
+		n := pe.updater.SectorCount()
 		proof = rhpv2.BuildSectorRangeProof(pe.updater.SectorRoots(), n+count, n)
 	}
 	return nil, proof, nil
@@ -436,6 +436,10 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			s.WriteResponseErr(err)
 			return err
 		}
+
+		// update the size and root of the contract
+		revision.FileMerkleRoot = pe.updater.MerkleRoot()
+		revision.Filesize = rhpv2.SectorSize * pe.updater.SectorCount()
 
 		// verify the renter signature
 		sigHash := rhp.HashRevision(revision)

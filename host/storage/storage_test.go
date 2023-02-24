@@ -484,15 +484,20 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 		b.Fatal(err)
 	}
 
+	sectors := make([][rhpv2.SectorSize]byte, b.N)
+	roots := make([]types.Hash256, b.N)
+	for i := range sectors {
+		frand.Read(sectors[i][:256])
+		roots[i] = rhpv2.SectorRoot(&sectors[i])
+	}
+
 	b.ResetTimer()
 	b.ReportAllocs()
 	b.SetBytes(rhpv2.SectorSize)
 
 	// fill the volume
 	for i := 0; i < b.N; i++ {
-		var sector [rhpv2.SectorSize]byte
-		frand.Read(sector[:256])
-		root := rhpv2.SectorRoot(&sector)
+		root, sector := roots[i], sectors[i]
 		release, err := vm.Write(root, &sector)
 		if err != nil {
 			b.Fatal(i, err)

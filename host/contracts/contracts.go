@@ -168,8 +168,8 @@ func (cu *ContractUpdater) UpdateSector(root types.Hash256, i uint64) error {
 	return nil
 }
 
-// SectorLength returns the number of sectors in the contract.
-func (cu *ContractUpdater) SectorLength() uint64 {
+// SectorCount returns the number of sectors in the contract.
+func (cu *ContractUpdater) SectorCount() uint64 {
 	return uint64(len(cu.sectorRoots))
 }
 
