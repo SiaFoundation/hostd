@@ -32,6 +32,7 @@ type (
 		Settings() (settings.Settings, error)
 	}
 
+	// A VolumeManager manages the host's storage volumes
 	VolumeManager interface {
 		Usage() (usedBytes uint64, totalBytes uint64, err error)
 		Volumes() ([]storage.Volume, error)
@@ -43,6 +44,7 @@ type (
 		RemoveSector(root types.Hash256) error
 	}
 
+	// An API provides an HTTP API for the host
 	API struct {
 		server *http.Server
 		log    *zap.Logger
@@ -53,14 +55,17 @@ type (
 	}
 )
 
+// Serve serves the API on the provided listener
 func (a *API) Serve(l net.Listener) error {
 	return a.server.Serve(l)
 }
 
+// Close closes the API
 func (a *API) Close() error {
 	return a.server.Close()
 }
 
+// NewServer initializes the API
 func NewServer(vm VolumeManager, s Settings, w Wallet, log *zap.Logger) *API {
 	a := &API{
 		volumes:  vm,

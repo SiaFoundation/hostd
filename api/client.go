@@ -1,12 +1,6 @@
 package api
 
-import (
-	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/financials"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/jape"
-)
-
+/*
 type Client struct {
 	c jape.Client
 }
@@ -93,4 +87,4 @@ func NewClient(baseURL, password string) *Client {
 			Password: password,
 		},
 	}
-}
+}*/
