@@ -10,7 +10,6 @@ import (
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/mux/v1"
 	"lukechampine.com/frand"
 )
 
@@ -60,9 +59,7 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream) error {
 	// process the payment, catch connection closed errors since the renter
 	// likely did not intend to pay
 	budget, err := sh.processPayment(s)
-	if errors.Is(err, mux.ErrPeerClosedStream) || errors.Is(err, mux.ErrPeerClosedConn) {
-		return nil
-	} else if err != nil {
+	if err != nil {
 		return s.WriteResponseErr(fmt.Errorf("failed to process payment: %w", err))
 	}
 	defer budget.Rollback()

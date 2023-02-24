@@ -8,9 +8,8 @@ require (
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
-	go.sia.tech/core v0.1.10-0.20230224010410-7fd7834ee560
+	go.sia.tech/core v0.1.10-0.20230224050652-e2eedccc072d
 	go.sia.tech/jape v0.9.0
-	go.sia.tech/mux v1.2.0
 	go.sia.tech/renterd v0.0.0-20230221152725-9df6d2a11045
 	go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db
 	go.uber.org/zap v1.24.0
@@ -54,6 +53,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.12.0 // indirect
 	go.opentelemetry.io/otel/trace v1.13.0 // indirect
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
+	go.sia.tech/mux v1.2.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/crypto v0.5.0 // indirect
