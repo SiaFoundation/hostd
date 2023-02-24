@@ -74,12 +74,13 @@ func (a *API) Close() error {
 }
 
 // NewServer initializes the API
-func NewServer(vm VolumeManager, s Settings, w Wallet, log *zap.Logger) *API {
+func NewServer(cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) *API {
 	a := &API{
-		volumes:  vm,
-		settings: s,
-		wallet:   w,
-		log:      log,
+		contracts: cm,
+		volumes:   vm,
+		settings:  s,
+		wallet:    w,
+		log:       log,
 	}
 	r := jape.Mux(map[string]jape.Handler{
 		"GET 	/":                         a.handleGetState,

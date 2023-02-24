@@ -139,7 +139,7 @@ func main() {
 	}
 	defer l.Close()
 
-	api := api.NewServer(node.storage, node.settings, node.w, logger.Named("api"))
+	api := api.NewServer(node.contracts, node.storage, node.settings, node.w, logger.Named("api"))
 	go func() {
 		if err := api.Serve(l); err != nil {
 			log.Println("ERROR: failed to serve API:", err)
