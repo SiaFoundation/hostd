@@ -41,15 +41,15 @@ func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey ty
 	if err != nil {
 		return nil, err
 	}
-	settings, err := worker.RPCSettings(ctx, t)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get host settings: %w", err)
+
+	session := worker.NewSession(t, r.privKey, rhpv2.ContractRevision{}, rhpv2.HostSettings{})
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := session.Refresh(ctx, 15*time.Second, r.privKey, contractID); err != nil {
+		return nil, fmt.Errorf("failed to refresh session: %w", err)
 	}
-	rev, err := worker.RPCLock(ctx, t, contractID, r.privKey, 5*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("failed to lock contract: %w", err)
-	}
-	return worker.NewSession(t, r.privKey, rev, settings), nil
+	return session, nil
 }
 
 // Settings returns the host's current settings
@@ -97,7 +97,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey type
 		return rhpv2.ContractRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
-	revision, _, err := worker.RPCFormContract(t, r.privKey, []types.Transaction{formationTxn})
+	revision, _, err := worker.RPCFormContract(ctx, t, r.privKey, []types.Transaction{formationTxn})
 	if err != nil {
 		return rhpv2.ContractRevision{}, fmt.Errorf("failed to form contract: %w", err)
 	}
