@@ -76,7 +76,7 @@ func (tx *updateWalletTxn) RevertBlock(blockID types.BlockID) error {
 // LastWalletChange gets the last consensus change processed by the wallet.
 func (s *Store) LastWalletChange() (id modules.ConsensusChangeID, height uint64, err error) {
 	var nullHeight sql.NullInt64
-	err = s.db.QueryRow(`SELECT wallet_last_processed_change, wallet_height FROM global_settings`).Scan(nullable((*sqlHash256)(&id)), &nullHeight)
+	err = s.queryRow(`SELECT wallet_last_processed_change, wallet_height FROM global_settings`).Scan(nullable((*sqlHash256)(&id)), &nullHeight)
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, 0, nil
 	} else if err != nil {
@@ -88,7 +88,7 @@ func (s *Store) LastWalletChange() (id modules.ConsensusChangeID, height uint64,
 
 // UnspentSiacoinElements returns the spendable siacoin outputs in the wallet.
 func (s *Store) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err error) {
-	rows, err := s.db.Query(`SELECT id, amount, unlock_hash FROM wallet_utxos`)
+	rows, err := s.query(`SELECT id, amount, unlock_hash FROM wallet_utxos`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unspent siacoin elements: %w", err)
 	}
@@ -106,7 +106,7 @@ func (s *Store) UnspentSiacoinElements() (utxos []wallet.SiacoinElement, err err
 // Transactions returns a paginated list of transactions ordered by block height
 // descending. If no transactions are found, (nil, nil) is returned.
 func (s *Store) Transactions(limit, offset int) (txns []wallet.Transaction, err error) {
-	rows, err := s.db.Query(`SELECT transaction_id, block_id, block_height, source, inflow, outflow, raw_transaction, date_created FROM wallet_transactions ORDER BY block_height DESC, id ASC LIMIT ? OFFSET ?`, limit, offset)
+	rows, err := s.query(`SELECT transaction_id, block_id, block_height, source, inflow, outflow, raw_transaction, date_created FROM wallet_transactions ORDER BY block_height DESC, id ASC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transactions: %w", err)
 	}
@@ -126,7 +126,7 @@ func (s *Store) Transactions(limit, offset int) (txns []wallet.Transaction, err 
 
 // TransactionCount returns the total number of transactions in the wallet.
 func (s *Store) TransactionCount() (count uint64, err error) {
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM wallet_transactions`).Scan(&count)
+	err = s.queryRow(`SELECT COUNT(*) FROM wallet_transactions`).Scan(&count)
 	return
 }
 

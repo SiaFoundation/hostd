@@ -57,31 +57,37 @@ var (
 )
 
 func (pe *programExecutor) errorOutput(err error) *programOutput {
-	return &programOutput{
+	output := &programOutput{
 		RPCExecuteProgramResponse: rhpv3.RPCExecuteProgramResponse{
 			AdditionalCollateral: pe.cost.Collateral,
 			TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
 			FailureRefund:        pe.cost.Storage,
 			Error:                err,
-			NewMerkleRoot:        pe.updater.MerkleRoot(),
-			NewSize:              pe.updater.SectorCount() * rhpv2.SectorSize,
 		},
 	}
+	if pe.updater != nil {
+		output.NewMerkleRoot = pe.updater.MerkleRoot()
+		output.NewSize = pe.updater.SectorCount() * rhpv2.SectorSize
+	}
+	return output
 }
 
 func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash256) *programOutput {
-	return &programOutput{
+	po := &programOutput{
 		RPCExecuteProgramResponse: rhpv3.RPCExecuteProgramResponse{
 			AdditionalCollateral: pe.cost.Collateral,
 			TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
 			FailureRefund:        pe.cost.Storage,
 			OutputLength:         uint64(len(output)),
-			NewMerkleRoot:        pe.updater.MerkleRoot(),
-			NewSize:              pe.updater.SectorCount() * rhpv2.SectorSize,
 			Proof:                proof,
 		},
 		output: output,
 	}
+	if pe.updater != nil {
+		po.NewMerkleRoot = pe.updater.MerkleRoot()
+		po.NewSize = pe.updater.SectorCount() * rhpv2.SectorSize
+	}
+	return po
 }
 
 func (pe *programExecutor) payForExecution(cost rhpv3.ResourceCost) error {
@@ -532,7 +538,9 @@ func (pe *programExecutor) Execute(ctx context.Context, s *rhpv3.Stream) error {
 
 func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget accounts.Budget, revision contracts.SignedRevision, finalize bool) (*programExecutor, error) {
 	ex := &programExecutor{
-		renterKey:    revision.RenterKey(),
+		hostKey:   sh.privateKey,
+		renterKey: revision.RenterKey(),
+
 		instructions: instructions,
 		programData:  programData(data),
 

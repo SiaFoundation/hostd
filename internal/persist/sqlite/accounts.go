@@ -60,6 +60,6 @@ func (s *Store) DebitAccount(accountID rhpv3.Account, amount types.Currency) (ba
 
 // PruneAccounts removes all accounts that have expired
 func (s *Store) PruneAccounts(height uint64) error {
-	_, err := s.db.Exec(`DELETE FROM accounts WHERE expiration_height<$1`, height)
+	_, err := s.exec(`DELETE FROM accounts WHERE expiration_height<$1`, height)
 	return err
 }

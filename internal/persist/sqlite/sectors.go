@@ -21,7 +21,7 @@ func (s *Store) lockSector(tx txn, locationID uint64) (uint64, error) {
 // unlockSector unlocks a locked sector location. It is safe to call
 // multiple times.
 func (s *Store) unlockSector(id uint64) error {
-	_, err := s.db.Exec(`DELETE FROM locked_volume_sectors WHERE id=?;`, id)
+	_, err := s.exec(`DELETE FROM locked_volume_sectors WHERE id=?;`, id)
 	return err
 }
 
@@ -35,7 +35,7 @@ func (s *Store) unlockSectorFn(id uint64) func() error {
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
 	var id uint64
 	const query = `UPDATE volume_sectors SET sector_root=null WHERE sector_root=$1 RETURNING id;`
-	err = s.db.QueryRow(query, sqlHash256(root)).Scan(&id)
+	err = s.queryRow(query, sqlHash256(root)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.ErrSectorNotFound
 	}
@@ -48,7 +48,7 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 func (s *Store) SectorLocation(root types.Hash256) (loc storage.SectorLocation, release func() error, err error) {
 	var lockID uint64
 	err = s.transaction(func(tx txn) error {
-		err = s.db.QueryRow(`SELECT id, volume_id, volume_index FROM volume_sectors WHERE sector_root=?;`, sqlHash256(root)).Scan(&loc.ID, &loc.Volume, &loc.Index)
+		err = s.queryRow(`SELECT id, volume_id, volume_index FROM volume_sectors WHERE sector_root=?;`, sqlHash256(root)).Scan(&loc.ID, &loc.Volume, &loc.Index)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrSectorNotFound
 		} else if err != nil {
@@ -69,7 +69,7 @@ func (s *Store) SectorLocation(root types.Hash256) (loc storage.SectorLocation, 
 // Prune removes the metadata of any sectors that are not locked or referenced
 // by a contract.
 func (s *Store) Prune() error {
-	_, err := s.db.Exec(`UPDATE volume_sectors AS vs SET vs.sector_root=null
+	_, err := s.exec(`UPDATE volume_sectors AS vs SET vs.sector_root=null
 LEFT JOIN contract_sectors cs ON (cs.sector_root = vs.sector_root)
 LEFT JOIN temp_storage_sectors ts ON (ts.sector_root = vs.sector_root)
 LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id = vs.id)

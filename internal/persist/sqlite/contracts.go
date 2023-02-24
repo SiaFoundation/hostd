@@ -181,7 +181,7 @@ func (u *updateContractsTxn) SetLastChangeID(ccID modules.ConsensusChangeID) err
 // Contracts returns a paginated list of contracts.
 func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
 	const query = `SELECT contract_error, negotiation_height, formation_confirmed, revision_number=confirmed_revision_number AS revision_confirmed, resolution_confirmed, locked_collateral, raw_revision, host_sig, renter_sig FROM contracts ORDER BY window_end ASC LIMIT $1 OFFSET $2;`
-	rows, err := s.db.Query(query, limit, offset)
+	rows, err := s.query(query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
@@ -225,7 +225,7 @@ func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, 
 	const query = `SELECT contract_id, contract_error, negotiation_height, formation_confirmed, revision_number=confirmed_revision_number AS revision_confirmed, resolution_confirmed, locked_collateral, raw_revision, host_sig, renter_sig FROM contracts WHERE contract_id=$1;`
 	var contractID [32]byte
 	var errorStr sql.NullString
-	err = s.db.QueryRow(query,
+	err = s.queryRow(query,
 		sqlHash256(id)).Scan((*sqlHash256)(&contractID),
 		&errorStr,
 		&contract.NegotiationHeight,
@@ -298,7 +298,7 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contrac
 // are returned.
 func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint64) ([]types.Hash256, error) {
 	var dbID int64
-	err := s.db.QueryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
+	err := s.queryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get contract id: %w", err)
 	}
@@ -310,7 +310,7 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 		query = `SELECT sector_root FROM contract_sector_roots WHERE contract_id=$1 ORDER BY root_index ASC LIMIT $2 OFFSET $3;`
 	}
 
-	rows, err := s.db.Query(query, dbID, limit, offset)
+	rows, err := s.query(query, dbID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sector roots: %w", err)
 	}
@@ -337,7 +337,7 @@ func (s *Store) ContractAction(cc *modules.ConsensusChange, contractFn func(type
 // contract formation.
 func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transaction, error) {
 	var buf []byte
-	err := s.db.QueryRow(`SELECT formation_txn_set FROM contracts WHERE id=$1;`, sqlHash256(id)).Scan(&buf)
+	err := s.queryRow(`SELECT formation_txn_set FROM contracts WHERE id=$1;`, sqlHash256(id)).Scan(&buf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query formation txn set: %w", err)
 	}
@@ -351,7 +351,7 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // LastContractChange gets the last consensus change processed by the
 // contractor.
 func (s *Store) LastContractChange() (id modules.ConsensusChangeID, err error) {
-	err = s.db.QueryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(nullable((*sqlHash256)(&id)))
+	err = s.queryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(nullable((*sqlHash256)(&id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return modules.ConsensusChangeBeginning, nil
 	} else if err != nil {

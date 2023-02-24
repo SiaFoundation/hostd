@@ -15,7 +15,7 @@ func (s *Store) Settings() (config settings.Settings, err error) {
 	max_account_balance, max_account_age, max_contract_duration, 
 	ingress_limit, egress_limit, registry_limit
 FROM host_settings;`
-	err = s.db.QueryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
+	err = s.queryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
 		&config.NetAddress, (*sqlCurrency)(&config.ContractPrice),
 		(*sqlCurrency)(&config.BaseRPCPrice), (*sqlCurrency)(&config.SectorAccessPrice),
 		(*sqlCurrency)(&config.Collateral), (*sqlCurrency)(&config.MaxCollateral),
@@ -49,7 +49,7 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 	EXCLUDED.max_account_age, EXCLUDED.max_contract_duration, EXCLUDED.ingress_limit,
 	EXCLUDED.egress_limit, EXCLUDED.registry_limit);`
 
-	_, err := s.db.Exec(query, settings.AcceptingContracts,
+	_, err := s.exec(query, settings.AcceptingContracts,
 		settings.NetAddress, sqlCurrency(settings.ContractPrice),
 		sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),
 		sqlCurrency(settings.Collateral), sqlCurrency(settings.MaxCollateral),

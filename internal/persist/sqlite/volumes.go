@@ -19,7 +19,7 @@ func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
 	// nulls are not included in COUNT() -- counting sector roots is equivalent
 	// to counting used sectors.
 	const query = `SELECT COUNT(id) AS total_sectors, COUNT(sector_root) AS used_sectors FROM volume_sectors`
-	err := s.db.QueryRow(query).Scan(&totalBytes, &usedBytes)
+	err := s.queryRow(query).Scan(&totalBytes, &usedBytes)
 	if err != nil {
 		return 0, 0, fmt.Errorf("query failed: %w", err)
 	}
@@ -37,7 +37,7 @@ FROM storage_volumes v
 LEFT JOIN volume_sectors s ON (s.volume_id = v.id)
 GROUP BY v.id
 ORDER BY v.id ASC`
-	rows, err := s.db.Query(query)
+	rows, err := s.query(query)
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
@@ -62,7 +62,7 @@ func (s *Store) Volume(id int) (storage.Volume, error) {
 FROM storage_volumes v
 LEFT JOIN volume_sectors s ON (s.volume_id = v.id)
 WHERE v.id=$1`
-	row := s.db.QueryRow(query, id)
+	row := s.queryRow(query, id)
 	vol, err := scanVolume(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.Volume{}, storage.ErrVolumeNotFound
@@ -120,7 +120,7 @@ ORDER BY s.sector_root DESC, s.volume_index ASC LIMIT 1;`
 	}
 	// commit the sector location
 	var updatedID uint64
-	err = s.db.QueryRow(`UPDATE volume_sectors SET sector_root=$1 WHERE id=$2 RETURNING id`, sqlHash256(root), location.ID).Scan(&updatedID)
+	err = s.queryRow(`UPDATE volume_sectors SET sector_root=$1 WHERE id=$2 RETURNING id`, sqlHash256(root), location.ID).Scan(&updatedID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit sector location: %w", err)
 	} else if updatedID != location.ID {
@@ -219,7 +219,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 // to its desired size.
 func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err error) {
 	const query = `INSERT INTO storage_volumes (disk_path, read_only) VALUES (?, ?) RETURNING id;`
-	err = s.db.QueryRow(query, localPath, readOnly).Scan(&volumeID)
+	err = s.queryRow(query, localPath, readOnly).Scan(&volumeID)
 	return
 }
 
@@ -311,14 +311,14 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 // SetReadOnly sets the read-only flag on a volume.
 func (s *Store) SetReadOnly(volumeID int, readOnly bool) error {
 	const query = `UPDATE storage_volumes SET read_only=$1 WHERE id=$2;`
-	_, err := s.db.Exec(query, readOnly, volumeID)
+	_, err := s.exec(query, readOnly, volumeID)
 	return err
 }
 
 // SetAvailable sets the available flag on a volume.
 func (s *Store) SetAvailable(volumeID int, available bool) error {
 	const query = `UPDATE storage_volumes SET available=$1 WHERE id=$2;`
-	_, err := s.db.Exec(query, available, volumeID)
+	_, err := s.exec(query, available, volumeID)
 	return err
 }
 
