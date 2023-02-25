@@ -165,11 +165,13 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 	}
 	// validate the renter's initial revision signature
 	if len(renterSignaturesResp.RevisionSignature.Signature) != 64 {
-		return s.t.WriteResponseErr(ErrInvalidRenterSignature)
+		s.t.WriteResponseErr(ErrInvalidRenterSignature)
+		return ErrInvalidRenterSignature
 	}
 	renterSig := *(*types.Signature)(renterSignaturesResp.RevisionSignature.Signature)
 	if !renterPub.VerifyHash(sigHash, renterSig) {
-		return s.t.WriteResponseErr(ErrInvalidRenterSignature)
+		s.t.WriteResponseErr(ErrInvalidRenterSignature)
+		return ErrInvalidRenterSignature
 	}
 	// add the renter's signatures to the transaction and contract revision
 	renterTxnSigs := len(renterSignaturesResp.ContractSignatures)
@@ -180,7 +182,9 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to sign formation transaction: %w", err)
 	} else if err = sh.tpool.AcceptTransactionSet(formationTxnSet); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to broadcast formation transaction: %w", err))
+		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	signedRevision := contracts.SignedRevision{
