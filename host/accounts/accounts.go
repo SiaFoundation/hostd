@@ -12,6 +12,8 @@ import (
 )
 
 var (
+	// ErrInsufficientFunds is returned when an account does not have enough
+	// funds to cover a debit.
 	ErrInsufficientFunds = errors.New("insufficient funds")
 )
 
