@@ -545,14 +545,18 @@ func (pd programData) Hash(offset uint64) (types.Hash256, error) {
 
 // Execute executes the program's instructions
 func (pe *programExecutor) Execute(ctx context.Context, s *rhpv3.Stream) error {
+	// create a cancellation context to stop the executeProgram goroutine
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
 	// rollback any changes
 	defer pe.rollback()
 
 	for output := range pe.executeProgram(ctx) {
-		if err := s.WriteResponse(&output); err != nil {
-			cancel() // if there was a write error, cancel execution
+		start := time.Now()
+		err := s.WriteResponse(&output)
+		pe.log.Debug("wrote program output", zap.Int("outputLen", len(output.Output)), zap.Error(output.Error), zap.Duration("elapsed", time.Since(start)))
+		if err != nil {
 			return fmt.Errorf("failed to write program output: %w", err)
 		} else if output.Error != nil {
 			return output.Error
