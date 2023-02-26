@@ -33,18 +33,24 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	current := contract.Revision
 	revision, err := rhp.Revise(current, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 	if err != nil {
-		return rhpv3.ZeroAccount, types.ZeroCurrency, s.WriteResponseErr(fmt.Errorf("failed to revise contract: %w", err))
+		err = fmt.Errorf("failed to revise contract: %w", err)
+		s.WriteResponseErr(err)
+		return rhpv3.ZeroAccount, types.ZeroCurrency, err
 	}
 
 	// calculate the funding amount
 	if current.ValidProofOutputs[0].Value.Cmp(revision.ValidProofOutputs[0].Value) < 0 {
-		return rhpv3.ZeroAccount, types.ZeroCurrency, s.WriteResponseErr(errors.New("invalid payment revision: new revision has more funds than current revision"))
+		err = errors.New("invalid payment revision: new revision has more funds than current revision")
+		s.WriteResponseErr(err)
+		return rhpv3.ZeroAccount, types.ZeroCurrency, err
 	}
 	fundAmount := current.ValidProofOutputs[0].Value.Sub(revision.ValidProofOutputs[0].Value)
 
 	// validate that new revision
 	if err := rhp.ValidatePaymentRevision(current, revision, fundAmount); err != nil {
-		return rhpv3.ZeroAccount, types.ZeroCurrency, s.WriteResponseErr(fmt.Errorf("invalid payment revision: %w", err))
+		err = fmt.Errorf("invalid payment revision: %w", err)
+		s.WriteResponseErr(err)
+		return rhpv3.ZeroAccount, types.ZeroCurrency, err
 	}
 
 	// verify the renter's signature
@@ -181,13 +187,17 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 
 	// calculate the funding amount
 	if current.ValidProofOutputs[0].Value.Cmp(revision.ValidProofOutputs[0].Value) < 0 {
-		return types.ZeroCurrency, types.ZeroCurrency, s.WriteResponseErr(errors.New("invalid payment revision: new revision has more funds than current revision"))
+		err = errors.New("invalid payment revision: new revision has more funds than current revision")
+		s.WriteResponseErr(err)
+		return types.ZeroCurrency, types.ZeroCurrency, err
 	}
 	totalAmount := current.ValidProofOutputs[0].Value.Sub(revision.ValidProofOutputs[0].Value)
 
 	// validate that new revision
 	if err := rhp.ValidatePaymentRevision(current, revision, totalAmount); err != nil {
-		return types.ZeroCurrency, types.ZeroCurrency, s.WriteResponseErr(fmt.Errorf("invalid payment revision: %w", err))
+		err = fmt.Errorf("invalid payment revision: %w", err)
+		s.WriteResponseErr(err)
+		return types.ZeroCurrency, types.ZeroCurrency, err
 	}
 
 	// verify the renter's signature
