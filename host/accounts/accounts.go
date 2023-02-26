@@ -2,12 +2,17 @@ package accounts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+)
+
+var (
+	ErrInsufficientFunds = errors.New("insufficient funds")
 )
 
 type (
@@ -75,10 +80,45 @@ func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency,
 		state.balance = balance.Add(amount)
 		am.balances[accountID] = state
 	}
-	// wake all waiting withdrawals
-	close(am.ch)
+	close(am.ch) // wake all waiting withdrawals
 	am.ch = make(chan struct{})
 	return balance.Add(amount), nil
+}
+
+func (am *AccountManager) createBudget(accountID rhpv3.Account, amount types.Currency) (*Budget, error) {
+	// if there are currently outstanding debits, use the in-memory balance
+	state, ok := am.balances[accountID]
+	if !ok {
+		var err error
+		// otherwise, get the balance from the store
+		balance, err := am.store.AccountBalance(accountID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get account balance: %w", err)
+		}
+
+		// add the account to the map of balances
+		state = accountState{
+			balance: balance,
+		}
+	}
+
+	// if the account has enough balance, deduct the amount from memory and
+	// return a budget
+	updated, underflow := state.balance.SubWithUnderflow(amount)
+	if underflow {
+		return nil, ErrInsufficientFunds
+	}
+
+	// deduct the amount from the in-memory state
+	state.openTxns++
+	state.balance = updated
+	am.balances[accountID] = state
+	return &Budget{
+		accountID: accountID,
+		max:       amount,
+
+		am: am,
+	}, nil
 }
 
 // Budget creates a new budget for an account limited by amount. The spent
@@ -91,53 +131,23 @@ func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, a
 	// the balance is checked in a loop.
 	for {
 		am.mu.Lock()
-
-		// if there are currently outstanding debits, use the in-memory balance
-		state, ok := am.balances[accountID]
-		if !ok {
-			var err error
-			// otherwise, get the balance from the store
-			balance, err := am.store.AccountBalance(accountID)
-			if err != nil {
-				am.mu.Unlock()
-				return nil, fmt.Errorf("failed to get account balance: %w", err)
-			}
-
-			// add the account to the map of balances
-			state = accountState{
-				balance: balance,
-			}
-		}
-
-		// if the account has enough balance, deduct the amount from memory and
-		// return a budget
-		var underflow bool
-		state.balance, underflow = state.balance.SubWithUnderflow(amount)
-		if !underflow {
-			// update the balance in memory
-			state.openTxns++
-			am.balances[accountID] = state
+		budget, err := am.createBudget(accountID, amount)
+		if errors.Is(err, ErrInsufficientFunds) {
+			// if the account does not have enough funds, wait for a deposit
+			ch := am.ch // grab the channel before releasing the lock
 			am.mu.Unlock()
-			return &Budget{
-				accountID: accountID,
-				max:       amount,
-
-				am: am,
-			}, nil
+			select {
+			case <-ctx.Done():
+				return nil, ErrInsufficientBudget // return ErrInsufficientBudget instead of context deadline exceeded
+			case <-ch:
+				continue // deposit received, try again
+			}
+		} else if err != nil {
+			am.mu.Unlock()
+			return nil, fmt.Errorf("failed to create budget: %w", err)
 		}
-
-		// grab the channel under lock then unlock the mutex so other debits
-		// can fire.
-		ch := am.ch
 		am.mu.Unlock()
-
-		// wait for a deposit or for the context to be cancelled.
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ch:
-			// a deposit has occurred -- recheck the balance.
-		}
+		return budget, nil
 	}
 }
 
