@@ -38,7 +38,7 @@ func check(context string, err error) {
 func getAPIPassword() string {
 	apiPassword := os.Getenv(apiPasswordEnvVariable)
 	if apiPassword != "" {
-		fmt.Printf("Using %s environment variable.", apiPasswordEnvVariable)
+		log.Printf("Using %s environment variable.", apiPasswordEnvVariable)
 	} else {
 		fmt.Print("Enter API password: ")
 		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -54,7 +54,7 @@ func getAPIPassword() string {
 func getWalletKey() types.PrivateKey {
 	phrase := os.Getenv(walletSeedEnvVariable)
 	if phrase != "" {
-		fmt.Printf("Using %s environment variable", walletSeedEnvVariable)
+		log.Printf("Using %s environment variable", walletSeedEnvVariable)
 	} else {
 		fmt.Print("Enter wallet seed: ")
 		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
