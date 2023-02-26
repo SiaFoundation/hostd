@@ -67,7 +67,7 @@ func TestBudget(t *testing.T) {
 
 	// check that the in-memory state is consistent
 	expectedBalance = expectedBalance.Sub(budgetAmount)
-	if am.balances[accountID].balance.Cmp(expectedBalance) != 0 {
+	if !am.balances[accountID].balance.Equals(expectedBalance) {
 		t.Fatalf("expected in-memory balance to be %d, got %d", expectedBalance, am.balances[accountID].balance)
 	}
 
@@ -78,7 +78,7 @@ func TestBudget(t *testing.T) {
 	}
 
 	// check that the in-memory state did not change
-	if am.balances[accountID].balance.Cmp(expectedBalance) != 0 {
+	if !am.balances[accountID].balance.Equals(expectedBalance) {
 		t.Fatalf("expected in-memory balance to be %d, got %d", expectedBalance, am.balances[accountID].balance)
 	}
 

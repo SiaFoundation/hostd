@@ -92,35 +92,30 @@ func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, a
 	for {
 		am.mu.Lock()
 
-		var balance types.Currency
 		// if there are currently outstanding debits, use the in-memory balance
-		if state, ok := am.balances[accountID]; ok {
-			balance = state.balance
-			state.openTxns++
-			am.balances[accountID] = state
-		} else {
+		state, ok := am.balances[accountID]
+		if !ok {
 			var err error
 			// otherwise, get the balance from the store
-			balance, err = am.store.AccountBalance(accountID)
+			balance, err := am.store.AccountBalance(accountID)
 			if err != nil {
 				am.mu.Unlock()
 				return nil, fmt.Errorf("failed to get account balance: %w", err)
 			}
 
 			// add the account to the map of balances
-			state := accountState{
-				balance:  balance,
-				openTxns: 1,
+			state = accountState{
+				balance: balance,
 			}
-			am.balances[accountID] = state
 		}
 
 		// if the account has enough balance, deduct the amount from memory and
 		// return a budget
-		if balance.Cmp(amount) >= 0 {
+		var underflow bool
+		state.balance, underflow = state.balance.SubWithUnderflow(amount)
+		if !underflow {
 			// update the balance in memory
-			state := am.balances[accountID]
-			state.balance = balance.Sub(amount)
+			state.openTxns++
 			am.balances[accountID] = state
 			am.mu.Unlock()
 			return &Budget{
