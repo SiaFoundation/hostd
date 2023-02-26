@@ -1,11 +1,13 @@
 package rhp_test
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
@@ -98,7 +100,8 @@ func TestUploadDownload(t *testing.T) {
 	// upload the sector
 	remainingDuration = contractExpiration - currentHeight
 	price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
-	if writtenRoot, err := session.Append(context.Background(), &sector, price, collateral); err != nil {
+	writtenRoot, err := session.Append(context.Background(), &sector, price, collateral)
+	if err != nil {
 		t.Fatal(err)
 	} else if writtenRoot != sectorRoot {
 		t.Fatal("sector root mismatch")
@@ -121,6 +124,27 @@ func TestUploadDownload(t *testing.T) {
 	case revision.FileMerkleRoot != sectorRoot:
 		t.Fatal("wrong merkle root")
 	}
+
+	sections := []rhpv2.RPCReadRequestSection{
+		{
+			MerkleRoot: writtenRoot,
+			Offset:     0,
+			Length:     rhpv2.SectorSize,
+		},
+	}
+
+	price = rhpv2.RPCReadCost(session.Settings(), sections)
+
+	var buf bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := session.Read(ctx, &buf, sections, price); err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(buf.Bytes(), sector[:]) {
+		t.Fatal("sector mismatch")
+	}
 }
 
 func BenchmarkUpload(b *testing.B) {
@@ -141,11 +165,6 @@ func BenchmarkUpload(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	// mine a block to confirm the contract
-	if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
-		b.Fatal(err)
-	}
-
 	session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), contract.ID())
 	if err != nil {
 		b.Fatal(err)
@@ -161,15 +180,20 @@ func BenchmarkUpload(b *testing.B) {
 	}
 	remainingDuration = contractExpiration - currentHeight
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.SetBytes(rhpv2.SectorSize)
+	sectors := make([][rhpv2.SectorSize]byte, b.N)
+	for i := range sectors {
+		frand.Read(sectors[i][:256])
+	}
 
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.SetBytes(rhpv2.SectorSize)
+	b.ReportMetric(float64(rhpv2.SectorSize*b.N), "uploaded")
+
+	start := time.Now()
 	// upload b.N sectors
 	for i := 0; i < b.N; i++ {
-		// generate a sector
-		var sector [rhpv2.SectorSize]byte
-		frand.Read(sector[:256])
+		sector := sectors[i]
 
 		// upload the sector
 		price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
@@ -177,6 +201,7 @@ func BenchmarkUpload(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+	b.ReportMetric(float64(time.Since(start).Seconds()), "elapsed")
 }
 
 func BenchmarkDownload(b *testing.B) {
