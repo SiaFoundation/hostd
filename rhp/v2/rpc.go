@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
+	"go.uber.org/zap"
 )
 
 var (
@@ -195,6 +196,8 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 		return fmt.Errorf("failed to sign formation transaction: %w", err)
 	} else if err = sh.tpool.AcceptTransactionSet(formationTxnSet); err != nil {
 		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
+		buf, _ := json.Marshal(formationTxnSet)
+		sh.log.Error("failed to broadcast formation transaction", zap.Error(err), zap.String("txnset", string(buf)))
 		s.t.WriteResponseErr(err)
 		return err
 	}

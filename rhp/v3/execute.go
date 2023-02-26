@@ -515,7 +515,7 @@ func (pd programData) Sector(offset uint64) (types.Hash256, *[rhpv2.SectorSize]b
 	}
 
 	sector := (*[rhpv2.SectorSize]byte)(pd[offset : offset+rhpv2.SectorSize])
-	root := rhpv2.SectorRoot((*[rhpv2.SectorSize]byte)(sector))
+	root := rhpv2.SectorRoot(sector)
 	return root, sector, nil
 }
 
