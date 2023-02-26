@@ -160,7 +160,9 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 			rhpv2.RPCWriteID:              sh.rpcWrite,
 		}[id]
 		if !ok {
-			return t.WriteResponseErr(fmt.Errorf("unknown RPC ID %q", id))
+			err = fmt.Errorf("unknown RPC ID %q", id)
+			t.WriteResponseErr(err)
+			return err
 		}
 		start := time.Now()
 		recordEnd := sh.recordRPC(id, sess)

@@ -55,7 +55,9 @@ func (sh *SessionHandler) rpcLock(s *session) error {
 
 	// Check if a contract is already locked.
 	if s.contract.Revision.ParentID != (types.FileContractID{}) {
-		return s.t.WriteResponseErr(ErrContractAlreadyLocked)
+		err := ErrContractAlreadyLocked
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -63,14 +65,18 @@ func (sh *SessionHandler) rpcLock(s *session) error {
 
 	contract, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to lock contract: %w", err))
+		err := fmt.Errorf("failed to lock contract: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	// verify the renter's challenge signature
 	newChallenge, ok := s.t.VerifyChallenge(req.Signature, contract.RenterKey())
 	if !ok {
 		sh.contracts.Unlock(contract.Revision.ParentID)
-		return s.t.WriteResponseErr(fmt.Errorf("challenge failed: %w", ErrInvalidRenterSignature))
+		err := fmt.Errorf("challenge failed: %w", ErrInvalidRenterSignature)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	// set the contract
@@ -112,9 +118,13 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 	// if the transaction set does not contain any transaction or if the
 	// transaction does not contain exactly one file contract, return an error
 	if len(formationTxnSet) == 0 || len(formationTxnSet[len(formationTxnSet)-1].FileContracts) != 1 {
-		return s.t.WriteResponseErr(ErrTxnMissingContract)
+		err := ErrTxnMissingContract
+		s.t.WriteResponseErr(err)
+		return err
 	} else if req.RenterKey.Algorithm != types.SpecifierEd25519 {
-		return s.t.WriteResponseErr(errors.New("unsupported renter key algorithm"))
+		err := errors.New("unsupported renter key algorithm")
+		s.t.WriteResponseErr(err)
+		return err
 	}
 	renterPub := *(*types.PublicKey)(req.RenterKey.Key)
 	// get the host's public key, current block height, and settings
@@ -131,7 +141,9 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 	// validate the contract formation fields. note: the v1 contract type
 	// does not contain the public keys or signatures.
 	if err := rhp.ValidateContractFormation(formationTxn.FileContracts[0], hostPub.UnlockKey(), renterPub.UnlockKey(), currentHeight, settings); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("contract rejected: validation failed: %w", err))
+		err := fmt.Errorf("contract rejected: validation failed: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	// calculate the host's collateral and add the inputs to the transaction
@@ -226,7 +238,9 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 	/*	currentHeight := sh.cm.TipState().Index.Height
 		if err := s.ContractRevisable(currentHeight); err != nil {
-			return s.t.WriteResponseErr(fmt.Errorf("contract not revisable: %w", err))
+			err := fmt.Errorf("contract not revisable: %w", err)
+			s.t.WriteResponseErr(err)
+			return err
 		}
 
 		var req rpcRenewAndClearContractRequest
@@ -236,7 +250,9 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 
 		renewalTxnSet := req.Transactions
 		if len(renewalTxnSet) == 0 || len(renewalTxnSet[len(renewalTxnSet)-1].FileContracts) != 1 || len(renewalTxnSet[len(renewalTxnSet)-1].FileContractRevisions) != 1 {
-			return s.t.WriteResponseErr(ErrTxnMissingContract)
+			err := ErrTxnMissingContract
+			s.t.WriteResponseErr(err)
+			return err
 		}
 
 		renterPub := req.RenterKey
@@ -272,15 +288,21 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 			baseRenterCost = baseRenterCost.Add(settings.StoragePrice.Mul64(initialRevision.NewFileSize).Mul64(extension))
 			baseCollateral = settings.Collateral.Mul64(initialRevision.NewFileSize).Mul64(extension)
 		} else if initialRevision.NewValidProofOutputs[1].Value.Cmp(baseCollateral.Add(baseRenterCost)) < 0 {
-			return s.t.WriteResponseErr(errors.New("renewal rejected: insufficient host payout for storage and collateral"))
+			err := errors.New("renewal rejected: insufficient host payout for storage and collateral")
+			s.t.WriteResponseErr(err)
+			return err
 		}
 
 		// validate fields of the clearing revision and renewal. note: the v1
 		// contract type does not contain the public keys or signatures.
 		if err := validateClearingRevision(existingContract, clearingRevision); err != nil {
-			return s.t.WriteResponseErr(fmt.Errorf("renewal rejected: clearing revision validation failed: %w", err))
+			err := fmt.Errorf("renewal rejected: clearing revision validation failed: %w", err)
+			s.t.WriteResponseErr(err)
+			return err
 		} else if err := validateContractRenewal(existingContract, initialRevision, hostPub, renterPub, baseRenterCost, baseCollateral, currentHeight, settings); err != nil {
-			return s.t.WriteResponseErr(fmt.Errorf("renewal rejected: renewal validation failed: %w", err))
+			err := fmt.Errorf("renewal rejected: renewal validation failed: %w", err)
+			s.t.WriteResponseErr(err)
+			return err
 		}
 
 		renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
@@ -310,7 +332,9 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		// validate the renter's initial revision signature
 		renterRenewalSig := renterSigsResp.
 		if !ed25519.Verify(renterPub.Key, renewalSigHash[:], renterRenewalSig) {
-			return s.t.WriteResponseErr(ErrInvalidRenterSignature)
+			err := ErrInvalidRenterSignature
+			s.t.WriteResponseErr(err)
+			return err
 		}
 		renterClearingSig := renterSigsResp.FinalRevisionSignature
 		// add the renter's signatures to the transaction and contract revision
@@ -321,7 +345,9 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 			s.t.WriteResponseErr(ErrHostInternalError)
 			return fmt.Errorf("failed to sign formation transaction: %w", err)
 		} else if err = sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
-			return s.t.WriteResponseErr(fmt.Errorf("failed to broadcast formation transaction: %w", err))
+			err := fmt.Errorf("failed to broadcast formation transaction: %w", err)
+			s.t.WriteResponseErr(err)
+			return err
 		}
 
 		clearingSignedRevision := contracts.SignedRevision{
@@ -369,7 +395,9 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	currentHeight := sh.cm.TipState().Index.Height
 	if err := s.ContractRevisable(currentHeight); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("contract not revisable: %w", err))
+		err := fmt.Errorf("contract not revisable: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	var req rhpv2.RPCSectorRootsRequest
@@ -385,19 +413,25 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 
 	revision, err := rhp.Revise(s.contract.Revision, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 	if err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to revise contract: %w", err))
+		err := fmt.Errorf("failed to revise contract: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 	// validate the renter's signature
 	sigHash := rhp.HashRevision(revision)
 	if !s.contract.RenterKey().VerifyHash(sigHash, req.Signature) {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature))
+		err := fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 	hostSig := sh.privateKey.SignHash(sigHash)
 
 	proofSize := rhpv2.RangeProofSize(rhpv2.LeavesPerSector, req.RootOffset, req.RootOffset+req.NumRoots)
 	cost := settings.DownloadBandwidthPrice.Mul64((req.NumRoots + proofSize) * 32)
 	if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to validate revision: %w", err))
+		err := fmt.Errorf("failed to validate revision: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID, req.NumRoots, req.RootOffset)
@@ -442,7 +476,9 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	currentHeight := sh.cm.TipState().Index.Height
 	// get the locked contract and check that it is revisable
 	if err := s.ContractRevisable(currentHeight); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("contract not revisable: %w", err))
+		err := fmt.Errorf("contract not revisable: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	settings, err := sh.Settings()
@@ -461,15 +497,21 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	oldSectors := s.contract.Revision.Filesize / rhpv2.SectorSize
 	cost, collateral, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)
 	if err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to validate write actions: %w", err))
+		err := fmt.Errorf("failed to validate write actions: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	// revise and validate the new revision
 	revision, err := rhp.Revise(s.contract.Revision, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 	if err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to revise contract: %w", err))
+		err := fmt.Errorf("failed to revise contract: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	} else if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, collateral); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to validate revision: %w", err))
+		err := fmt.Errorf("failed to validate revision: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 	contractUpdater, err := sh.contracts.ReviseContract(revision.ParentID)
 	if err != nil {
@@ -483,29 +525,39 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		switch action.Type {
 		case rhpv2.RPCWriteActionAppend:
 			if len(action.Data) != rhpv2.SectorSize {
-				return s.t.WriteResponseErr(fmt.Errorf("append action: invalid sector size: %v", len(action.Data)))
+				err := fmt.Errorf("append action: invalid sector size: %v", len(action.Data))
+				s.t.WriteResponseErr(err)
+				return err
 			}
 			sector := (*[rhpv2.SectorSize]byte)(action.Data)
 			root := rhpv2.SectorRoot(sector)
 
 			release, err := sh.storage.Write(root, sector)
 			if err != nil {
-				return s.t.WriteResponseErr(fmt.Errorf("append action: failed to write sector: %w", err))
+				err := fmt.Errorf("append action: failed to write sector: %w", err)
+				s.t.WriteResponseErr(err)
+				return err
 			}
 			defer release()
 			contractUpdater.AppendSector(root)
 		case rhpv2.RPCWriteActionTrim:
 			if err := contractUpdater.TrimSectors(action.A); err != nil {
-				return s.t.WriteResponseErr(fmt.Errorf("trim action: failed to trim sectors: %w", err))
+				err := fmt.Errorf("trim action: failed to trim sectors: %w", err)
+				s.t.WriteResponseErr(err)
+				return err
 			}
 		case rhpv2.RPCWriteActionSwap:
 			if err := contractUpdater.SwapSectors(action.A, action.B); err != nil {
-				return s.t.WriteResponseErr(fmt.Errorf("swap action: failed to swap sectors: %w", err))
+				err := fmt.Errorf("swap action: failed to swap sectors: %w", err)
+				s.t.WriteResponseErr(err)
+				return err
 			}
 		case rhpv2.RPCWriteActionUpdate:
 			root, err := contractUpdater.SectorRoot(action.A)
 			if err != nil {
-				return s.t.WriteResponseErr(fmt.Errorf("update action: failed to get sector root: %w", err))
+				err := fmt.Errorf("update action: failed to get sector root: %w", err)
+				s.t.WriteResponseErr(err)
+				return err
 			}
 
 			sector, err := sh.storage.Read(root)
@@ -516,20 +568,28 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 
 			i, offset := action.A, action.B
 			if offset > rhpv2.SectorSize {
-				return s.t.WriteResponseErr(fmt.Errorf("update action: invalid offset %v bytes", offset))
+				err := fmt.Errorf("update action: invalid offset %v bytes", offset)
+				s.t.WriteResponseErr(err)
+				return err
 			} else if offset+uint64(len(action.Data)) > rhpv2.SectorSize {
-				return s.t.WriteResponseErr(errors.New("update action: offset + data exceeds sector size"))
+				err := errors.New("update action: offset + data exceeds sector size")
+				s.t.WriteResponseErr(err)
+				return err
 			}
 
 			copy(sector[offset:], action.Data)
 			newRoot := rhpv2.SectorRoot(sector)
 
 			if err := contractUpdater.UpdateSector(newRoot, i); err != nil {
-				return s.t.WriteResponseErr(fmt.Errorf("update action: failed to update sector: %w", err))
+				err := fmt.Errorf("update action: failed to update sector: %w", err)
+				s.t.WriteResponseErr(err)
+				return err
 			}
 			release, err := sh.storage.Write(root, sector)
 			if err != nil {
-				return s.t.WriteResponseErr(fmt.Errorf("append action: failed to write sector: %w", err))
+				err := fmt.Errorf("append action: failed to write sector: %w", err)
+				s.t.WriteResponseErr(err)
+				return err
 			}
 			defer release()
 		}
@@ -559,7 +619,9 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	renterSig := renterSigResponse.Signature
 	sigHash := rhp.HashRevision(revision)
 	if !s.contract.RenterKey().VerifyHash(sigHash, renterSigResponse.Signature) {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to verify renter signature: %w", ErrInvalidRenterSignature))
+		err := fmt.Errorf("failed to verify renter signature: %w", ErrInvalidRenterSignature)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 	hostSig := sh.privateKey.SignHash(sigHash)
 	signedRevision := contracts.SignedRevision{
@@ -596,7 +658,9 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	currentHeight := sh.cm.TipState().Index.Height
 	// get the locked contract and check that it is revisable
 	if err := s.ContractRevisable(currentHeight); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("contract not revisable: %w", err))
+		err := fmt.Errorf("contract not revisable: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	// get the host's current settings
@@ -617,11 +681,17 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	for _, sec := range req.Sections {
 		switch {
 		case uint64(sec.Offset)+uint64(sec.Length) > rhpv2.SectorSize:
-			return s.t.WriteResponseErr(errors.New("request is out-of-bounds"))
+			err := errors.New("request is out-of-bounds")
+			s.t.WriteResponseErr(err)
+			return err
 		case sec.Length == 0:
-			return s.t.WriteResponseErr(errors.New("length cannot be zero"))
+			err := errors.New("length cannot be zero")
+			s.t.WriteResponseErr(err)
+			return err
 		case req.MerkleProof && (sec.Offset%rhpv2.LeafSize != 0 || sec.Length%rhpv2.LeafSize != 0):
-			return s.t.WriteResponseErr(errors.New("offset and length must be multiples of SegmentSize when requesting a Merkle proof"))
+			err := errors.New("offset and length must be multiples of SegmentSize when requesting a Merkle proof")
+			s.t.WriteResponseErr(err)
+			return err
 		}
 
 		bandwidth += uint64(sec.Length)
@@ -635,7 +705,9 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	// revise the contract with the values sent by the renter
 	revision, err := rhp.Revise(s.contract.Revision, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 	if err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to revise contract: %w", err))
+		err := fmt.Errorf("failed to revise contract: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	// calculate the cost of the read
@@ -643,9 +715,13 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	// validate the renter's signature and transfer
 	sigHash := rhp.HashRevision(revision)
 	if !s.contract.RenterKey().VerifyHash(sigHash, req.Signature) {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature))
+		err := fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature)
+		s.t.WriteResponseErr(err)
+		return err
 	} else if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
-		return s.t.WriteResponseErr(fmt.Errorf("failed to validate revision: %w", err))
+		err := fmt.Errorf("failed to validate revision: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 
 	// sign and commit the new revision
@@ -691,7 +767,9 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	for i, sec := range req.Sections {
 		sector, err := sh.storage.Read(sec.MerkleRoot)
 		if err != nil {
-			return s.t.WriteResponseErr(fmt.Errorf("failed to get sector: %w", err))
+			err := fmt.Errorf("failed to get sector: %w", err)
+			s.t.WriteResponseErr(err)
+			return err
 		}
 
 		resp := &rhpv2.RPCReadResponse{

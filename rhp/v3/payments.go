@@ -182,7 +182,9 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	current := contract.Revision
 	revision, err := rhp.Revise(current, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 	if err != nil {
-		return types.ZeroCurrency, types.ZeroCurrency, s.WriteResponseErr(fmt.Errorf("failed to revise contract: %w", err))
+		err := fmt.Errorf("failed to revise contract: %w", err)
+		s.WriteResponseErr(err)
+		return types.ZeroCurrency, types.ZeroCurrency, err
 	}
 
 	// calculate the funding amount
