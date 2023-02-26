@@ -70,7 +70,7 @@ func (ls *loggedStmt) ExecContext(ctx context.Context, args ...any) (sql.Result,
 	start := time.Now()
 	result, err := ls.Stmt.ExecContext(ctx, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		ls.log.Debug("slow exec", zap.String("query", ls.query), zap.Duration("duration", dur), zap.Stack("stack"))
+		ls.log.Debug("slow exec", zap.String("query", ls.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return result, err
 }
@@ -83,7 +83,7 @@ func (ls *loggedStmt) QueryContext(ctx context.Context, args ...any) (*sql.Rows,
 	start := time.Now()
 	rows, err := ls.Stmt.QueryContext(ctx, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		ls.log.Debug("slow query", zap.String("query", ls.query), zap.Duration("duration", dur), zap.Stack("stack"))
+		ls.log.Debug("slow query", zap.String("query", ls.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return rows, err
 }
@@ -96,7 +96,7 @@ func (ls *loggedStmt) QueryRowContext(ctx context.Context, args ...any) *sql.Row
 	start := time.Now()
 	row := ls.Stmt.QueryRowContext(ctx, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		ls.log.Debug("slow query row", zap.String("query", ls.query), zap.Duration("duration", dur), zap.Stack("stack"))
+		ls.log.Debug("slow query row", zap.String("query", ls.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return row
 }
@@ -107,7 +107,7 @@ func (s *Store) exec(query string, args ...any) (sql.Result, error) {
 	start := time.Now()
 	result, err := s.db.Exec(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow exec", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		s.log.Debug("slow exec", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return result, err
 }
@@ -120,7 +120,7 @@ func (s *Store) prepare(query string) (*loggedStmt, error) {
 	start := time.Now()
 	stmt, err := s.db.Prepare(query)
 	if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow prepare", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		s.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	} else if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (s *Store) query(query string, args ...any) (*sql.Rows, error) {
 	start := time.Now()
 	rows, err := s.db.Query(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow query", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		s.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return rows, err
 }
@@ -151,7 +151,7 @@ func (s *Store) queryRow(query string, args ...any) *sql.Row {
 	start := time.Now()
 	row := s.db.QueryRow(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow query row", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		s.log.Debug("slow query row", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return row
 }
@@ -162,7 +162,7 @@ func (lt *loggedTxn) Exec(query string, args ...any) (sql.Result, error) {
 	start := time.Now()
 	result, err := lt.Tx.Exec(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow exec", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		lt.log.Debug("slow exec", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return result, err
 }
@@ -175,7 +175,7 @@ func (lt *loggedTxn) Prepare(query string) (*loggedStmt, error) {
 	start := time.Now()
 	stmt, err := lt.Tx.Prepare(query)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow prepare", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		lt.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	} else if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (lt *loggedTxn) Query(query string, args ...any) (*sql.Rows, error) {
 	start := time.Now()
 	rows, err := lt.Tx.Query(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow query", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		lt.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return rows, err
 }
@@ -206,7 +206,7 @@ func (lt *loggedTxn) QueryRow(query string, args ...any) *sql.Row {
 	start := time.Now()
 	row := lt.Tx.QueryRow(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow query row", zap.String("query", query), zap.Duration("duration", dur), zap.Stack("stack"))
+		lt.log.Debug("slow query row", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return row
 }
@@ -263,7 +263,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	if time.Since(start) > longQueryDuration {
-		s.log.Debug("long transaction", zap.Duration("duration", time.Since(start)), zap.Stack("stack"))
+		s.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
 	}
 	return nil
 }

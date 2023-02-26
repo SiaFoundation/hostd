@@ -2,13 +2,16 @@ module go.sia.tech/hostd
 
 go 1.19
 
+replace go.sia.tech/renterd => ../renterd
+
 require (
 	github.com/aws/aws-sdk-go v1.44.156
 	github.com/mattn/go-sqlite3 v1.14.16
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
+	gitlab.com/NebulousLabs/errors v0.0.0-20200929122200-06c536cf6975
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
-	go.sia.tech/core v0.1.10-0.20230224185832-5047682d37b0
+	go.sia.tech/core v0.1.10-0.20230226160239-d78e4d4febb6
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/renterd v0.0.0-20230224055041-c668489f5065
 	go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db
@@ -36,7 +39,6 @@ require (
 	gitlab.com/NebulousLabs/bolt v1.4.4 // indirect
 	gitlab.com/NebulousLabs/demotemutex v0.0.0-20151003192217-235395f71c40 // indirect
 	gitlab.com/NebulousLabs/entropy-mnemonics v0.0.0-20181018051301-7532f67e3500 // indirect
-	gitlab.com/NebulousLabs/errors v0.0.0-20200929122200-06c536cf6975 // indirect
 	gitlab.com/NebulousLabs/fastrand v0.0.0-20181126182046-603482d69e40 // indirect
 	gitlab.com/NebulousLabs/go-upnp v0.0.0-20211002182029-11da932010b6 // indirect
 	gitlab.com/NebulousLabs/merkletree v0.0.0-20200118113624-07fbf710afc4 // indirect
