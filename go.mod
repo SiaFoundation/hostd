@@ -2,8 +2,6 @@ module go.sia.tech/hostd
 
 go 1.19
 
-replace go.sia.tech/renterd => ../renterd
-
 require (
 	github.com/aws/aws-sdk-go v1.44.156
 	github.com/mattn/go-sqlite3 v1.14.16
@@ -13,7 +11,7 @@ require (
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
 	go.sia.tech/core v0.1.10-0.20230226160239-d78e4d4febb6
 	go.sia.tech/jape v0.9.0
-	go.sia.tech/renterd v0.0.0-20230224055041-c668489f5065
+	go.sia.tech/renterd v0.0.0-20230226164209-654a3c757a95
 	go.sia.tech/siad v1.5.10-0.20230124165802-3bb7da1814db
 	go.uber.org/zap v1.24.0
 	golang.org/x/term v0.5.0
