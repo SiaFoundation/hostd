@@ -1,9 +1,7 @@
 package api
 
 import (
-	"net"
 	"net/http"
-	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
@@ -53,8 +51,7 @@ type (
 
 	// An API provides an HTTP API for the host
 	API struct {
-		server *http.Server
-		log    *zap.Logger
+		log *zap.Logger
 
 		contracts ContractManager
 		volumes   VolumeManager
@@ -63,18 +60,8 @@ type (
 	}
 )
 
-// Serve serves the API on the provided listener
-func (a *API) Serve(l net.Listener) error {
-	return a.server.Serve(l)
-}
-
-// Close closes the API
-func (a *API) Close() error {
-	return a.server.Close()
-}
-
 // NewServer initializes the API
-func NewServer(cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) *API {
+func NewServer(cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	a := &API{
 		contracts: cm,
 		volumes:   vm,
@@ -83,34 +70,29 @@ func NewServer(cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *
 		log:       log,
 	}
 	r := jape.Mux(map[string]jape.Handler{
-		"GET 	/":                         a.handleGetState,
-		"GET	/syncer":                    a.handleGetSyncer,
-		"GET	/syncer/peers":              a.handleGetSyncerPeers,
-		"PUT 	/syncer/peers/:address":    a.handlePutSyncerPeer,
-		"DELETE	/syncer/peers/:address":  a.handleDeleteSyncerPeer,
-		"POST	/announce":                 a.handlePostAnnounce,
-		"GET	/settings":                  a.handleGetSettings,
-		"PUT	/settings":                  a.handlePutSettings,
-		"GET	/financials/:period":        a.handleGetFinancials,
-		"GET	/contracts":                 a.handleGetContracts,
-		"GET	/contracts/:id":             a.handleGetContract,
-		"DELETE	/sectors/:root":          a.handleDeleteSector,
-		"GET	/volumes":                   a.handleGetVolumes,
-		"POST 	/volumes":                 a.handlePostVolume,
-		"GET	/volumes/:id":               a.handleGetVolume,
-		"PUT	/volumes/:id":               a.handlePutVolume,
-		"DELETE	/volumes/:id":            a.handleDeleteVolume,
-		"PUT	/volumes/:id/resize":        a.handlePutVolumeResize,
-		"PUT 	/volumes/:id/check":        a.handlePutVolumeCheck,
-		"GET	/wallet":                    a.handleGetWallet,
-		"GET	/wallet/address":            a.handleGetWalletAddress,
-		"GET	/wallet/transactions":       a.handleGetWalletTransactions,
-		"POST	/wallet/transactions/send": a.handlePostWalletSend,
+		"GET /":                          a.handleGetState,
+		"GET /syncer":                    a.handleGetSyncer,
+		"GET /syncer/peers":              a.handleGetSyncerPeers,
+		"PUT /syncer/peers/:address":     a.handlePutSyncerPeer,
+		"DELETE /syncer/peers/:address":  a.handleDeleteSyncerPeer,
+		"POST /announce":                 a.handlePostAnnounce,
+		"GET /settings":                  a.handleGetSettings,
+		"PUT /settings":                  a.handlePutSettings,
+		"GET /financials/:period":        a.handleGetFinancials,
+		"GET /contracts":                 a.handleGetContracts,
+		"GET /contracts/:id":             a.handleGetContract,
+		"DELETE /sectors/:root":          a.handleDeleteSector,
+		"GET /volumes":                   a.handleGetVolumes,
+		"POST /volumes":                  a.handlePostVolume,
+		"GET /volumes/:id":               a.handleGetVolume,
+		"PUT /volumes/:id":               a.handlePutVolume,
+		"DELETE /volumes/:id":            a.handleDeleteVolume,
+		"PUT /volumes/:id/resize":        a.handlePutVolumeResize,
+		"PUT /volumes/:id/check":         a.handlePutVolumeCheck,
+		"GET /wallet":                    a.handleGetWallet,
+		"GET /wallet/address":            a.handleGetWalletAddress,
+		"GET /wallet/transactions":       a.handleGetWalletTransactions,
+		"POST /wallet/transactions/send": a.handlePostWalletSend,
 	})
-	a.server = &http.Server{
-		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-	}
-	return a
+	return r
 }

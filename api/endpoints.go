@@ -12,237 +12,232 @@ import (
 	"go.uber.org/zap"
 )
 
-func (a *API) handleGetState(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handleGetSyncer(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handleGetSyncerPeers(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handlePutSyncerPeer(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handleDeleteSyncerPeer(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handlePostAnnounce(ctx jape.Context) {
-	if err := a.settings.Announce(); err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to announce", zap.Error(err))
-	}
-}
-
-func (a *API) handleGetSettings(ctx jape.Context) {
-	ctx.Encode(a.settings.Settings())
-}
-
-func (a *API) handlePutSettings(ctx jape.Context) {
-	var updated settings.Settings
-	if err := ctx.Decode(&updated); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
-		return
-	}
-	if err := a.settings.UpdateSettings(updated); err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to update settings", zap.Error(err))
-		return
-	}
-	ctx.Encode(updated)
-}
-
-func (a *API) handleGetFinancials(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handleGetContracts(ctx jape.Context) {
-	limit, offset := parseLimitParams(ctx, 100, 500)
-	contracts, err := a.contracts.Contracts(limit, offset)
+// checkServerError conditionally writes an error to the response if err is not
+// nil.
+func (a *API) checkServerError(c jape.Context, context string, err error) bool {
 	if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Error("failed to get contracts", zap.Error(err))
-		return
+		c.Error(err, http.StatusInternalServerError)
+		a.log.Warn(context, zap.Error(err))
 	}
-	ctx.Encode(contracts)
+	return err == nil
 }
 
-func (a *API) handleGetContract(ctx jape.Context) {
+func (a *API) handleGetState(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+}
+
+func (a *API) handleGetSyncer(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+}
+
+func (a *API) handleGetSyncerPeers(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+}
+
+func (a *API) handlePutSyncerPeer(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+}
+
+func (a *API) handleDeleteSyncerPeer(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+}
+
+func (a *API) handlePostAnnounce(c jape.Context) {
+	err := a.settings.Announce()
+	a.checkServerError(c, "failed to announce", err)
+}
+
+func (a *API) handleGetSettings(c jape.Context) {
+	c.Encode(a.settings.Settings())
+}
+
+func (a *API) handlePutSettings(c jape.Context) {
+	var updated settings.Settings
+	if err := c.Decode(&updated); err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	}
+	err := a.settings.UpdateSettings(updated)
+	if !a.checkServerError(c, "failed to update settings", err) {
+		return
+	}
+	c.Encode(updated)
+}
+
+func (a *API) handleGetFinancials(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+}
+
+func (a *API) handleGetContracts(c jape.Context) {
+	limit, offset := parseLimitParams(c, 100, 500)
+	contracts, err := a.contracts.Contracts(limit, offset)
+	if !a.checkServerError(c, "failed to get contracts", err) {
+		return
+	}
+	c.Encode(contracts)
+}
+
+func (a *API) handleGetContract(c jape.Context) {
 	var id types.FileContractID
-	if err := ctx.DecodeParam("id", &id); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
+	if err := c.DecodeParam("id", &id); err != nil {
+		c.Error(err, http.StatusBadRequest)
 		return
 	}
 	contract, err := a.contracts.Contract(id)
 	if errors.Is(err, contracts.ErrNotFound) {
-		ctx.Error(err, http.StatusNotFound)
+		c.Error(err, http.StatusNotFound)
 		return
-	} else if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Error("failed to get contract", zap.Error(err))
+	} else if !a.checkServerError(c, "failed to get contract", err) {
 		return
 	}
-	ctx.Encode(contract)
+	c.Encode(contract)
 }
 
-func (a *API) handleDeleteSector(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handleGetVolumes(ctx jape.Context) {
-	volumes, err := a.volumes.Volumes()
-	if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to get volumes", zap.Error(err))
-		return
-	}
-	ctx.Encode(volumes)
-}
-
-func (a *API) handlePostVolume(ctx jape.Context) {
-	var req AddVolumeRequest
-	if err := ctx.Decode(&req); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
-		return
-	} else if len(req.LocalPath) == 0 {
-		ctx.Error(errors.New("local path is required"), http.StatusBadRequest)
-		return
-	} else if req.MaxSectors == 0 {
-		ctx.Error(errors.New("max sectors is required"), http.StatusBadRequest)
-		return
-	}
-
-	volume, err := a.volumes.AddVolume(req.LocalPath, req.MaxSectors)
-	if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to add volume", zap.Error(err))
-		return
-	}
-	ctx.Encode(volume)
-}
-
-func (a *API) handleGetVolume(ctx jape.Context) {
+func (a *API) handleGetVolume(c jape.Context) {
 	var id int
-	if err := ctx.DecodeParam("id", &id); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
+	if err := c.DecodeParam("id", &id); err != nil {
+		c.Error(err, http.StatusBadRequest)
 		return
 	} else if id < 0 {
-		ctx.Error(errors.New("invalid volume id"), http.StatusBadRequest)
+		c.Error(errors.New("invalid volume id"), http.StatusBadRequest)
 		return
 	}
 
 	volume, err := a.volumes.Volume(id)
 	if errors.Is(err, storage.ErrVolumeNotFound) {
-		ctx.Error(err, http.StatusNotFound)
+		c.Error(err, http.StatusNotFound)
 		return
-	} else if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to get volume", zap.Error(err))
+	} else if !a.checkServerError(c, "failed to get volume", err) {
 		return
 	}
-	ctx.Encode(volume)
+	c.Encode(volume)
 }
 
-func (a *API) handlePutVolume(ctx jape.Context) {
+func (a *API) handlePutVolume(c jape.Context) {
 	var id int
-	if err := ctx.DecodeParam("id", &id); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
+	if err := c.DecodeParam("id", &id); err != nil {
+		c.Error(err, http.StatusBadRequest)
 		return
 	} else if id < 0 {
-		ctx.Error(errors.New("invalid volume id"), http.StatusBadRequest)
+		c.Error(errors.New("invalid volume id"), http.StatusBadRequest)
 		return
 	}
 
 	var req UpdateVolumeRequest
-	if err := ctx.Decode(&req); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
+	if err := c.Decode(&req); err != nil {
+		c.Error(err, http.StatusBadRequest)
 		return
 	}
 
-	if err := a.volumes.SetReadOnly(id, req.ReadOnly); err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to set volume read-only", zap.Error(err))
+	err := a.volumes.SetReadOnly(id, req.ReadOnly)
+	if errors.Is(err, storage.ErrVolumeNotFound) {
+		c.Error(err, http.StatusNotFound)
 		return
 	}
+	a.checkServerError(c, "failed to update volume", err)
 }
 
-func (a *API) handleDeleteVolume(ctx jape.Context) {
+func (a *API) handleDeleteSector(c jape.Context) {
+	var root types.Hash256
+	if err := c.DecodeParam("root", &root); err != nil {
+		c.Error(err, http.StatusBadRequest)
+	}
+	err := a.volumes.RemoveSector(root)
+	a.checkServerError(c, "failed to remove sector", err)
+}
+
+func (a *API) handleGetVolumes(c jape.Context) {
+	volumes, err := a.volumes.Volumes()
+	if !a.checkServerError(c, "failed to get volumes", err) {
+		return
+	}
+	c.Encode(volumes)
+}
+
+func (a *API) handlePostVolume(c jape.Context) {
+	var req AddVolumeRequest
+	if err := c.Decode(&req); err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	} else if len(req.LocalPath) == 0 {
+		c.Error(errors.New("local path is required"), http.StatusBadRequest)
+		return
+	} else if req.MaxSectors == 0 {
+		c.Error(errors.New("max sectors is required"), http.StatusBadRequest)
+		return
+	}
+
+	volume, err := a.volumes.AddVolume(req.LocalPath, req.MaxSectors)
+	if !a.checkServerError(c, "failed to add volume", err) {
+		return
+	}
+	c.Encode(volume)
+}
+
+func (a *API) handleDeleteVolume(c jape.Context) {
 	var id int
 	var force bool
-	if err := ctx.DecodeParam("id", &id); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
+	if err := c.DecodeParam("id", &id); err != nil {
+		c.Error(err, http.StatusBadRequest)
 		return
 	} else if id < 0 {
-		ctx.Error(errors.New("invalid volume id"), http.StatusBadRequest)
+		c.Error(errors.New("invalid volume id"), http.StatusBadRequest)
 		return
-	} else if err := ctx.DecodeForm("force", &force); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
-		return
-	}
-
-	if err := a.volumes.RemoveVolume(id, force); err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to remove volume", zap.Error(err))
+	} else if err := c.DecodeForm("force", &force); err != nil {
+		c.Error(err, http.StatusBadRequest)
 		return
 	}
+	err := a.volumes.RemoveVolume(id, force)
+	a.checkServerError(c, "failed to remove volume", err)
 }
 
-func (a *API) handlePutVolumeResize(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
+func (a *API) handlePutVolumeResize(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
 }
 
-func (a *API) handlePutVolumeCheck(ctx jape.Context) {
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
+func (a *API) handlePutVolumeCheck(c jape.Context) {
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
 }
 
-func (a *API) handleGetWalletAddress(ctx jape.Context) {
-	ctx.Encode(a.wallet.Address())
+func (a *API) handleGetWalletAddress(c jape.Context) {
+	c.Encode(a.wallet.Address())
 }
 
-func (a *API) handleGetWallet(ctx jape.Context) {
+func (a *API) handleGetWallet(c jape.Context) {
 	spendable, confirmed, err := a.wallet.Balance()
-	if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to get wallet balance", zap.Error(err))
+	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
-	ctx.Encode(WalletResponse{
+	c.Encode(WalletResponse{
 		ScanHeight: a.wallet.ScanHeight(),
 		Spendable:  spendable,
 		Confirmed:  confirmed,
 	})
 }
 
-func (a *API) handleGetWalletTransactions(ctx jape.Context) {
-	limit, offset := parseLimitParams(ctx, 100, 500)
+func (a *API) handleGetWalletTransactions(c jape.Context) {
+	limit, offset := parseLimitParams(c, 100, 500)
 
 	transactions, err := a.wallet.Transactions(limit, offset)
-	if err != nil {
-		ctx.Error(err, http.StatusInternalServerError)
-		a.log.Warn("failed to get wallet transactions", zap.Error(err))
+	if !a.checkServerError(c, "failed to get wallet transactions", err) {
 		return
 	}
-	ctx.Encode(transactions)
+	c.Encode(transactions)
 }
 
-func (a *API) handlePostWalletSend(ctx jape.Context) {
+func (a *API) handlePostWalletSend(c jape.Context) {
 	var req WalletSendSiacoinsRequest
-	if err := ctx.Decode(&req); err != nil {
-		ctx.Error(err, http.StatusBadRequest)
+	if err := c.Decode(&req); err != nil {
+		c.Error(err, http.StatusBadRequest)
 		return
 	}
 
-	ctx.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
 }
 
-func parseLimitParams(ctx jape.Context, defaultLimit, maxLimit int) (limit, offset int) {
-	ctx.DecodeForm("limit", &limit)
-	ctx.DecodeForm("offset", &offset)
+func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset int) {
+	c.DecodeForm("limit", &limit)
+	c.DecodeForm("offset", &offset)
 	if limit > maxLimit {
 		limit = maxLimit
 	} else if limit <= 0 {
