@@ -158,7 +158,7 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 // Contracts returns a paginated list of contracts.
 func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
 	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_error, 
-	c.negotiation_height, c.formation_confirmed, c.revision_number=confirmed_revision_number AS revision_confirmed, 
+	c.negotiation_height, c.formation_confirmed, c.revision_number=c.confirmed_revision_number AS revision_confirmed, 
 	c.resolution_confirmed, c.locked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 LEFT JOIN contracts r ON (c.renewed_to=r.id)
