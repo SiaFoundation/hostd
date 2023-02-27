@@ -93,30 +93,21 @@ func (pe *programExecutor) payForExecution(cost rhpv3.ResourceCost) error {
 }
 
 func (pe *programExecutor) executeAppendSector(instr *rhpv3.InstrAppendSector) ([]byte, []types.Hash256, error) {
-	log := pe.log.Named("appendSector")
-	start := time.Now()
 	root, sector, err := pe.programData.Sector(instr.SectorDataOffset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
-	log.Debug("read sector", zap.Duration("elapsed", time.Since(start)))
-	start = time.Now()
 	// pay for execution
 	if err := pe.payForExecution(pe.priceTable.AppendSectorCost(pe.remainingDuration)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
-	log.Debug("paid for execution", zap.Duration("elapsed", time.Since(start)))
-	start = time.Now()
 
 	release, err := pe.storage.Write(root, sector)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
 	}
-	log.Debug("wrote sector", zap.Duration("elapsed", time.Since(start)))
-	start = time.Now()
 	pe.releaseFuncs = append(pe.releaseFuncs, release)
 	pe.updater.AppendSector(root)
-	log.Debug("appended sector", zap.Duration("elapsed", time.Since(start)))
 	var proof []types.Hash256
 	return nil, proof, nil
 }
