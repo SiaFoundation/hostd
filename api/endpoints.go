@@ -9,6 +9,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/jape"
+	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
@@ -26,20 +27,32 @@ func (a *API) handleGetState(c jape.Context) {
 	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
 }
 
-func (a *API) handleGetSyncer(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+func (a *API) handleGetSyncerAddr(c jape.Context) {
+	c.Encode(a.syncer.Address())
 }
 
 func (a *API) handleGetSyncerPeers(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	c.Encode(a.syncer.Peers())
 }
 
 func (a *API) handlePutSyncerPeer(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	var addr modules.NetAddress
+	if err := c.DecodeParam("address", &addr); err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	}
+	err := a.syncer.Connect(addr)
+	a.checkServerError(c, "failed to connect to peer", err)
 }
 
 func (a *API) handleDeleteSyncerPeer(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	var addr modules.NetAddress
+	if err := c.DecodeParam("address", &addr); err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	}
+	err := a.syncer.Disconnect(addr)
+	a.checkServerError(c, "failed to disconnect from peer", err)
 }
 
 func (a *API) handlePostAnnounce(c jape.Context) {

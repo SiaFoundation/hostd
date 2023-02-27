@@ -10,6 +10,7 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
+	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
@@ -49,10 +50,19 @@ type (
 		Contract(id types.FileContractID) (contracts.Contract, error)
 	}
 
+	// A Syncer can connect to other peers and synchronize the blockchain.
+	Syncer interface {
+		Address() modules.NetAddress
+		Peers() []modules.Peer
+		Connect(addr modules.NetAddress) error
+		Disconnect(addr modules.NetAddress) error
+	}
+
 	// An API provides an HTTP API for the host
 	API struct {
 		log *zap.Logger
 
+		syncer    Syncer
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
@@ -61,8 +71,9 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	a := &API{
+		syncer:    g,
 		contracts: cm,
 		volumes:   vm,
 		settings:  s,
@@ -71,7 +82,7 @@ func NewServer(cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *
 	}
 	r := jape.Mux(map[string]jape.Handler{
 		"GET /":                          a.handleGetState,
-		"GET /syncer":                    a.handleGetSyncer,
+		"GET /syncer/address":            a.handleGetSyncerAddr,
 		"GET /syncer/peers":              a.handleGetSyncerPeers,
 		"PUT /syncer/peers/:address":     a.handlePutSyncerPeer,
 		"DELETE /syncer/peers/:address":  a.handleDeleteSyncerPeer,
