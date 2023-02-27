@@ -1,18 +1,23 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/core/wallet"
 	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
+	"go.sia.tech/jape"
 	"go.uber.org/zap"
 	"golang.org/x/term"
 )
@@ -139,16 +144,26 @@ func main() {
 	}
 	defer l.Close()
 
-	api := api.NewServer(node.contracts, node.storage, node.settings, node.w, logger.Named("api"))
+	auth := jape.BasicAuth(getAPIPassword())
+	web := http.Server{
+		Handler: webRouter{
+			api: auth(api.NewServer(node.contracts, node.storage, node.settings, node.w, logger.Named("api"))),
+			ui:  createUIHandler(),
+		},
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+
 	go func() {
-		if err := api.Serve(l); err != nil {
-			log.Println("ERROR: failed to serve API:", err)
+		err := web.Serve(l)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Println("ERROR: failed to serve web:", err)
 		}
 	}()
-	defer api.Close()
+	defer web.Close()
 
 	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, os.Interrupt)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
 	log.Println("Shutting down...")
 }
