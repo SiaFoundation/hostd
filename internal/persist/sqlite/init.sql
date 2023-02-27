@@ -50,7 +50,6 @@ CREATE INDEX locked_volume_sectors_volume_sector_id ON locked_volume_sectors(vol
 
 CREATE TABLE contracts (
 	id INTEGER PRIMARY KEY,
-	renewed_from INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
 	renewed_to INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
 	contract_id BLOB UNIQUE NOT NULL,
 	locked_collateral BLOB NOT NULL,
@@ -68,7 +67,6 @@ CREATE TABLE contracts (
 	renter_sig BLOB NOT NULL
 );
 CREATE INDEX contracts_contract_id ON contracts(contract_id);
-CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
 CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
 CREATE INDEX contracts_negotiation_height_index ON contracts(negotiation_height);
 CREATE INDEX contracts_window_start_index ON contracts(window_start);

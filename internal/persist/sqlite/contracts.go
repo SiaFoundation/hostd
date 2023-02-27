@@ -11,40 +11,6 @@ import (
 	"go.sia.tech/siad/modules"
 )
 
-func encodeRevision(fcr types.FileContractRevision) []byte {
-	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
-	fcr.EncodeTo(e)
-	e.Flush()
-	return buf.Bytes()
-}
-
-func decodeRevision(b []byte, fcr *types.FileContractRevision) error {
-	d := types.NewBufDecoder(b)
-	fcr.DecodeFrom(d)
-	return d.Err()
-}
-
-func encodeTxnSet(txns []types.Transaction) []byte {
-	var buf bytes.Buffer
-	e := types.NewEncoder(&buf)
-	e.WritePrefix(len(txns))
-	for i := range txns {
-		txns[i].EncodeTo(e)
-	}
-	e.Flush()
-	return buf.Bytes()
-}
-
-func decodeTxnSet(b []byte, txns *[]types.Transaction) error {
-	d := types.NewBufDecoder(b)
-	*txns = make([]types.Transaction, d.ReadPrefix())
-	for i := range *txns {
-		(*txns)[i].DecodeFrom(d)
-	}
-	return d.Err()
-}
-
 type (
 	// An updateContractTxn atomically updates a single contract and its
 	// associated sector roots.
@@ -58,6 +24,13 @@ type (
 		tx txn
 	}
 )
+
+// setLastChangeID sets the last processed consensus change ID.
+func (u *updateContractsTxn) setLastChangeID(ccID modules.ConsensusChangeID, height uint64) error {
+	var dbID int64 // unused, but required by QueryRow to ensure exactly one row is updated
+	err := u.tx.QueryRow(`UPDATE global_settings SET contracts_last_processed_change=$1, contracts_height=$2 RETURNING id`, sqlHash256(ccID), sqlUint64(height)).Scan(&dbID)
+	return err
+}
 
 // AppendSector appends a sector root to the end of the contract
 func (u *updateContractTxn) AppendSector(root types.Hash256) error {
@@ -129,58 +102,67 @@ func (u *updateContractTxn) TrimSectors(n uint64) error {
 	return err
 }
 
-// ApplyContractFormation sets the formation_confirmed flag to true.
-func (u *updateContractsTxn) ApplyContractFormation(id types.FileContractID) error {
-	const query = `UPDATE contracts SET formation_confirmed=true WHERE contract_id=$2;`
+// ConfirmFormation sets the formation_confirmed flag to true.
+func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
+	const query = `UPDATE contracts SET formation_confirmed=true WHERE contract_id=$1;`
 	_, err := u.tx.Exec(query, sqlHash256(id))
 	return err
 }
 
-// ApplyFinalRevision sets the confirmed revision number.
-func (u *updateContractsTxn) ApplyFinalRevision(id types.FileContractID, revision types.FileContractRevision) error {
+// ConfirmRevision sets the confirmed revision number.
+func (u *updateContractsTxn) ConfirmRevision(revision types.FileContractRevision) error {
 	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2;`
-	_, err := u.tx.Exec(query, sqlUint64(revision.RevisionNumber), sqlHash256(id))
+	_, err := u.tx.Exec(query, sqlUint64(revision.RevisionNumber), sqlHash256(revision.ParentID))
 	return err
 }
 
-// ApplyContractResolution sets the resolution_confirmed flag to true.
-func (u *updateContractsTxn) ApplyContractResolution(id types.FileContractID, sp types.StorageProof) error {
-	const query = `UPDATE contracts SET resolution_confirmed=true WHERE id=$2;`
+// ConfirmResolution sets the resolution_confirmed flag to true.
+func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID) error {
+	const query = `UPDATE contracts SET resolution_confirmed=true WHERE contract_id=$1;`
 	_, err := u.tx.Exec(query, sqlHash256(id))
 	return err
 }
 
-// RevertFormationConfirmed sets the formation_confirmed flag to false.
-func (u *updateContractsTxn) RevertFormationConfirmed(id types.FileContractID) error {
-	const query = `UPDATE contracts SET formation_confirmed=false WHERE id=$2;`
+// RevertFormation sets the formation_confirmed flag to false.
+func (u *updateContractsTxn) RevertFormation(id types.FileContractID) error {
+	const query = `UPDATE contracts SET formation_confirmed=false WHERE contract_id=$1;`
 	_, err := u.tx.Exec(query, sqlHash256(id))
 	return err
 }
 
-// RevertFinalRevision sets the confirmed revision number to 0.
-func (u *updateContractsTxn) RevertFinalRevision(id types.FileContractID) error {
-	const query = `UPDATE contracts SET confirmed_revision_number="0" WHERE id=$2;`
+// RevertRevision sets the confirmed revision number to 0.
+func (u *updateContractsTxn) RevertRevision(id types.FileContractID) error {
+	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2;`
+	_, err := u.tx.Exec(query, sqlUint64(0), sqlHash256(id))
+	return err
+}
+
+// RevertResolution sets the resolution_confirmed flag to false.
+func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
+	const query = `UPDATE contracts SET resolution_confirmed=false WHERE contract_id=$1;`
 	_, err := u.tx.Exec(query, sqlHash256(id))
 	return err
 }
 
-// RevertContractResolution sets the resolution_confirmed flag to false.
-func (u *updateContractsTxn) RevertContractResolution(id types.FileContractID) error {
-	const query = `UPDATE contracts SET resolution_confirmed=false WHERE id=$2;`
-	_, err := u.tx.Exec(query, sqlHash256(id))
-	return err
-}
-
-// SetLastChangeID sets the last processed consensus change ID.
-func (u *updateContractsTxn) SetLastChangeID(ccID modules.ConsensusChangeID) error {
-	var dbID int64 // unused, but required by QueryRow to ensure exactly one row is updated
-	err := u.tx.QueryRow(`UPDATE global_settings SET contracts_last_processed_change=$1 RETURNING id`, sqlHash256(ccID)).Scan(&dbID)
-	return err
+// ContractRevelant returns true if the contract is relevant to the host.
+func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, error) {
+	const query = `SELECT id FROM contracts WHERE contract_id=$1`
+	var dbID int64
+	err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // Contracts returns a paginated list of contracts.
 func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
-	const query = `SELECT contract_error, negotiation_height, formation_confirmed, revision_number=confirmed_revision_number AS revision_confirmed, resolution_confirmed, locked_collateral, raw_revision, host_sig, renter_sig FROM contracts ORDER BY window_end ASC LIMIT $1 OFFSET $2;`
+	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_error, 
+	c.negotiation_height, c.formation_confirmed, c.revision_number=confirmed_revision_number AS revision_confirmed, 
+	c.resolution_confirmed, c.locked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
+FROM contracts c
+LEFT JOIN contracts r ON (c.renewed_to=r.id)
+ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
 	rows, err := s.query(query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
@@ -188,31 +170,10 @@ func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
 	defer rows.Close()
 
 	var results []contracts.Contract
-	var revisionBuf []byte
 	for rows.Next() {
-		revisionBuf = revisionBuf[:0]
-		var contract contracts.Contract
-		var errorStr sql.NullString
-
-		err = rows.Scan(&errorStr,
-			&contract.NegotiationHeight,
-			&contract.FormationConfirmed,
-			&contract.RevisionConfirmed,
-			&contract.ResolutionConfirmed,
-			(*sqlCurrency)(&contract.LockedCollateral),
-			&revisionBuf,
-			(*sqlHash512)(&contract.HostSignature),
-			(*sqlHash512)(&contract.RenterSignature))
+		contract, err := scanContract(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-
-		if errorStr.Valid {
-			contract.Error = errors.New(errorStr.String)
-		}
-
-		if err := decodeRevision(revisionBuf, &contract.Revision); err != nil {
-			return nil, fmt.Errorf("failed to decode revision: %w", err)
 		}
 		results = append(results, contract)
 	}
@@ -220,39 +181,15 @@ func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
 }
 
 // Contract returns the contract with the given ID.
-func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, err error) {
-	var revisionBuf []byte
-	const query = `SELECT contract_id, contract_error, negotiation_height, formation_confirmed, revision_number=confirmed_revision_number AS revision_confirmed, resolution_confirmed, locked_collateral, raw_revision, host_sig, renter_sig FROM contracts WHERE contract_id=$1;`
-	var contractID [32]byte
-	var errorStr sql.NullString
-	err = s.queryRow(query,
-		sqlHash256(id)).Scan((*sqlHash256)(&contractID),
-		&errorStr,
-		&contract.NegotiationHeight,
-		&contract.FormationConfirmed,
-		&contract.RevisionConfirmed,
-		&contract.ResolutionConfirmed,
-		(*sqlCurrency)(&contract.LockedCollateral),
-		&revisionBuf,
-		(*sqlHash512)(&contract.HostSignature),
-		(*sqlHash512)(&contract.RenterSignature),
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return contract, contracts.ErrNotFound
-	} else if err != nil {
-		return contract, fmt.Errorf("failed to get contract: %w", err)
-	} else if contractID != id {
-		return contract, fmt.Errorf("contract id mismatch: expected %v but got %v", id, contractID)
-	}
-	if errorStr.Valid {
-		contract.Error = errors.New(errorStr.String)
-	}
-	if err := decodeRevision(revisionBuf, &contract.Revision); err != nil {
-		return contract, fmt.Errorf("failed to decode revision: %w", err)
-	} else if contract.Revision.ParentID != id {
-		panic("contract data corruption: revision parent id does not match contract id")
-	}
-	return contract, nil
+func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
+	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_error, c.negotiation_height, c.formation_confirmed, 
+	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, 
+	c.raw_revision, c.host_sig, c.renter_sig 
+FROM contracts c
+LEFT JOIN contracts r ON (c.id = r.renewed_to)
+WHERE c.contract_id=$1;`
+	row := s.queryRow(query, sqlHash256(id))
+	return scanContract(row)
 }
 
 // AddContract adds a new contract to the database.
@@ -376,9 +313,15 @@ func (s *Store) UpdateContract(id types.FileContractID, fn func(contracts.Update
 }
 
 // UpdateContractState atomically updates the contractor's state.
-func (s *Store) UpdateContractState(fn func(contracts.UpdateStateTransaction) error) error {
+func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint64, fn func(contracts.UpdateStateTransaction) error) error {
 	return s.transaction(func(tx txn) error {
-		return fn(&updateContractsTxn{tx: tx})
+		utx := &updateContractsTxn{tx: tx}
+		if err := fn(utx); err != nil {
+			return err
+		} else if err := utx.setLastChangeID(ccID, height); err != nil {
+			return fmt.Errorf("failed to update last change id: %w", err)
+		}
+		return nil
 	})
 }
 
@@ -399,5 +342,67 @@ func insertContract(tx txn, revision contracts.SignedRevision, formationSet []ty
 		false,        // formation_confirmed
 		false,        // resolution_confirmed
 	).Scan(&dbID)
+	return
+}
+
+func encodeRevision(fcr types.FileContractRevision) []byte {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	fcr.EncodeTo(e)
+	e.Flush()
+	return buf.Bytes()
+}
+
+func decodeRevision(b []byte, fcr *types.FileContractRevision) error {
+	d := types.NewBufDecoder(b)
+	fcr.DecodeFrom(d)
+	return d.Err()
+}
+
+func encodeTxnSet(txns []types.Transaction) []byte {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	e.WritePrefix(len(txns))
+	for i := range txns {
+		txns[i].EncodeTo(e)
+	}
+	e.Flush()
+	return buf.Bytes()
+}
+
+func decodeTxnSet(b []byte, txns *[]types.Transaction) error {
+	d := types.NewBufDecoder(b)
+	*txns = make([]types.Transaction, d.ReadPrefix())
+	for i := range *txns {
+		(*txns)[i].DecodeFrom(d)
+	}
+	return d.Err()
+}
+
+func scanContract(row scanner) (c contracts.Contract, err error) {
+	var revisionBuf []byte
+	var errorStr sql.NullString
+	var contractID types.FileContractID
+	err = row.Scan((*sqlHash256)(&contractID),
+		nullable((*sqlHash256)(&c.RenewedTo)),
+		&errorStr,
+		&c.NegotiationHeight,
+		&c.FormationConfirmed,
+		&c.RevisionConfirmed,
+		&c.ResolutionConfirmed,
+		(*sqlCurrency)(&c.LockedCollateral),
+		&revisionBuf,
+		(*sqlHash512)(&c.HostSignature),
+		(*sqlHash512)(&c.RenterSignature),
+	)
+	if err != nil {
+		return contracts.Contract{}, fmt.Errorf("failed to scan contract: %w", err)
+	} else if err := decodeRevision(revisionBuf, &c.Revision); err != nil {
+		return contracts.Contract{}, fmt.Errorf("failed to decode revision: %w", err)
+	} else if c.Revision.ParentID != contractID {
+		panic("contract id mismatch")
+	} else if errorStr.Valid {
+		c.Error = errors.New(errorStr.String)
+	}
 	return
 }
