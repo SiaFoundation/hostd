@@ -1,85 +1,158 @@
 package api
 
-/*
+import (
+	"fmt"
+
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/financials"
+	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/jape"
+)
+
+// A Client is a client for the hostd API.
 type Client struct {
 	c jape.Client
 }
 
+// State returns the current state of the host
 func (c *Client) State() error {
-	return nil
+	return c.c.GET("/", &struct{}{})
 }
-func (c *Client) Syncer() error {
-	return nil
+
+// SyncerAddress returns the address of the syncer.
+func (c *Client) SyncerAddress() (addr string, err error) {
+	err = c.c.GET("/syncer/address", &addr)
+	return
 }
-func (c *Client) SyncerPeers() ([]string, error) {
-	return nil, nil
+
+// SyncerPeers returns the currently connected peers of the syncer.
+func (c *Client) SyncerPeers() (peers []Peer, err error) {
+	err = c.c.GET("/syncer/peers", &peers)
+	return
 }
+
+// SyncerConnect connects to a peer.
 func (c *Client) SyncerConnect(address string) error {
-	return nil
+	return c.c.PUT(fmt.Sprintf("/syncer/peers/%s", address), nil)
 }
+
+// SyncerDisconnect disconnects from a peer.
 func (c *Client) SyncerDisconnect(address string) error {
-	return nil
+	return c.c.DELETE(fmt.Sprintf("/syncer/peers/%s", address))
 }
+
+// Announce announces the host to the network. The announced address is
+// determined by the host's current settings.
 func (c *Client) Announce() error {
-	return nil
+	return c.c.POST("/announce", nil, nil)
 }
-func (c *Client) Settings() (settings.Settings, error) {
-	return settings.Settings{}, nil
+
+// Settings returns the current settings of the host.
+func (c *Client) Settings() (settings settings.Settings, err error) {
+	err = c.c.GET("/settings", &settings)
+	return
 }
+
+// UpdateSettings updates the host's settings.
 func (c *Client) UpdateSettings(settings settings.Settings) error {
-	return nil
-}
-func (c *Client) Financials(period string) ([]financials.Revenue, error) {
-	return nil, nil
-}
-func (c *Client) Contracts(limit, offset int) error {
-	return nil
-}
-func (c *Client) GetContract() error {
-	return nil
-}
-func (c *Client) DeleteSector() error {
-	return nil
+	return c.c.PUT("/settings", settings)
 }
 
-func (c *Client) Volumes() error {
-	return nil
+// Financials returns the financial metrics of the host for the specified period
+func (c *Client) Financials(period string) (periods []financials.Revenue, err error) {
+	err = c.c.GET(fmt.Sprintf("/financials/%s", period), &periods)
+	return
 }
 
-func (c *Client) AddVolume() error {
-	return nil
+// Contracts returns the contracts of the host.
+func (c *Client) Contracts(limit, offset int) (contracts []contracts.Contract, err error) {
+	err = c.c.GET(fmt.Sprintf("/contracts?limit=%d&offset=%d", limit, offset), &contracts)
+	return
 }
 
-func (c *Client) Volume() error {
-	return nil
+// Contract returns the contract with the specified ID.
+func (c *Client) Contract(id types.FileContractID) (contract contracts.Contract, err error) {
+	err = c.c.GET("/contracts/"+id.String(), &contract)
+	return
 }
 
-func (c *Client) UpdateVolume(UpdateVolumeRequest) error {
-	return nil
+// DeleteSector deletes the sector with the specified root. This can cause
+// contract failures if the sector is still in use.
+func (c *Client) DeleteSector(root types.Hash256) error {
+	return c.c.DELETE(fmt.Sprintf("/sectors/%s", root))
 }
 
-func (c *Client) DeleteVolume() error {
-	return nil
+// Volumes returns the volumes of the host.
+func (c *Client) Volumes() (volumes []storage.VolumeMeta, err error) {
+	err = c.c.GET("/volumes", &volumes)
+	return
 }
 
-func (c *Client) ResizeVolume() error {
-	return nil
+// Volume returns the volume with the specified ID.
+func (c *Client) Volume(id int) (volume storage.VolumeMeta, err error) {
+	err = c.c.GET(fmt.Sprintf("/volumes/%d", id), &volume)
+	return
 }
 
-func (c *Client) CheckVolume() error {
-	return nil
+// AddVolume adds a new volume to the host
+func (c *Client) AddVolume(localPath string, sectors uint64) (vol storage.Volume, err error) {
+	req := AddVolumeRequest{
+		LocalPath:  localPath,
+		MaxSectors: sectors,
+	}
+	err = c.c.POST("/volumes", req, &vol)
+	return
 }
 
-func (c *Client) Wallet() error {
-	return nil
+// UpdateVolume updates the volume with the specified ID.
+func (c *Client) UpdateVolume(id int, req UpdateVolumeRequest) error {
+	return c.c.PUT(fmt.Sprintf("/volumes/%v", id), req)
 }
-func (c *Client) Transactions(limit, offset int) error {
-	return nil
+
+// DeleteVolume deletes the volume with the specified ID.
+func (c *Client) DeleteVolume(id int) error {
+	return c.c.DELETE(fmt.Sprintf("/volumes/%v", id))
 }
+
+// ResizeVolume resizes the volume with the specified ID to a new size.
+func (c *Client) ResizeVolume(id int, sectors uint64) error {
+	req := ResizeVolumeRequest{
+		MaxSectors: sectors,
+	}
+	return c.c.PUT(fmt.Sprintf("/volumes/%v/resize", id), req)
+}
+
+// CheckVolume scans the volume with the specified ID for consistency errors.
+func (c *Client) CheckVolume(id int) (missing []types.Hash256, err error) {
+	err = c.c.POST(fmt.Sprintf("/volumes/%v/check", id), nil, &missing)
+	return
+}
+
+// Wallet returns the state of the host's wallet.
+func (c *Client) Wallet() (resp WalletResponse, err error) {
+	err = c.c.GET("/wallet", &resp)
+	return
+}
+
+// Transactions returns the transactions of the host's wallet.
+func (c *Client) Transactions(limit, offset int) (transactions []wallet.Transaction, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallet/transactions?limit=%d&offset=%d", limit, offset), &transactions)
+	return
+}
+
+// SendSiacoins sends siacoins to the specified address.
 func (c *Client) SendSiacoins(address types.Address, amount types.Currency) error {
-	return nil
+	req := WalletSendSiacoinsRequest{
+		Address: address,
+		Amount:  amount,
+	}
+	return c.c.POST("/wallet/send", req, nil)
 }
 
+// NewClient creates a new hostd API client.
 func NewClient(baseURL, password string) *Client {
 	return &Client{
 		c: jape.Client{
@@ -87,4 +160,4 @@ func NewClient(baseURL, password string) *Client {
 			Password: password,
 		},
 	}
-}*/
+}

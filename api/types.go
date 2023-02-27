@@ -14,9 +14,15 @@ type (
 		ReadOnly bool `json:"readOnly"`
 	}
 
+	// ResizeVolumeRequest is the request body for the [PUT] /volume/:id/resize endpoint.
+	ResizeVolumeRequest struct {
+		MaxSectors uint64 `json:"maxSectors"`
+	}
+
 	// WalletResponse is the response body for the [GET] /wallet endpoint.
 	WalletResponse struct {
 		ScanHeight uint64         `json:"scanHeight"`
+		Address    types.Address  `json:"address"`
 		Spendable  types.Currency `json:"spendable"`
 		Confirmed  types.Currency `json:"confirmed"`
 	}
@@ -25,5 +31,11 @@ type (
 	WalletSendSiacoinsRequest struct {
 		Address types.Address  `json:"address"`
 		Amount  types.Currency `json:"amount"`
+	}
+
+	// A Peer is a peer in the network.
+	Peer struct {
+		Address string `json:"address"`
+		Version string `json:"version"`
 	}
 )

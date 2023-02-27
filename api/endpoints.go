@@ -6,6 +6,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/jape"
@@ -23,19 +24,30 @@ func (a *API) checkServerError(c jape.Context, context string, err error) bool {
 	return err == nil
 }
 
-func (a *API) handleGetState(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+func (a *API) handleGETState(c jape.Context) {
+	if err := c.Error(errors.New("not implemented"), http.StatusInternalServerError); err != nil {
+		return
+	}
+	c.Encode(struct{}{})
 }
 
-func (a *API) handleGetSyncerAddr(c jape.Context) {
-	c.Encode(a.syncer.Address())
+func (a *API) handleGETSyncerAddr(c jape.Context) {
+	c.Encode(string(a.syncer.Address()))
 }
 
-func (a *API) handleGetSyncerPeers(c jape.Context) {
-	c.Encode(a.syncer.Peers())
+func (a *API) handleGETSyncerPeers(c jape.Context) {
+	p := a.syncer.Peers()
+	peers := make([]Peer, len(p))
+	for i, peer := range p {
+		peers[i] = Peer{
+			Address: string(peer.NetAddress),
+			Version: peer.Version,
+		}
+	}
+	c.Encode(peers)
 }
 
-func (a *API) handlePutSyncerPeer(c jape.Context) {
+func (a *API) handlePUTSyncerPeer(c jape.Context) {
 	var addr modules.NetAddress
 	if err := c.DecodeParam("address", &addr); err != nil {
 		c.Error(err, http.StatusBadRequest)
@@ -55,16 +67,16 @@ func (a *API) handleDeleteSyncerPeer(c jape.Context) {
 	a.checkServerError(c, "failed to disconnect from peer", err)
 }
 
-func (a *API) handlePostAnnounce(c jape.Context) {
+func (a *API) handlePOSTAnnounce(c jape.Context) {
 	err := a.settings.Announce()
 	a.checkServerError(c, "failed to announce", err)
 }
 
-func (a *API) handleGetSettings(c jape.Context) {
+func (a *API) handleGETSettings(c jape.Context) {
 	c.Encode(a.settings.Settings())
 }
 
-func (a *API) handlePutSettings(c jape.Context) {
+func (a *API) handlePUTSettings(c jape.Context) {
 	var updated settings.Settings
 	if err := c.Decode(&updated); err != nil {
 		c.Error(err, http.StatusBadRequest)
@@ -74,14 +86,16 @@ func (a *API) handlePutSettings(c jape.Context) {
 	if !a.checkServerError(c, "failed to update settings", err) {
 		return
 	}
-	c.Encode(updated)
 }
 
-func (a *API) handleGetFinancials(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+func (a *API) handleGETFinancials(c jape.Context) {
+	if err := c.Error(errors.New("not implemented"), http.StatusInternalServerError); err != nil {
+		return
+	}
+	c.Encode([]financials.Revenue{})
 }
 
-func (a *API) handleGetContracts(c jape.Context) {
+func (a *API) handleGETContracts(c jape.Context) {
 	limit, offset := parseLimitParams(c, 100, 500)
 	contracts, err := a.contracts.Contracts(limit, offset)
 	if !a.checkServerError(c, "failed to get contracts", err) {
@@ -90,7 +104,7 @@ func (a *API) handleGetContracts(c jape.Context) {
 	c.Encode(contracts)
 }
 
-func (a *API) handleGetContract(c jape.Context) {
+func (a *API) handleGETContract(c jape.Context) {
 	var id types.FileContractID
 	if err := c.DecodeParam("id", &id); err != nil {
 		c.Error(err, http.StatusBadRequest)
@@ -106,7 +120,7 @@ func (a *API) handleGetContract(c jape.Context) {
 	c.Encode(contract)
 }
 
-func (a *API) handleGetVolume(c jape.Context) {
+func (a *API) handleGETVolume(c jape.Context) {
 	var id int
 	if err := c.DecodeParam("id", &id); err != nil {
 		c.Error(err, http.StatusBadRequest)
@@ -126,7 +140,7 @@ func (a *API) handleGetVolume(c jape.Context) {
 	c.Encode(volume)
 }
 
-func (a *API) handlePutVolume(c jape.Context) {
+func (a *API) handlePUTVolume(c jape.Context) {
 	var id int
 	if err := c.DecodeParam("id", &id); err != nil {
 		c.Error(err, http.StatusBadRequest)
@@ -159,7 +173,7 @@ func (a *API) handleDeleteSector(c jape.Context) {
 	a.checkServerError(c, "failed to remove sector", err)
 }
 
-func (a *API) handleGetVolumes(c jape.Context) {
+func (a *API) handleGETVolumes(c jape.Context) {
 	volumes, err := a.volumes.Volumes()
 	if !a.checkServerError(c, "failed to get volumes", err) {
 		return
@@ -167,7 +181,7 @@ func (a *API) handleGetVolumes(c jape.Context) {
 	c.Encode(volumes)
 }
 
-func (a *API) handlePostVolume(c jape.Context) {
+func (a *API) handlePOSTVolume(c jape.Context) {
 	var req AddVolumeRequest
 	if err := c.Decode(&req); err != nil {
 		c.Error(err, http.StatusBadRequest)
@@ -204,31 +218,45 @@ func (a *API) handleDeleteVolume(c jape.Context) {
 	a.checkServerError(c, "failed to remove volume", err)
 }
 
-func (a *API) handlePutVolumeResize(c jape.Context) {
+func (a *API) handlePUTVolumeResize(c jape.Context) {
+	var id int
+	if err := c.DecodeParam("id", &id); err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	} else if id < 0 {
+		c.Error(errors.New("invalid volume id"), http.StatusBadRequest)
+		return
+	}
+
+	var req ResizeVolumeRequest
+	if err := c.Decode(&req); err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	}
+
+	err := a.volumes.ResizeVolume(id, req.MaxSectors)
+	a.checkServerError(c, "failed to resize volume", err)
+}
+
+func (a *API) handlePOSTVolumeCheck(c jape.Context) {
 	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	c.Encode([]types.Hash256{})
 }
 
-func (a *API) handlePutVolumeCheck(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
-}
-
-func (a *API) handleGetWalletAddress(c jape.Context) {
-	c.Encode(a.wallet.Address())
-}
-
-func (a *API) handleGetWallet(c jape.Context) {
+func (a *API) handleGETWallet(c jape.Context) {
 	spendable, confirmed, err := a.wallet.Balance()
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
 	c.Encode(WalletResponse{
 		ScanHeight: a.wallet.ScanHeight(),
+		Address:    a.wallet.Address(),
 		Spendable:  spendable,
 		Confirmed:  confirmed,
 	})
 }
 
-func (a *API) handleGetWalletTransactions(c jape.Context) {
+func (a *API) handleGETWalletTransactions(c jape.Context) {
 	limit, offset := parseLimitParams(c, 100, 500)
 
 	transactions, err := a.wallet.Transactions(limit, offset)
@@ -238,7 +266,7 @@ func (a *API) handleGetWalletTransactions(c jape.Context) {
 	c.Encode(transactions)
 }
 
-func (a *API) handlePostWalletSend(c jape.Context) {
+func (a *API) handlePOSTWalletSend(c jape.Context) {
 	var req WalletSendSiacoinsRequest
 	if err := c.Decode(&req); err != nil {
 		c.Error(err, http.StatusBadRequest)
