@@ -1,12 +1,14 @@
 package contracts
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
+	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
@@ -180,14 +182,107 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 	defer done()
 
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	err = cm.store.UpdateContractState(cc.ID, uint64(cc.BlockHeight), func(tx UpdateStateTransaction) error {
+		for _, reverted := range cc.RevertedBlocks {
+			blockID := reverted.ID()
+			for _, transaction := range reverted.Transactions {
+				transactionID := transaction.ID()
+				for i := range transaction.FileContracts {
+					contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
+					if relevant, err := tx.ContractRelevant(contractID); err != nil {
+						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
+					} else if !relevant {
+						continue
+					} else if err := tx.RevertFormation(contractID); err != nil {
+						return fmt.Errorf("failed to revert formation: %w", err)
+					}
+					cm.log.Debug("contract formation reverted", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
+				}
+
+				for _, rev := range transaction.FileContractRevisions {
+					contractID := types.FileContractID(rev.ParentID)
+					if relevant, err := tx.ContractRelevant(contractID); err != nil {
+						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
+					} else if !relevant {
+						continue
+					} else if err := tx.RevertRevision(contractID); err != nil {
+						return fmt.Errorf("failed to revert revision: %w", err)
+					}
+					cm.log.Debug("contract revision reverted", zap.String("contract", contractID.String()), zap.Uint64("revisionNumber", rev.NewRevisionNumber), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
+				}
+
+				for _, proof := range transaction.StorageProofs {
+					contractID := types.FileContractID(proof.ParentID)
+					if relevant, err := tx.ContractRelevant(contractID); err != nil {
+						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
+					} else if !relevant {
+						continue
+					} else if err := tx.RevertResolution(contractID); err != nil {
+						return fmt.Errorf("failed to revert proof: %w", err)
+					}
+					cm.log.Debug("contract resolution reverted", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
+				}
+			}
+		}
+
+		for _, applied := range cc.AppliedBlocks {
+			blockID := applied.ID()
+			for _, transaction := range applied.Transactions {
+				transactionID := transaction.ID()
+				for i := range transaction.FileContracts {
+					contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
+					if relevant, err := tx.ContractRelevant(contractID); err != nil {
+						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
+					} else if !relevant {
+						continue
+					} else if err := tx.ConfirmFormation(contractID); err != nil {
+						return fmt.Errorf("failed to apply formation: %w", err)
+					}
+					cm.log.Debug("contract formation applied", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
+				}
+
+				for _, rev := range transaction.FileContractRevisions {
+					contractID := types.FileContractID(rev.ParentID)
+					if relevant, err := tx.ContractRelevant(contractID); err != nil {
+						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
+					} else if !relevant {
+						continue
+					}
+					var revision types.FileContractRevision
+					convertToCore(rev, &revision)
+					if err := tx.ConfirmRevision(revision); err != nil {
+						return fmt.Errorf("failed to apply revision: %w", err)
+					}
+					cm.log.Debug("contract revision applied", zap.String("contract", contractID.String()), zap.Uint64("revisionNumber", rev.NewRevisionNumber), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
+				}
+
+				for _, proof := range transaction.StorageProofs {
+					contractID := types.FileContractID(proof.ParentID)
+					if relevant, err := tx.ContractRelevant(contractID); err != nil {
+						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
+					} else if !relevant {
+						continue
+					} else if err := tx.ConfirmResolution(contractID); err != nil {
+						return fmt.Errorf("failed to apply proof: %w", err)
+					}
+					cm.log.Debug("contract resolution applied", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		cm.log.Error("failed to process consensus change", zap.Error(err))
+		return
+	}
+
 	err = cm.store.ContractAction(&cc, cm.handleContractAction)
 	if err != nil {
 		cm.log.Error("failed to process contract actions", zap.Error(err))
 		return
 	}
 	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))
+	cm.log.Debug("consensus change applied", zap.Uint64("height", uint64(cc.BlockHeight)), zap.String("changeID", cc.ID.String()))
 }
 
 // ReviseContract initializes a new contract updater for the given contract.
@@ -213,6 +308,16 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 func (cm *ContractManager) Close() error {
 	cm.tg.Stop()
 	return nil
+}
+
+func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
+	var buf bytes.Buffer
+	siad.MarshalSia(&buf)
+	d := types.NewBufDecoder(buf.Bytes())
+	core.DecodeFrom(d)
+	if d.Err() != nil {
+		panic(d.Err())
+	}
 }
 
 // NewManager creates a new contract manager.

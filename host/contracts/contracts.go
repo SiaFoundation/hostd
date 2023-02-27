@@ -21,41 +21,37 @@ type (
 	// contract's sectors.
 	sectorActionType string
 
-	// ContractState is the current lifecycle stage of a contract.
-	ContractState string
-
 	// A SignedRevision pairs a contract revision with the signatures of the host
 	// and renter needed to broadcast the revision.
 	SignedRevision struct {
-		Revision types.FileContractRevision
+		Revision types.FileContractRevision `json:"revision"`
 
-		HostSignature   types.Signature
-		RenterSignature types.Signature
+		HostSignature   types.Signature `json:"hostSignature"`
+		RenterSignature types.Signature `json:"renterSignature"`
 	}
 
-	// A Contract contains metadata on the current lifecycle stage of a file
-	// contract.
+	// A Contract contains metadata on the current state of a file contract.
 	Contract struct {
 		SignedRevision
 
-		LockedCollateral types.Currency
-
+		LockedCollateral types.Currency `json:"lockedCollateral"`
 		// NegotiationHeight is the height the contract was negotiated at.
-		NegotiationHeight uint64
+		NegotiationHeight uint64 `json:"negotiationHeight"`
 		// FormationConfirmed is true if the contract formation transaction
 		// has been confirmed on the blockchain.
-		FormationConfirmed bool
+		FormationConfirmed bool `json:"formationConfirmed"`
 		// RevisionConfirmed is true if the contract revision transaction has
 		// been confirmed on the blockchain.
-		RevisionConfirmed bool
+		RevisionConfirmed bool `json:"revisionConfirmed"`
 		// ResolutionConfirmed is true if the contract's resolution has been
 		// confirmed on the blockchain.
-		ResolutionConfirmed bool
+		ResolutionConfirmed bool `json:"resolutionConfirmed"`
+		// RenewedTwo is the ID of the contract that renewed this contract. If
+		// this contract was not renewed, this field is the zero value.
+		RenewedTo types.FileContractID `json:"renewedTo"`
 		// Error is an error encountered while interacting with the contract. if
 		// an error is set, the host may refuse to use the contract.
-		Error error
-		// State is the current lifecycle state of the contract.
-		State ContractState
+		Error error `json:"error"`
 	}
 
 	// A contractSectorAction defines an action to be performed on a contract's
@@ -80,20 +76,12 @@ type (
 )
 
 var (
-	// ContractStateUnresolved is a contract that has not yet been resolved.
-	ContractStateUnresolved ContractState = "unresolved"
-	// ContractStateRenewed is a contract that has been renewed.
-	ContractStateRenewed ContractState = "renewed"
-	// ContractStateValid is a contract with a successfully confirmed storage
-	// proof.
-	ContractStateValid ContractState = "valid"
-	// ContractStateMissed is a contract that was resolved after the proof
-	// window ended.
-	ContractStateMissed ContractState = "missed"
-
 	// ErrNotFound is returned by the contract store when a contract is not
 	// found.
 	ErrNotFound = errors.New("contract not found")
+	// ErrContractExists is returned by the contract store during formation when
+	// the contract already exists.
+	ErrContractExists = errors.New("contract already exists")
 )
 
 // RenterKey returns the renter's public key.

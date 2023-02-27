@@ -24,15 +24,15 @@ type (
 
 	// UpdateStateTransaction atomically updates the contract manager's state.
 	UpdateStateTransaction interface {
-		ApplyContractFormation(types.FileContractID) error
-		ApplyFinalRevision(types.FileContractID, types.FileContractRevision) error
-		ApplyContractResolution(types.FileContractID, types.StorageProof) error
+		ContractRelevant(types.FileContractID) (bool, error)
 
-		RevertFormationConfirmed(types.FileContractID) error
-		RevertFinalRevision(types.FileContractID) error
-		RevertContractResolution(types.FileContractID) error
+		ConfirmFormation(types.FileContractID) error
+		ConfirmRevision(types.FileContractRevision) error
+		ConfirmResolution(types.FileContractID) error
 
-		SetLastChangeID(modules.ConsensusChangeID) error
+		RevertFormation(types.FileContractID) error
+		RevertRevision(types.FileContractID) error
+		RevertResolution(types.FileContractID) error
 	}
 
 	// A ContractStore stores contracts for the host. It also updates stored
@@ -62,6 +62,6 @@ type (
 		// UpdateContract atomically updates a contract and its sector roots.
 		UpdateContract(types.FileContractID, func(UpdateContractTransaction) error) error
 		// UpdateContractState atomically updates the contract manager's state.
-		UpdateContractState(func(UpdateStateTransaction) error) error
+		UpdateContractState(modules.ConsensusChangeID, uint64, func(UpdateStateTransaction) error) error
 	}
 )
