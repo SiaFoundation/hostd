@@ -35,6 +35,12 @@ type (
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
 	}
+
+	// VolumeMeta contains the metadata of a volume.
+	VolumeMeta struct {
+		Volume
+		VolumeStats
+	}
 )
 
 // getVolume returns the volume with the given ID, or an error if the volume does
@@ -211,23 +217,60 @@ func (vm *VolumeManager) Usage() (usedBytes uint64, totalBytes uint64, err error
 }
 
 // Volumes returns a list of all volumes in the storage manager.
-func (vm *VolumeManager) Volumes() ([]Volume, error) {
+func (vm *VolumeManager) Volumes() ([]VolumeMeta, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
 	}
 	defer done()
-	return vm.vs.Volumes()
+
+	volumes, err := vm.vs.Volumes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get volumes: %w", err)
+	}
+
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	var results []VolumeMeta
+	for _, vol := range volumes {
+		meta := VolumeMeta{
+			Volume: vol,
+		}
+		vs, ok := vm.volumes[vol.ID]
+		if ok {
+			meta.VolumeStats = vs.stats
+		}
+		results = append(results, meta)
+	}
+
+	return results, nil
 }
 
 // Volume returns a volume by its ID.
-func (vm *VolumeManager) Volume(id int) (Volume, error) {
+func (vm *VolumeManager) Volume(id int) (VolumeMeta, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
-		return Volume{}, err
+		return VolumeMeta{}, err
 	}
 	defer done()
-	return vm.vs.Volume(id)
+
+	vol, err := vm.vs.Volume(id)
+	if err != nil {
+		return VolumeMeta{}, fmt.Errorf("failed to get volume: %w", err)
+	}
+
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
+	meta := VolumeMeta{
+		Volume: vol,
+	}
+
+	vs, ok := vm.volumes[id]
+	if ok {
+		meta.VolumeStats = vs.stats
+	}
+	return meta, nil
 }
 
 // AddVolume adds a new volume to the storage manager

@@ -36,8 +36,8 @@ type (
 	// A VolumeManager manages the host's storage volumes
 	VolumeManager interface {
 		Usage() (usedBytes uint64, totalBytes uint64, err error)
-		Volumes() ([]storage.Volume, error)
-		Volume(id int) (storage.Volume, error)
+		Volumes() ([]storage.VolumeMeta, error)
+		Volume(id int) (storage.VolumeMeta, error)
 		AddVolume(localPath string, maxSectors uint64) (storage.Volume, error)
 		SetReadOnly(id int, readOnly bool) error
 		RemoveVolume(id int, force bool) error

@@ -245,13 +245,13 @@ func TestVolumeGrow(t *testing.T) {
 	} else if err := checkFileSize(volumeFilePath, int64(newSectors*rhpv2.SectorSize)); err != nil {
 		t.Fatal(err)
 	}
-	volume, err = vm.Volume(volume.ID)
+	meta, err := vm.Volume(volume.ID)
 	if err != nil {
 		t.Fatal(err)
-	} else if volume.TotalSectors != newSectors {
-		t.Fatalf("expected %v total sectors, got %v", newSectors, volume.TotalSectors)
-	} else if volume.UsedSectors != 0 {
-		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
+	} else if meta.TotalSectors != newSectors {
+		t.Fatalf("expected %v total sectors, got %v", newSectors, meta.TotalSectors)
+	} else if meta.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", meta.UsedSectors)
 	}
 }
 
@@ -356,13 +356,13 @@ func TestVolumeShrink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	volume, err = vm.Volume(volume.ID)
+	meta, err := vm.Volume(volume.ID)
 	if err != nil {
 		t.Fatal(err)
-	} else if volume.TotalSectors != remainingSectors {
-		t.Fatalf("expected %v total sectors, got %v", remainingSectors, volume.TotalSectors)
-	} else if volume.UsedSectors != remainingSectors {
-		t.Fatalf("expected %v used sectors, got %v", remainingSectors, volume.UsedSectors)
+	} else if meta.TotalSectors != remainingSectors {
+		t.Fatalf("expected %v total sectors, got %v", remainingSectors, meta.TotalSectors)
+	} else if meta.UsedSectors != remainingSectors {
+		t.Fatalf("expected %v used sectors, got %v", remainingSectors, meta.UsedSectors)
 	}
 
 	// validate that the sectors were moved to the beginning of the volume
