@@ -152,8 +152,7 @@ func main() {
 			api: auth(api.NewServer(node.g, node.contracts, node.storage, node.settings, node.w, logger.Named("api"))),
 			ui:  createUIHandler(),
 		},
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout: 30 * time.Second,
 	}
 
 	go func() {
