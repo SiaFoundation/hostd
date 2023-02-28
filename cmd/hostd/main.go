@@ -126,7 +126,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	_ = getAPIPassword()
+	apiPassword := getAPIPassword()
 	walletKey := getWalletKey()
 
 	node, err := newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir, bootstrap, walletKey, logger)
@@ -146,7 +146,7 @@ func main() {
 	}
 	defer l.Close()
 
-	auth := jape.BasicAuth(getAPIPassword())
+	auth := jape.BasicAuth(apiPassword)
 	web := http.Server{
 		Handler: webRouter{
 			api: auth(api.NewServer(node.g, node.contracts, node.storage, node.settings, node.w, logger.Named("api"))),
