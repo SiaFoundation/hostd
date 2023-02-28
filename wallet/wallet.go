@@ -32,10 +32,11 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 // either be created by sending Siacoins between unlock hashes or they can be
 // created by consensus (e.g. a miner payout, a siafund claim, or a contract).
 const (
-	TxnSourceTransaction  TransactionSource = "transaction"
-	TxnSourceMinerPayout  TransactionSource = "minerPayout"
-	TxnSourceSiafundClaim TransactionSource = "siafundClaim"
-	TxnSourceContract     TransactionSource = "contract"
+	TxnSourceTransaction      TransactionSource = "transaction"
+	TxnSourceMinerPayout      TransactionSource = "miner"
+	TxnSourceSiafundClaim     TransactionSource = "siafundClaim"
+	TxnSourceContract         TransactionSource = "contract"
+	TxnSourceFoundationPayout TransactionSource = "foundation"
 )
 
 type (
@@ -428,6 +429,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				return
 			}
 			matureID := matureBlock.ID()
+			delayedOutputSources[matureID.FoundationOutputID()] = TxnSourceFoundationPayout
 			for i := range matureBlock.MinerPayouts {
 				delayedOutputSources[matureID.MinerOutputID(i)] = TxnSourceMinerPayout
 			}
@@ -460,6 +462,17 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				SiacoinOutput: utxo,
 			}
 			appliedPayoutTxns[i] = append(appliedPayoutTxns[i], payoutTransaction(sce, index, source, block.Timestamp))
+		}
+	}
+
+	spentOutputs := make(map[types.SiacoinOutputID]types.SiacoinOutput)
+	for _, applied := range cc.AppliedDiffs {
+		for _, diff := range applied.SiacoinOutputDiffs {
+			if diff.Direction == modules.DiffRevert {
+				var so types.SiacoinOutput
+				convertToCore(diff.SiacoinOutput, &so)
+				spentOutputs[types.SiacoinOutputID(diff.ID)] = so
+			}
 		}
 	}
 
@@ -528,8 +541,11 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				}
 				for _, in := range txn.SiacoinInputs {
 					if in.UnlockConditions.UnlockHash() == sw.addr {
-						inputValue := types.ZeroCurrency
-						outflow = outflow.Add(inputValue)
+						so, ok := spentOutputs[in.ParentID]
+						if !ok {
+							panic("spent output not found")
+						}
+						outflow = outflow.Add(so.Value)
 					}
 				}
 

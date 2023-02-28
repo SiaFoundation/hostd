@@ -118,6 +118,8 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected transaction %v, got %v", splitTxn.ID(), txns[0].Transaction.ID())
 	} else if txns[0].Source != wallet.TxnSourceTransaction {
 		t.Fatalf("expected transaction source, got %v", txns[0].Source)
+	} else if txns[0].Outflow.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected outflow, got %v", txns[0].Outflow)
 	}
 
 	// send all the outputs to the burn address individually
