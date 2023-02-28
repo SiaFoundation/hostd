@@ -68,7 +68,7 @@ jobs:
           CC: aarch64-linux-gnu-gcc
         run: |
           go build -trimpath -o bin/linux_arm64/ -a -ldflags '-s -w' ./cmd/hostd
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: hostd-testnet-linux
           path: bin/
