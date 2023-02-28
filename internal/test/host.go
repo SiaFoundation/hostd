@@ -146,16 +146,17 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	registry := registry.NewManager(privKey, db)
 	accounts := accounts.NewManager(db)
 
-	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{}, log.Named("rhpv2"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
-	}
-	go rhpv2.Serve()
 	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{}, log.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
 	go rhpv3.Serve()
+
+	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", rhpv3.LocalAddr(), node.cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{}, log.Named("rhpv2"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
+	}
+	go rhpv2.Serve()
 	return &Host{
 		node:      node,
 		store:     db,

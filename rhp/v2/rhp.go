@@ -99,6 +99,7 @@ type (
 	// manages renter sessions
 	SessionHandler struct {
 		privateKey types.PrivateKey
+		rhp3Port   string
 
 		listener net.Listener
 
@@ -194,7 +195,7 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 
 		// host info
 		Address:          sh.wallet.Address(),
-		SiaMuxPort:       "9983",
+		SiaMuxPort:       sh.rhp3Port,
 		NetAddress:       settings.NetAddress,
 		TotalStorage:     total,
 		RemainingStorage: total - used,
@@ -249,13 +250,20 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(hostKey types.PrivateKey, addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
-	l, err := net.Listen("tcp", addr)
+func NewSessionHandler(hostKey types.PrivateKey, rhp2Addr, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
+	l, err := net.Listen("tcp", rhp2Addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on addr: %w", err)
 	}
+
+	_, rhp3Port, err := net.SplitHostPort(rhp3Addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse rhp3 addr: %w", err)
+	}
+
 	sh := &SessionHandler{
 		privateKey: hostKey,
+		rhp3Port:   rhp3Port,
 
 		listener: l,
 		cm:       cm,

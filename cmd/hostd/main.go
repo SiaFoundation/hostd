@@ -135,7 +135,9 @@ func main() {
 	}
 	defer node.Close()
 
-	log.Println("p2p: Listening on", node.g.Address())
+	log.Println("p2p listening on:", node.g.Address())
+	log.Println("rhp2 listening on:", node.rhp2.LocalAddr())
+	log.Println("rhp3 listening on:", node.rhp3.LocalAddr())
 	log.Println("host public key:", walletKey.PublicKey())
 
 	l, err := net.Listen("tcp", apiAddr)

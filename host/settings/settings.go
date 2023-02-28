@@ -231,10 +231,11 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
 	m := &ConfigManager{
 		hostKey: hostKey,
-		store:   store,
-		cm:      cm,
-		tp:      tp,
-		wallet:  w,
+
+		store:  store,
+		cm:     cm,
+		tp:     tp,
+		wallet: w,
 
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),

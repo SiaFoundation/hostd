@@ -128,8 +128,8 @@ func (n *node) Close() error {
 	return nil
 }
 
-func startRHP2(hostKey types.PrivateKey, addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager, log *zap.Logger) (*rhpv2.SessionHandler, error) {
-	rhp2, err := rhpv2.NewSessionHandler(hostKey, addr, cs, tp, w, cm, sr, sm, discordMetricReporter{}, log)
+func startRHP2(hostKey types.PrivateKey, rhp2Addr, rhp3Addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager, log *zap.Logger) (*rhpv2.SessionHandler, error) {
+	rhp2, err := rhpv2.NewSessionHandler(hostKey, rhp2Addr, rhp3Addr, cs, tp, w, cm, sr, sm, discordMetricReporter{}, log)
 	if err != nil {
 		return nil, err
 	}
@@ -214,14 +214,14 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 	registryManager := registry.NewManager(walletKey, db)
 
-	rhp2, err := startRHP2(walletKey, rhp2Addr, cm, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to start rhp2: %w", err)
-	}
-
 	rhp3, err := startRHP3(walletKey, rhp3Addr, cm, txpool{tp}, w, accountManager, contractManager, registryManager, sr, sm, logger.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start rhp3: %w", err)
+	}
+
+	rhp2, err := startRHP2(walletKey, rhp2Addr, rhp3.LocalAddr(), cm, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
 	return &node{
