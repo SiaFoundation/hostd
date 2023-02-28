@@ -23,6 +23,7 @@ CREATE TABLE wallet_transactions (
 CREATE INDEX wallet_transactions_date_created_index ON wallet_transactions(date_created);
 CREATE INDEX wallet_transactions_block_id ON wallet_transactions(block_id);
 CREATE INDEX wallet_transactions_date_created ON wallet_transactions(date_created);
+CREATE INDEX wallet_transactions_block_height_id ON wallet_transactions(block_height DESC, id);
 
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
@@ -30,6 +31,7 @@ CREATE TABLE storage_volumes (
 	read_only BOOLEAN NOT NULL,
 	available BOOLEAN NOT NULL DEFAULT false
 );
+CREATE INDEX storage_volumes_read_only_available ON storage_volumes(read_only, available);
 
 CREATE TABLE volume_sectors (
 	id INTEGER PRIMARY KEY,
@@ -89,7 +91,8 @@ CREATE TABLE temp_storage (
 CREATE INDEX temp_storage_expiration_height ON temp_storage(expiration_height);
 
 CREATE TABLE accounts (
-	id BLOB PRIMARY KEY,
+	id INTEGER PRIMARY KEY,
+	account_id BLOB UNIQUE NOT NULL,
 	balance BLOB NOT NULL,
 	expiration_timestamp INTEGER NOT NULL
 );
