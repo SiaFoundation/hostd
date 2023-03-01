@@ -10,7 +10,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const longQueryDuration = 2 * time.Millisecond
+const (
+	longQueryDuration = 2 * time.Millisecond
+	longTxnDuration   = 10 * time.Millisecond
+)
 
 type (
 	// A scanner is an interface that wraps the Scan method of sql.Rows and sql.Row
@@ -244,7 +247,6 @@ func (dt *dbTxn) QueryRow(query string, args ...any) *sql.Row {
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed.
 func (s *Store) transaction(fn func(txn) error) error {
-	s.log.Debug("starting transaction", zap.Stack("stack"))
 	start := time.Now()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -263,7 +265,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 	} else if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	if time.Since(start) > longQueryDuration {
+	if time.Since(start) > longTxnDuration {
 		s.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
 	}
 	return nil
