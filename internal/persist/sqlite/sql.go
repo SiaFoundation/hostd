@@ -247,16 +247,15 @@ func (dt *dbTxn) QueryRow(query string, args ...any) *sql.Row {
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed.
 func (s *Store) transaction(fn func(txn) error) error {
-	start := time.Now()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	log := s.log.Named("transaction")
 	ltx := &loggedTxn{
 		Tx:  tx,
-		log: log,
+		log: s.log.Named("transaction"),
 	}
+	start := time.Now()
 	if err := fn(ltx); err != nil {
 		if err := tx.Rollback(); err != nil {
 			return fmt.Errorf("failed to rollback transaction: %w", err)
@@ -266,7 +265,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	if time.Since(start) > longTxnDuration {
-		s.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
 	}
 	return nil
 }
