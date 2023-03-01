@@ -201,7 +201,6 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				revertedResolutions = append(revertedResolutions, contractID)
 			}
 		}
-
 	}
 
 	var appliedFormations, appliedResolutions []types.FileContractID
