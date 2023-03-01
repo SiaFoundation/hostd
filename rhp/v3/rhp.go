@@ -182,6 +182,7 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 		return
 	}
 
+	sh.log.Debug("starting RPC", zap.String("rpc", rpcID.String()))
 	s.SetDeadline(time.Now().Add(30 * time.Second))
 	start := time.Now()
 	switch rpcID {
@@ -228,15 +229,15 @@ func (sh *SessionHandler) Serve() error {
 		} else if err != nil {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
-		ingress, egress := sh.settings.BandwidthLimiters()
-		t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, ingress, egress), sh.privateKey)
-		if err != nil {
-			conn.Close()
-			sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
-			continue
-		}
 
 		go func() {
+			defer conn.Close()
+			ingress, egress := sh.settings.BandwidthLimiters()
+			t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, ingress, egress), sh.privateKey)
+			if err != nil {
+				sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
+				return
+			}
 			defer t.Close()
 
 			for {
