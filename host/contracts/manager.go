@@ -182,93 +182,118 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 	defer done()
 
+	var revertedFormations, revertedResolutions []types.FileContractID
+	revertedRevisions := make(map[types.FileContractID]struct{})
+	for _, reverted := range cc.RevertedBlocks {
+		for _, transaction := range reverted.Transactions {
+			for i := range transaction.FileContracts {
+				contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
+				revertedFormations = append(revertedFormations, contractID)
+			}
+
+			for _, rev := range transaction.FileContractRevisions {
+				contractID := types.FileContractID(rev.ParentID)
+				revertedRevisions[contractID] = struct{}{}
+			}
+
+			for _, proof := range transaction.StorageProofs {
+				contractID := types.FileContractID(proof.ParentID)
+				revertedResolutions = append(revertedResolutions, contractID)
+			}
+		}
+
+	}
+
+	var appliedFormations, appliedResolutions []types.FileContractID
+	appliedRevisions := make(map[types.FileContractID]types.FileContractRevision)
+	for _, applied := range cc.AppliedBlocks {
+		for _, transaction := range applied.Transactions {
+			for i := range transaction.FileContracts {
+				contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
+				appliedFormations = append(appliedFormations, contractID)
+			}
+
+			for _, rev := range transaction.FileContractRevisions {
+				contractID := types.FileContractID(rev.ParentID)
+				var revision types.FileContractRevision
+				convertToCore(rev, &revision)
+				appliedRevisions[contractID] = revision
+			}
+
+			for _, proof := range transaction.StorageProofs {
+				contractID := types.FileContractID(proof.ParentID)
+				appliedResolutions = append(appliedResolutions, contractID)
+			}
+		}
+	}
+
 	err = cm.store.UpdateContractState(cc.ID, uint64(cc.BlockHeight), func(tx UpdateStateTransaction) error {
-		for _, reverted := range cc.RevertedBlocks {
-			blockID := reverted.ID()
-			for _, transaction := range reverted.Transactions {
-				transactionID := transaction.ID()
-				for i := range transaction.FileContracts {
-					contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
-					if relevant, err := tx.ContractRelevant(contractID); err != nil {
-						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
-					} else if !relevant {
-						continue
-					} else if err := tx.RevertFormation(contractID); err != nil {
-						return fmt.Errorf("failed to revert formation: %w", err)
-					}
-					cm.log.Debug("contract formation reverted", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
-				}
-
-				for _, rev := range transaction.FileContractRevisions {
-					contractID := types.FileContractID(rev.ParentID)
-					if relevant, err := tx.ContractRelevant(contractID); err != nil {
-						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
-					} else if !relevant {
-						continue
-					} else if err := tx.RevertRevision(contractID); err != nil {
-						return fmt.Errorf("failed to revert revision: %w", err)
-					}
-					cm.log.Debug("contract revision reverted", zap.String("contract", contractID.String()), zap.Uint64("revisionNumber", rev.NewRevisionNumber), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
-				}
-
-				for _, proof := range transaction.StorageProofs {
-					contractID := types.FileContractID(proof.ParentID)
-					if relevant, err := tx.ContractRelevant(contractID); err != nil {
-						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
-					} else if !relevant {
-						continue
-					} else if err := tx.RevertResolution(contractID); err != nil {
-						return fmt.Errorf("failed to revert proof: %w", err)
-					}
-					cm.log.Debug("contract resolution reverted", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
-				}
+		for _, reverted := range revertedFormations {
+			if relevant, err := tx.ContractRelevant(reverted); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
+			} else if !relevant {
+				continue
+			} else if err := tx.RevertFormation(reverted); err != nil {
+				return fmt.Errorf("failed to revert formation: %w", err)
 			}
+			cm.log.Debug("contract formation reverted", zap.String("contract", reverted.String()))
 		}
 
-		for _, applied := range cc.AppliedBlocks {
-			blockID := applied.ID()
-			for _, transaction := range applied.Transactions {
-				transactionID := transaction.ID()
-				for i := range transaction.FileContracts {
-					contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
-					if relevant, err := tx.ContractRelevant(contractID); err != nil {
-						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
-					} else if !relevant {
-						continue
-					} else if err := tx.ConfirmFormation(contractID); err != nil {
-						return fmt.Errorf("failed to apply formation: %w", err)
-					}
-					cm.log.Debug("contract formation applied", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
-				}
-
-				for _, rev := range transaction.FileContractRevisions {
-					contractID := types.FileContractID(rev.ParentID)
-					if relevant, err := tx.ContractRelevant(contractID); err != nil {
-						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
-					} else if !relevant {
-						continue
-					}
-					var revision types.FileContractRevision
-					convertToCore(rev, &revision)
-					if err := tx.ConfirmRevision(revision); err != nil {
-						return fmt.Errorf("failed to apply revision: %w", err)
-					}
-					cm.log.Debug("contract revision applied", zap.String("contract", contractID.String()), zap.Uint64("revisionNumber", rev.NewRevisionNumber), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
-				}
-
-				for _, proof := range transaction.StorageProofs {
-					contractID := types.FileContractID(proof.ParentID)
-					if relevant, err := tx.ContractRelevant(contractID); err != nil {
-						return fmt.Errorf("failed to check if contract %v is relevant: %w", contractID, err)
-					} else if !relevant {
-						continue
-					} else if err := tx.ConfirmResolution(contractID); err != nil {
-						return fmt.Errorf("failed to apply proof: %w", err)
-					}
-					cm.log.Debug("contract resolution applied", zap.String("contract", contractID.String()), zap.String("block", blockID.String()), zap.String("transaction", transactionID.String()))
-				}
+		for reverted := range revertedRevisions {
+			if relevant, err := tx.ContractRelevant(reverted); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
+			} else if !relevant {
+				continue
+			} else if err := tx.RevertRevision(reverted); err != nil {
+				return fmt.Errorf("failed to revert revision: %w", err)
 			}
+			cm.log.Debug("contract revision reverted", zap.String("contract", reverted.String()))
 		}
+
+		for _, reverted := range revertedResolutions {
+			if relevant, err := tx.ContractRelevant(reverted); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
+			} else if !relevant {
+				continue
+			} else if err := tx.RevertResolution(reverted); err != nil {
+				return fmt.Errorf("failed to revert proof: %w", err)
+			}
+			cm.log.Debug("contract resolution reverted", zap.String("contract", reverted.String()))
+		}
+
+		for _, applied := range appliedFormations {
+			if relevant, err := tx.ContractRelevant(applied); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied, err)
+			} else if !relevant {
+				continue
+			} else if err := tx.ConfirmFormation(applied); err != nil {
+				return fmt.Errorf("failed to apply formation: %w", err)
+			}
+			cm.log.Debug("contract formation applied", zap.String("contract", applied.String()))
+		}
+
+		for _, applied := range appliedRevisions {
+			if relevant, err := tx.ContractRelevant(applied.ParentID); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied.ParentID, err)
+			} else if !relevant {
+				continue
+			} else if err := tx.ConfirmRevision(applied); err != nil {
+				return fmt.Errorf("failed to apply revision: %w", err)
+			}
+			cm.log.Debug("contract revision applied", zap.String("contract", applied.ParentID.String()))
+		}
+
+		for _, applied := range appliedResolutions {
+			if relevant, err := tx.ContractRelevant(applied); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied, err)
+			} else if !relevant {
+				continue
+			} else if err := tx.ConfirmResolution(applied); err != nil {
+				return fmt.Errorf("failed to apply proof: %w", err)
+			}
+			cm.log.Debug("contract resolution applied", zap.String("contract", applied.String()))
+		}
+
 		return nil
 	})
 	if err != nil {
