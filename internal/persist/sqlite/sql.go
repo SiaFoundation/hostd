@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const longQueryDuration = 5 * time.Millisecond
+const longQueryDuration = 2 * time.Millisecond
 
 type (
 	// A scanner is an interface that wraps the Scan method of sql.Rows and sql.Row
@@ -244,6 +244,7 @@ func (dt *dbTxn) QueryRow(query string, args ...any) *sql.Row {
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed.
 func (s *Store) transaction(fn func(txn) error) error {
+	s.log.Debug("starting transaction", zap.Stack("stack"))
 	start := time.Now()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -290,7 +291,7 @@ func setDBVersion(tx txn, version int64) error {
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
 func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%v?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=true&_secure_delete=false", fp))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%v?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=true&_secure_delete=false&_txlock=exclusive", fp))
 	if err != nil {
 		return nil, err
 	}
