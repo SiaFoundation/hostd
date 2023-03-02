@@ -16,7 +16,9 @@ var (
 	// ErrInsufficientFunds is returned when an account does not have enough
 	// funds to cover a debit.
 	ErrInsufficientFunds = errors.New("insufficient funds")
-	ErrBalanceExceeded   = errors.New("ephemeral account maximum balance exceeded")
+	// ErrBalanceExceeded is returned when an account's balance exceeds the
+	// maximum balance.
+	ErrBalanceExceeded = errors.New("ephemeral account maximum balance exceeded")
 )
 
 type (
@@ -31,6 +33,7 @@ type (
 		DebitAccount(accountID rhpv3.Account, amount types.Currency) (types.Currency, error)
 	}
 
+	// Settings returns the host's current settings.
 	Settings interface {
 		Settings() settings.Settings
 	}
@@ -64,7 +67,7 @@ type (
 	}
 )
 
-func (am *AccountManager) balance(accountID rhpv3.Account) (types.Currency, error) {
+func (am *AccountManager) getBalance(accountID rhpv3.Account) (types.Currency, error) {
 	if state, ok := am.balances[accountID]; ok {
 		return state.balance, nil
 	}
@@ -75,7 +78,7 @@ func (am *AccountManager) balance(accountID rhpv3.Account) (types.Currency, erro
 func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, error) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
-	return am.balance(accountID)
+	return am.getBalance(accountID)
 }
 
 // Credit adds the specified amount to the account with the given ID. Credits
@@ -84,7 +87,7 @@ func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency,
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
-	balance, err := am.balance(accountID)
+	balance, err := am.getBalance(accountID)
 	if err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to get account balance: %w", err)
 	}
