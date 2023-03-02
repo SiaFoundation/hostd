@@ -34,6 +34,7 @@ type (
 		revision          types.FileContractRevision
 		remainingDuration uint64
 		updater           *contracts.ContractUpdater
+		tempSectors       []storage.TempSector
 
 		finalize     bool
 		releaseFuncs []func() error
@@ -325,6 +326,32 @@ func (pe *programExecutor) executeUpdateSector(instr *rhpv3.InstrUpdateSector) (
 	return newRoot[:], nil, nil
 }
 
+func (pe *programExecutor) executeStoreSector(instr *rhpv3.InstrStoreSector) ([]byte, error) {
+	root, sector, err := pe.programData.Sector(instr.DataOffset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sector: %w", err)
+	}
+
+	// pay for execution
+	if err := pe.payForExecution(pe.priceTable.StoreSectorCost(instr.Duration)); err != nil {
+		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
+	}
+
+	// store the sector
+	release, err := pe.storage.Write(root, sector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write sector: %w", err)
+	}
+	pe.releaseFuncs = append(pe.releaseFuncs, release)
+
+	// add the sector to the program state
+	pe.tempSectors = append(pe.tempSectors, storage.TempSector{
+		Root:       root,
+		Expiration: pe.priceTable.HostBlockHeight + instr.Duration,
+	})
+	return root[:], nil
+}
+
 func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCExecuteProgramResponse {
 	outputs := make(chan rhpv3.RPCExecuteProgramResponse, len(pe.instructions))
 	go func() {
@@ -370,7 +397,8 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 				output, proof, err = pe.executeUpdateSector(instr)
 				logLabel = "update sector"
 			case *rhpv3.InstrStoreSector:
-				//output, proof, err = pe.executeStoreSector(instr)
+				output, err = pe.executeStoreSector(instr)
+				logLabel = "store sector"
 			case *rhpv3.InstrRevision:
 			case *rhpv3.InstrReadRegistry, *rhpv3.InstrReadRegistryNoVersion:
 			case *rhpv3.InstrUpdateRegistry, *rhpv3.InstrUpdateRegistryNoType:
@@ -489,6 +517,11 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			return fmt.Errorf("failed to write finalize response: %w", err)
 		}
 		pe.log.Debug("sent finalize response", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
+	}
+
+	// commit the temporary sectors
+	if err := pe.storage.AddTemporarySectors(pe.tempSectors); err != nil {
+		return fmt.Errorf("failed to commit temporary sectors: %w", err)
 	}
 
 	// release all of the locked sectors. Any sectors not referenced by a

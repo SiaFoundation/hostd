@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -70,6 +71,11 @@ type (
 		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
+
+		// AddTemporarySectors adds the given sectors to the storage manager.
+		// as temporary sectors. Temporary sectors are short-lived sectors not
+		// associated with a contract.
+		AddTemporarySectors([]storage.TempSector) error
 	}
 
 	// A RegistryManager manages registry entries stored in a RegistryStore.
