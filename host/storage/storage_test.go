@@ -51,7 +51,9 @@ func TestVolumeLoad(t *testing.T) {
 	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
 	select {
 	case err := <-errCh:
-		t.Fatal(err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	default:
 	}
 	cm, err := chain.NewManager(cs)
@@ -147,7 +149,9 @@ func TestAddVolume(t *testing.T) {
 	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
 	select {
 	case err := <-errCh:
-		t.Fatal(err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	default:
 	}
 	cm, err := chain.NewManager(cs)
@@ -208,7 +212,9 @@ func TestRemoveVolume(t *testing.T) {
 	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
 	select {
 	case err := <-errCh:
-		t.Fatal(err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	default:
 	}
 	cm, err := chain.NewManager(cs)
@@ -282,7 +288,9 @@ func TestVolumeGrow(t *testing.T) {
 	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
 	select {
 	case err := <-errCh:
-		t.Fatal(err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	default:
 	}
 	cm, err := chain.NewManager(cs)
@@ -350,7 +358,9 @@ func TestVolumeShrink(t *testing.T) {
 	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
 	select {
 	case err := <-errCh:
-		t.Fatal(err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	default:
 	}
 	cm, err := chain.NewManager(cs)
@@ -494,7 +504,9 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
 	select {
 	case err := <-errCh:
-		t.Fatal(err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	default:
 	}
 	cm, err := chain.NewManager(cs)
