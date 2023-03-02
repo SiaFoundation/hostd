@@ -25,6 +25,12 @@ CREATE INDEX wallet_transactions_block_id ON wallet_transactions(block_id);
 CREATE INDEX wallet_transactions_date_created ON wallet_transactions(date_created);
 CREATE INDEX wallet_transactions_block_height_id ON wallet_transactions(block_height DESC, id);
 
+CREATE TABLE stored_sectors (
+	id INTEGER PRIMARY KEY,
+	sector_root BLOB UNIQUE NOT NULL
+);
+CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
+
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
 	disk_path TEXT UNIQUE NOT NULL,
@@ -37,18 +43,18 @@ CREATE TABLE volume_sectors (
 	id INTEGER PRIMARY KEY,
 	volume_id INTEGER NOT NULL REFERENCES storage_volumes (id), -- all sectors will need to be migrated first when deleting a volume
 	volume_index INTEGER NOT NULL,
-	sector_root BLOB UNIQUE, -- set null if the sector is not used
+	sector_id INTEGER UNIQUE REFERENCES stored_sectors (id) ON DELETE SET NULL,
 	UNIQUE (volume_id, volume_index)
 );
 CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
 CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index);
-CREATE INDEX volume_sectors_sector_root ON volume_sectors(sector_root);
+CREATE INDEX volume_sectors_sector_id ON volume_sectors(sector_id);
 
 CREATE TABLE locked_volume_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
 	id INTEGER PRIMARY KEY,
 	volume_sector_id INTEGER REFERENCES volume_sectors(id) ON DELETE CASCADE
 );
-CREATE INDEX locked_volume_sectors_volume_sector_id ON locked_volume_sectors(volume_sector_id);
+CREATE INDEX locked_volume_sectors_sector_id ON locked_volume_sectors(volume_sector_id);
 
 CREATE TABLE contracts (
 	id INTEGER PRIMARY KEY,
@@ -76,18 +82,20 @@ CREATE INDEX contracts_window_end_index ON contracts(window_end);
 
 CREATE TABLE contract_sector_roots (
 	id INTEGER PRIMARY KEY,
-	contract_id INTEGER REFERENCES contracts(id) ON DELETE CASCADE,
-	sector_root BLOB NOT NULL,
+	contract_id INTEGER NOT NULl REFERENCES contracts(id),
+	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
 	root_index INTEGER NOT NULL,
 	UNIQUE(contract_id, root_index)
 );
+CREATE INDEX contract_sector_roots_sector_id ON contract_sector_roots(sector_id);
 CREATE INDEX contract_sector_roots_contract_id_root_index ON contract_sector_roots(contract_id, root_index);
-CREATE INDEX contract_sector_roots_sector_root ON contract_sector_roots(sector_root);
 
 CREATE TABLE temp_storage (
-	sector_root BLOB PRIMARY KEY,
+	id INTEGER PRIMARY KEY,
+	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
 	expiration_height INTEGER NOT NULL
 );
+CREATE INDEX temp_storage_sector_id ON temp_storage(sector_id);
 CREATE INDEX temp_storage_expiration_height ON temp_storage(expiration_height);
 
 CREATE TABLE accounts (

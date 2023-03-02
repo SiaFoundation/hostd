@@ -8,6 +8,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -51,10 +52,24 @@ func TestUpdateContractRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		t.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, 100); err != nil {
+		t.Fatal(err)
+	}
+
 	// add some sector roots
 	roots := make([]types.Hash256, 10)
 	for i := range roots {
 		roots[i] = frand.Entropy256()
+		release, err := db.StoreSector(roots[i], func(loc storage.SectorLocation, exists bool) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
 	}
 
 	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {

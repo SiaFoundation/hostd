@@ -34,9 +34,17 @@ func (u *updateContractsTxn) setLastChangeID(ccID modules.ConsensusChangeID, hei
 
 // AppendSector appends a sector root to the end of the contract
 func (u *updateContractTxn) AppendSector(root types.Hash256) error {
-	const query = `INSERT INTO contract_sector_roots (contract_id, sector_root, root_index) SELECT $1, $2, COALESCE(MAX(root_index) + 1, 0) FROM contract_sector_roots WHERE contract_id=$1;`
-	_, err := u.tx.Exec(query, u.contractDBID, sqlHash256(root))
-	return err
+	var nextIndex int64
+	err := u.tx.QueryRow(`SELECT COALESCE(MAX(root_index)+1, 0) FROM contract_sector_roots WHERE contract_id=$1`, u.contractDBID).Scan(&nextIndex)
+	if err != nil {
+		return fmt.Errorf("failed to get next sector index: %w", err)
+	}
+	var sectorID int64
+	err = u.tx.QueryRow(`INSERT INTO contract_sector_roots (contract_id, root_index, sector_id) SELECT $1, $2, id FROM stored_sectors WHERE sector_root=$3 RETURNING sector_id;`, u.contractDBID, nextIndex, sqlHash256(root)).Scan(&sectorID)
+	if err != nil {
+		return fmt.Errorf("failed to append sector: %w", err)
+	}
+	return nil
 }
 
 // ReviseContract updates the current revision associated with a contract.
@@ -84,9 +92,13 @@ func (u *updateContractTxn) SwapSectors(i, j uint64) error {
 
 // UpdateSector updates the sector root at the given index.
 func (u *updateContractTxn) UpdateSector(index uint64, root types.Hash256) error {
-	const query = `UPDATE contract_sector_roots SET sector_root=$1 WHERE contract_id=$2 AND root_index=$3 RETURNING id;`
+	var sectorID int64
+	err := u.tx.QueryRow(`SELECT id FROM stored_sectors WHERE sector_root=$1`, sqlHash256(root)).Scan(&sectorID)
+	if err != nil {
+		return fmt.Errorf("failed to get sector ID: %w", err)
+	}
 	var dbID int64
-	return u.tx.QueryRow(query, sqlHash256(root), u.contractDBID, index).Scan(&dbID)
+	return u.tx.QueryRow(`UPDATE contract_sector_roots SET sector_id=$1 WHERE contract_id=$2 AND root_index=$3 RETURNING sector_id`, sectorID, u.contractDBID, index).Scan(&dbID)
 }
 
 // TrimSectors removes the last n sector roots from the contract.
@@ -242,9 +254,9 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 
 	var query string
 	if limit <= 0 {
-		query = `SELECT sector_root FROM contract_sector_roots WHERE contract_id=$1 ORDER BY root_index ASC;`
+		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC;`
 	} else {
-		query = `SELECT sector_root FROM contract_sector_roots WHERE contract_id=$1 ORDER BY root_index ASC LIMIT $2 OFFSET $3;`
+		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC LIMIT $2 OFFSET $3;`
 	}
 
 	rows, err := s.query(query, dbID, limit, offset)

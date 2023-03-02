@@ -9,17 +9,19 @@ import (
 	"go.sia.tech/hostd/host/storage"
 )
 
-// unlockSectorFn returns a function that unlocks a sector when called.
-func (s *Store) unlockSectorFn(id uint64) func() error {
-	return func() error { return unlockSector(&dbTxn{s}, id) }
+const pruneBatchSize = (10 << 30) / (1 << 22) // 10GiB
+
+// unlockLocationFn returns a function that unlocks a sector when called.
+func (s *Store) unlockLocationFn(id int64) func() error {
+	return func() error { return unlockLocation(&dbTxn{s}, id) }
 }
 
 // RemoveSector removes the metadata of a sector and returns its
 // location in the volume.
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
-	var id uint64
-	const query = `UPDATE volume_sectors SET sector_root=null WHERE sector_root=$1 RETURNING id;`
-	err = s.queryRow(query, sqlHash256(root)).Scan(&id)
+	var dbID int64
+	const query = `UPDATE volume_sectors SET sector_id=null WHERE sector_id IN (SELECT id FROM stored_sectors WHERE sector_root=$1) RETURNING id;`
+	err = s.queryRow(query, sqlHash256(root)).Scan(&dbID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.ErrSectorNotFound
 	}
@@ -30,7 +32,7 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 // sector is not found. The location is locked until release is
 // called.
 func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func() error, error) {
-	var lockID uint64
+	var lockID int64
 	var location storage.SectorLocation
 	err := s.transaction(func(tx txn) error {
 		var err error
@@ -38,7 +40,7 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 		if err != nil {
 			return fmt.Errorf("failed to get sector location: %w", err)
 		}
-		lockID, err = lockSector(tx, location.ID)
+		lockID, err = lockLocation(tx, location.ID)
 		if err != nil {
 			return fmt.Errorf("failed to lock sector: %w", err)
 		}
@@ -47,24 +49,43 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 	if err != nil {
 		return storage.SectorLocation{}, nil, err
 	}
-	return location, s.unlockSectorFn(lockID), nil
+	return location, s.unlockLocationFn(lockID), nil
 }
 
 // Prune removes the metadata of any sectors that are not locked or referenced
 // by a contract.
 func (s *Store) Prune() error {
-	_, err := s.exec(`UPDATE volume_sectors AS vs SET vs.sector_root=null
-LEFT JOIN contract_sectors cs ON (cs.sector_root = vs.sector_root)
-LEFT JOIN temp_storage_sectors ts ON (ts.sector_root = vs.sector_root)
-LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id = vs.id)
-WHERE ts.sector_root IS NULL AND cs.sector_root IS NULL AND lvs.id IS NULL;`)
-	return err
+	// delete in batches to avoid holding a lock on the table for too long
+	var done bool
+	for {
+		if done {
+			return nil
+		}
+		err := s.transaction(func(tx txn) error {
+			sectorIDs, err := sectorsForDeletion(tx, pruneBatchSize)
+			if err != nil {
+				return fmt.Errorf("failed to select sectors: %w", err)
+			} else if len(sectorIDs) == 0 {
+				done = true
+				return nil
+			}
+
+			query := `DELETE FROM stored_sectors WHERE sector_id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
+			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
+				return fmt.Errorf("failed to delete sectors: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to prune sectors: %w", err)
+		}
+	}
 }
 
-// lockSectorBatch locks multiple sector locations and returns a list of lock
-// IDs. The lock ids can be used with either unlockSector or unlockSectorBatch
+// lockLocationBatch locks multiple sector locations and returns a list of lock
+// IDs. The lock ids can be used with either unlockLocation or unlockLocationBatch
 // to unlock the locations.
-func lockSectorBatch(tx txn, locations ...storage.SectorLocation) (locks []uint64, err error) {
+func lockLocationBatch(tx txn, locations ...storage.SectorLocation) (locks []int64, err error) {
 	if len(locations) == 0 {
 		return nil, nil
 	}
@@ -74,7 +95,7 @@ func lockSectorBatch(tx txn, locations ...storage.SectorLocation) (locks []uint6
 	}
 	defer stmt.Close()
 	for _, location := range locations {
-		var lockID uint64
+		var lockID int64
 		err := stmt.QueryRow(location.ID).Scan(&lockID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to lock location %v:%v: %w", location.Volume, location.Index, err)
@@ -84,25 +105,47 @@ func lockSectorBatch(tx txn, locations ...storage.SectorLocation) (locks []uint6
 	return
 }
 
-// lockSector locks a sector location and returns a lock ID. The lock
-// id is used with unlockSector to unlock the sector.
-func lockSector(tx txn, locationID uint64) (uint64, error) {
-	var lockID uint64
+func sectorsForDeletion(tx txn, max int) (ids []int64, _ error) {
+	rows, err := tx.Query(`SELECT id FROM stored_sectors WHERE id NOT IN (
+SELECT sector_id FROM contract_sectors
+UNION
+SELECT sector_id FROM locked_volume_sectors
+UNION
+SELECT sector_id FROM temp_storage_sectors
+) LIMIT $1;`, max)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select sectors: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan sector id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return
+}
+
+// lockLocation locks a sector location and returns a lock ID. The lock
+// id is used with unlockLocation to unlock the sector.
+func lockLocation(tx txn, locationID int64) (int64, error) {
+	var lockID int64
 	err := tx.QueryRow(`INSERT INTO locked_volume_sectors (volume_sector_id) VALUES ($1) RETURNING id;`, locationID).
 		Scan(&lockID)
 	return lockID, err
 }
 
-// unlockSector unlocks a locked sector location. It is safe to call
+// unlockLocation unlocks a locked sector location. It is safe to call
 // multiple times.
-func unlockSector(tx txn, id uint64) error {
+func unlockLocation(tx txn, id int64) error {
 	_, err := tx.Exec(`DELETE FROM locked_volume_sectors WHERE id=?;`, id)
 	return err
 }
 
-// unlockSectorBatch unlocks multiple locked sector locations. It is safe to
+// unlockLocationBatch unlocks multiple locked sector locations. It is safe to
 // call multiple times.
-func unlockSectorBatch(tx txn, ids ...uint64) error {
+func unlockLocationBatch(tx txn, ids ...int64) error {
 	if len(ids) == 0 {
 		return nil
 	}

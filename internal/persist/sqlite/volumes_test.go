@@ -583,3 +583,60 @@ func BenchmarkVolumeShrink(b *testing.B) {
 		b.Fatal(err)
 	}
 }
+
+func BenchmarkVolumeMigrate(b *testing.B) {
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		b.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	volumeID, err := db.AddVolume("test", false)
+	if err != nil {
+		b.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		b.Fatal(err)
+	}
+
+	// grow the volume to b.N sectors
+	if err := db.GrowVolume(volumeID, uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	roots := make([]types.Hash256, b.N)
+	for i := range roots {
+		roots[i] = frand.Entropy256()
+		release, err := db.StoreSector(roots[i], func(loc storage.SectorLocation, exists bool) error { return nil })
+		if err != nil {
+			b.Fatalf("failed to store sector %v: %v", i, err)
+		} else if err := release(); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	volume2ID, err := db.AddVolume("test2", false)
+	if err != nil {
+		b.Fatal(err)
+	} else if err := db.SetAvailable(volume2ID, true); err != nil {
+		b.Fatal(err)
+	}
+
+	// grow the second volume to b.N sectors
+	if err := db.GrowVolume(volume2ID, uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	// migrate all sectors from the first volume to the second
+	if err := db.MigrateSectors(volumeID, 0, func(locations []storage.SectorLocation) error {
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+}

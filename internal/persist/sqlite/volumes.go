@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
@@ -18,7 +16,7 @@ const sectorSize = 1 << 22
 func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
 	// nulls are not included in COUNT() -- counting sector roots is equivalent
 	// to counting used sectors.
-	const query = `SELECT COUNT(id) AS total_sectors, COUNT(sector_root) AS used_sectors FROM volume_sectors`
+	const query = `SELECT COUNT(id) AS total_sectors, COUNT(sector_id) AS used_sectors FROM volume_sectors`
 	err := s.queryRow(query).Scan(&totalBytes, &usedBytes)
 	if err != nil {
 		return 0, 0, fmt.Errorf("query failed: %w", err)
@@ -31,10 +29,10 @@ func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
 // Volumes returns a list of all volumes.
 func (s *Store) Volumes() ([]storage.Volume, error) {
 	const query = `SELECT v.id, v.disk_path, v.read_only, v.available, 
-	COUNT(s.id) AS total_sectors, 
-	COUNT(s.sector_root) AS used_sectors
+	COUNT(vs.id) AS total_sectors, 
+	COUNT(vs.sector_id) AS used_sectors
 FROM storage_volumes v
-LEFT JOIN volume_sectors s ON (s.volume_id = v.id)
+LEFT JOIN volume_sectors vs ON (vs.volume_id = v.id)
 GROUP BY v.id
 ORDER BY v.id ASC`
 	rows, err := s.query(query)
@@ -57,10 +55,10 @@ ORDER BY v.id ASC`
 // Volume returns a volume by its ID.
 func (s *Store) Volume(id int) (storage.Volume, error) {
 	const query = `SELECT v.id, v.disk_path, v.read_only, v.available,
-	COUNT(s.id) AS total_sectors,
-	COUNT(s.id) FILTER (WHERE s.sector_root IS NOT NULL) AS used_sectors
+	COUNT(vs.id) AS total_sectors,
+	COUNT(vs.sector_id) AS used_sectors
 FROM storage_volumes v
-LEFT JOIN volume_sectors s ON (s.volume_id = v.id)
+LEFT JOIN volume_sectors vs ON (vs.volume_id = v.id)
 WHERE v.id=$1`
 	row := s.queryRow(query, id)
 	vol, err := scanVolume(row)
@@ -82,7 +80,7 @@ WHERE v.id=$1`
 // The sector should be referenced by either a contract or temp store
 // before release is called to prevent Prune() from removing it.
 func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation, exists bool) error) (func() error, error) {
-	var lockID uint64
+	var lockID int64
 	var location storage.SectorLocation
 	var exists bool
 	err := s.transaction(func(tx txn) error {
@@ -99,7 +97,7 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		}
 
 		// lock the sector location
-		lockID, err = lockSector(tx, location.ID)
+		lockID, err = lockLocation(tx, location.ID)
 		if err != nil {
 			return fmt.Errorf("failed to lock sector location: %w", err)
 		}
@@ -110,17 +108,29 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 	}
 	// call fn with the location
 	if err := fn(location, exists); err != nil {
+		unlockLocation(&dbTxn{s}, lockID)
 		return nil, fmt.Errorf("failed to store sector: %w", err)
 	}
 	// commit the sector location
-	var updatedID uint64
-	err = s.queryRow(`UPDATE volume_sectors SET sector_root=$1 WHERE id=$2 RETURNING id`, sqlHash256(root), location.ID).Scan(&updatedID)
+	err = s.transaction(func(tx txn) error {
+		sectorID, err := sectorDBID(tx, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+		var updatedID int64
+		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING id`, sectorID, location.ID).Scan(&updatedID)
+		if err != nil {
+			return fmt.Errorf("failed to commit sector location: %w", err)
+		} else if updatedID != location.ID {
+			panic("sector location not updated correctly")
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to commit sector location: %w", err)
-	} else if updatedID != location.ID {
-		panic("sector location not updated correctly")
+		unlockLocation(&dbTxn{s}, lockID)
+		return nil, err
 	}
-	return s.unlockSectorFn(lockID), nil
+	return s.unlockLocationFn(lockID), nil
 }
 
 // MigrateSectors migrates each occupied sector of a volume starting at
@@ -131,7 +141,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 	for {
 		// get a batch of sectors to migrate
 		var oldLocations, newLocations []storage.SectorLocation
-		var locks []uint64
+		var locks []int64
 		err := s.transaction(func(tx txn) (err error) {
 			oldLocations, err = sectorsForMigration(tx, volumeID, startIndex, batchSize)
 			if err != nil {
@@ -159,7 +169,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 			}
 
 			// lock the old and new locations
-			locks, err = lockSectorBatch(tx, append(oldLocations, newLocations...)...)
+			locks, err = lockLocationBatch(tx, append(oldLocations, newLocations...)...)
 			if err != nil {
 				return fmt.Errorf("failed to lock sectors: %w", err)
 			}
@@ -170,7 +180,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		} else if len(oldLocations) == 0 {
 			return nil // no more sectors to migrate
 		}
-		defer unlockSectorBatch(&dbTxn{s}, locks...)
+		defer unlockLocationBatch(&dbTxn{s}, locks...)
 
 		// call migrateFn with the new locations, data should be copied to the
 		// new locations and synced to disk
@@ -180,23 +190,37 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 
 		// update the sector locations in a separate transaction
 		err = s.transaction(func(tx txn) error {
-			var oldIDs []string
-			for _, loc := range oldLocations {
-				oldIDs = append(oldIDs, strconv.FormatUint(loc.ID, 10))
+			selectStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=$1`)
+			if err != nil {
+				return fmt.Errorf("failed to prepare sector select statement: %w", err)
 			}
-			clearQuery := fmt.Sprintf(`UPDATE volume_sectors SET sector_root=NULL WHERE id IN (%s);`, strings.Join(oldIDs, ","))
-			if _, err := tx.Exec(clearQuery); err != nil {
-				return fmt.Errorf("failed to clear old sector locations: %w", err)
-			}
+			defer selectStmt.Close()
 
-			updateStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_root=? WHERE id=? RETURNING id;`)
+			clearStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 RETURNING id`)
+			if err != nil {
+				return fmt.Errorf("failed to prepare sector clear statement: %w", err)
+			}
+			defer clearStmt.Close()
+
+			updateSectorStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING id;`)
 			if err != nil {
 				return fmt.Errorf("failed to prepare sector update statement: %w", err)
 			}
-			defer updateStmt.Close()
-			for _, loc := range newLocations {
-				var newID uint64
-				if err = updateStmt.QueryRow(sqlHash256(loc.Root), loc.ID).Scan(&newID); err != nil {
+			defer updateSectorStmt.Close()
+
+			for i, newLoc := range newLocations {
+				oldLoc := oldLocations[i]
+
+				var sectorDBID int64
+				if err = selectStmt.QueryRow(sqlHash256(oldLoc.Root)).Scan(&sectorDBID); err != nil {
+					return fmt.Errorf("failed to select sector: %w", err)
+				}
+				var oldID int64
+				if err = clearStmt.QueryRow(oldLoc.ID).Scan(&oldID); err != nil {
+					return fmt.Errorf("failed to clear sector location: %w", err)
+				}
+				var newID int64
+				if err = updateSectorStmt.QueryRow(sectorDBID, newLoc.ID).Scan(&newID); err != nil {
 					return fmt.Errorf("failed to update sector location: %w", err)
 				}
 			}
@@ -225,7 +249,7 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 		if !force {
 			// check if the volume is empty
 			var count int
-			err := tx.QueryRow(`SELECT COUNT(*) FROM volume_sectors WHERE volume_id=$1 AND sector_root IS NOT NULL;`, id).Scan(&count)
+			err := tx.QueryRow(`SELECT COUNT(id) FROM volume_sectors WHERE volume_id=$1 AND sector_id IS NOT NULL;`, id).Scan(&count)
 			if err != nil {
 				return fmt.Errorf("failed to check if volume is empty: %w", err)
 			} else if count != 0 {
@@ -288,7 +312,7 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 	return s.transaction(func(tx txn) error {
 		// check if there are any used sectors in the shrink range
 		var count uint64
-		err := tx.QueryRow(`SELECT COUNT(sector_root) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_root IS NOT NULL;`, id, maxSectors).Scan(&count)
+		err := tx.QueryRow(`SELECT COUNT(sector_id) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_id IS NOT NULL;`, id, maxSectors).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to get used sectors: %w", err)
 		} else if count != 0 {
@@ -321,10 +345,11 @@ func (s *Store) SetAvailable(volumeID int, available bool) error {
 // list will contain at most batchSize sectors. The startIndex is the volume
 // index of the first sector to return.
 func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int64) (sectors []storage.SectorLocation, _ error) {
-	const query = `SELECT id, sector_root, volume_id, volume_index 
-	FROM volume_sectors
-	WHERE volume_id=$1 AND volume_index>=$2 AND sector_root IS NOT NULL
-	ORDER BY volume_index ASC LIMIT $3`
+	const query = `SELECT vs.id, vs.volume_id, vs.volume_index, s.sector_root
+	FROM volume_sectors vs
+	INNER JOIN stored_sectors s ON (s.id=vs.sector_id)
+	WHERE vs.volume_id=$1 AND vs.volume_index>=$2
+	ORDER BY vs.volume_index ASC LIMIT $3`
 
 	rows, err := tx.Query(query, volumeID, startIndex, batchSize)
 	if err != nil {
@@ -335,7 +360,7 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 	// scan the old locations
 	for rows.Next() {
 		var loc storage.SectorLocation
-		if err := rows.Scan(&loc.ID, (*sqlHash256)(&loc.Root), &loc.Volume, &loc.Index); err != nil {
+		if err := rows.Scan(&loc.ID, &loc.Volume, &loc.Index, (*sqlHash256)(&loc.Root)); err != nil {
 			return nil, fmt.Errorf("failed to scan volume sector: %w", err)
 		}
 		sectors = append(sectors, loc)
@@ -343,8 +368,17 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 	return sectors, nil
 }
 
+func sectorDBID(tx txn, root types.Hash256) (id int64, err error) {
+	err = tx.QueryRow(`SELECT id FROM stored_sectors WHERE sector_root=?`, sqlHash256(root)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRow(`INSERT INTO stored_sectors (sector_root) VALUES ($1) RETURNING id`, sqlHash256(root)).Scan(&id)
+		return
+	}
+	return
+}
+
 func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err error) {
-	const query = `SELECT id, volume_id, volume_index, sector_root FROM volume_sectors WHERE sector_root=?`
+	const query = `SELECT v.id, v.volume_id, v.volume_index, s.sector_root FROM volume_sectors v INNER JOIN stored_sectors s ON (s.id = v.sector_id) WHERE s.sector_root=?`
 	err = tx.QueryRow(query, sqlHash256(root)).Scan(&loc.ID, &loc.Volume, &loc.Index, (*sqlHash256)(&loc.Root))
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrSectorNotFound
@@ -353,11 +387,11 @@ func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err
 }
 
 func emptyLocation(txn txn) (loc storage.SectorLocation, err error) {
-	const query = `SELECT s.id, s.volume_id, s.volume_index
-FROM volume_sectors s
-INNER JOIN storage_volumes v ON (v.id = s.volume_id)
-LEFT JOIN locked_volume_sectors l ON (s.id=l.volume_sector_id)
-WHERE l.volume_sector_id IS NULL AND v.read_only=false AND v.available=true AND s.sector_root IS NULL
+	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
+FROM volume_sectors vs
+INNER JOIN storage_volumes v ON (vs.volume_id = v.id)
+LEFT JOIN locked_volume_sectors l ON (vs.id=l.volume_sector_id)
+WHERE vs.sector_id IS NULL AND l.volume_sector_id IS NULL AND v.read_only=false AND v.available=true
 LIMIT 1;`
 	err = txn.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -372,12 +406,12 @@ LIMIT 1;`
 // given volume even if the volue is read-only. The locations are ordered by
 // volume index and the returned list will contain at most batchSize locations.
 func locationsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int) (locations []storage.SectorLocation, _ error) {
-	const query = `SELECT s.id, s.volume_id, s.volume_index
-	FROM volume_sectors s
-	INNER JOIN storage_volumes v ON (s.volume_id=v.id)
-	LEFT JOIN locked_volume_sectors l ON (s.id=l.volume_sector_id)
-	WHERE l.volume_sector_id IS NULL AND s.sector_root IS NULL AND v.available=true AND ((v.read_only=false AND s.volume_id <> $1) OR (s.volume_id=$1 AND s.volume_index<$2))
-	ORDER BY s.volume_index LIMIT $3;`
+	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
+	FROM volume_sectors vs
+	INNER JOIN storage_volumes v ON (vs.volume_id=v.id)
+	LEFT JOIN locked_volume_sectors l ON (vs.id=l.volume_sector_id)
+	WHERE l.volume_sector_id IS NULL AND vs.sector_id IS NULL AND v.available=true AND ((v.read_only=false AND vs.volume_id <> $1) OR (vs.volume_id=$1 AND vs.volume_index<$2))
+	LIMIT $3;`
 
 	rows, err := tx.Query(query, volumeID, startIndex, batchSize)
 	if err != nil {

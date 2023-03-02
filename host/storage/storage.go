@@ -14,10 +14,12 @@ import (
 	"go.uber.org/zap"
 )
 
+const resizeBatchSize = (1 << 30) / rhpv2.SectorSize // 1GiB
+
 type (
 	// A SectorLocation is a location of a sector within a volume.
 	SectorLocation struct {
-		ID     uint64
+		ID     int64
 		Volume int
 		Index  uint64
 		Root   types.Hash256
@@ -108,8 +110,6 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
 }
 
 func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
-	const batchSize = 256
-
 	if oldMaxSectors > newMaxSectors {
 		return errors.New("old sectors must be less than new sectors")
 	}
@@ -119,7 +119,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
-	for current := oldMaxSectors; current < newMaxSectors; current += batchSize {
+	for current := oldMaxSectors; current < newMaxSectors; current += resizeBatchSize {
 		// stop early if the context is cancelled
 		select {
 		case <-ctx.Done():
@@ -127,7 +127,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		default:
 		}
 
-		target := current + batchSize
+		target := current + resizeBatchSize
 		if target > newMaxSectors {
 			target = newMaxSectors
 		}
@@ -160,7 +160,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		return fmt.Errorf("failed to migrate sectors: %w", err)
 	}
 
-	var batchSize uint64 = 256
+	var batchSize uint64 = resizeBatchSize
 	for current := oldMaxSectors; current > newMaxSectors; current -= batchSize {
 		// stop early if the context is cancelled
 		select {
