@@ -201,7 +201,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
-	accountManager := accounts.NewManager(db)
+	accountManager := accounts.NewManager(db, sr)
 
 	sm, err := storage.NewVolumeManager(db, logger.Named("volumes"))
 	if err != nil {

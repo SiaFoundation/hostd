@@ -144,7 +144,7 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	}
 
 	registry := registry.NewManager(privKey, db)
-	accounts := accounts.NewManager(db)
+	accounts := accounts.NewManager(db, settings)
 
 	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{}, log.Named("rhpv3"))
 	if err != nil {
