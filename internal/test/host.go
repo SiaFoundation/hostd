@@ -129,7 +129,7 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	storage, err := storage.NewVolumeManager(db, log.Named("storage"))
+	storage, err := storage.NewVolumeManager(db, node.cm, log.Named("storage"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}

@@ -9,8 +9,11 @@ import (
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.sia.tech/siad/modules/consensus"
+	"go.sia.tech/siad/modules/gateway"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -39,7 +42,24 @@ func TestVolumeLoad(t *testing.T) {
 	}
 	defer db.Close()
 
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +86,7 @@ func TestVolumeLoad(t *testing.T) {
 	}
 
 	// reopen the volume manager
-	vm, err = storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err = storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +138,24 @@ func TestAddVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,8 +199,25 @@ func TestRemoveVolume(t *testing.T) {
 	}
 	defer db.Close()
 
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,8 +273,25 @@ func TestVolumeGrow(t *testing.T) {
 	}
 	defer db.Close()
 
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,8 +341,25 @@ func TestVolumeShrink(t *testing.T) {
 	}
 	defer db.Close()
 
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,8 +485,25 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	}
 	defer db.Close()
 
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,8 +576,25 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	}
 	defer db.Close()
 
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		b.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -521,8 +643,25 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	}
 	defer db.Close()
 
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		b.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -574,8 +713,25 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	}
 	defer db.Close()
 
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		b.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, log.Named("volumes"))
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}

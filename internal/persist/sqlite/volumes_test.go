@@ -598,7 +598,7 @@ func TestPrune(t *testing.T) {
 			Expiration: 100,
 		})
 	}
-	if err := db.AddTempSectorRoots(tempRoots); err != nil {
+	if err := db.AddTemporarySectors(tempRoots); err != nil {
 		t.Fatal(err)
 	}
 

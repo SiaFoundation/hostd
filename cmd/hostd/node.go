@@ -203,7 +203,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 	accountManager := accounts.NewManager(db, sr)
 
-	sm, err := storage.NewVolumeManager(db, logger.Named("volumes"))
+	sm, err := storage.NewVolumeManager(db, cm, logger.Named("volumes"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}

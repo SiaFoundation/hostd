@@ -62,6 +62,14 @@ type (
 		// PruneSectors removes the metadata of all sectors that are no longer
 		// referenced by either a contract or temporary storage.
 		PruneSectors() error
+
+		// AddTemporarySectors adds a list of sectors to the temporary store.
+		// The sectors are not referenced by a contract and will be removed
+		// at the expiration height.
+		AddTemporarySectors(sectors []TempSector) error
+		// ExpireTempSectors removes all temporary sectors that expired before
+		// the given height.
+		ExpireTempSectors(height uint64) error
 	}
 )
 

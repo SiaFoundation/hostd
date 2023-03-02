@@ -52,9 +52,9 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 	return location, s.unlockLocationFn(lockID), nil
 }
 
-// AddTempSectorRoots adds the roots of sectors that are temporarily stored
+// AddTemporarySectors adds the roots of sectors that are temporarily stored
 // on the host. The sectors will be deleted after the expiration height.
-func (s *Store) AddTempSectorRoots(sectors []storage.TempSector) error {
+func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 	return s.transaction(func(tx txn) error {
 		stmt, err := tx.Prepare(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) SELECT id, $1 FROM stored_sectors WHERE sector_root=$2 RETURNING id;`)
 		if err != nil {

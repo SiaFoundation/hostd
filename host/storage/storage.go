@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/threadgroup"
@@ -17,10 +18,15 @@ import (
 const (
 	resizeBatchSize = (1 << 30) / rhpv2.SectorSize // 1 GiB
 
-	pruneInterval = 10 * time.Minute
+	cleanupInterval = 10 * time.Minute
 )
 
 type (
+	// A ChainManager is used to get the current consensus state.
+	ChainManager interface {
+		TipState() consensus.State
+	}
+
 	// A SectorLocation is a location of a sector within a volume.
 	SectorLocation struct {
 		ID     int64
@@ -40,10 +46,11 @@ type (
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
 		vs  VolumeStore
+		cm  ChainManager
 		log *zap.Logger
 
 		tg         *threadgroup.ThreadGroup
-		pruneTimer *time.Timer
+		cleanTimer *time.Timer
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int]*volume
@@ -106,9 +113,9 @@ func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLoc
 	return nil
 }
 
-// pruneSectors removes all sectors that are not referenced by a contract.
-// This function is called periodically by the prune timer.
-func (vm *VolumeManager) pruneSectors() {
+// cleanup removes all sectors that are not referenced by a contract.
+// This function is called periodically by the cleanup timer.
+func (vm *VolumeManager) cleanup() {
 	done, err := vm.tg.Add()
 	if err != nil {
 		vm.log.Error("failed to add to threadgroup", zap.Error(err))
@@ -116,12 +123,18 @@ func (vm *VolumeManager) pruneSectors() {
 	}
 	defer done()
 
+	// expire temp sectors
+	currentHeight := vm.cm.TipState().Index.Height
+	if err := vm.vs.ExpireTempSectors(currentHeight); err != nil {
+		vm.log.Error("failed to expire temp sectors", zap.Error(err))
+	}
+
 	// prune sectors
 	if err := vm.vs.PruneSectors(); err != nil {
 		vm.log.Error("failed to prune sectors", zap.Error(err))
 	}
 	// reset the timer
-	vm.pruneTimer.Reset(pruneInterval)
+	vm.cleanTimer.Reset(cleanupInterval)
 }
 
 // loadVolumes opens all volumes. Volumes that are already loaded are skipped.
@@ -612,8 +625,20 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 	})
 }
 
+// AddTemporarySectors adds sectors to the temporary store. The sectors are not
+// referenced by a contract and will be removed at the expiration height.
+func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	return vm.vs.AddTemporarySectors(sectors)
+}
+
 // NewVolumeManager creates a new VolumeManager.
-func NewVolumeManager(vs VolumeStore, log *zap.Logger) (*VolumeManager, error) {
+func NewVolumeManager(vs VolumeStore, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
 	vm := &VolumeManager{
 		vs:  vs,
 		log: log,
@@ -626,6 +651,6 @@ func NewVolumeManager(vs VolumeStore, log *zap.Logger) (*VolumeManager, error) {
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
 	}
-	vm.pruneTimer = time.AfterFunc(pruneInterval, vm.pruneSectors)
+	vm.cleanTimer = time.AfterFunc(cleanupInterval, vm.cleanup)
 	return vm, nil
 }
