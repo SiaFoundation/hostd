@@ -7,10 +7,21 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/persist/sqlite"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
+
+type ephemeralSettings struct {
+	maxBalance types.Currency
+}
+
+func (s ephemeralSettings) Settings() settings.Settings {
+	return settings.Settings{
+		MaxAccountBalance: s.maxBalance,
+	}
+}
 
 func TestCredit(t *testing.T) {
 	log, err := zap.NewDevelopment()
@@ -22,7 +33,7 @@ func TestCredit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	am := NewManager(db)
+	am := NewManager(db, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
 	accountID := frand.Entropy256()
 
 	// attempt to credit the account
@@ -33,6 +44,12 @@ func TestCredit(t *testing.T) {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(amount) != 0 {
 		t.Fatalf("expected balance %v to be equal to amount %v", balance, amount)
+	}
+
+	// attempt to credit the account over the max balance
+	amount = types.NewCurrency64(100)
+	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute)); err != ErrBalanceExceeded {
+		t.Fatalf("expected ErrBalanceExceeded, got %v", err)
 	}
 }
 
@@ -46,7 +63,7 @@ func TestBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	am := NewManager(db)
+	am := NewManager(db, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
 	accountID := frand.Entropy256()
 
 	// credit the account

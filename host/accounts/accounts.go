@@ -9,12 +9,14 @@ import (
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/settings"
 )
 
 var (
 	// ErrInsufficientFunds is returned when an account does not have enough
 	// funds to cover a debit.
 	ErrInsufficientFunds = errors.New("insufficient funds")
+	ErrBalanceExceeded   = errors.New("ephemeral account maximum balance exceeded")
 )
 
 type (
@@ -29,6 +31,10 @@ type (
 		DebitAccount(accountID rhpv3.Account, amount types.Currency) (types.Currency, error)
 	}
 
+	Settings interface {
+		Settings() settings.Settings
+	}
+
 	accountState struct {
 		balance  types.Currency
 		openTxns int
@@ -37,7 +43,8 @@ type (
 	// An AccountManager manages deposits and withdrawals for accounts. It is
 	// primarily a synchronization wrapper around a store.
 	AccountManager struct {
-		store AccountStore
+		store    AccountStore
+		settings Settings
 
 		mu sync.Mutex // guards the fields below
 
@@ -57,21 +64,35 @@ type (
 	}
 )
 
-// Balance returns the balance of the account with the given ID.
-func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, error) {
-	am.mu.Lock()
-	defer am.mu.Unlock()
+func (am *AccountManager) balance(accountID rhpv3.Account) (types.Currency, error) {
 	if state, ok := am.balances[accountID]; ok {
 		return state.balance, nil
 	}
 	return am.store.AccountBalance(accountID)
 }
 
-// Credit adds the specified amount to the account with the given ID. Credits
-// are synced to the underlying store immediately.
-func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (balance types.Currency, err error) {
+// Balance returns the balance of the account with the given ID.
+func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, error) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
+	return am.balance(accountID)
+}
+
+// Credit adds the specified amount to the account with the given ID. Credits
+// are synced to the underlying store immediately.
+func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (types.Currency, error) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	balance, err := am.balance(accountID)
+	if err != nil {
+		return types.ZeroCurrency, fmt.Errorf("failed to get account balance: %w", err)
+	}
+
+	creditBalance := balance.Add(amount)
+	if creditBalance.Cmp(am.settings.Settings().MaxAccountBalance) > 0 {
+		return types.ZeroCurrency, ErrBalanceExceeded
+	}
 
 	// credit the account
 	if _, err = am.store.CreditAccount(accountID, amount, expiration); err != nil {
@@ -79,12 +100,12 @@ func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency,
 	}
 	// increment the balance in memory, if it exists
 	if state, ok := am.balances[accountID]; ok {
-		state.balance = balance.Add(amount)
+		state.balance = creditBalance
 		am.balances[accountID] = state
 	}
 	close(am.ch) // wake all waiting withdrawals
 	am.ch = make(chan struct{})
-	return balance.Add(amount), nil
+	return creditBalance, nil
 }
 
 func (am *AccountManager) createBudget(accountID rhpv3.Account, amount types.Currency) (*Budget, error) {
@@ -154,11 +175,12 @@ func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, a
 }
 
 // NewManager creates a new account manager
-func NewManager(store AccountStore) *AccountManager {
+func NewManager(store AccountStore, settings Settings) *AccountManager {
 	return &AccountManager{
-		ch:    make(chan struct{}),
-		store: store,
+		store:    store,
+		settings: settings,
 
+		ch:       make(chan struct{}),
 		balances: make(map[rhpv3.Account]accountState),
 	}
 }
