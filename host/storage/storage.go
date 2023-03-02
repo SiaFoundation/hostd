@@ -14,7 +14,11 @@ import (
 	"go.uber.org/zap"
 )
 
-const resizeBatchSize = (1 << 30) / rhpv2.SectorSize // 1GiB
+const (
+	resizeBatchSize = (1 << 30) / rhpv2.SectorSize // 1 GiB
+
+	pruneInterval = 10 * time.Minute
+)
 
 type (
 	// A SectorLocation is a location of a sector within a volume.
@@ -25,12 +29,21 @@ type (
 		Root   types.Hash256
 	}
 
+	// A TempSector is a stored sector that is not attached to a contract. It
+	// will be deleted after the expiration height unless it is appended to a
+	// contract.
+	TempSector struct {
+		Root       types.Hash256
+		Expiration uint64
+	}
+
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
 		vs  VolumeStore
 		log *zap.Logger
 
-		tg *threadgroup.ThreadGroup
+		tg         *threadgroup.ThreadGroup
+		pruneTimer *time.Timer
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int]*volume
@@ -93,6 +106,69 @@ func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLoc
 	return nil
 }
 
+// pruneSectors removes all sectors that are not referenced by a contract.
+// This function is called periodically by the prune timer.
+func (vm *VolumeManager) pruneSectors() {
+	done, err := vm.tg.Add()
+	if err != nil {
+		vm.log.Error("failed to add to threadgroup", zap.Error(err))
+		return
+	}
+	defer done()
+
+	// prune sectors
+	if err := vm.vs.PruneSectors(); err != nil {
+		vm.log.Error("failed to prune sectors", zap.Error(err))
+	}
+	// reset the timer
+	vm.pruneTimer.Reset(pruneInterval)
+}
+
+// loadVolumes opens all volumes. Volumes that are already loaded are skipped.
+func (vm *VolumeManager) loadVolumes() error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return fmt.Errorf("failed to add to threadgroup: %w", err)
+	}
+	defer done()
+
+	volumes, err := vm.vs.Volumes()
+	if err != nil {
+		return fmt.Errorf("failed to load volumes: %w", err)
+	}
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	// load the volumes into memory
+	for _, vol := range volumes {
+		// skip volumes that are already loaded
+		if vm.volumes[vol.ID] != nil {
+			continue
+		}
+
+		// open the volume file
+		f, err := os.OpenFile(vol.LocalPath, os.O_RDWR, 0700)
+		if err != nil {
+			vm.log.Error("unable to open volume", zap.Error(err), zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
+			// mark the volume as unavailable
+			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
+				f.Close()
+				return fmt.Errorf("failed to mark volume '%v' as unavailable: %w", vol.LocalPath, err)
+			}
+			continue
+		}
+		// add the volume to the memory map
+		vm.volumes[vol.ID] = &volume{
+			data: f,
+		}
+		// mark the volume as available
+		if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
+			return fmt.Errorf("failed to mark volume '%v' as available: %w", vol.LocalPath, err)
+		}
+		vm.log.Debug("loaded volume", zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
+	}
+	return nil
+}
+
 // migrateSector migrates sectors to new locations. The sectors are read from
 // their current locations and written to their new locations. Changed volumes
 // are synced after all sectors have been written.
@@ -109,6 +185,7 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
 	return vm.Sync()
 }
 
+// growVolume grows a volume by adding sectors to the end of the volume.
 func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors > newMaxSectors {
 		return errors.New("old sectors must be less than new sectors")
@@ -143,6 +220,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 	return nil
 }
 
+// shrinkVolume shrinks a volume by removing sectors from the end of the volume.
 func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
@@ -534,51 +612,6 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 	})
 }
 
-// loadVolumes opens all volumes. Volumes that are already loaded are skipped.
-func (vm *VolumeManager) loadVolumes() error {
-	done, err := vm.tg.Add()
-	if err != nil {
-		return fmt.Errorf("failed to add to threadgroup: %w", err)
-	}
-	defer done()
-
-	volumes, err := vm.vs.Volumes()
-	if err != nil {
-		return fmt.Errorf("failed to load volumes: %w", err)
-	}
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-	// load the volumes into memory
-	for _, vol := range volumes {
-		// skip volumes that are already loaded
-		if vm.volumes[vol.ID] != nil {
-			continue
-		}
-
-		// open the volume file
-		f, err := os.OpenFile(vol.LocalPath, os.O_RDWR, 0700)
-		if err != nil {
-			vm.log.Error("unable to open volume", zap.Error(err), zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
-			// mark the volume as unavailable
-			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
-				f.Close()
-				return fmt.Errorf("failed to mark volume '%v' as unavailable: %w", vol.LocalPath, err)
-			}
-			continue
-		}
-		// add the volume to the memory map
-		vm.volumes[vol.ID] = &volume{
-			data: f,
-		}
-		// mark the volume as available
-		if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
-			return fmt.Errorf("failed to mark volume '%v' as available: %w", vol.LocalPath, err)
-		}
-		vm.log.Debug("loaded volume", zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
-	}
-	return nil
-}
-
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, log *zap.Logger) (*VolumeManager, error) {
 	vm := &VolumeManager{
@@ -593,5 +626,6 @@ func NewVolumeManager(vs VolumeStore, log *zap.Logger) (*VolumeManager, error) {
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
 	}
+	vm.pruneTimer = time.AfterFunc(pruneInterval, vm.pruneSectors)
 	return vm, nil
 }

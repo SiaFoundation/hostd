@@ -59,9 +59,9 @@ type (
 		// sector is not found. The location is locked until release is
 		// called.
 		SectorLocation(root types.Hash256) (loc SectorLocation, release func() error, err error)
-		// Prune removes the metadata of all sectors that are no longer
+		// PruneSectors removes the metadata of all sectors that are no longer
 		// referenced by either a contract or temporary storage.
-		Prune() error
+		PruneSectors() error
 	}
 )
 

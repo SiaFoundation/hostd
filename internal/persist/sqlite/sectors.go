@@ -52,9 +52,36 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 	return location, s.unlockLocationFn(lockID), nil
 }
 
-// Prune removes the metadata of any sectors that are not locked or referenced
+// AddTempSectorRoots adds the roots of sectors that are temporarily stored
+// on the host. The sectors will be deleted after the expiration height.
+func (s *Store) AddTempSectorRoots(sectors []storage.TempSector) error {
+	return s.transaction(func(tx txn) error {
+		stmt, err := tx.Prepare(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) SELECT id, $1 FROM stored_sectors WHERE sector_root=$2 RETURNING id;`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare query: %w", err)
+		}
+		defer stmt.Close()
+		for _, sector := range sectors {
+			var dbID int64
+			err := stmt.QueryRow(sector.Expiration, sqlHash256(sector.Root)).Scan(&dbID)
+			if err != nil {
+				return fmt.Errorf("failed to add temp sector root: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// ExpireTempSectors deletes the roots of sectors that are no longer
+// temporarily stored on the host.
+func (s *Store) ExpireTempSectors(height uint64) error {
+	_, err := s.exec(`DELETE FROM temp_storage_sector_roots WHERE expiration_height <= $1;`, height)
+	return err
+}
+
+// PruneSectors removes the metadata of any sectors that are not locked or referenced
 // by a contract.
-func (s *Store) Prune() error {
+func (s *Store) PruneSectors() error {
 	// delete in batches to avoid holding a lock on the table for too long
 	var done bool
 	for {
@@ -70,7 +97,7 @@ func (s *Store) Prune() error {
 				return nil
 			}
 
-			query := `DELETE FROM stored_sectors WHERE sector_id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
+			query := `DELETE FROM stored_sectors WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
 			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
 				return fmt.Errorf("failed to delete sectors: %w", err)
 			}
@@ -107,11 +134,11 @@ func lockLocationBatch(tx txn, locations ...storage.SectorLocation) (locks []int
 
 func sectorsForDeletion(tx txn, max int) (ids []int64, _ error) {
 	rows, err := tx.Query(`SELECT id FROM stored_sectors WHERE id NOT IN (
-SELECT sector_id FROM contract_sectors
+SELECT sector_id FROM contract_sector_roots
 UNION
-SELECT sector_id FROM locked_volume_sectors
+SELECT vs.sector_id FROM locked_volume_sectors ls INNER JOIN volume_sectors vs ON (ls.volume_sector_id=vs.id)
 UNION
-SELECT sector_id FROM temp_storage_sectors
+SELECT sector_id FROM temp_storage_sector_roots
 ) LIMIT $1;`, max)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select sectors: %w", err)
@@ -149,16 +176,8 @@ func unlockLocationBatch(tx txn, ids ...int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	query := `DELETE FROM locked_volume_sectors WHERE id=$1`
-	stmt, err := tx.Prepare(query)
-	if err != nil {
-		return fmt.Errorf("failed to prepare query: %w", err)
-	}
-	defer stmt.Close()
-	for _, id := range ids {
-		if _, err := stmt.Exec(id); err != nil {
-			return fmt.Errorf("failed to unlock sector %v: %w", id, err)
-		}
-	}
-	return nil
+
+	query := `DELETE FROM locked_volume_sectors WHERE id IN (` + queryPlaceHolders(len(ids)) + `);`
+	_, err := tx.Exec(query, queryArgs(ids)...)
+	return err
 }

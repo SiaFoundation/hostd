@@ -90,13 +90,13 @@ CREATE TABLE contract_sector_roots (
 CREATE INDEX contract_sector_roots_sector_id ON contract_sector_roots(sector_id);
 CREATE INDEX contract_sector_roots_contract_id_root_index ON contract_sector_roots(contract_id, root_index);
 
-CREATE TABLE temp_storage (
+CREATE TABLE temp_storage_sector_roots (
 	id INTEGER PRIMARY KEY,
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
 	expiration_height INTEGER NOT NULL
 );
-CREATE INDEX temp_storage_sector_id ON temp_storage(sector_id);
-CREATE INDEX temp_storage_expiration_height ON temp_storage(expiration_height);
+CREATE INDEX temp_storage_sector_roots_sector_id ON temp_storage_sector_roots(sector_id);
+CREATE INDEX temp_storage_sector_roots_expiration_height ON temp_storage_sector_roots(expiration_height);
 
 CREATE TABLE accounts (
 	id INTEGER PRIMARY KEY,

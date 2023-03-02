@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
@@ -527,6 +528,180 @@ func TestMigrateSectors(t *testing.T) {
 	}
 }
 
+func TestPrune(t *testing.T) {
+	const sectors = 256
+
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	volume, err := addVolume(db, "test", sectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// store enough sectors to fill the volume
+	roots := make([]types.Hash256, sectors)
+	for i := range roots {
+		root := frand.Entropy256()
+		roots[i] = root
+		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
+			if loc.Volume != volume.ID {
+				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
+			} else if loc.Index != uint64(i) {
+				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
+			} else if exists {
+				t.Fatal("sector already exists")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// add a contract to store the sectors
+	c := contracts.SignedRevision{
+		Revision: types.FileContractRevision{
+			ParentID: types.FileContractID(frand.Entropy256()),
+		},
+	}
+	if err := db.AddContract(c, []types.Transaction{}, types.MaxCurrency, 100); err != nil {
+		t.Fatal(err)
+	}
+	contractSectors, tempSectors, lockedSectors, deletedSectors := roots[:20], roots[20:40], roots[40:60], roots[60:]
+	err = db.UpdateContract(c.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
+		for _, root := range contractSectors {
+			if err := tx.AppendSector(root); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// add the temporary sectors
+	var tempRoots []storage.TempSector
+	for _, root := range tempSectors {
+		tempRoots = append(tempRoots, storage.TempSector{
+			Root:       root,
+			Expiration: 100,
+		})
+	}
+	if err := db.AddTempSectorRoots(tempRoots); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that there are no locked sectors
+	var count int64
+	err = db.queryRow(`SELECT COUNT(id) FROM locked_volume_sectors;`).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	} else if count != 0 {
+		t.Fatalf("expected 0 locked sectors, got %v", count)
+	}
+
+	// lock the remaining sectors
+	var locks []int64
+	for _, root := range lockedSectors {
+		loc, err := sectorLocation(&dbTxn{db}, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lockID, err := lockLocation(&dbTxn{db}, loc.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		locks = append(locks, lockID)
+	}
+
+	err = db.queryRow(`SELECT COUNT(id) FROM locked_volume_sectors;`).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	} else if count != int64(len(locks)) {
+		t.Fatalf("expected %v locked sectors, got %v", len(locks), count)
+	}
+	t.Log(len(locks))
+
+	// prune the sectors
+	if err := db.PruneSectors(); err != nil {
+		t.Fatal(err)
+	}
+
+	checkConsistency := func(stored, deleted []types.Hash256) error {
+		for _, root := range stored {
+			if _, release, err := db.SectorLocation(root); err != nil {
+				return fmt.Errorf("sector %v not found: %w", root, err)
+			} else if err := release(); err != nil {
+				return fmt.Errorf("failed to release sector %v: %w", root, err)
+			}
+		}
+
+		for _, root := range deleted {
+			if _, _, err := db.SectorLocation(root); !errors.Is(err, storage.ErrSectorNotFound) {
+				return fmt.Errorf("expected ErrSectorNotFound, got %v", err)
+			}
+		}
+		return nil
+	}
+
+	if err := checkConsistency(roots[:60], deletedSectors); err != nil {
+		t.Fatal(err)
+	}
+
+	// unlock locked sectors
+	if err := unlockLocationBatch(&dbTxn{db}, locks...); err != nil {
+		t.Fatal(err)
+	}
+
+	// prune the unlocked sectors
+	if err := db.PruneSectors(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkConsistency(roots[:40], roots[40:]); err != nil {
+		t.Fatal(err)
+	}
+
+	// delete the temp sectors
+	if err := db.ExpireTempSectors(100); err != nil {
+		t.Fatal(err)
+	}
+
+	// prune the temp sectors
+	if err := db.PruneSectors(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkConsistency(roots[:20], roots[20:]); err != nil {
+		t.Fatal(err)
+	}
+
+	// delete the contract sectors
+	if _, err := db.exec(`DELETE FROM contract_sector_roots;`); err != nil {
+		t.Fatal(err)
+	}
+
+	// prune the contract sectors
+	if err := db.PruneSectors(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkConsistency(nil, roots); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func BenchmarkVolumeGrow(b *testing.B) {
 	log, err := zap.NewDevelopment()
 	if err != nil {
@@ -595,15 +770,8 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	}
 	defer db.Close()
 
-	volumeID, err := db.AddVolume("test", false)
+	volume1, err := addVolume(db, "test", uint64(b.N))
 	if err != nil {
-		b.Fatal(err)
-	} else if err := db.SetAvailable(volumeID, true); err != nil {
-		b.Fatal(err)
-	}
-
-	// grow the volume to b.N sectors
-	if err := db.GrowVolume(volumeID, uint64(b.N)); err != nil {
 		b.Fatal(err)
 	}
 
@@ -618,23 +786,17 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 		}
 	}
 
-	volume2ID, err := db.AddVolume("test2", false)
+	_, err = addVolume(db, "test2", uint64(b.N))
 	if err != nil {
-		b.Fatal(err)
-	} else if err := db.SetAvailable(volume2ID, true); err != nil {
-		b.Fatal(err)
-	}
-
-	// grow the second volume to b.N sectors
-	if err := db.GrowVolume(volume2ID, uint64(b.N)); err != nil {
 		b.Fatal(err)
 	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
+	b.ReportMetric(float64(b.N), "sectors")
 
 	// migrate all sectors from the first volume to the second
-	if err := db.MigrateSectors(volumeID, 0, func(locations []storage.SectorLocation) error {
+	if err := db.MigrateSectors(volume1.ID, 0, func(locations []storage.SectorLocation) error {
 		return nil
 	}); err != nil {
 		b.Fatal(err)
