@@ -19,9 +19,9 @@ type (
 		UpdateSector(index uint64, newRoot types.Hash256) error
 
 		// AddRevenue adds the renter's spending to the contract.
-		AddRevenue(revenue ContractRevenue) error
+		AddRevenue(Revenue) error
 		// ReviseContract updates the current revision associated with a contract.
-		ReviseContract(revision SignedRevision) error
+		ReviseContract(SignedRevision) error
 	}
 
 	// UpdateStateTransaction atomically updates the contract manager's state.

@@ -30,8 +30,8 @@ type (
 		RenterSignature types.Signature `json:"renterSignature"`
 	}
 
-	// ContractRevenue tracks the usage of a contract's funds.
-	ContractRevenue struct {
+	// Revenue tracks the usage of a contract's funds.
+	Revenue struct {
 		RPC            types.Currency `json:"rpc"`
 		Storage        types.Currency `json:"storage"`
 		Egress         types.Currency `json:"egress"`
@@ -42,9 +42,9 @@ type (
 	// A Contract contains metadata on the current state of a file contract.
 	Contract struct {
 		SignedRevision
-		ContractRevenue
 
 		LockedCollateral types.Currency `json:"lockedCollateral"`
+		Revenue          Revenue        `json:"revenue"`
 
 		// NegotiationHeight is the height the contract was negotiated at.
 		NegotiationHeight uint64 `json:"negotiationHeight"`
@@ -197,7 +197,7 @@ func (cu *ContractUpdater) Close() error {
 }
 
 // Commit atomically applies all changes to the contract store.
-func (cu *ContractUpdater) Commit(revision SignedRevision, revenue ContractRevenue) error {
+func (cu *ContractUpdater) Commit(revision SignedRevision, revenue Revenue) error {
 	err := cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
 		for i, action := range cu.sectorActions {
 			switch action.Action {

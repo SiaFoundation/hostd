@@ -504,7 +504,7 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			RenterSignature: req.Signature,
 		}
 		// revenue was already processed through the budget
-		if err := pe.updater.Commit(signedRevision, contracts.ContractRevenue{}); err != nil {
+		if err := pe.updater.Commit(signedRevision, contracts.Revenue{}); err != nil {
 			s.WriteResponseErr(ErrHostInternalError)
 			return fmt.Errorf("failed to commit revision: %w", err)
 		}

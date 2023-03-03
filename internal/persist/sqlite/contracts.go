@@ -69,9 +69,9 @@ func (u *updateContractTxn) ReviseContract(revision contracts.SignedRevision) er
 }
 
 // AddRevenue adds the revenue to the contract's existing revenue.
-func (u *updateContractTxn) AddRevenue(revenue contracts.ContractRevenue) error {
+func (u *updateContractTxn) AddRevenue(revenue contracts.Revenue) error {
 	const query = `SELECT rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding FROM contracts WHERE id=$1;`
-	var existing contracts.ContractRevenue
+	var existing contracts.Revenue
 	err := u.tx.QueryRow(query, u.contractDBID).Scan(
 		(*sqlCurrency)(&existing.RPC),
 		(*sqlCurrency)(&existing.Storage),
@@ -442,11 +442,11 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		&c.RevisionConfirmed,
 		&c.ResolutionConfirmed,
 		(*sqlCurrency)(&c.LockedCollateral),
-		(*sqlCurrency)(&c.ContractRevenue.RPC),
-		(*sqlCurrency)(&c.ContractRevenue.Storage),
-		(*sqlCurrency)(&c.ContractRevenue.Ingress),
-		(*sqlCurrency)(&c.ContractRevenue.Egress),
-		(*sqlCurrency)(&c.ContractRevenue.AccountFunding),
+		(*sqlCurrency)(&c.Revenue.RPC),
+		(*sqlCurrency)(&c.Revenue.Storage),
+		(*sqlCurrency)(&c.Revenue.Ingress),
+		(*sqlCurrency)(&c.Revenue.Egress),
+		(*sqlCurrency)(&c.Revenue.AccountFunding),
 		&revisionBuf,
 		(*sqlHash512)(&c.HostSignature),
 		(*sqlHash512)(&c.RenterSignature),
