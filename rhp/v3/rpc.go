@@ -75,12 +75,13 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream) error {
 		return err
 	}
 
-	// register the price table for future use
-	sh.priceTables.Register(pt)
 	if err := budget.Commit(); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit payment: %w", err)
-	} else if err := s.WriteResponse(&rhpv3.RPCPriceTableResponse{}); err != nil {
+	}
+	// register the price table for future use
+	sh.priceTables.Register(pt)
+	if err := s.WriteResponse(&rhpv3.RPCPriceTableResponse{}); err != nil {
 		return fmt.Errorf("failed to send tracking response: %w", err)
 	}
 	return nil

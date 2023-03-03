@@ -85,7 +85,7 @@ func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash25
 }
 
 func (pe *programExecutor) payForExecution(cost rhpv3.ResourceCost) error {
-	executeCost := cost.Base.Add(cost.Storage).Add(cost.Egress).Add(cost.Ingress)
+	executeCost, _ := cost.Total()
 	if err := pe.budget.Spend(executeCost); err != nil {
 		return err
 	}
@@ -615,6 +615,7 @@ func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []b
 	}
 
 	if finalize {
+		ex.remainingDuration = revision.Revision.WindowStart - pt.HostBlockHeight
 		updater, err := sh.contracts.ReviseContract(revision.Revision.ParentID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create contract updater: %w", err)
