@@ -414,12 +414,21 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		return fmt.Errorf("failed to get host settings: %w", err)
 	}
 
+	costs := rpcSectorRootsCost(req.NumRoots, req.RootOffset, settings)
+	cost, _ := costs.Total()
+
+	// revise the contract
 	revision, err := rhp.Revise(s.contract.Revision, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 	if err != nil {
 		err := fmt.Errorf("failed to revise contract: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
+	} else if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
+		err := fmt.Errorf("failed to validate revision: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
+
 	// validate the renter's signature
 	sigHash := rhp.HashRevision(revision)
 	if !s.contract.RenterKey().VerifyHash(sigHash, req.Signature) {
@@ -428,14 +437,6 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		return err
 	}
 	hostSig := sh.privateKey.SignHash(sigHash)
-
-	proofSize := rhpv2.RangeProofSize(rhpv2.LeavesPerSector, req.RootOffset, req.RootOffset+req.NumRoots)
-	cost := settings.DownloadBandwidthPrice.Mul64((req.NumRoots + proofSize) * 32)
-	if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
-		err := fmt.Errorf("failed to validate revision: %w", err)
-		s.t.WriteResponseErr(err)
-		return err
-	}
 
 	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID, req.NumRoots, req.RootOffset)
 	if err != nil {
@@ -456,7 +457,14 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	}
 	defer updater.Close()
 
-	if err := updater.Commit(signedRevision); err != nil {
+	// adjust the revenue to account for the full transfer by the renter
+	spending := revision.ValidProofOutputs[1].Value.Sub(s.contract.Revision.ValidProofOutputs[1].Value)
+	remainder, underflow := spending.SubWithUnderflow(cost)
+	if !underflow {
+		costs.Egress = costs.Egress.Add(remainder)
+	}
+
+	if err := updater.Commit(signedRevision, costs.ToContractRevenue()); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract revision: %w", err)
 	}
@@ -498,12 +506,13 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	remainingDuration := uint64(s.contract.Revision.WindowStart) - currentHeight
 	// validate the requested actions
 	oldSectors := s.contract.Revision.Filesize / rhpv2.SectorSize
-	cost, collateral, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)
+	costs, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)
 	if err != nil {
 		err := fmt.Errorf("failed to validate write actions: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
 	}
+	cost, collateral := costs.Total()
 
 	// revise and validate the new revision
 	revision, err := rhp.Revise(s.contract.Revision, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
@@ -516,6 +525,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		s.t.WriteResponseErr(err)
 		return err
 	}
+
 	contractUpdater, err := sh.contracts.ReviseContract(revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
@@ -638,8 +648,16 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to sync storage manager: %w", err)
 	}
+
+	// adjust the revenue to account for the full transfer by the renter
+	spending := revision.ValidProofOutputs[1].Value.Sub(s.contract.Revision.ValidProofOutputs[1].Value)
+	remainder, underflow := spending.SubWithUnderflow(cost)
+	if !underflow {
+		costs.Storage = costs.Storage.Add(remainder)
+	}
+
 	// commit the contract modifications
-	if err := contractUpdater.Commit(signedRevision); err != nil {
+	if err := contractUpdater.Commit(signedRevision, costs.ToContractRevenue()); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract modifications: %w", err)
 	}
@@ -680,31 +698,13 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	}
 
 	// validate the request sections and calculate the cost
-	var bandwidth uint64
-	for _, sec := range req.Sections {
-		switch {
-		case uint64(sec.Offset)+uint64(sec.Length) > rhpv2.SectorSize:
-			err := errors.New("request is out-of-bounds")
-			s.t.WriteResponseErr(err)
-			return err
-		case sec.Length == 0:
-			err := errors.New("length cannot be zero")
-			s.t.WriteResponseErr(err)
-			return err
-		case req.MerkleProof && (sec.Offset%rhpv2.LeafSize != 0 || sec.Length%rhpv2.LeafSize != 0):
-			err := errors.New("offset and length must be multiples of SegmentSize when requesting a Merkle proof")
-			s.t.WriteResponseErr(err)
-			return err
-		}
-
-		bandwidth += uint64(sec.Length)
-		if req.MerkleProof {
-			start := sec.Offset / rhpv2.LeafSize
-			end := (sec.Offset + sec.Length) / rhpv2.LeafSize
-			proofSize := rhpv2.RangeProofSize(rhpv2.LeavesPerSector, start, end)
-			bandwidth += proofSize * 32
-		}
+	costs, err := validateReadActions(req.Sections, req.MerkleProof, settings)
+	if err != nil {
+		s.t.WriteResponseErr(err)
+		return fmt.Errorf("failed to validate read request: %w", err)
 	}
+	cost, _ := costs.Total()
+
 	// revise the contract with the values sent by the renter
 	revision, err := rhp.Revise(s.contract.Revision, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 	if err != nil {
@@ -713,8 +713,6 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 		return err
 	}
 
-	// calculate the cost of the read
-	cost := settings.DownloadBandwidthPrice.Mul64(bandwidth).Add(settings.SectorAccessPrice.Mul64(uint64(len(req.Sections))))
 	// validate the renter's signature and transfer
 	sigHash := rhp.HashRevision(revision)
 	if !s.contract.RenterKey().VerifyHash(sigHash, req.Signature) {
@@ -742,7 +740,14 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	}
 	defer updater.Close()
 
-	if err := updater.Commit(signedRevision); err != nil {
+	// adjust the revenue to account for the full transfer by the renter
+	spending := revision.ValidProofOutputs[1].Value.Sub(s.contract.Revision.ValidProofOutputs[1].Value)
+	remainder, underflow := spending.SubWithUnderflow(cost)
+	if !underflow {
+		costs.Egress = costs.Egress.Add(remainder)
+	}
+	// commit the contract revision
+	if err := updater.Commit(signedRevision, costs.ToContractRevenue()); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract revision: %w", err)
 	}

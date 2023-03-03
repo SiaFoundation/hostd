@@ -18,6 +18,8 @@ type (
 		// UpdateSector updates the sector root at the given index.
 		UpdateSector(index uint64, newRoot types.Hash256) error
 
+		// AddRevenue adds the renter's spending to the contract.
+		AddRevenue(revenue ContractRevenue) error
 		// ReviseContract updates the current revision associated with a contract.
 		ReviseContract(revision SignedRevision) error
 	}

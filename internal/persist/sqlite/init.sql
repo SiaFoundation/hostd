@@ -60,19 +60,24 @@ CREATE TABLE contracts (
 	id INTEGER PRIMARY KEY,
 	renewed_to INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
 	contract_id BLOB UNIQUE NOT NULL,
-	locked_collateral BLOB NOT NULL,
-	contract_error TEXT,
 	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max on clearing revisions
+	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
+	locked_collateral BLOB NOT NULL,
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	account_funding BLOB NOT NULL,
 	confirmed_revision_number BLOB, -- stored as BLOB to support uint64_max on clearing revisions
+	host_sig BLOB NOT NULL,
+	renter_sig BLOB NOT NULL,
+	raw_revision BLOB NOT NULL, -- binary serialized contract revision
+	contract_error TEXT,
 	formation_confirmed BOOLEAN NOT NULL, -- true if the contract has been confirmed on the blockchain
 	resolution_confirmed BOOLEAN NOT NULL, -- true if the storage proof/resolution has been confirmed on the blockchain
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	window_start INTEGER NOT NULL,
-	window_end INTEGER NOT NULL,
-	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
-	raw_revision BLOB NOT NULL, -- binary serialized contract revision
-	host_sig BLOB NOT NULL,
-	renter_sig BLOB NOT NULL
+	window_end INTEGER NOT NULL
 );
 CREATE INDEX contracts_contract_id ON contracts(contract_id);
 CREATE INDEX contracts_renewed_to ON contracts(renewed_to);

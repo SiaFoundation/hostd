@@ -84,7 +84,10 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to create contract revision updater: %w", err)
 	}
 	defer updater.Close()
-	if err := updater.Commit(signedRevision); err != nil {
+	revenue := contracts.ContractRevenue{
+		AccountFunding: fundAmount, // funds were transferred from the contract to the account
+	}
+	if err := updater.Commit(signedRevision, revenue); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to update stored contract revision: %w", err)
 	}
@@ -236,7 +239,11 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to create contract revision updater: %w", err)
 	}
 	defer updater.Close()
-	if err := updater.Commit(signedRevision); err != nil {
+	revenue := contracts.ContractRevenue{
+		RPC:            pt.FundAccountCost,
+		AccountFunding: fundAmount,
+	}
+	if err := updater.Commit(signedRevision, revenue); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to update stored contract revision: %w", err)
 	}
