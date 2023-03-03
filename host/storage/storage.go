@@ -641,6 +641,7 @@ func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
 func NewVolumeManager(vs VolumeStore, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
 	vm := &VolumeManager{
 		vs:  vs,
+		cm:  cm,
 		log: log,
 
 		volumes:        make(map[int]*volume),
