@@ -21,10 +21,11 @@ type (
 
 	// WalletResponse is the response body for the [GET] /wallet endpoint.
 	WalletResponse struct {
-		ScanHeight uint64         `json:"scanHeight"`
-		Address    types.Address  `json:"address"`
-		Spendable  types.Currency `json:"spendable"`
-		Confirmed  types.Currency `json:"confirmed"`
+		ScanHeight  uint64         `json:"scanHeight"`
+		Address     types.Address  `json:"address"`
+		Spendable   types.Currency `json:"spendable"`
+		Confirmed   types.Currency `json:"confirmed"`
+		Unconfirmed types.Currency `json:"unconfirmed"`
 	}
 
 	// WalletSendSiacoinsRequest is the request body for the [POST] /wallet/send endpoint.

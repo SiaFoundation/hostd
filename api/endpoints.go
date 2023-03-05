@@ -244,15 +244,16 @@ func (a *API) handlePOSTVolumeCheck(c jape.Context) {
 }
 
 func (a *API) handleGETWallet(c jape.Context) {
-	spendable, confirmed, err := a.wallet.Balance()
+	spendable, confirmed, unconfirmed, err := a.wallet.Balance()
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
 	c.Encode(WalletResponse{
-		ScanHeight: a.wallet.ScanHeight(),
-		Address:    a.wallet.Address(),
-		Spendable:  spendable,
-		Confirmed:  confirmed,
+		ScanHeight:  a.wallet.ScanHeight(),
+		Address:     a.wallet.Address(),
+		Spendable:   spendable,
+		Confirmed:   confirmed,
+		Unconfirmed: unconfirmed,
 	})
 }
 
@@ -264,6 +265,14 @@ func (a *API) handleGETWalletTransactions(c jape.Context) {
 		return
 	}
 	c.Encode(transactions)
+}
+
+func (a *API) handleGETWalletPending(c jape.Context) {
+	pending, err := a.wallet.UnconfirmedTransactions()
+	if !a.checkServerError(c, "failed to get wallet pending", err) {
+		return
+	}
+	c.Encode(pending)
 }
 
 func (a *API) handlePOSTWalletSend(c jape.Context) {

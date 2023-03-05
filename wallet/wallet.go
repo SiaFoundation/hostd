@@ -18,16 +18,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
-	var buf bytes.Buffer
-	siad.MarshalSia(&buf)
-	d := types.NewBufDecoder(buf.Bytes())
-	core.DecodeFrom(d)
-	if d.Err() != nil {
-		panic(d.Err())
-	}
-}
-
 // transaction sources indicate the source of a transaction. Transactions can
 // either be created by sending Siacoins between unlock hashes or they can be
 // created by consensus (e.g. a miner payout, a siafund claim, or a contract).
@@ -86,40 +76,19 @@ type (
 		tg    *threadgroup.ThreadGroup
 
 		mu sync.Mutex // protects the following fields
-		// txnsets maps a transaction set to its SiacoinOutputIDs.
-		txnsets map[modules.TransactionSetID][]types.SiacoinOutputID
-		// tpool is a set of siacoin output IDs that are currently in the
+		// tpoolTxns maps a transaction set ID to the transactions in that set
+		tpoolTxns map[modules.TransactionSetID][]Transaction
+		// tpoolUtxos maps a siacoin output ID to its corresponding siacoin
+		// element. It is used to track siacoin outputs that are currently in
+		// the transaction pool.
+		tpoolUtxos map[types.SiacoinOutputID]SiacoinElement
+		// tpoolSpent is a set of siacoin output IDs that are currently in the
 		// transaction pool.
-		tpool map[types.SiacoinOutputID]bool
+		tpoolSpent map[types.SiacoinOutputID]bool
 		// locked is a set of siacoin output IDs locked by FundTransaction. They
 		// will be released either by calling Release for unused transactions or
 		// being confirmed in a block.
 		locked map[types.SiacoinOutputID]bool
-	}
-
-	// An UpdateTransaction atomically updates the wallet store
-	UpdateTransaction interface {
-		AddSiacoinElement(SiacoinElement) error
-		RemoveSiacoinElement(types.SiacoinOutputID) error
-		AddTransaction(Transaction) error
-		RevertBlock(types.BlockID) error
-	}
-
-	// A SingleAddressStore stores the state of a single-address wallet.
-	// Implementations are assumed to be thread safe.
-	SingleAddressStore interface {
-		LastWalletChange() (id modules.ConsensusChangeID, height uint64, err error)
-
-		UnspentSiacoinElements() ([]SiacoinElement, error)
-		// Transactions returns a paginated list of transactions ordered by
-		// block height, descending. If no more transactions are available,
-		// (nil, nil) should be returned.
-		Transactions(limit, offset int) ([]Transaction, error)
-		// TransactionCount returns the total number of transactions in the
-		// wallet.
-		TransactionCount() (uint64, error)
-
-		UpdateWallet(ccID modules.ConsensusChangeID, height uint64, fn func(UpdateTransaction) error) error
 	}
 )
 
@@ -208,24 +177,28 @@ func (sw *SingleAddressWallet) Address() types.Address {
 }
 
 // Balance returns the balance of the wallet.
-func (sw *SingleAddressWallet) Balance() (spendable, confirmed types.Currency, err error) {
+func (sw *SingleAddressWallet) Balance() (spendable, confirmed, unconfirmed types.Currency, err error) {
 	done, err := sw.tg.Add()
 	if err != nil {
-		return types.Currency{}, types.Currency{}, err
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, err
 	}
 	defer done()
 
 	outputs, err := sw.store.UnspentSiacoinElements()
 	if err != nil {
-		return types.Currency{}, types.Currency{}, fmt.Errorf("failed to get unspent outputs: %w", err)
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to get unspent outputs: %w", err)
 	}
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 	for _, sco := range outputs {
 		confirmed = confirmed.Add(sco.Value)
-		if !sw.locked[sco.ID] || sw.tpool[sco.ID] {
+		if !sw.locked[sco.ID] && !sw.tpoolSpent[sco.ID] {
 			spendable = spendable.Add(sco.Value)
 		}
+	}
+
+	for _, sco := range sw.tpoolUtxos {
+		unconfirmed = unconfirmed.Add(sco.Value)
 	}
 	return
 }
@@ -276,7 +249,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	var inputSum types.Currency
 	var fundingElements []SiacoinElement
 	for _, sce := range utxos {
-		if sw.locked[sce.ID] || sw.tpool[sce.ID] {
+		if sw.locked[sce.ID] || sw.tpoolSpent[sce.ID] {
 			continue
 		}
 		fundingElements = append(fundingElements, sce)
@@ -364,31 +337,106 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 	}
 	defer done()
 
+	siacoinOutputs := make(map[types.SiacoinOutputID]SiacoinElement)
+	utxos, err := sw.store.UnspentSiacoinElements()
+	if err != nil {
+		return
+	}
+	for _, output := range utxos {
+		siacoinOutputs[output.ID] = output
+	}
+
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
-	for _, txnsetID := range diff.RevertedTransactions {
-		for _, outputID := range sw.txnsets[txnsetID] {
-			delete(sw.tpool, outputID)
-		}
-		delete(sw.txnsets, txnsetID)
+	for id, output := range sw.tpoolUtxos {
+		siacoinOutputs[id] = output
 	}
 
-	for _, txnset := range diff.AppliedTransactions {
-		var txnsetOutputs []types.SiacoinOutputID
-		for _, txn := range txnset.Transactions {
-			for _, sci := range txn.SiacoinInputs {
-				if types.Address(sci.UnlockConditions.UnlockHash()) == sw.addr {
-					sw.tpool[types.SiacoinOutputID(sci.ParentID)] = true
-					txnsetOutputs = append(txnsetOutputs, types.SiacoinOutputID(sci.ParentID))
-				}
+	for _, txnsetID := range diff.RevertedTransactions {
+		txns, ok := sw.tpoolTxns[txnsetID]
+		if !ok {
+			continue
+		}
+		for _, txn := range txns {
+			for _, sci := range txn.Transaction.SiacoinInputs {
+				delete(sw.tpoolSpent, sci.ParentID)
+			}
+			for i := range txn.Transaction.SiacoinOutputs {
+				delete(sw.tpoolUtxos, txn.Transaction.SiacoinOutputID(i))
 			}
 		}
-		if len(txnsetOutputs) > 0 {
-			sw.txnsets[txnset.ID] = txnsetOutputs
+	}
+
+	currentHeight := sw.cm.TipState().Index.Height
+
+	for _, txnset := range diff.AppliedTransactions {
+		var relevantTxns []Transaction
+
+		for _, stxn := range txnset.Transactions {
+			var relevant bool
+			var txn types.Transaction
+			convertToCore(stxn, &txn)
+			processed := Transaction{
+				ID: txn.ID(),
+				Index: types.ChainIndex{
+					Height: currentHeight + 1,
+				},
+				Transaction: txn,
+				Source:      TxnSourceTransaction,
+				Timestamp:   time.Now(),
+			}
+			for _, sci := range txn.SiacoinInputs {
+				if sci.UnlockConditions.UnlockHash() != sw.addr {
+					continue
+				}
+				relevant = true
+				sw.tpoolSpent[sci.ParentID] = true
+
+				output, ok := siacoinOutputs[sci.ParentID]
+				if !ok {
+					panic("missing utxo")
+				}
+				processed.Outflow = processed.Outflow.Add(output.Value)
+			}
+
+			for i, sco := range txn.SiacoinOutputs {
+				if sco.Address != sw.addr {
+					continue
+				}
+				relevant = true
+				outputID := txn.SiacoinOutputID(i)
+				processed.Inflow = processed.Inflow.Add(sco.Value)
+				sce := SiacoinElement{
+					ID:            outputID,
+					SiacoinOutput: sco,
+				}
+				siacoinOutputs[outputID] = sce
+				sw.tpoolUtxos[outputID] = sce
+			}
+
+			if relevant {
+				relevantTxns = append(relevantTxns, processed)
+			}
+		}
+
+		if len(relevantTxns) != 0 {
+			sw.tpoolTxns[txnset.ID] = relevantTxns
 		}
 	}
-	sw.log.Debug("processed txpool diff", zap.Int("applied", len(diff.AppliedTransactions)), zap.Int("reverted", len(diff.RevertedTransactions)))
+	sw.log.Debug("processed txpool diff", zap.Int("applied", len(diff.AppliedTransactions)), zap.Int("reverted", len(diff.RevertedTransactions)), zap.Int("relevant", len(sw.tpoolTxns)))
+}
+
+// UnconfirmedTransactions returns all unconfirmed transactions relevant to the
+// wallet.
+func (sw *SingleAddressWallet) UnconfirmedTransactions() (txns []Transaction, _ error) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+
+	for _, txnset := range sw.tpoolTxns {
+		txns = append(txns, txnset...)
+	}
+	return
 }
 
 // ProcessConsensusChange implements modules.ConsensusSetSubscriber.
@@ -503,7 +551,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				// release the locks on the spent outputs
 				sw.mu.Lock()
 				delete(sw.locked, types.SiacoinOutputID(diff.ID))
-				delete(sw.tpool, types.SiacoinOutputID(diff.ID))
+				delete(sw.tpoolUtxos, types.SiacoinOutputID(diff.ID))
 				sw.mu.Unlock()
 			}
 		}
@@ -596,6 +644,17 @@ func payoutTransaction(output SiacoinElement, index types.ChainIndex, source Tra
 	}
 }
 
+// convertToCore converts a siad type to an equivalent core type.
+func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
+	var buf bytes.Buffer
+	siad.MarshalSia(&buf)
+	d := types.NewBufDecoder(buf.Bytes())
+	core.DecodeFrom(d)
+	if d.Err() != nil {
+		panic(d.Err())
+	}
+}
+
 // NewSingleAddressWallet returns a new SingleAddressWallet using the provided private key and store.
 func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp TransactionPool, store SingleAddressStore, log *zap.Logger) (*SingleAddressWallet, error) {
 	changeID, scanHeight, err := store.LastWalletChange()
@@ -612,10 +671,12 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		log:   log,
 		tg:    threadgroup.New(),
 
-		addr:    wallet.StandardAddress(priv.PublicKey()),
-		locked:  make(map[types.SiacoinOutputID]bool),
-		tpool:   make(map[types.SiacoinOutputID]bool),
-		txnsets: make(map[modules.TransactionSetID][]types.SiacoinOutputID),
+		addr:       wallet.StandardAddress(priv.PublicKey()),
+		locked:     make(map[types.SiacoinOutputID]bool),
+		tpoolSpent: make(map[types.SiacoinOutputID]bool),
+
+		tpoolUtxos: make(map[types.SiacoinOutputID]SiacoinElement),
+		tpoolTxns:  make(map[modules.TransactionSetID][]Transaction),
 	}
 
 	go func() {

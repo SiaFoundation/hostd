@@ -20,7 +20,7 @@ func TestWallet(t *testing.T) {
 
 	w := node1.Wallet
 
-	_, balance, err := w.Balance()
+	_, balance, _, err := w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {
@@ -33,7 +33,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// the outputs have not matured yet
-	_, balance, err = w.Balance()
+	_, balance, _, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {
@@ -48,7 +48,7 @@ func TestWallet(t *testing.T) {
 
 	// check the wallet's reported balance
 	expectedBalance := (consensus.State{}).BlockReward()
-	_, balance, err = w.Balance()
+	_, balance, _, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(expectedBalance) {
@@ -86,18 +86,34 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	time.Sleep(250 * time.Millisecond) // sleep for tpool sync
+	// check that the wallet's spendable balance and unconfiremed balance are
+	// correct
+	spendable, balance, unconfirmed, err := w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(expectedBalance) {
+		t.Fatalf("expected %v balance, got %v", expectedBalance, balance)
+	} else if !spendable.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero spendable balance, got %v", spendable)
+	} else if !unconfirmed.Equals(expectedBalance) {
+		t.Fatalf("expected %v unconfirmed balance, got %v", expectedBalance, unconfirmed)
+	}
+
 	// mine another block to confirm the transaction
-	if err := node1.MineBlocks(w.Address(), 1); err != nil {
+	if err := node1.MineBlocks(types.VoidAddress, 1); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond)
 
 	// check that the wallet's balance is the same
-	_, balance, err = w.Balance()
+	_, balance, unconfirmed, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(expectedBalance) {
 		t.Fatalf("expected %v balance, got %v", expectedBalance, balance)
+	} else if !unconfirmed.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero unconfirmed balance, got %v", unconfirmed)
 	}
 
 	// check that the wallet has two transactions
@@ -134,8 +150,22 @@ func TestWallet(t *testing.T) {
 		sentTransactions = append(sentTransactions, txn)
 	}
 
+	time.Sleep(250 * time.Millisecond) // sleep for tpool sync
+	// check that the wallet's spendable balance and unconfiremed balance are
+	// correct
+	spendable, balance, unconfirmed, err = w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(expectedBalance) {
+		t.Fatalf("expected %v balance, got %v", expectedBalance, balance)
+	} else if !spendable.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero spendable balance, got %v", spendable)
+	} else if !unconfirmed.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero unconfirmed balance, got %v", unconfirmed)
+	}
+
 	// mine another block to confirm the transactions
-	if err := node1.MineBlocks(w.Address(), 1); err != nil {
+	if err := node1.MineBlocks(types.VoidAddress, 1); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond)
@@ -182,7 +212,7 @@ func TestWallet(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// check that the wallet's balance is back to 0
-	_, balance, err = w.Balance()
+	_, balance, _, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {

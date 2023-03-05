@@ -19,7 +19,8 @@ type (
 	Wallet interface {
 		Address() types.Address
 		ScanHeight() uint64
-		Balance() (spendable, confirmed types.Currency, err error)
+		Balance() (spendable, confirmed, unconfirmed types.Currency, err error)
+		UnconfirmedTransactions() ([]wallet.Transaction, error)
 		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []types.Hash256, release func(), err error)
 		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
 		Transactions(limit, offset int) ([]wallet.Transaction, error)
@@ -102,6 +103,7 @@ func NewServer(g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wal
 		"POST /volumes/:id/check":       a.handlePOSTVolumeCheck,
 		"GET /wallet":                   a.handleGETWallet,
 		"GET /wallet/transactions":      a.handleGETWalletTransactions,
+		"GET /wallet/pending":           a.handleGETWalletPending,
 		"POST /wallet/send":             a.handlePOSTWalletSend,
 	})
 	return r
