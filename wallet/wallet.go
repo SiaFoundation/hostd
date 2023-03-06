@@ -366,6 +366,7 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 				delete(sw.tpoolUtxos, txn.Transaction.SiacoinOutputID(i))
 			}
 		}
+		delete(sw.tpoolTxns, txnsetID)
 	}
 
 	currentHeight := sw.cm.TipState().Index.Height
