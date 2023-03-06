@@ -65,5 +65,8 @@ type (
 		UpdateContract(types.FileContractID, func(UpdateContractTransaction) error) error
 		// UpdateContractState atomically updates the contract manager's state.
 		UpdateContractState(modules.ConsensusChangeID, uint64, func(UpdateStateTransaction) error) error
+		// ExpireContractSectors removes sector roots for any contracts that are
+		// past their proof window.
+		ExpireContractSectors(height uint64) error
 	}
 )

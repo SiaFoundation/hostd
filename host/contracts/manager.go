@@ -311,11 +311,12 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		return
 	}
 
-	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))
-	cm.log.Debug("consensus change applied", zap.Uint64("height", uint64(cc.BlockHeight)), zap.String("changeID", cc.ID.String()))
+	scanHeight := uint64(cc.BlockHeight)
+	atomic.StoreUint64(&cm.blockHeight, scanHeight)
+	cm.log.Debug("consensus change applied", zap.Uint64("height", scanHeight), zap.String("changeID", cc.ID.String()))
 
 	tipHeight := cm.chain.TipState().Index.Height
-	if tipHeight > cm.blockHeight {
+	if tipHeight > scanHeight {
 		cm.log.Warn("skipping actions for old chain index", zap.Uint64("tipHeight", tipHeight), zap.Uint64("changeHeight", cm.blockHeight))
 		return
 	}
@@ -324,6 +325,9 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		err = cm.store.ContractAction(&cc, cm.handleContractAction)
 		if err != nil {
 			cm.log.Error("failed to process contract actions", zap.Error(err))
+			return
+		} else if err = cm.store.ExpireContractSectors(scanHeight); err != nil {
+			cm.log.Error("failed to expire contract sectors", zap.Error(err))
 			return
 		}
 	}()

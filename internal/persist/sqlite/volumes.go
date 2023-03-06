@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 )
-
-const sectorSize = 1 << 22
 
 // StorageUsage returns the number of bytes used and the total number of bytes
 // available in the storage pool.
@@ -21,9 +20,9 @@ func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("query failed: %w", err)
 	}
-	totalBytes *= sectorSize
-	usedBytes *= sectorSize
-	return usedBytes, totalBytes, nil
+	totalBytes *= rhpv2.SectorSize
+	usedBytes *= rhpv2.SectorSize
+	return
 }
 
 // Volumes returns a list of all volumes.

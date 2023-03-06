@@ -7,6 +7,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
+	"go.uber.org/zap"
 )
 
 const pruneBatchSize = (10 << 30) / (1 << 22) // 10GiB
@@ -75,8 +76,32 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 // ExpireTempSectors deletes the roots of sectors that are no longer
 // temporarily stored on the host.
 func (s *Store) ExpireTempSectors(height uint64) error {
-	_, err := s.exec(`DELETE FROM temp_storage_sector_roots WHERE expiration_height <= $1;`, height)
-	return err
+	// delete in batches to avoid holding a lock on the table for too long
+	var done bool
+	for {
+		err := s.transaction(func(tx txn) error {
+			sectorIDs, err := expiredTempSectors(tx, height, pruneBatchSize)
+			if err != nil {
+				return fmt.Errorf("failed to select sectors: %w", err)
+			} else if len(sectorIDs) == 0 {
+				done = true
+				return nil
+			}
+
+			s.log.Debug("removing temp sectors", zap.Int("count", len(sectorIDs)))
+
+			query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
+			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
+				return fmt.Errorf("failed to delete sectors: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to prune sectors: %w", err)
+		} else if done {
+			return nil
+		}
+	}
 }
 
 // PruneSectors removes the metadata of any sectors that are not locked or referenced
@@ -96,6 +121,8 @@ func (s *Store) PruneSectors() error {
 				done = true
 				return nil
 			}
+
+			s.log.Debug("pruning unreferenced sectors", zap.Int("count", len(sectorIDs)))
 
 			query := `DELETE FROM stored_sectors WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
 			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
@@ -132,14 +159,31 @@ func lockLocationBatch(tx txn, locations ...storage.SectorLocation) (locks []int
 	return
 }
 
-func sectorsForDeletion(tx txn, max int) (ids []int64, _ error) {
+func expiredTempSectors(tx txn, height uint64, limit int) (ids []int64, _ error) {
+	const query = `SELECT id FROM temp_storage_sector_roots WHERE expiration_height <= $1 LIMIT $2;`
+	rows, err := tx.Query(query, height, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select sectors: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan sector id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return
+}
+
+func sectorsForDeletion(tx txn, limit int) (ids []int64, _ error) {
 	rows, err := tx.Query(`SELECT id FROM stored_sectors WHERE id NOT IN (
 SELECT sector_id FROM contract_sector_roots
 UNION
 SELECT vs.sector_id FROM locked_volume_sectors ls INNER JOIN volume_sectors vs ON (ls.volume_sector_id=vs.id)
 UNION
 SELECT sector_id FROM temp_storage_sector_roots
-) LIMIT $1;`, max)
+) LIMIT $1;`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select sectors: %w", err)
 	}

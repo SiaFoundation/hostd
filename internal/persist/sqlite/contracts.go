@@ -9,6 +9,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/siad/modules"
+	"go.uber.org/zap"
 )
 
 const (
@@ -421,6 +422,38 @@ func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint6
 	})
 }
 
+// ExpireContractSectors expires all sectors that are no longer covered by an
+// active contract.
+func (s *Store) ExpireContractSectors(height uint64) error {
+	// delete in batches to avoid holding a lock on the database for too long
+	var done bool
+	for {
+		if done {
+			return nil
+		}
+		err := s.transaction(func(tx txn) error {
+			sectorIDs, err := expiredContractSectors(tx, height, pruneBatchSize)
+			if err != nil {
+				return fmt.Errorf("failed to select sectors: %w", err)
+			} else if len(sectorIDs) == 0 {
+				done = true
+				return nil
+			}
+
+			s.log.Debug("removing contract sectors", zap.Int("count", len(sectorIDs)))
+
+			query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
+			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
+				return fmt.Errorf("failed to delete sectors: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to prune sectors: %w", err)
+		}
+	}
+}
+
 func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
 egress_revenue, account_funding, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
@@ -514,4 +547,23 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		c.Error = errors.New(errorStr.String)
 	}
 	return
+}
+
+func expiredContractSectors(tx txn, height uint64, batchSize int64) (ids []int64, _ error) {
+	const query = `SELECT csr.id FROM contract_sector_roots csr 
+INNER JOIN contracts c ON (csr.contract_id=c.id)
+WHERE c.window_end < $1 LIMIT $2;`
+	rows, err := tx.Query(query, height, batchSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query expired sectors: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan expired contract: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
