@@ -167,4 +167,7 @@ func main() {
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
 	log.Println("Shutting down...")
+	time.AfterFunc(5*time.Minute, func() {
+		os.Exit(-1)
+	})
 }
