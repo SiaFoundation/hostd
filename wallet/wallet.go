@@ -176,6 +176,10 @@ func (sw *SingleAddressWallet) Address() types.Address {
 	return sw.addr
 }
 
+func (sw *SingleAddressWallet) UnlockConditions() types.UnlockConditions {
+	return wallet.StandardUnlockConditions(sw.priv.PublicKey())
+}
+
 // Balance returns the balance of the wallet.
 func (sw *SingleAddressWallet) Balance() (spendable, confirmed, unconfirmed types.Currency, err error) {
 	done, err := sw.tg.Add()

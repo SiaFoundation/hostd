@@ -11,6 +11,14 @@ import (
 	"go.sia.tech/siad/modules"
 )
 
+const (
+	// rebroadcastBuffer is the number of blocks after the negotiation height to
+	// attempt to rebroadcast the contract.
+	rebroadcastBuffer = 12 // 2 hours
+	// revisionSubmissionBuffer number of blocks before the proof window to submit a revision
+	revisionSubmissionBuffer = 36 // 6 hours
+)
+
 type (
 	// An updateContractTxn atomically updates a single contract and its
 	// associated sector roots.
@@ -22,6 +30,12 @@ type (
 	// An updateContractsTxn atomically updates the contract manager's state
 	updateContractsTxn struct {
 		tx txn
+	}
+
+	// A contractAction pairs a contract's ID with a lifecycle action.
+	contractAction struct {
+		ID     types.FileContractID
+		Action contracts.LifecycleAction
 	}
 )
 
@@ -307,9 +321,48 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 	return roots, nil
 }
 
+func contractsForAction(tx txn, height uint64) (actions []contractAction, _ error) {
+	const query = `
+-- formation not confirmed, within rebroadcast window
+SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND contract_error IS NULL AND negotiation_height >= $1
+UNION
+-- formation confirmed, revision not confirmed, just outside proof window
+SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND window_start BETWEEN $2 AND $3 AND confirmed_revision_number <> revision_number AND contract_error IS NULL
+UNION
+-- formation confirmed, resolution not confirmed, in proof window 
+SELECT contract_id, 'resolution' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_error IS NULL;`
+
+	maxRebroadcastHeight := height - rebroadcastBuffer
+	minRevisionHeight := height - revisionSubmissionBuffer
+	maxRevisionHeight := height - 1
+
+	rows, err := tx.Query(query, maxRebroadcastHeight, minRevisionHeight, maxRevisionHeight, height)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var action contractAction
+		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action); err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+		actions = append(actions, action)
+	}
+	return
+}
+
 // ContractAction calls contractFn on every contract in the store that
 // needs a lifecycle action performed.
-func (s *Store) ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, contracts.LifecycleAction) error) error {
+func (s *Store) ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, contracts.LifecycleAction)) error {
+	actions, err := contractsForAction(&dbTxn{s}, uint64(cc.BlockHeight))
+	if err != nil {
+		return fmt.Errorf("failed to get contracts for action: %w", err)
+	}
+
+	for _, action := range actions {
+		contractFn(action.ID, action.Action)
+	}
 	return nil
 }
 

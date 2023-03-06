@@ -81,9 +81,10 @@ CREATE TABLE contracts (
 );
 CREATE INDEX contracts_contract_id ON contracts(contract_id);
 CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
-CREATE INDEX contracts_negotiation_height_index ON contracts(negotiation_height);
-CREATE INDEX contracts_window_start_index ON contracts(window_start);
-CREATE INDEX contracts_window_end_index ON contracts(window_end);
+CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_start ON contracts(formation_confirmed, resolution_confirmed, window_start);
+CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_end ON contracts(formation_confirmed, resolution_confirmed, window_end);
+CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
+CREATE INDEX contracts_formation_confirmed_negotation_height ON contracts(formation_confirmed, negotiation_height);
 
 CREATE TABLE contract_sector_roots (
 	id INTEGER PRIMARY KEY,

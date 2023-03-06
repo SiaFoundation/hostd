@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -17,10 +18,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// proofWindowBuffer is the number of blocks before the proof window the host
+// will refuse to accept a revision.
+const proofWindowBuffer = 36 // 6 hours
+
 type (
 	// ChainManager defines the interface required by the contract manager to
 	// interact with the consensus set.
 	ChainManager interface {
+		TipState() consensus.State
 		IndexAtHeight(height uint64) (types.ChainIndex, error)
 		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
 	}
@@ -28,6 +34,7 @@ type (
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
+		UnlockConditions() types.UnlockConditions
 		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []types.Hash256, release func(), err error)
 		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
 	}
@@ -79,7 +86,9 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 	cm.mu.Lock()
 	contract, err := cm.store.Contract(id)
 	if err != nil {
-		return SignedRevision{}, err
+		return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
+	} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
+		return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
 	}
 
 	// if the contract isn't already locked, create a new lock
@@ -100,6 +109,8 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 		contract, err := cm.store.Contract(id)
 		if err != nil {
 			return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
+		} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
+			return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
 		}
 		return contract.SignedRevision, nil
 	case <-ctx.Done():
@@ -193,7 +204,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 			for _, rev := range transaction.FileContractRevisions {
 				contractID := types.FileContractID(rev.ParentID)
-				revertedRevisions[contractID] = struct{}{}
+				revertedRevisions[contractID] = struct{}{} // TODO: revert to the previous revision number, instead of setting to 0
 			}
 
 			for _, proof := range transaction.StorageProofs {
@@ -300,13 +311,22 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		return
 	}
 
-	err = cm.store.ContractAction(&cc, cm.handleContractAction)
-	if err != nil {
-		cm.log.Error("failed to process contract actions", zap.Error(err))
-		return
-	}
 	atomic.StoreUint64(&cm.blockHeight, uint64(cc.BlockHeight))
 	cm.log.Debug("consensus change applied", zap.Uint64("height", uint64(cc.BlockHeight)), zap.String("changeID", cc.ID.String()))
+
+	tipHeight := cm.chain.TipState().Index.Height
+	if tipHeight > cm.blockHeight {
+		cm.log.Warn("skipping actions for old chain index", zap.Uint64("tipHeight", tipHeight), zap.Uint64("changeHeight", cm.blockHeight))
+		return
+	}
+
+	go func() {
+		err = cm.store.ContractAction(&cc, cm.handleContractAction)
+		if err != nil {
+			cm.log.Error("failed to process contract actions", zap.Error(err))
+			return
+		}
+	}()
 }
 
 // ReviseContract initializes a new contract updater for the given contract.
@@ -331,6 +351,17 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 // Close closes the contract manager.
 func (cm *ContractManager) Close() error {
 	cm.tg.Stop()
+	return nil
+}
+
+// isGoodForModification validates if a contract can be modified
+func isGoodForModification(contract Contract, height uint64) error {
+	switch {
+	case (height + proofWindowBuffer) > contract.Revision.WindowStart:
+		return fmt.Errorf("contract is too close to the proof window start (%v > %v)", height+proofWindowBuffer, contract.Revision.WindowStart)
+	case contract.Revision.RevisionNumber == math.MaxUint64:
+		return fmt.Errorf("contract has reached the maximum number of revisions")
+	}
 	return nil
 }
 
