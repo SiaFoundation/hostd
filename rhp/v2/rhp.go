@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -102,6 +103,7 @@ type (
 		rhp3Port   string
 
 		listener net.Listener
+		tg       *threadgroup.ThreadGroup
 
 		cm     ChainManager
 		tpool  TransactionPool
@@ -114,6 +116,48 @@ type (
 		log       *zap.Logger
 	}
 )
+
+func (sh *SessionHandler) rpcLoop(sess *session) error {
+	done, err := sh.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	id, err := sess.t.ReadID()
+	if errors.Is(err, rhpv2.ErrRenterClosed) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to read RPC ID: %w", err)
+	}
+
+	var rpcFn func(*session) error
+	rpcFn, ok := map[types.Specifier]func(*session) error{
+		rhpv2.RPCFormContractID:       sh.rpcFormContract,
+		rhpv2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
+		rhpv2.RPCLockID:               sh.rpcLock,
+		rhpv2.RPCUnlockID:             sh.rpcUnlock,
+		rhpv2.RPCSectorRootsID:        sh.rpcSectorRoots,
+		rhpv2.RPCReadID:               sh.rpcRead,
+		rhpv2.RPCSettingsID:           sh.rpcSettings,
+		rhpv2.RPCWriteID:              sh.rpcWrite,
+	}[id]
+	if !ok {
+		err = fmt.Errorf("unknown RPC ID %q", id)
+		sess.t.WriteResponseErr(err)
+		return err
+	}
+	start := time.Now()
+	recordEnd := sh.recordRPC(id, sess)
+	err = rpcFn(sess)
+	recordEnd(err)
+	if err != nil {
+		sh.log.Warn("RPC error", zap.Stringer("RPC", id), zap.Error(err), zap.String("remote", sess.conn.RemoteAddr().String()))
+		return fmt.Errorf("RPC %q error: %w", id, err)
+	}
+	sh.log.Debug("RPC complete", zap.Stringer("RPC", id), zap.String("remote", sess.conn.RemoteAddr().String()), zap.Duration("elapsed", time.Since(start)))
+	return nil
+}
 
 // upgrade performs the RHP2 handshake and begins handling RPCs
 func (sh *SessionHandler) upgrade(conn net.Conn) error {
@@ -142,43 +186,15 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 	}()
 
 	for {
-		id, err := t.ReadID()
-		if errors.Is(err, rhpv2.ErrRenterClosed) {
-			return nil
-		} else if err != nil {
-			return fmt.Errorf("failed to read RPC ID: %w", err)
-		}
-
-		var rpcFn func(*session) error
-		rpcFn, ok := map[types.Specifier]func(*session) error{
-			rhpv2.RPCFormContractID:       sh.rpcFormContract,
-			rhpv2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
-			rhpv2.RPCLockID:               sh.rpcLock,
-			rhpv2.RPCUnlockID:             sh.rpcUnlock,
-			rhpv2.RPCSectorRootsID:        sh.rpcSectorRoots,
-			rhpv2.RPCReadID:               sh.rpcRead,
-			rhpv2.RPCSettingsID:           sh.rpcSettings,
-			rhpv2.RPCWriteID:              sh.rpcWrite,
-		}[id]
-		if !ok {
-			err = fmt.Errorf("unknown RPC ID %q", id)
-			t.WriteResponseErr(err)
+		if err := sh.rpcLoop(sess); err != nil {
 			return err
 		}
-		start := time.Now()
-		recordEnd := sh.recordRPC(id, sess)
-		err = rpcFn(sess)
-		recordEnd(err)
-		if err != nil {
-			sh.log.Warn("RPC error", zap.Stringer("RPC", id), zap.Error(err), zap.String("remote", conn.RemoteAddr().String()))
-			return fmt.Errorf("RPC %q error: %w", id, err)
-		}
-		sh.log.Debug("RPC complete", zap.Stringer("RPC", id), zap.String("remote", conn.RemoteAddr().String()), zap.Duration("elapsed", time.Since(start)))
 	}
 }
 
 // Close closes the listener and stops accepting new connections
 func (sh *SessionHandler) Close() error {
+	sh.tg.Stop()
 	return sh.listener.Close()
 }
 
@@ -250,12 +266,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(hostKey types.PrivateKey, rhp2Addr, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
-	l, err := net.Listen("tcp", rhp2Addr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to listen on addr: %w", err)
-	}
-
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
 	_, rhp3Port, err := net.SplitHostPort(rhp3Addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse rhp3 addr: %w", err)
@@ -263,6 +274,7 @@ func NewSessionHandler(hostKey types.PrivateKey, rhp2Addr, rhp3Addr string, cm C
 
 	sh := &SessionHandler{
 		privateKey: hostKey,
+		tg:         threadgroup.New(),
 		rhp3Port:   rhp3Port,
 
 		listener: l,

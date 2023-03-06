@@ -84,9 +84,11 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
-		hostKey types.PrivateKey
+		hostKey           types.PrivateKey
+		discoveredRHPAddr string
 
 		store Store
+		log   *zap.Logger
 
 		cm     ChainManager
 		tp     TransactionPool
@@ -156,6 +158,10 @@ func (m *ConfigManager) Close() error {
 func (m *ConfigManager) Announce() error {
 	// get the current settings
 	settings := m.Settings()
+	// if no netaddress is set, override the field with the auto-discovered one
+	if len(settings.NetAddress) == 0 {
+		settings.NetAddress = m.discoveredRHPAddr
+	}
 	// create a transaction with an announcement
 	minerFee := m.tp.RecommendedFee().Mul64(announcementTxnSize)
 	txn := types.Transaction{
@@ -181,6 +187,7 @@ func (m *ConfigManager) Announce() error {
 	if err != nil {
 		return fmt.Errorf("failed to broadcast transaction: %w", err)
 	}
+	m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
 	return nil
 }
 
@@ -228,11 +235,13 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
+func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
 	m := &ConfigManager{
-		hostKey: hostKey,
+		hostKey:           hostKey,
+		discoveredRHPAddr: rhp2Addr,
 
 		store:  store,
+		log:    log,
 		cm:     cm,
 		tp:     tp,
 		wallet: w,

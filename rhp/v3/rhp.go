@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -125,6 +126,7 @@ type (
 		privateKey types.PrivateKey
 
 		listener net.Listener
+		tg       *threadgroup.ThreadGroup
 
 		accounts  AccountManager
 		contracts ContractManager
@@ -181,6 +183,12 @@ var (
 func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 	defer s.Close() // close the stream when the RPC has completed
 
+	done, err := sh.tg.Add() // add the RPC to the threadgroup
+	if err != nil {
+		return
+	}
+	defer done()
+
 	s.SetDeadline(time.Now().Add(30 * time.Second)) // set an initial timeout
 	rpcID, err := s.ReadID()
 	if err != nil {
@@ -223,6 +231,7 @@ func (sh *SessionHandler) HostKey() types.UnlockKey {
 
 // Close closes the session handler and stops accepting new connections.
 func (sh *SessionHandler) Close() error {
+	sh.tg.Stop()
 	return sh.listener.Close()
 }
 
@@ -264,15 +273,12 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(hostKey types.PrivateKey, addr string, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to listen on addr: %w", err)
-	}
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
 		listener: l,
+		tg:       threadgroup.New(),
 
 		chain:  chain,
 		tpool:  tpool,

@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"net"
 	"path/filepath"
 
 	crhpv2 "go.sia.tech/core/rhp/v2"
@@ -138,7 +139,24 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create contract manager: %w", err)
 	}
-	settings, err := settings.NewConfigManager(privKey, db, node.cm, node.tp, wallet, log.Named("settings"))
+
+	rhp2Listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
+	}
+
+	rhp3Listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
+	}
+
+	_, rhp2Port, err := net.SplitHostPort(rhp2Listener.Addr().String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse rhp2 addr: %w", err)
+	}
+	discoveredAddr := net.JoinHostPort(rhp2Listener.Addr().String(), rhp2Port)
+
+	settings, err := settings.NewConfigManager(privKey, discoveredAddr, db, node.cm, node.tp, wallet, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -146,17 +164,18 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	registry := registry.NewManager(privKey, db)
 	accounts := accounts.NewManager(db, settings)
 
-	rhpv3, err := rhpv3.NewSessionHandler(privKey, "localhost:0", node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{}, log.Named("rhpv3"))
+	rhpv2, err := rhpv2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{}, log.Named("rhpv2"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
+	}
+	go rhpv2.Serve()
+
+	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{}, log.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
 	go rhpv3.Serve()
 
-	rhpv2, err := rhpv2.NewSessionHandler(privKey, "localhost:0", rhpv3.LocalAddr(), node.cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{}, log.Named("rhpv2"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
-	}
-	go rhpv2.Serve()
 	return &Host{
 		node:      node,
 		store:     db,

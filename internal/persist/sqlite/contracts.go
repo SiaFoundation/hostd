@@ -333,9 +333,19 @@ UNION
 -- formation confirmed, resolution not confirmed, in proof window 
 SELECT contract_id, 'resolution' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_error IS NULL;`
 
-	maxRebroadcastHeight := height - rebroadcastBuffer
-	minRevisionHeight := height - revisionSubmissionBuffer
-	maxRevisionHeight := height - 1
+	maxRebroadcastHeight := height
+	if height >= rebroadcastBuffer {
+		maxRebroadcastHeight -= rebroadcastBuffer
+	}
+
+	minRevisionHeight := height
+	if height >= revisionSubmissionBuffer {
+		minRevisionHeight -= revisionSubmissionBuffer
+	}
+	maxRevisionHeight := height
+	if height >= 1 {
+		maxRevisionHeight--
+	}
 
 	rows, err := tx.Query(query, maxRebroadcastHeight, minRevisionHeight, maxRevisionHeight, height)
 	if err != nil {
