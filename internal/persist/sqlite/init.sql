@@ -47,7 +47,7 @@ CREATE TABLE volume_sectors (
 	UNIQUE (volume_id, volume_index)
 );
 CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
-CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index);
+CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index ASC);
 CREATE INDEX volume_sectors_sector_id ON volume_sectors(sector_id);
 
 CREATE TABLE locked_volume_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory

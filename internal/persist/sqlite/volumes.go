@@ -392,6 +392,7 @@ FROM volume_sectors vs
 INNER JOIN storage_volumes v ON (vs.volume_id = v.id)
 LEFT JOIN locked_volume_sectors l ON (vs.id=l.volume_sector_id)
 WHERE vs.sector_id IS NULL AND l.volume_sector_id IS NULL AND v.read_only=false AND v.available=true
+ORDER BY vs.volume_index ASC
 LIMIT 1;`
 	err = txn.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
