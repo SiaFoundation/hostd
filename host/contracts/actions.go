@@ -170,10 +170,10 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			}
 			log.Error("contract failed, revenue lost", zap.String("contractID", id.String()), zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
 			return
-		} else {
-			if err := cm.store.SetContractStatus(id, ContractStatusSuccessful); err != nil {
-				log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))
-			}
+		}
+		// note: this should always be a no-op, but it's good to be explicit
+		if err := cm.store.SetContractStatus(id, ContractStatusSuccessful); err != nil {
+			log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))
 		}
 	default:
 		log.Panic("unrecognized contract action", zap.String("action", string(action)))
