@@ -1,6 +1,8 @@
 package api
 
-import "go.sia.tech/core/types"
+import (
+	"go.sia.tech/core/types"
+)
 
 type (
 	// AddVolumeRequest is the request body for the [POST] /volume endpoint.

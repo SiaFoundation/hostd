@@ -36,7 +36,7 @@ type (
 	// A contractAction pairs a contract's ID with a lifecycle action.
 	contractAction struct {
 		ID     types.FileContractID
-		Action contracts.LifecycleAction
+		Action string
 	}
 )
 
@@ -159,6 +159,13 @@ func (u *updateContractTxn) TrimSectors(n uint64) error {
 	return err
 }
 
+// SetStatus sets the contract's status.
+func (u *updateContractsTxn) SetStatus(id types.FileContractID, status contracts.ContractStatus) error {
+	const query = `UPDATE contracts SET contract_status=$1 WHERE contract_id=$2 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, status, sqlHash256(id)).Scan(&dbID)
+}
+
 // ConfirmFormation sets the formation_confirmed flag to true.
 func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 	const query = `UPDATE contracts SET formation_confirmed=true WHERE contract_id=$1;`
@@ -214,10 +221,9 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 
 // Contracts returns a paginated list of contracts.
 func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
-	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_error, 
-	c.negotiation_height, c.formation_confirmed, c.revision_number=c.confirmed_revision_number AS revision_confirmed, 
-	c.resolution_confirmed, c.locked_collateral, c.rpc_revenue, c.storage_revenue, c.ingress_revenue, c.egress_revenue, 
-	c.account_funding, c.raw_revision, c.host_sig, c.renter_sig 
+	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
+	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 LEFT JOIN contracts r ON (c.renewed_to=r.id)
 ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
@@ -240,7 +246,7 @@ ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
 
 // Contract returns the contract with the given ID.
 func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
-	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_error, c.negotiation_height, c.formation_confirmed, 
+	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_status, c.negotiation_height, c.formation_confirmed, 
 	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
@@ -325,13 +331,16 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 func contractsForAction(tx txn, height uint64) (actions []contractAction, _ error) {
 	const query = `
 -- formation not confirmed, within rebroadcast window
-SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND contract_error IS NULL AND negotiation_height >= $1
+SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
 UNION
 -- formation confirmed, revision not confirmed, just outside proof window
-SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND window_start BETWEEN $2 AND $3 AND confirmed_revision_number <> revision_number AND contract_error IS NULL
+SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND window_start BETWEEN $2 AND $3 AND confirmed_revision_number <> revision_number
 UNION
--- formation confirmed, resolution not confirmed, in proof window 
-SELECT contract_id, 'resolution' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_error IS NULL;`
+-- formation confirmed, resolution not confirmed, status active, in proof window 
+SELECT contract_id, 'resolve' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_status=$5
+UNION
+-- formation confirmed, status active, outside proof window
+SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
 
 	maxRebroadcastHeight := height
 	if height >= rebroadcastBuffer {
@@ -347,7 +356,7 @@ SELECT contract_id, 'resolution' AS action FROM contracts WHERE formation_confir
 		maxRevisionHeight--
 	}
 
-	rows, err := tx.Query(query, maxRebroadcastHeight, minRevisionHeight, maxRevisionHeight, height)
+	rows, err := tx.Query(query, maxRebroadcastHeight, minRevisionHeight, maxRevisionHeight, height, contracts.ContractStatusActive)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
@@ -365,7 +374,7 @@ SELECT contract_id, 'resolution' AS action FROM contracts WHERE formation_confir
 
 // ContractAction calls contractFn on every contract in the store that
 // needs a lifecycle action performed.
-func (s *Store) ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, contracts.LifecycleAction)) error {
+func (s *Store) ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, string)) error {
 	actions, err := contractsForAction(&dbTxn{s}, uint64(cc.BlockHeight))
 	if err != nil {
 		return fmt.Errorf("failed to get contracts for action: %w", err)
@@ -390,6 +399,13 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 		return nil, fmt.Errorf("failed to decode formation txn set: %w", err)
 	}
 	return txnSet, nil
+}
+
+// SetContractStatus sets the contract's status.
+func (s *Store) SetContractStatus(id types.FileContractID, status contracts.ContractStatus) error {
+	const query = `UPDATE contracts SET contract_status=$1 WHERE contract_id=$2 RETURNING id;`
+	var dbID int64
+	return s.queryRow(query, status, sqlHash256(id)).Scan(&dbID)
 }
 
 // LastContractChange gets the last consensus change processed by the
@@ -467,8 +483,8 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
 egress_revenue, account_funding, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
-raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, resolution_confirmed) VALUES
- ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id;`
+raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, resolution_confirmed, contract_status) VALUES
+ ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id;`
 	err = tx.QueryRow(query,
 		sqlHash256(revision.Revision.ParentID),
 		sqlCurrency(lockedCollateral),
@@ -488,6 +504,7 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirm
 		sqlUint64(0), // confirmed_revision_number
 		false,        // formation_confirmed
 		false,        // resolution_confirmed
+		contracts.ContractStatusPending,
 	).Scan(&dbID)
 	return
 }
@@ -528,11 +545,10 @@ func decodeTxnSet(b []byte, txns *[]types.Transaction) error {
 
 func scanContract(row scanner) (c contracts.Contract, err error) {
 	var revisionBuf []byte
-	var errorStr sql.NullString
 	var contractID types.FileContractID
 	err = row.Scan((*sqlHash256)(&contractID),
 		nullable((*sqlHash256)(&c.RenewedTo)),
-		&errorStr,
+		&c.Status,
 		&c.NegotiationHeight,
 		&c.FormationConfirmed,
 		&c.RevisionConfirmed,
@@ -553,8 +569,6 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		return contracts.Contract{}, fmt.Errorf("failed to decode revision: %w", err)
 	} else if c.Revision.ParentID != contractID {
 		panic("contract id mismatch")
-	} else if errorStr.Valid {
-		c.Error = errors.New(errorStr.String)
 	}
 	return
 }

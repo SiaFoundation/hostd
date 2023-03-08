@@ -316,10 +316,14 @@ func setDBVersion(tx txn, version int64) error {
 	return tx.QueryRow(query, version).Scan(&dbID)
 }
 
+func sqliteFilepath(fp string) string {
+	return fmt.Sprintf("file:%v?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=true&_secure_delete=false&_txlock=exclusive", fp)
+}
+
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
 func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%v?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=true&_secure_delete=false&_txlock=exclusive", fp))
+	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
 	if err != nil {
 		return nil, err
 	}

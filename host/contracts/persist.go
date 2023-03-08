@@ -28,6 +28,7 @@ type (
 	UpdateStateTransaction interface {
 		ContractRelevant(types.FileContractID) (bool, error)
 
+		SetStatus(types.FileContractID, ContractStatus) error
 		ConfirmFormation(types.FileContractID) error
 		ConfirmRevision(types.FileContractRevision) error
 		ConfirmResolution(types.FileContractID) error
@@ -49,6 +50,7 @@ type (
 		// ContractFormationSet returns the formation transaction set for the
 		// contract with the given ID.
 		ContractFormationSet(types.FileContractID) ([]types.Transaction, error)
+		SetContractStatus(types.FileContractID, ContractStatus) error
 		// Add stores the provided contract, should error if the contract
 		// already exists in the store.
 		AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
@@ -60,7 +62,7 @@ type (
 		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
 		// ContractAction calls contractFn on every contract in the store that
 		// needs a lifecycle action performed.
-		ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, LifecycleAction)) error
+		ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, string)) error
 		// UpdateContract atomically updates a contract and its sector roots.
 		UpdateContract(types.FileContractID, func(UpdateContractTransaction) error) error
 		// UpdateContractState atomically updates the contract manager's state.

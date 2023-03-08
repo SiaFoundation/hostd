@@ -16,10 +16,31 @@ const (
 	sectorActionTrim   sectorActionType = "trim"
 )
 
+// ContractStatus is an enum that indicates the current status of a contract.
+const (
+	// ContractStatusPending indicates that the contract has been formed but
+	// has not yet been confirmed on the blockchain. The contract is still
+	// usable, but there is a risk that the contract will never be confirmed.
+	ContractStatusPending ContractStatus = iota
+	// ContractStatusActive indicates that the contract has been confirmed on
+	// the blockchain and is currently active.
+	ContractStatusActive
+	// ContractStatusSuccessful indicates that a storage proof has been
+	// confirmed or the contract expired without requiring the host to burn
+	// Siacoin (e.g. renewal, unused contracts).
+	ContractStatusSuccessful
+	// ContractStatusFailed indicates that the contract ended without a storage proof
+	// and the host was required to burn Siacoin.
+	ContractStatusFailed
+)
+
 type (
 	// A sectorActionType denotes the type of action to be performed on a
 	// contract's sectors.
 	sectorActionType string
+
+	// ContractStatus is an enum that indicates the current status of a contract.
+	ContractStatus uint8
 
 	// A SignedRevision pairs a contract revision with the signatures of the host
 	// and renter needed to broadcast the revision.
@@ -43,6 +64,7 @@ type (
 	Contract struct {
 		SignedRevision
 
+		Status           ContractStatus `json:"status"`
 		LockedCollateral types.Currency `json:"lockedCollateral"`
 		Revenue          Revenue        `json:"revenue"`
 
@@ -60,9 +82,6 @@ type (
 		// RenewedTwo is the ID of the contract that renewed this contract. If
 		// this contract was not renewed, this field is the zero value.
 		RenewedTo types.FileContractID `json:"renewedTo"`
-		// Error is an error encountered while interacting with the contract. if
-		// an error is set, the host may refuse to use the contract.
-		Error error `json:"error"`
 	}
 
 	// A contractSectorAction defines an action to be performed on a contract's
@@ -94,6 +113,27 @@ var (
 	// the contract already exists.
 	ErrContractExists = errors.New("contract already exists")
 )
+
+// String returns the string representation of a ContractStatus.
+func (c ContractStatus) String() string {
+	switch c {
+	case ContractStatusPending:
+		return "pending"
+	case ContractStatusActive:
+		return "active"
+	case ContractStatusSuccessful:
+		return "successful"
+	case ContractStatusFailed:
+		return "failed"
+	default:
+		return "unknown"
+	}
+}
+
+// MarshalJSON implements the json.Marshaler interface.
+func (c ContractStatus) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`"%s"`, c.String())), nil
+}
 
 // RenterKey returns the renter's public key.
 func (sr SignedRevision) RenterKey() types.PublicKey {

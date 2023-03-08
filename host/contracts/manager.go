@@ -69,9 +69,9 @@ type (
 
 		blockHeight uint64
 
-		// contracts must be locked while they are being modified
-		mu    sync.Mutex
-		locks map[types.FileContractID]*locker
+		mu                sync.Mutex                       // guards the following fields
+		performingActions bool                             // prevents concurrent action processing
+		locks             map[types.FileContractID]*locker // contracts must be locked while they are being modified
 	}
 )
 
@@ -245,6 +245,8 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.RevertFormation(reverted); err != nil {
 				return fmt.Errorf("failed to revert formation: %w", err)
+			} else if err := tx.SetStatus(reverted, ContractStatusPending); err != nil {
+				return fmt.Errorf("failed to set status: %w", err)
 			}
 			cm.log.Debug("contract formation reverted", zap.String("contract", reverted.String()))
 		}
@@ -267,6 +269,8 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.RevertResolution(reverted); err != nil {
 				return fmt.Errorf("failed to revert proof: %w", err)
+			} else if err := tx.SetStatus(reverted, ContractStatusActive); err != nil {
+				return fmt.Errorf("failed to set status: %w", err)
 			}
 			cm.log.Debug("contract resolution reverted", zap.String("contract", reverted.String()))
 		}
@@ -278,6 +282,8 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.ConfirmFormation(applied); err != nil {
 				return fmt.Errorf("failed to apply formation: %w", err)
+			} else if err := tx.SetStatus(applied, ContractStatusActive); err != nil {
+				return fmt.Errorf("failed to set status: %w", err)
 			}
 			cm.log.Debug("contract formation applied", zap.String("contract", applied.String()))
 		}
@@ -300,6 +306,8 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.ConfirmResolution(applied); err != nil {
 				return fmt.Errorf("failed to apply proof: %w", err)
+			} else if err := tx.SetStatus(applied, ContractStatusSuccessful); err != nil {
+				return fmt.Errorf("failed to set status: %w", err)
 			}
 			cm.log.Debug("contract resolution applied", zap.String("contract", applied.String()))
 		}
@@ -317,11 +325,27 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 	tipHeight := cm.chain.TipState().Index.Height
 	if tipHeight > scanHeight {
-		cm.log.Warn("skipping actions for old chain index", zap.Uint64("tipHeight", tipHeight), zap.Uint64("changeHeight", cm.blockHeight))
+		cm.log.Debug("skipping actions for old chain index", zap.Uint64("tipHeight", tipHeight), zap.Uint64("changeHeight", cm.blockHeight))
 		return
 	}
 
+	cm.mu.Lock()
+	// check if the actions loop is already running
+	if cm.performingActions {
+		return
+	}
+	cm.mu.Unlock()
+
 	go func() {
+		cm.mu.Lock()
+		cm.performingActions = true
+		cm.mu.Unlock()
+
+		defer func() {
+			cm.mu.Lock()
+			cm.performingActions = false
+			cm.mu.Unlock()
+		}()
 		err = cm.store.ContractAction(&cc, cm.handleContractAction)
 		if err != nil {
 			cm.log.Error("failed to process contract actions", zap.Error(err))

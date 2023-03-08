@@ -10,14 +10,10 @@ import (
 
 // An action determines what lifecycle event should be performed on a contract.
 const (
-	ActionBroadcastFormation     LifecycleAction = "formation"
-	ActionBroadcastFinalRevision LifecycleAction = "revision"
-	ActionBroadcastResolution    LifecycleAction = "resolution"
-)
-
-type (
-	// LifecycleAction is an action that should be performed on a contract.
-	LifecycleAction string
+	actionBroadcastFormation     = "formation"
+	actionBroadcastFinalRevision = "revision"
+	actionBroadcastResolution    = "resolve"
+	actionExpire                 = "expire"
 )
 
 func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint64) (types.StorageProof, error) {
@@ -44,7 +40,7 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 }
 
 // handleContractAction performs a lifecycle action on a contract.
-func (cm *ContractManager) handleContractAction(id types.FileContractID, action LifecycleAction) {
+func (cm *ContractManager) handleContractAction(id types.FileContractID, action string) {
 	log := cm.log.Named("lifecycle")
 	contract, err := cm.store.Contract(id)
 	if err != nil {
@@ -57,7 +53,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 	cs := cm.chain.TipState()
 
 	switch action {
-	case ActionBroadcastFormation:
+	case actionBroadcastFormation:
 		formationSet, err := cm.store.ContractFormationSet(id)
 		if err != nil {
 			log.Error("failed to get formation set", zap.String("contract", id.String()), zap.Error(err))
@@ -68,7 +64,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			return
 		}
 		log.Info("broadcast formation transaction", zap.String("contract", id.String()), zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
-	case ActionBroadcastFinalRevision:
+	case actionBroadcastFinalRevision:
 		revisionTxn := types.Transaction{
 			FileContractRevisions: []types.FileContractRevision{contract.Revision},
 			Signatures: []types.TransactionSignature{
@@ -100,7 +96,16 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			log.Error("failed to broadcast revision transaction", zap.String("contract", id.String()), zap.Error(err))
 		}
 		log.Info("broadcast revision transaction", zap.String("contract", id.String()), zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.String("transactionID", revisionTxn.ID().String()))
-	case ActionBroadcastResolution:
+	case actionBroadcastResolution:
+		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
+		if missedPayout.Cmp(validPayout) >= 0 {
+			log.Info("skipping storage proof, no benefit to host", zap.String("contract", id.String()), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
+			if err := cm.store.SetContractStatus(id, ContractStatusSuccessful); err != nil {
+				log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))
+			}
+			return
+		}
+
 		// get the block before the proof window starts
 		windowStart, err := cm.chain.IndexAtHeight(contract.Revision.WindowStart - 1)
 		if err != nil {
@@ -145,16 +150,33 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		proofToSign := []types.Hash256{types.Hash256(resolutionTxnSet[1].SiacoinInputs[0].ParentID)}
 
 		if err := cm.wallet.SignTransaction(cs, &resolutionTxnSet[0], intermediateToSign, types.CoveredFields{WholeTransaction: true}); err != nil { // sign the intermediate transaction
-			log.Error("failed to sign resolution intermediate transaction", zap.String("contract", id.String()), zap.Error(err))
+			log.Error("failed to sign resolution intermediate transaction", zap.String("contractID", id.String()), zap.Error(err))
 			return
 		} else if err := cm.wallet.SignTransaction(cs, &resolutionTxnSet[1], proofToSign, types.CoveredFields{WholeTransaction: true}); err != nil { // sign the proof transaction
-			log.Error("failed to sign resolution transaction", zap.String("contract", id.String()), zap.Error(err))
+			log.Error("failed to sign resolution transaction", zap.String("contractID", id.String()), zap.Error(err))
 			return
 		} else if err := cm.tpool.AcceptTransactionSet(resolutionTxnSet); err != nil { // broadcast the transaction set
-			log.Error("failed to broadcast resolution transaction set", zap.String("contract", id.String()), zap.Error(err))
+			log.Error("failed to broadcast resolution transaction set", zap.String("contractID", id.String()), zap.Error(err))
 			return
 		}
-		log.Info("broadcast storage proof", zap.String("contract", id.String()), zap.String("transactionID", resolutionTxnSet[1].ID().String()))
+		log.Info("broadcast storage proof", zap.String("contractID", id.String()), zap.String("transactionID", resolutionTxnSet[1].ID().String()))
+	case actionExpire:
+		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
+		if validPayout.Cmp(missedPayout) > 0 {
+			// if the host valid payout is greater than the missed payout, the
+			// host lost potential revenue.
+			if err := cm.store.SetContractStatus(id, ContractStatusFailed); err != nil {
+				log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))
+			}
+			log.Error("contract failed, revenue lost", zap.String("contractID", id.String()), zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
+			return
+		} else {
+			if err := cm.store.SetContractStatus(id, ContractStatusSuccessful); err != nil {
+				log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))
+			}
+		}
+	default:
+		log.Panic("unrecognized contract action", zap.String("action", string(action)))
 	}
 	log.Info("contract action completed", zap.String("action", string(action)), zap.String("contract", id.String()), zap.Duration("elapsed", time.Since(start)))
 }

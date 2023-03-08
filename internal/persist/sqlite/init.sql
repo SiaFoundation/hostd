@@ -72,12 +72,12 @@ CREATE TABLE contracts (
 	host_sig BLOB NOT NULL,
 	renter_sig BLOB NOT NULL,
 	raw_revision BLOB NOT NULL, -- binary serialized contract revision
-	contract_error TEXT,
 	formation_confirmed BOOLEAN NOT NULL, -- true if the contract has been confirmed on the blockchain
 	resolution_confirmed BOOLEAN NOT NULL, -- true if the storage proof/resolution has been confirmed on the blockchain
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	window_start INTEGER NOT NULL,
-	window_end INTEGER NOT NULL
+	window_end INTEGER NOT NULL,
+	contract_status INTEGER NOT NULL
 );
 CREATE INDEX contracts_contract_id ON contracts(contract_id);
 CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
@@ -126,11 +126,9 @@ CREATE TABLE financial_account_funding (
 	source BLOB NOT NULL,
 	destination BLOB NOT NULL,
 	amount BLOB NOT NULL,
-	reverted BOOLEAN NOT NULL,
 	date_created INTEGER NOT NULL
 );
 CREATE INDEX financial_account_funding_source ON financial_account_funding(source);
-CREATE INDEX financial_account_funding_reverted ON financial_account_funding(reverted);
 CREATE INDEX financial_account_funding_date_created ON financial_account_funding(date_created);
 
 CREATE TABLE financial_records (
@@ -139,7 +137,6 @@ CREATE TABLE financial_records (
 	ingress_revenue BLOB NOT NULL,
 	storage_revenue BLOB NOT NULL,
 	fee_revenue BLOB NOT NULL,
-	reverted BOOLEAN NOT NULL,
 	date_created INTEGER NOT NULL
 );
 CREATE INDEX financial_records_source_id ON financial_records(source_id);
