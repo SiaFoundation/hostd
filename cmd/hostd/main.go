@@ -126,7 +126,7 @@ func main() {
 	case "warn":
 		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
 	default:
-		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
+		cfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 	}
 	logger, err := cfg.Build()
 	if err != nil {
