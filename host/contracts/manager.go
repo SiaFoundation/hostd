@@ -330,12 +330,13 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	// check if the actions loop is already running
 	if cm.performingActions {
 		return
 	}
-	cm.mu.Unlock()
 
+	// perform actions in a separate goroutine to avoid deadlock in tpool
 	go func() {
 		cm.mu.Lock()
 		cm.performingActions = true
