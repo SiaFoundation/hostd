@@ -257,7 +257,12 @@ func (s *Store) transaction(fn func(txn) error) error {
 		log: s.log.Named("transaction"),
 	}
 	start := time.Now()
-	if err := fn(ltx); err != nil {
+	err = fn(ltx)
+	if time.Since(start) > longTxnDuration {
+		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+	}
+	commitStart := time.Now()
+	if err != nil {
 		if err := tx.Rollback(); err != nil {
 			return fmt.Errorf("failed to rollback transaction: %w", err)
 		}
@@ -265,8 +270,8 @@ func (s *Store) transaction(fn func(txn) error) error {
 	} else if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	if time.Since(start) > longTxnDuration {
-		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+	if time.Since(commitStart) > longQueryDuration {
+		ltx.log.Debug("long transaction commit", zap.Duration("elapsed", time.Since(commitStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
 	}
 	return nil
 }
