@@ -386,12 +386,18 @@ func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err
 }
 
 func emptyLocation(txn txn) (loc storage.SectorLocation, err error) {
+	// SQLite can only use one index per table and always prefers WHERE clause
+	// indices over ORDER BY clause indices. However, since the query needs to
+	// order potentially millions of rows, an index on the ORDER BY clause is
+	// required. With the existing indices and query, sqlite will use an index
+	// for the ORDER BY clause. Any changes may cause sqlite to switch the ORDER
+	// BY clause to a temp b-tree index, which is significantly slower (200ms vs
+	// 2ms).
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
 FROM volume_sectors vs
-INNER JOIN storage_volumes v ON (vs.volume_id = v.id)
-LEFT JOIN locked_volume_sectors l ON (vs.id=l.volume_sector_id)
-WHERE vs.sector_id IS NULL AND l.volume_sector_id IS NULL AND v.read_only=false AND v.available=true
-ORDER BY vs.volume_index ASC
+INNER JOIN storage_volumes v ON +(vs.volume_id = v.id)
+WHERE +vs.sector_id IS NULL AND vs.id NOT IN (SELECT volume_sector_id FROM locked_volume_sectors) AND v.read_only=false AND v.available = true
+ORDER BY vs.volume_index ASC -- order by distributes data evenly across volumes rather than filling the first volume.
 LIMIT 1;`
 	err = txn.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -409,8 +415,8 @@ func locationsForMigration(tx txn, volumeID int, startIndex uint64, batchSize in
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
 	FROM volume_sectors vs
 	INNER JOIN storage_volumes v ON (vs.volume_id=v.id)
-	LEFT JOIN locked_volume_sectors l ON (vs.id=l.volume_sector_id)
-	WHERE l.volume_sector_id IS NULL AND vs.sector_id IS NULL AND v.available=true AND ((v.read_only=false AND vs.volume_id <> $1) OR (vs.volume_id=$1 AND vs.volume_index<$2))
+	WHERE vs.sector_id IS NULL AND vs.id NOT IN (SELECT volume_sector_id FROM locked_volume_sectors) 
+	AND v.available=true AND ((v.read_only=false AND vs.volume_id <> $1) OR (vs.volume_id=$1 AND vs.volume_index<$2))
 	LIMIT $3;`
 
 	rows, err := tx.Query(query, volumeID, startIndex, batchSize)
