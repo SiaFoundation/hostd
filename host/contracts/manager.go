@@ -338,6 +338,12 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 	// perform actions in a separate goroutine to avoid deadlock in tpool
 	go func() {
+		done, err := cm.tg.Add()
+		if err != nil {
+			return
+		}
+		defer done()
+
 		cm.mu.Lock()
 		cm.performingActions = true
 		cm.mu.Unlock()
