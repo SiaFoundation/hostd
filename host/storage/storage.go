@@ -440,10 +440,25 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 	}
 	defer release()
 
+	vol, err := vm.vs.Volume(id)
+	if err != nil {
+		return fmt.Errorf("failed to get volume: %w", err)
+	}
+
+	oldReadonly := vol.ReadOnly
+
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
+
+	defer func() {
+		// restore the volume to its original read-only status
+		if err := vm.vs.SetReadOnly(id, oldReadonly); err != nil {
+			vm.log.Named("remove").Error("failed to restore volume read-only status", zap.Error(err), zap.Int("volumeID", id))
+		}
+	}()
+
 	// migrate sectors to other volumes
 	err = vm.vs.MigrateSectors(id, 0, func(locations []SectorLocation) error {
 		select {
@@ -473,15 +488,24 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
 	}
 	defer release()
 
+	vol, err := vm.vs.Volume(id)
+	if err != nil {
+		return fmt.Errorf("failed to get volume: %w", err)
+	}
+
+	oldReadonly := vol.ReadOnly
+
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
 
-	vol, err := vm.vs.Volume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
-	}
+	defer func() {
+		// restore the volume to its original read-only status
+		if err := vm.vs.SetReadOnly(id, oldReadonly); err != nil {
+			vm.log.Named("resize").Error("failed to restore volume read-only status", zap.Error(err), zap.Int("volumeID", id))
+		}
+	}()
 
 	if vol.TotalSectors == maxSectors {
 		// volume is the same size, nothing to do
