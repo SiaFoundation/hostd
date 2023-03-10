@@ -34,6 +34,8 @@ CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
 	disk_path TEXT UNIQUE NOT NULL,
+	used_sectors INTEGER NOT NULL,
+	total_sectors INTEGER NOT NULL,
 	read_only BOOLEAN NOT NULL,
 	available BOOLEAN NOT NULL DEFAULT false
 );
@@ -43,7 +45,7 @@ CREATE TABLE volume_sectors (
 	id INTEGER PRIMARY KEY,
 	volume_id INTEGER NOT NULL REFERENCES storage_volumes (id), -- all sectors will need to be migrated first when deleting a volume
 	volume_index INTEGER NOT NULL,
-	sector_id INTEGER UNIQUE REFERENCES stored_sectors (id) ON DELETE SET NULL,
+	sector_id INTEGER UNIQUE REFERENCES stored_sectors (id),
 	UNIQUE (volume_id, volume_index)
 );
 -- careful with these indices, the empty sector query is fragile and relies on

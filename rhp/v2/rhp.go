@@ -201,7 +201,7 @@ func (sh *SessionHandler) Close() error {
 // Settings returns the host's current settings
 func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 	settings := sh.settings.Settings()
-	used, total, err := sh.storage.Usage()
+	usedSectors, totalSectors, err := sh.storage.Usage()
 	if err != nil {
 		return rhpv2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
 	}
@@ -213,8 +213,8 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		Address:          sh.wallet.Address(),
 		SiaMuxPort:       sh.rhp3Port,
 		NetAddress:       settings.NetAddress,
-		TotalStorage:     total,
-		RemainingStorage: total - used,
+		TotalStorage:     totalSectors * rhpv2.SectorSize,
+		RemainingStorage: (totalSectors - usedSectors) * rhpv2.SectorSize,
 
 		// network defaults
 		MaxDownloadBatchSize: defaultBatchSize,

@@ -652,6 +652,13 @@ func TestPrune(t *testing.T) {
 				return fmt.Errorf("expected ErrSectorNotFound, got %v", err)
 			}
 		}
+
+		used, _, err := db.StorageUsage()
+		if err != nil {
+			return fmt.Errorf("failed to get storage usage: %w", err)
+		} else if used != uint64(len(stored)) {
+			return fmt.Errorf("expected %v sectors, got %v", len(stored), used)
+		}
 		return nil
 	}
 
@@ -800,5 +807,35 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 		return nil
 	}); err != nil {
 		b.Fatal(err)
+	}
+}
+
+func BenchmarkEmptyLocation(b *testing.B) {
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		b.Fatal(err)
+	}
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = addVolume(db, "test", 1e6)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		err := db.transaction(func(tx txn) error {
+			_, err := emptyLocation(tx)
+			return err
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }

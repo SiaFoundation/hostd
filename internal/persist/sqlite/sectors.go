@@ -20,13 +20,22 @@ func (s *Store) unlockLocationFn(id int64) func() error {
 // RemoveSector removes the metadata of a sector and returns its
 // location in the volume.
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
-	var dbID int64
-	const query = `UPDATE volume_sectors SET sector_id=null WHERE sector_id IN (SELECT id FROM stored_sectors WHERE sector_root=$1) RETURNING id;`
-	err = s.queryRow(query, sqlHash256(root)).Scan(&dbID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return storage.ErrSectorNotFound
-	}
-	return
+	return s.transaction(func(tx txn) error {
+		var volumeID int64
+		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=null WHERE sector_id IN (SELECT id FROM stored_sectors WHERE sector_root=$1) RETURNING volume_id;`, sqlHash256(root)).Scan(&volumeID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return storage.ErrSectorNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to remove sector: %w", err)
+		}
+
+		// decrement volume usage
+		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1;`, volumeID)
+		if err != nil {
+			return fmt.Errorf("failed to update volume: %w", err)
+		}
+		return nil
+	})
 }
 
 // SectorLocation returns the location of a sector or an error if the
@@ -122,11 +131,36 @@ func (s *Store) PruneSectors() error {
 				return nil
 			}
 
+			updateVolumeStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE sector_id=$1 RETURNING volume_id;`)
+			if err != nil {
+				return fmt.Errorf("failed to prepare query: %w", err)
+			}
+			defer updateVolumeStmt.Close()
+
+			deleteStmt, err := tx.Prepare(`DELETE FROM stored_sectors WHERE id=$1;`)
+			if err != nil {
+				return fmt.Errorf("failed to prepare query: %w", err)
+			}
+			defer deleteStmt.Close()
+
+			// decrement volume usage
+			metaUpdateStmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1;`)
+			if err != nil {
+				return fmt.Errorf("failed to prepare query: %w", err)
+			}
+			defer metaUpdateStmt.Close()
+
 			s.log.Debug("pruning unreferenced sectors", zap.Int("count", len(sectorIDs)))
 
-			query := `DELETE FROM stored_sectors WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
-			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
-				return fmt.Errorf("failed to delete sectors: %w", err)
+			for _, sectorID := range sectorIDs {
+				var volumeID int64
+				if err := updateVolumeStmt.QueryRow(sectorID).Scan(&volumeID); err != nil {
+					return fmt.Errorf("failed to get volume id for sector: %w", err)
+				} else if _, err := deleteStmt.Exec(sectorID); err != nil {
+					return fmt.Errorf("failed to delete sector: %w", err)
+				} else if _, err := metaUpdateStmt.Exec(volumeID); err != nil {
+					return fmt.Errorf("failed to update volume metadata: %w", err)
+				}
 			}
 			return nil
 		})

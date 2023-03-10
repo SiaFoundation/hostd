@@ -5,34 +5,24 @@ import (
 	"errors"
 	"fmt"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 )
 
-// StorageUsage returns the number of bytes used and the total number of bytes
+// StorageUsage returns the number of sectors stored and the total number of sectors
 // available in the storage pool.
-func (s *Store) StorageUsage() (usedBytes, totalBytes uint64, _ error) {
+func (s *Store) StorageUsage() (usedSectors, totalSectors uint64, err error) {
 	// nulls are not included in COUNT() -- counting sector roots is equivalent
 	// to counting used sectors.
-	const query = `SELECT COUNT(id) AS total_sectors, COUNT(sector_id) AS used_sectors FROM volume_sectors`
-	err := s.queryRow(query).Scan(&totalBytes, &usedBytes)
-	if err != nil {
-		return 0, 0, fmt.Errorf("query failed: %w", err)
-	}
-	totalBytes *= rhpv2.SectorSize
-	usedBytes *= rhpv2.SectorSize
+	const query = `SELECT SUM(total_sectors) AS total_sectors, SUM(used_sectors) AS used_sectors FROM storage_volumes`
+	err = s.queryRow(query).Scan(&totalSectors, &usedSectors)
 	return
 }
 
 // Volumes returns a list of all volumes.
 func (s *Store) Volumes() ([]storage.Volume, error) {
-	const query = `SELECT v.id, v.disk_path, v.read_only, v.available, 
-	COUNT(vs.id) AS total_sectors, 
-	COUNT(vs.sector_id) AS used_sectors
+	const query = `SELECT v.id, v.disk_path, v.read_only, v.available, v.total_sectors, v.used_sectors
 FROM storage_volumes v
-LEFT JOIN volume_sectors vs ON (vs.volume_id = v.id)
-GROUP BY v.id
 ORDER BY v.id ASC`
 	rows, err := s.query(query)
 	if err != nil {
@@ -53,11 +43,8 @@ ORDER BY v.id ASC`
 
 // Volume returns a volume by its ID.
 func (s *Store) Volume(id int) (storage.Volume, error) {
-	const query = `SELECT v.id, v.disk_path, v.read_only, v.available,
-	COUNT(vs.id) AS total_sectors,
-	COUNT(vs.sector_id) AS used_sectors
+	const query = `SELECT v.id, v.disk_path, v.read_only, v.available, v.total_sectors, v.used_sectors
 FROM storage_volumes v
-LEFT JOIN volume_sectors vs ON (vs.volume_id = v.id)
 WHERE v.id=$1`
 	row := s.queryRow(query, id)
 	vol, err := scanVolume(row)
@@ -122,6 +109,12 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 			return fmt.Errorf("failed to commit sector location: %w", err)
 		} else if updatedID != location.ID {
 			panic("sector location not updated correctly")
+		}
+
+		// increment the volume usage
+		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors+1 WHERE id=$1`, location.Volume)
+		if err != nil {
+			return fmt.Errorf("failed to update volume usage: %w", err)
 		}
 		return nil
 	})
@@ -195,17 +188,23 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 			}
 			defer selectStmt.Close()
 
-			clearStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 RETURNING id`)
+			clearStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 RETURNING volume_id`)
 			if err != nil {
 				return fmt.Errorf("failed to prepare sector clear statement: %w", err)
 			}
 			defer clearStmt.Close()
 
-			updateSectorStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING id;`)
+			updateSectorStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING volume_id;`)
 			if err != nil {
 				return fmt.Errorf("failed to prepare sector update statement: %w", err)
 			}
 			defer updateSectorStmt.Close()
+
+			updateMetaStmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=used_sectors+$1 WHERE id=$2`)
+			if err != nil {
+				return fmt.Errorf("failed to prepare sector metadata update statement: %w", err)
+			}
+			defer updateMetaStmt.Close()
 
 			for i, newLoc := range newLocations {
 				oldLoc := oldLocations[i]
@@ -214,13 +213,17 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 				if err = selectStmt.QueryRow(sqlHash256(oldLoc.Root)).Scan(&sectorDBID); err != nil {
 					return fmt.Errorf("failed to select sector: %w", err)
 				}
-				var oldID int64
-				if err = clearStmt.QueryRow(oldLoc.ID).Scan(&oldID); err != nil {
+				var oldVolumeID int64
+				if err = clearStmt.QueryRow(oldLoc.ID).Scan(&oldVolumeID); err != nil {
 					return fmt.Errorf("failed to clear sector location: %w", err)
+				} else if _, err = updateMetaStmt.Exec(-1, oldVolumeID); err != nil {
+					return fmt.Errorf("failed to update sector metadata: %w", err)
 				}
-				var newID int64
-				if err = updateSectorStmt.QueryRow(sectorDBID, newLoc.ID).Scan(&newID); err != nil {
+				var newVolumeID int64
+				if err = updateSectorStmt.QueryRow(sectorDBID, newLoc.ID).Scan(&newVolumeID); err != nil {
 					return fmt.Errorf("failed to update sector location: %w", err)
+				} else if _, err = updateMetaStmt.Exec(1, newVolumeID); err != nil {
+					return fmt.Errorf("failed to update sector metadata: %w", err)
 				}
 			}
 			return nil
@@ -235,7 +238,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 // store. GrowVolume must be called afterwards to initialize the volume
 // to its desired size.
 func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err error) {
-	const query = `INSERT INTO storage_volumes (disk_path, read_only) VALUES (?, ?) RETURNING id;`
+	const query = `INSERT INTO storage_volumes (disk_path, read_only, used_sectors, total_sectors) VALUES (?, ?, 0, 0) RETURNING id;`
 	err = s.queryRow(query, localPath, readOnly).Scan(&volumeID)
 	return
 }
@@ -283,20 +286,24 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 			return fmt.Errorf("failed to get last volume index: %w", err)
 		}
 
-		stmt, err := tx.Prepare(`INSERT INTO volume_sectors (volume_id, volume_index) VALUES ($1, $2);`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare statement: %w", err)
-		}
-		defer stmt.Close()
-
 		if nextIndex >= maxSectors {
 			panic(fmt.Errorf("nextIndex must be less than maxSectors: %v < %v", nextIndex, maxSectors)) // dev error
 		}
 
+		insertStmt, err := tx.Prepare(`INSERT INTO volume_sectors (volume_id, volume_index) VALUES ($1, $2);`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer insertStmt.Close()
+
 		for i := nextIndex; i < maxSectors; i++ {
-			if _, err = stmt.Exec(id, i); err != nil {
+			if _, err = insertStmt.Exec(id, i); err != nil {
 				return fmt.Errorf("failed to grow volume: %w", err)
 			}
+		}
+
+		if _, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id); err != nil {
+			return fmt.Errorf("failed to update volume metadata: %w", err)
 		}
 		return nil
 	})
@@ -320,6 +327,10 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 		_, err = tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2;`, id, maxSectors)
 		if err != nil {
 			return fmt.Errorf("failed to shrink volume: %w", err)
+		}
+		_, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id)
+		if err != nil {
+			return fmt.Errorf("failed to update volume metadata: %w", err)
 		}
 		return nil
 	})
@@ -385,7 +396,7 @@ func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err
 	return
 }
 
-func emptyLocation(txn txn) (loc storage.SectorLocation, err error) {
+func emptyLocation(tx txn) (loc storage.SectorLocation, err error) {
 	// SQLite can only use one index per table and always prefers WHERE clause
 	// indices over ORDER BY clause indices. However, since the query needs to
 	// order potentially millions of rows, an index on the ORDER BY clause is
@@ -399,7 +410,7 @@ INNER JOIN storage_volumes v ON +(vs.volume_id = v.id)
 WHERE +vs.sector_id IS NULL AND vs.id NOT IN (SELECT volume_sector_id FROM locked_volume_sectors) AND v.read_only=false AND v.available = true
 ORDER BY vs.volume_index ASC -- order by distributes data evenly across volumes rather than filling the first volume.
 LIMIT 1;`
-	err = txn.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
+	err = tx.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrNotEnoughStorage
 	}

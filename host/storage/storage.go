@@ -297,8 +297,8 @@ func (vm *VolumeManager) Close() error {
 	return nil
 }
 
-// Usage returns the total and used storage space, in bytes, in the storage manager.
-func (vm *VolumeManager) Usage() (usedBytes uint64, totalBytes uint64, err error) {
+// Usage returns the total and used storage space, in sectors, from the storage manager.
+func (vm *VolumeManager) Usage() (usedSectors uint64, totalSectors uint64, err error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return 0, 0, err
