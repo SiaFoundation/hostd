@@ -252,12 +252,11 @@ func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm
 	}
 
 	settings, err := m.store.Settings()
-	if err != nil && errors.Is(err, ErrNoSettings) {
+	if errors.Is(err, ErrNoSettings) {
 		if err := store.UpdateSettings(defaultSettings); err != nil {
 			return nil, fmt.Errorf("failed to initialize settings: %w", err)
 		}
 		settings = defaultSettings // use the default settings
-		return m, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}
