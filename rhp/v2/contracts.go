@@ -118,8 +118,8 @@ func validateWriteActions(actions []rhpv2.RPCWriteAction, oldSectors uint64, pro
 
 	if newSectors > oldSectors {
 		additionalSectors := (newSectors - oldSectors)
-		cost.Storage = settings.StoragePrice.Mul64(rhpv2.SectorSize * additionalSectors * remainingDuration) // cost of storing the new sectors
-		cost.Collateral = settings.Collateral.Mul64(rhpv2.SectorSize * additionalSectors)                    // collateral for the new sectors
+		cost.Storage = settings.StoragePrice.Mul64(rhpv2.SectorSize * additionalSectors * remainingDuration)  // cost of storing the new sectors
+		cost.Collateral = settings.Collateral.Mul64(rhpv2.SectorSize * additionalSectors * remainingDuration) // collateral for the new sectors
 	}
 
 	if proof {

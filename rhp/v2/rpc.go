@@ -503,7 +503,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		return fmt.Errorf("failed to read write request: %w", err)
 	}
 
-	remainingDuration := uint64(s.contract.Revision.WindowStart) - currentHeight
+	remainingDuration := uint64(s.contract.Revision.WindowEnd) - currentHeight
 	// validate the requested actions
 	oldSectors := s.contract.Revision.Filesize / rhpv2.SectorSize
 	costs, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)
