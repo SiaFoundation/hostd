@@ -7,12 +7,19 @@ import (
 	"go.uber.org/zap"
 )
 
+func testLog(tb testing.TB) *zap.Logger {
+	opt := zap.NewDevelopmentConfig()
+	opt.OutputPaths = []string{filepath.Join(tb.TempDir(), "hostd.log")}
+	log, err := opt.Build()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return log
+}
+
 func TestInit(t *testing.T) {
 	fp := filepath.Join(t.TempDir(), "test.db")
-	log, err := zap.NewDevelopmentConfig().Build()
-	if err != nil {
-		t.Fatal(err)
-	}
+	log := testLog(t)
 	db, err := OpenDatabase(fp, log)
 	if err != nil {
 		t.Fatal(err)

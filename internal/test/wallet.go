@@ -52,7 +52,9 @@ func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
-	log, err := zap.NewDevelopment()
+	opt := zap.NewDevelopmentConfig()
+	opt.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
+	log, err := opt.Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}

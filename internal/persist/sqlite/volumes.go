@@ -247,31 +247,49 @@ func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err er
 // are used sectors in the volume, ErrVolumeNotEmpty is returned. If force is
 // true, the volume is removed regardless of whether it is empty.
 func (s *Store) RemoveVolume(id int, force bool) error {
-	return s.transaction(func(tx txn) error {
-		if !force {
-			// check if the volume is empty
-			var count int
-			err := tx.QueryRow(`SELECT COUNT(id) FROM volume_sectors WHERE volume_id=$1 AND sector_id IS NOT NULL;`, id).Scan(&count)
-			if err != nil {
-				return fmt.Errorf("failed to check if volume is empty: %w", err)
-			} else if count != 0 {
+	// remove the volume sectors in batches to avoid holding a transaction lock
+	// for too long
+	for {
+		var done bool
+		err := s.transaction(func(tx txn) error {
+			var dbID int64
+			err := tx.QueryRow(`SELECT id FROM volume_sectors WHERE volume_id=$1 AND sector_id IS NOT NULL LIMIT 1;`, id).Scan(&dbID)
+			if err == nil && !force {
 				return storage.ErrVolumeNotEmpty
+			} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to check if volume is empty: %w", err)
 			}
-		}
 
-		// remove the volume sectors
-		_, err := tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=?;`, id)
-		if err != nil {
-			return fmt.Errorf("failed to remove volume sectors: %w", err)
-		}
+			locations, err := volumeSectorsForDeletion(tx, id, pruneBatchSize)
+			if err != nil {
+				return fmt.Errorf("failed to get volume sectors: %w", err)
+			} else if len(locations) == 0 {
+				done = true
+				return nil // no more sectors to remove
+			}
 
-		// remove the volume
-		_, err = tx.Exec(`DELETE FROM storage_volumes WHERE id=?;`, id)
+			// remove the sectors
+			deleteQuery := `DELETE FROM volume_sectors WHERE id IN (` + queryPlaceHolders(len(locations)) + `)`
+			_, err = tx.Exec(deleteQuery, queryArgs(locations)...)
+			if err != nil {
+				return fmt.Errorf("failed to remove volume sectors: %w", err)
+			}
+
+			const updateMetaQuery = `UPDATE storage_volumes SET total_sectors=total_sectors-$1 WHERE id=$2`
+			_, err = tx.Exec(updateMetaQuery, len(locations), id)
+			if err != nil {
+				return fmt.Errorf("failed to update volume metadata: %w", err)
+			}
+			return nil
+		})
 		if err != nil {
 			return fmt.Errorf("failed to remove volume: %w", err)
+		} else if done {
+			break
 		}
-		return nil
-	})
+	}
+	_, err := s.exec(`DELETE FROM storage_volumes WHERE id=?`, id)
+	return err
 }
 
 // GrowVolume grows a storage volume's metadata by n sectors.
@@ -413,6 +431,23 @@ LIMIT 1;`
 	err = tx.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrNotEnoughStorage
+	}
+	return
+}
+
+func volumeSectorsForDeletion(tx txn, volumeID, batchSize int) (locs []int64, err error) {
+	const query = `SELECT id FROM volume_sectors WHERE volume_id=$1 LIMIT $2`
+	rows, err := tx.Query(query, volumeID, batchSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query volume sectors: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan volume sector: %w", err)
+		}
+		locs = append(locs, id)
 	}
 	return
 }

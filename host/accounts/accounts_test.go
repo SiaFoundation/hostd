@@ -23,11 +23,18 @@ func (s ephemeralSettings) Settings() settings.Settings {
 	}
 }
 
-func TestCredit(t *testing.T) {
-	log, err := zap.NewDevelopment()
+func testLog(t *testing.T) *zap.Logger {
+	opt := zap.NewDevelopmentConfig()
+	opt.OutputPaths = []string{filepath.Join(t.TempDir(), "hostd.log")}
+	log, err := opt.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return log
+}
+
+func TestCredit(t *testing.T) {
+	log := testLog(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "hostd.db"), log.Named("accounts"))
 	if err != nil {
 		t.Fatal(err)
@@ -54,10 +61,7 @@ func TestCredit(t *testing.T) {
 }
 
 func TestBudget(t *testing.T) {
-	log, err := zap.NewDevelopment()
-	if err != nil {
-		t.Fatal(err)
-	}
+	log := testLog(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "hostd.db"), log.Named("accounts"))
 	if err != nil {
 		t.Fatal(err)
