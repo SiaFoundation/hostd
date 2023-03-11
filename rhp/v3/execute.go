@@ -476,7 +476,10 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			err = fmt.Errorf("failed to revise contract: %w", err)
 			s.WriteResponseErr(err)
 			return err
-		} else if err := rhp.ValidateProgramRevision(existing, revision, pe.cost.Storage, pe.cost.Collateral); err != nil {
+		}
+
+		burn, err := rhp.ValidateProgramRevision(existing, revision, pe.cost.Storage, pe.cost.Collateral)
+		if err != nil {
 			err = fmt.Errorf("failed to validate program revision: %w", err)
 			s.WriteResponseErr(err)
 			return err
@@ -503,8 +506,21 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			HostSignature:   pe.hostKey.SignHash(sigHash),
 			RenterSignature: req.Signature,
 		}
-		// revenue was already processed through the budget
-		if err := pe.updater.Commit(signedRevision, contracts.Revenue{}); err != nil {
+		// adjust the contract's revenue to account for the storage and
+		// collateral. Bandwidth revenue will be credited separately to the
+		// account
+		usage := contracts.Usage{
+			StorageRevenue:   pe.cost.Storage,
+			RiskedCollateral: pe.cost.Collateral,
+		}
+		// adjust the contract's storage revenue to account for the full
+		// transfer by the renter.
+		excess, underflow := burn.SubWithUnderflow(pe.cost.Storage.Add(pe.cost.Collateral))
+		if !underflow {
+			usage.StorageRevenue = usage.StorageRevenue.Add(excess)
+		}
+
+		if err := pe.updater.Commit(signedRevision, usage); err != nil {
 			s.WriteResponseErr(ErrHostInternalError)
 			return fmt.Errorf("failed to commit revision: %w", err)
 		}

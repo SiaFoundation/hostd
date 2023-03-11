@@ -72,6 +72,7 @@ CREATE TABLE contracts (
 	ingress_revenue BLOB NOT NULL,
 	egress_revenue BLOB NOT NULL,
 	account_funding BLOB NOT NULL,
+	risked_collateral BLOB NOT NULL,
 	confirmed_revision_number BLOB, -- stored as BLOB to support uint64_max on clearing revisions
 	host_sig BLOB NOT NULL,
 	renter_sig BLOB NOT NULL,

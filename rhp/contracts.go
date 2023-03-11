@@ -237,85 +237,87 @@ func ValidateClearingRevision(current, final types.FileContractRevision) error {
 // ValidateRevision verifies that a new revision is valid given the current
 // revision. Only the revision number and proof output values are allowed to
 // change
-func ValidateRevision(current, revision types.FileContractRevision, payment, collateral types.Currency) error {
+func ValidateRevision(current, revision types.FileContractRevision, payment, collateral types.Currency) (transfer, burn types.Currency, err error) {
 	if err := validateStdRevision(current, revision); err != nil {
-		return err
+		return types.ZeroCurrency, types.ZeroCurrency, err
 	}
 
 	// validate the current revision has enough funds
 	switch {
 	case current.ValidRenterPayout().Cmp(payment) < 0:
-		return errors.New("renter valid proof output must be greater than the payment amount")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("renter valid proof output must be greater than the payment amount")
 	case current.MissedRenterPayout().Cmp(payment) < 0:
-		return errors.New("renter missed proof output must be greater than the payment amount")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("renter missed proof output must be greater than the payment amount")
 	case current.MissedHostPayout().Cmp(collateral) < 0:
-		return errors.New("host missed proof output must be greater than the collateral amount")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("host missed proof output must be greater than the collateral amount")
 	}
 
 	fromRenter, underflow := current.ValidRenterPayout().SubWithUnderflow(revision.ValidRenterPayout())
 	if underflow {
-		return errors.New("renter valid payout must decrease")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("renter valid payout must decrease")
 	}
 
 	toHost, overflow := revision.ValidHostPayout().SubWithUnderflow(current.ValidHostPayout())
 	if overflow {
-		return errors.New("host valid payout must increase")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("host valid payout must increase")
 	}
 
 	hostBurn, underflow := current.MissedHostPayout().SubWithUnderflow(revision.MissedHostPayout())
 	if underflow {
-		return errors.New("host missed payout must decrease")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("host missed payout must decrease")
 	}
 
 	switch {
 	case !fromRenter.Equals(toHost):
-		return fmt.Errorf("expected %d to be transferred to host, got %d", fromRenter, toHost)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("expected %d to be transferred to host, got %d", fromRenter, toHost)
 	case toHost.Cmp(payment) < 0:
-		return fmt.Errorf("insufficient host transfer: expected at least %d, got %d", payment, toHost)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("insufficient host transfer: expected at least %d, got %d", payment, toHost)
 	case hostBurn.Cmp(collateral) > 0:
-		return fmt.Errorf("excessive collateral transfer: expected at most %d, got %d", collateral, hostBurn)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("excessive collateral transfer: expected at most %d, got %d", collateral, hostBurn)
 	}
-	return nil
+	return toHost, hostBurn, nil
 }
 
 // ValidateProgramRevision verifies that a contract program revision is valid
 // and only the missed host value and burn value are modified by the expected
 // burn amount. All other usage will have been paid for by the RPC budget.
-func ValidateProgramRevision(current, revision types.FileContractRevision, storage, collateral types.Currency) error {
+func ValidateProgramRevision(current, revision types.FileContractRevision, storage, collateral types.Currency) (burn types.Currency, _ error) {
 	if err := validateStdRevision(current, revision); err != nil {
-		return err
+		return types.ZeroCurrency, err
 	}
 
 	// calculate the amount of SC that the host is expected to burn
 	hostBurn, underflow := current.MissedHostPayout().SubWithUnderflow(revision.MissedHostPayout())
 	if underflow {
-		return errors.New("host missed payout must decrease")
+		return types.ZeroCurrency, errors.New("host missed payout must decrease")
 	}
 
 	// validate that the host is not burning more than the expected amount
 	expectedBurn := storage.Add(collateral)
 	if hostBurn.Cmp(expectedBurn) > 0 {
-		return fmt.Errorf("host expected to burn at most %d, but burned %d", expectedBurn, hostBurn)
+		return types.ZeroCurrency, fmt.Errorf("host expected to burn at most %d, but burned %d", expectedBurn, hostBurn)
 	}
 
 	// validate that the void burn value is equal to the host burn value
+	// note: this check is covered by validateStdRevision, but it's
+	// good to be explicit.
 	voidBurn, underflow := revision.MissedProofOutputs[2].Value.SubWithUnderflow(current.MissedProofOutputs[2].Value)
 	if underflow {
-		return errors.New("void output value must increase")
+		return types.ZeroCurrency, errors.New("void output value must increase")
 	} else if !voidBurn.Equals(hostBurn) {
-		return fmt.Errorf("host burn value %d should match void burn value %d", hostBurn, voidBurn)
+		return types.ZeroCurrency, fmt.Errorf("host burn value %d should match void burn value %d", hostBurn, voidBurn)
 	}
 
 	// validate no other values have changed
 	switch {
 	case !current.ValidRenterPayout().Equals(revision.ValidRenterPayout()):
-		return errors.New("renter valid proof output must not change")
+		return types.ZeroCurrency, errors.New("renter valid proof output must not change")
 	case !current.ValidHostPayout().Equals(revision.ValidHostPayout()):
-		return errors.New("host valid proof output must not change")
+		return types.ZeroCurrency, errors.New("host valid proof output must not change")
 	case !current.MissedRenterPayout().Equals(revision.MissedRenterPayout()):
-		return errors.New("renter missed proof output must not change")
+		return types.ZeroCurrency, errors.New("renter missed proof output must not change")
 	}
-	return nil
+	return hostBurn, nil
 }
 
 // ValidatePaymentRevision verifies that a payment revision is valid and the

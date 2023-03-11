@@ -51,13 +51,14 @@ type (
 		RenterSignature types.Signature `json:"renterSignature"`
 	}
 
-	// Revenue tracks the usage of a contract's funds.
-	Revenue struct {
-		RPC            types.Currency `json:"rpc"`
-		Storage        types.Currency `json:"storage"`
-		Egress         types.Currency `json:"egress"`
-		Ingress        types.Currency `json:"ingress"`
-		AccountFunding types.Currency `json:"accountFunding"`
+	// Usage tracks the usage of a contract's funds.
+	Usage struct {
+		RPCRevenue       types.Currency `json:"rpc"`
+		StorageRevenue   types.Currency `json:"storage"`
+		EgressRevenue    types.Currency `json:"egress"`
+		IngressRevenue   types.Currency `json:"ingress"`
+		AccountFunding   types.Currency `json:"accountFunding"`
+		RiskedCollateral types.Currency `json:"riskedCollateral"`
 	}
 
 	// A Contract contains metadata on the current state of a file contract.
@@ -66,7 +67,7 @@ type (
 
 		Status           ContractStatus `json:"status"`
 		LockedCollateral types.Currency `json:"lockedCollateral"`
-		Revenue          Revenue        `json:"revenue"`
+		Usage            Usage          `json:"usage"`
 
 		// NegotiationHeight is the height the contract was negotiated at.
 		NegotiationHeight uint64 `json:"negotiationHeight"`
@@ -237,7 +238,7 @@ func (cu *ContractUpdater) Close() error {
 }
 
 // Commit atomically applies all changes to the contract store.
-func (cu *ContractUpdater) Commit(revision SignedRevision, revenue Revenue) error {
+func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 	err := cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
 		for i, action := range cu.sectorActions {
 			switch action.Action {
@@ -260,7 +261,7 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, revenue Revenue) erro
 			}
 		}
 
-		if err := tx.AddRevenue(revenue); err != nil {
+		if err := tx.AddUsage(usage); err != nil {
 			return fmt.Errorf("failed to add revenue: %w", err)
 		} else if err := tx.ReviseContract(revision); err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)

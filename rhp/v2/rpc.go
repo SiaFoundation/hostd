@@ -22,7 +22,7 @@ var (
 	// ErrHostInternalError is returned if the host encountered an error during
 	// an RPC that doesn't need to be broadcast to the renter (e.g. insufficient
 	// funds).
-	ErrHostInternalError = errors.New("unable to form contract")
+	ErrHostInternalError = errors.New("host internal error")
 	// ErrInvalidRenterSignature is returned when a contract's renter signature
 	// is invalid.
 	ErrInvalidRenterSignature = errors.New("invalid renter signature")
@@ -423,7 +423,10 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 		err := fmt.Errorf("failed to revise contract: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
-	} else if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
+	}
+
+	payment, _, err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency)
+	if err != nil {
 		err := fmt.Errorf("failed to validate revision: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
@@ -458,13 +461,12 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	defer updater.Close()
 
 	// adjust the revenue to account for the full transfer by the renter
-	spending := revision.ValidProofOutputs[1].Value.Sub(s.contract.Revision.ValidProofOutputs[1].Value)
-	remainder, underflow := spending.SubWithUnderflow(cost)
+	excess, underflow := payment.SubWithUnderflow(cost)
 	if !underflow {
-		costs.Egress = costs.Egress.Add(remainder)
+		costs.Egress = costs.Egress.Add(excess)
 	}
 
-	if err := updater.Commit(signedRevision, costs.ToContractRevenue()); err != nil {
+	if err := updater.Commit(signedRevision, costs.ToUsage()); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract revision: %w", err)
 	}
@@ -520,7 +522,10 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		err := fmt.Errorf("failed to revise contract: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
-	} else if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, collateral); err != nil {
+	}
+
+	payment, risked, err := rhp.ValidateRevision(s.contract.Revision, revision, cost, collateral)
+	if err != nil {
 		err := fmt.Errorf("failed to validate revision: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
@@ -650,14 +655,15 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	}
 
 	// adjust the revenue to account for the full transfer by the renter
-	spending := revision.ValidProofOutputs[1].Value.Sub(s.contract.Revision.ValidProofOutputs[1].Value)
-	remainder, underflow := spending.SubWithUnderflow(cost)
+	excess, underflow := payment.SubWithUnderflow(cost)
 	if !underflow {
-		costs.Storage = costs.Storage.Add(remainder)
+		costs.Storage = costs.Storage.Add(excess)
 	}
+	// adjust the collateral to account for the full transfer by the host
+	costs.Collateral = risked
 
 	// commit the contract modifications
-	if err := contractUpdater.Commit(signedRevision, costs.ToContractRevenue()); err != nil {
+	if err := contractUpdater.Commit(signedRevision, costs.ToUsage()); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract modifications: %w", err)
 	}
@@ -719,7 +725,10 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 		err := fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
 		return err
-	} else if err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency); err != nil {
+	}
+
+	payment, _, err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency)
+	if err != nil {
 		err := fmt.Errorf("failed to validate revision: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
@@ -741,13 +750,12 @@ func (sh *SessionHandler) rpcRead(s *session) error {
 	defer updater.Close()
 
 	// adjust the revenue to account for the full transfer by the renter
-	spending := revision.ValidProofOutputs[1].Value.Sub(s.contract.Revision.ValidProofOutputs[1].Value)
-	remainder, underflow := spending.SubWithUnderflow(cost)
+	excess, underflow := payment.SubWithUnderflow(cost)
 	if !underflow {
-		costs.Egress = costs.Egress.Add(remainder)
+		costs.Egress = costs.Egress.Add(excess)
 	}
 	// commit the contract revision
-	if err := updater.Commit(signedRevision, costs.ToContractRevenue()); err != nil {
+	if err := updater.Commit(signedRevision, costs.ToUsage()); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to commit contract revision: %w", err)
 	}

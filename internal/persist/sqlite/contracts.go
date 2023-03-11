@@ -83,33 +83,36 @@ func (u *updateContractTxn) ReviseContract(revision contracts.SignedRevision) er
 	return nil
 }
 
-// AddRevenue adds the revenue to the contract's existing revenue.
-func (u *updateContractTxn) AddRevenue(revenue contracts.Revenue) error {
-	const query = `SELECT rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding FROM contracts WHERE id=$1;`
-	var existing contracts.Revenue
+// AddUsage adds the revenue to the contract's existing revenue.
+func (u *updateContractTxn) AddUsage(revenue contracts.Usage) error {
+	const query = `SELECT rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral FROM contracts WHERE id=$1;`
+	var total contracts.Usage
 	err := u.tx.QueryRow(query, u.contractDBID).Scan(
-		(*sqlCurrency)(&existing.RPC),
-		(*sqlCurrency)(&existing.Storage),
-		(*sqlCurrency)(&existing.Ingress),
-		(*sqlCurrency)(&existing.Egress),
-		(*sqlCurrency)(&existing.AccountFunding))
+		(*sqlCurrency)(&total.RPCRevenue),
+		(*sqlCurrency)(&total.StorageRevenue),
+		(*sqlCurrency)(&total.IngressRevenue),
+		(*sqlCurrency)(&total.EgressRevenue),
+		(*sqlCurrency)(&total.AccountFunding),
+		(*sqlCurrency)(&total.RiskedCollateral))
 	if err != nil {
 		return fmt.Errorf("failed to get existing revenue: %w", err)
 	}
 
-	existing.RPC = existing.RPC.Add(revenue.RPC)
-	existing.Storage = existing.Storage.Add(revenue.Storage)
-	existing.Ingress = existing.Ingress.Add(revenue.Ingress)
-	existing.Egress = existing.Egress.Add(revenue.Egress)
-	existing.AccountFunding = existing.AccountFunding.Add(revenue.AccountFunding)
+	total.RPCRevenue = total.RPCRevenue.Add(revenue.RPCRevenue)
+	total.StorageRevenue = total.StorageRevenue.Add(revenue.StorageRevenue)
+	total.IngressRevenue = total.IngressRevenue.Add(revenue.IngressRevenue)
+	total.EgressRevenue = total.EgressRevenue.Add(revenue.EgressRevenue)
+	total.AccountFunding = total.AccountFunding.Add(revenue.AccountFunding)
+	total.RiskedCollateral = total.RiskedCollateral.Add(revenue.RiskedCollateral)
 
 	var dbID int64 // unused, but required by QueryRow to ensure exactly one row is updated
-	return u.tx.QueryRow(`UPDATE contracts SET (rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding) = ($1, $2, $3, $4, $5) WHERE id=$6 RETURNING id;`,
-		sqlCurrency(existing.RPC),
-		sqlCurrency(existing.Storage),
-		sqlCurrency(existing.Ingress),
-		sqlCurrency(existing.Egress),
-		sqlCurrency(existing.AccountFunding),
+	return u.tx.QueryRow(`UPDATE contracts SET (rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6) WHERE id=$7 RETURNING id;`,
+		sqlCurrency(total.RPCRevenue),
+		sqlCurrency(total.StorageRevenue),
+		sqlCurrency(total.IngressRevenue),
+		sqlCurrency(total.EgressRevenue),
+		sqlCurrency(total.AccountFunding),
+		sqlCurrency(total.RiskedCollateral),
 		u.contractDBID).Scan(&dbID)
 }
 
@@ -223,7 +226,7 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
 	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_status, c.negotiation_height, c.formation_confirmed, 
 	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
-	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.raw_revision, c.host_sig, c.renter_sig 
+	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 LEFT JOIN contracts r ON (c.renewed_to=r.id)
 ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
@@ -248,7 +251,7 @@ ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
 func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
 	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_status, c.negotiation_height, c.formation_confirmed, 
 	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
-	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.raw_revision, c.host_sig, c.renter_sig 
+	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 LEFT JOIN contracts r ON (c.id = r.renewed_to)
 WHERE c.contract_id=$1;`
@@ -482,12 +485,13 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 
 func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
-egress_revenue, account_funding, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
+egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
 raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, resolution_confirmed, contract_status) VALUES
- ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id;`
+ ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id;`
 	err = tx.QueryRow(query,
 		sqlHash256(revision.Revision.ParentID),
 		sqlCurrency(lockedCollateral),
+		sqlCurrency(types.ZeroCurrency),
 		sqlCurrency(types.ZeroCurrency),
 		sqlCurrency(types.ZeroCurrency),
 		sqlCurrency(types.ZeroCurrency),
@@ -554,11 +558,12 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		&c.RevisionConfirmed,
 		&c.ResolutionConfirmed,
 		(*sqlCurrency)(&c.LockedCollateral),
-		(*sqlCurrency)(&c.Revenue.RPC),
-		(*sqlCurrency)(&c.Revenue.Storage),
-		(*sqlCurrency)(&c.Revenue.Ingress),
-		(*sqlCurrency)(&c.Revenue.Egress),
-		(*sqlCurrency)(&c.Revenue.AccountFunding),
+		(*sqlCurrency)(&c.Usage.RPCRevenue),
+		(*sqlCurrency)(&c.Usage.StorageRevenue),
+		(*sqlCurrency)(&c.Usage.IngressRevenue),
+		(*sqlCurrency)(&c.Usage.EgressRevenue),
+		(*sqlCurrency)(&c.Usage.AccountFunding),
+		(*sqlCurrency)(&c.Usage.RiskedCollateral),
 		&revisionBuf,
 		(*sqlHash512)(&c.HostSignature),
 		(*sqlHash512)(&c.RenterSignature),

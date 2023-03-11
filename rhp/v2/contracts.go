@@ -31,12 +31,13 @@ func (c rpcCost) Total() (cost, collateral types.Currency) {
 	return c.Base.Add(c.Storage).Add(c.Ingress).Add(c.Egress), c.Collateral
 }
 
-func (c rpcCost) ToContractRevenue() contracts.Revenue {
-	return contracts.Revenue{
-		RPC:     c.Base,
-		Storage: c.Storage,
-		Egress:  c.Egress,
-		Ingress: c.Ingress,
+func (c rpcCost) ToUsage() contracts.Usage {
+	return contracts.Usage{
+		RPCRevenue:       c.Base,
+		StorageRevenue:   c.Storage,
+		EgressRevenue:    c.Egress,
+		IngressRevenue:   c.Ingress,
+		RiskedCollateral: c.Collateral,
 	}
 }
 

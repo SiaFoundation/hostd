@@ -74,11 +74,6 @@ func TestUploadDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// mine a block to confirm the contract
-	if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
-		t.Fatal(err)
-	}
-
 	session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), contract.ID())
 	if err != nil {
 		t.Fatal(err)
