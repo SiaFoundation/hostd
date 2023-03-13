@@ -113,6 +113,10 @@ func main() {
 		return
 	}
 
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		log.Fatal(err)
+	}
+
 	cfg := zap.NewProductionConfig()
 	cfg.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
 	if docker {
