@@ -88,7 +88,7 @@ func NewServer(g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wal
 		"PUT /syncer/peers/:address":    a.handlePUTSyncerPeer,
 		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
 		"GET /settings":                 a.handleGETSettings,
-		"PUT /settings":                 a.handlePUTSettings,
+		"POST /settings":                a.handlePOSTSettings,
 		"POST /settings/announce":       a.handlePOSTAnnounce,
 		"GET /financials/:period":       a.handleGETFinancials,
 		"GET /contracts":                a.handleGETContracts,

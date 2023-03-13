@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -76,16 +77,44 @@ func (a *API) handleGETSettings(c jape.Context) {
 	c.Encode(a.settings.Settings())
 }
 
-func (a *API) handlePUTSettings(c jape.Context) {
-	var updated settings.Settings
-	if err := c.Decode(&updated); err != nil {
+func (a *API) handlePOSTSettings(c jape.Context) {
+	buf, err := json.Marshal(a.settings.Settings())
+	if !a.checkServerError(c, "failed to marshal existing settings", err) {
+		return
+	}
+	var current map[string]any
+	err = json.Unmarshal(buf, &current)
+	if !a.checkServerError(c, "failed to unmarshal existing settings", err) {
+		return
+	}
+
+	var req UpdateSettingsRequest
+	if err := c.Decode(&req); err != nil {
 		c.Error(err, http.StatusBadRequest)
 		return
 	}
-	err := a.settings.UpdateSettings(updated)
+
+	merged, err := patchSettings(current, req)
+	if !a.checkServerError(c, "failed to patch settings", err) {
+		return
+	}
+
+	buf, err = json.Marshal(merged)
+	if !a.checkServerError(c, "failed to marshal patched settings", err) {
+		return
+	}
+
+	var settings settings.Settings
+	if err := json.Unmarshal(buf, &settings); err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	}
+
+	err = a.settings.UpdateSettings(settings)
 	if !a.checkServerError(c, "failed to update settings", err) {
 		return
 	}
+	c.Encode(settings)
 }
 
 func (a *API) handleGETFinancials(c jape.Context) {

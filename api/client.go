@@ -57,8 +57,9 @@ func (c *Client) Settings() (settings settings.Settings, err error) {
 }
 
 // UpdateSettings updates the host's settings.
-func (c *Client) UpdateSettings(settings settings.Settings) error {
-	return c.c.PUT("/settings", settings)
+func (c *Client) UpdateSettings(patch UpdateSettingsRequest) (settings settings.Settings, err error) {
+	err = c.c.POST("/settings", patch, &settings)
+	return
 }
 
 // Financials returns the financial metrics of the host for the specified period
