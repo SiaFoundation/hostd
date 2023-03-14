@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"fmt"
 	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -37,6 +38,31 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 	}
 	copy(sp.Leaf[:], sector[segmentIndex*rhpv2.LeafSize:])
 	return sp, nil
+}
+
+// processActions performs lifecycle actions on contracts. Triggerd by a
+// consensus change, changes are processed in the order they were received.
+func (cm *ContractManager) processActions() {
+	for height := range cm.processQueue {
+		err := func() error {
+			done, err := cm.tg.Add()
+			if err != nil {
+				return nil
+			}
+			defer done()
+
+			err = cm.store.ContractAction(height, cm.handleContractAction)
+			if err != nil {
+				return fmt.Errorf("failed to process contract actions: %w", err)
+			} else if err = cm.store.ExpireContractSectors(height); err != nil {
+				return fmt.Errorf("failed to expire contract sectors: %w", err)
+			}
+			return nil
+		}()
+		if err != nil {
+			cm.log.Panic("failed to process contract actions", zap.Error(err))
+		}
+	}
 }
 
 // handleContractAction performs a lifecycle action on a contract.

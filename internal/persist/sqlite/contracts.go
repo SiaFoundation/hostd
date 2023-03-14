@@ -333,16 +333,16 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 
 func contractsForAction(tx txn, height uint64) (actions []contractAction, _ error) {
 	const query = `
--- formation not confirmed, within rebroadcast window
+-- formation not confirmed, within rebroadcast window (rebroadcast)
 SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
 UNION
--- formation confirmed, revision not confirmed, just outside proof window
+-- formation confirmed, revision not confirmed, just outside proof window (broadcast final revision)
 SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND window_start BETWEEN $2 AND $3 AND confirmed_revision_number <> revision_number
 UNION
--- formation confirmed, resolution not confirmed, status active, in proof window 
+-- formation confirmed, resolution not confirmed, status active, in proof window (broadcast storage proof)
 SELECT contract_id, 'resolve' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_status=$5
 UNION
--- formation confirmed, status active, outside proof window
+-- formation confirmed, status active, outside proof window (mark as failed)
 SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
 
 	maxRebroadcastHeight := height
@@ -377,8 +377,8 @@ SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=
 
 // ContractAction calls contractFn on every contract in the store that
 // needs a lifecycle action performed.
-func (s *Store) ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, string)) error {
-	actions, err := contractsForAction(&dbTxn{s}, uint64(cc.BlockHeight))
+func (s *Store) ContractAction(height uint64, contractFn func(types.FileContractID, string)) error {
+	actions, err := contractsForAction(&dbTxn{s}, height)
 	if err != nil {
 		return fmt.Errorf("failed to get contracts for action: %w", err)
 	}

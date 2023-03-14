@@ -62,7 +62,7 @@ type (
 		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
 		// ContractAction calls contractFn on every contract in the store that
 		// needs a lifecycle action performed.
-		ContractAction(cc *modules.ConsensusChange, contractFn func(types.FileContractID, string)) error
+		ContractAction(height uint64, contractFn func(types.FileContractID, string)) error
 		// UpdateContract atomically updates a contract and its sector roots.
 		UpdateContract(types.FileContractID, func(UpdateContractTransaction) error) error
 		// UpdateContractState atomically updates the contract manager's state.

@@ -69,9 +69,9 @@ type (
 
 		blockHeight uint64
 
-		mu                sync.Mutex                       // guards the following fields
-		performingActions bool                             // prevents concurrent action processing
-		locks             map[types.FileContractID]*locker // contracts must be locked while they are being modified
+		processQueue chan uint64
+		mu           sync.Mutex                       // guards the following fields
+		locks        map[types.FileContractID]*locker // contracts must be locked while they are being modified
 	}
 )
 
@@ -192,6 +192,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		return
 	}
 	defer done()
+	log := cm.log.Named("consensusChange")
 
 	var revertedFormations, revertedResolutions []types.FileContractID
 	revertedRevisions := make(map[types.FileContractID]struct{})
@@ -248,7 +249,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.SetStatus(reverted, ContractStatusPending); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
-			cm.log.Debug("contract formation reverted", zap.String("contract", reverted.String()))
+			log.Debug("contract formation reverted", zap.String("contract", reverted.String()))
 		}
 
 		for reverted := range revertedRevisions {
@@ -259,7 +260,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.RevertRevision(reverted); err != nil {
 				return fmt.Errorf("failed to revert revision: %w", err)
 			}
-			cm.log.Debug("contract revision reverted", zap.String("contract", reverted.String()))
+			log.Debug("contract revision reverted", zap.String("contract", reverted.String()))
 		}
 
 		for _, reverted := range revertedResolutions {
@@ -272,7 +273,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.SetStatus(reverted, ContractStatusActive); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
-			cm.log.Debug("contract resolution reverted", zap.String("contract", reverted.String()))
+			log.Debug("contract resolution reverted", zap.String("contract", reverted.String()))
 		}
 
 		for _, applied := range appliedFormations {
@@ -285,7 +286,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.SetStatus(applied, ContractStatusActive); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
-			cm.log.Debug("contract formation applied", zap.String("contract", applied.String()))
+			log.Debug("contract formation applied", zap.String("contract", applied.String()))
 		}
 
 		for _, applied := range appliedRevisions {
@@ -296,7 +297,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.ConfirmRevision(applied); err != nil {
 				return fmt.Errorf("failed to apply revision: %w", err)
 			}
-			cm.log.Debug("contract revision applied", zap.String("contract", applied.ParentID.String()))
+			log.Debug("contract revision applied", zap.String("contract", applied.ParentID.String()))
 		}
 
 		for _, applied := range appliedResolutions {
@@ -309,59 +310,23 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.SetStatus(applied, ContractStatusSuccessful); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
-			cm.log.Debug("contract resolution applied", zap.String("contract", applied.String()))
+			log.Debug("contract resolution applied", zap.String("contract", applied.String()))
 		}
 
 		return nil
 	})
 	if err != nil {
-		cm.log.Error("failed to process consensus change", zap.Error(err))
+		log.Error("failed to process consensus change", zap.Error(err))
 		return
 	}
 
 	scanHeight := uint64(cc.BlockHeight)
 	atomic.StoreUint64(&cm.blockHeight, scanHeight)
-	cm.log.Debug("consensus change applied", zap.Uint64("height", scanHeight), zap.String("changeID", cc.ID.String()))
-
-	tipHeight := cm.chain.TipState().Index.Height
-	if tipHeight > scanHeight {
-		cm.log.Debug("skipping actions for old chain index", zap.Uint64("tipHeight", tipHeight), zap.Uint64("changeHeight", cm.blockHeight))
-		return
-	}
-
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	// check if the actions loop is already running
-	if cm.performingActions {
-		return
-	}
+	log.Debug("consensus change applied", zap.Uint64("height", scanHeight), zap.String("changeID", cc.ID.String()))
 
 	// perform actions in a separate goroutine to avoid deadlock in tpool
-	go func() {
-		done, err := cm.tg.Add()
-		if err != nil {
-			return
-		}
-		defer done()
-
-		cm.mu.Lock()
-		cm.performingActions = true
-		cm.mu.Unlock()
-
-		defer func() {
-			cm.mu.Lock()
-			cm.performingActions = false
-			cm.mu.Unlock()
-		}()
-		err = cm.store.ContractAction(&cc, cm.handleContractAction)
-		if err != nil {
-			cm.log.Error("failed to process contract actions", zap.Error(err))
-			return
-		} else if err = cm.store.ExpireContractSectors(scanHeight); err != nil {
-			cm.log.Error("failed to expire contract sectors", zap.Error(err))
-			return
-		}
-	}()
+	// triggers the processActions goroutine to process the block
+	cm.processQueue <- scanHeight
 }
 
 // ReviseContract initializes a new contract updater for the given contract.
@@ -422,13 +387,18 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		tpool:   tpool,
 		wallet:  wallet,
 
-		locks: make(map[types.FileContractID]*locker),
+		processQueue: make(chan uint64, 100),
+		locks:        make(map[types.FileContractID]*locker),
 	}
 
 	changeID, err := store.LastContractChange()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last contract change: %w", err)
 	}
+
+	// start the actions queue. Required to avoid a deadlock in the tpool, but
+	// still process consensus changes serially.
+	go cm.processActions()
 
 	// subscribe to the consensus set in a separate goroutine to prevent
 	// blocking startup
