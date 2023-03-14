@@ -110,7 +110,7 @@ func (h *Host) WalletAddress() types.Address {
 
 // NewHost initializes a new test host
 func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
-	node, err := newNode(privKey, dir)
+	node, err := NewNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}

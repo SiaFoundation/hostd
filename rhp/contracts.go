@@ -3,6 +3,7 @@ package rhp
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
@@ -114,6 +115,25 @@ func Revise(revision types.FileContractRevision, revisionNumber uint64, validOut
 	return revision, nil
 }
 
+// ClearingRevision returns a revision that locks a contract and sets the missed
+// proof outputs to the valid proof outputs.
+func ClearingRevision(revision types.FileContractRevision, outputValues []types.Currency) (types.FileContractRevision, error) {
+	if revision.RevisionNumber == math.MaxUint64 {
+		return types.FileContractRevision{}, errors.New("contract is locked")
+	} else if len(outputValues) != len(revision.ValidProofOutputs) {
+		return types.FileContractRevision{}, errors.New("incorrect number of outputs")
+	}
+
+	for i := range outputValues {
+		revision.ValidProofOutputs[i].Value = outputValues[i]
+	}
+	revision.MissedProofOutputs = revision.ValidProofOutputs
+	revision.RevisionNumber = math.MaxUint64
+	revision.Filesize = 0
+	revision.FileMerkleRoot = types.Hash256{}
+	return revision, nil
+}
+
 // ValidateContractFormation verifies that the new contract is valid given the
 // host's settings.
 func ValidateContractFormation(fc types.FileContract, hostKey, renterKey types.UnlockKey, currentHeight uint64, settings rhpv2.HostSettings) error {
@@ -198,10 +218,10 @@ func ValidateContractRenewal(existing types.FileContractRevision, renewal types.
 // and missed proof outputs are the same.
 func ValidateClearingRevision(current, final types.FileContractRevision) error {
 	switch {
-	case current.Filesize != final.Filesize:
-		return errors.New("file size must not change")
-	case current.FileMerkleRoot != final.FileMerkleRoot:
-		return errors.New("file merkle root must not change")
+	case final.Filesize != 0:
+		return errors.New("filesize must be 0")
+	case final.FileMerkleRoot != types.Hash256{}:
+		return errors.New("file merkle root must be empty")
 	case current.WindowStart != final.WindowStart:
 		return errors.New("window start must not change")
 	case current.WindowEnd != final.WindowEnd:

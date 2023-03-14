@@ -12,14 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	// rebroadcastBuffer is the number of blocks after the negotiation height to
-	// attempt to rebroadcast the contract.
-	rebroadcastBuffer = 12 // 2 hours
-	// revisionSubmissionBuffer number of blocks before the proof window to submit a revision
-	revisionSubmissionBuffer = 36 // 6 hours
-)
-
 type (
 	// An updateContractTxn atomically updates a single contract and its
 	// associated sector roots.
@@ -67,7 +59,7 @@ func (u *updateContractTxn) ReviseContract(revision contracts.SignedRevision) er
 	const query = `UPDATE contracts SET (revision_number, window_start, window_end, raw_revision, host_sig, renter_sig) = ($1, $2, $3, $4, $5, $6) WHERE id=$7 RETURNING contract_id;`
 	var updatedID types.FileContractID
 	err := u.tx.QueryRow(query,
-		revision.Revision.RevisionNumber,
+		sqlUint64(revision.Revision.RevisionNumber),
 		revision.Revision.WindowStart,
 		revision.Revision.WindowEnd,
 		encodeRevision(revision.Revision),
@@ -178,37 +170,37 @@ func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 
 // ConfirmRevision sets the confirmed revision number.
 func (u *updateContractsTxn) ConfirmRevision(revision types.FileContractRevision) error {
-	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2;`
-	_, err := u.tx.Exec(query, sqlUint64(revision.RevisionNumber), sqlHash256(revision.ParentID))
-	return err
+	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, sqlUint64(revision.RevisionNumber), sqlHash256(revision.ParentID)).Scan(&dbID)
 }
 
 // ConfirmResolution sets the resolution_confirmed flag to true.
 func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID) error {
-	const query = `UPDATE contracts SET resolution_confirmed=true WHERE contract_id=$1;`
-	_, err := u.tx.Exec(query, sqlHash256(id))
-	return err
+	const query = `UPDATE contracts SET resolution_confirmed=true WHERE contract_id=$1 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
 }
 
 // RevertFormation sets the formation_confirmed flag to false.
 func (u *updateContractsTxn) RevertFormation(id types.FileContractID) error {
-	const query = `UPDATE contracts SET formation_confirmed=false WHERE contract_id=$1;`
-	_, err := u.tx.Exec(query, sqlHash256(id))
-	return err
+	const query = `UPDATE contracts SET formation_confirmed=false WHERE contract_id=$1 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
 }
 
 // RevertRevision sets the confirmed revision number to 0.
 func (u *updateContractsTxn) RevertRevision(id types.FileContractID) error {
-	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2;`
-	_, err := u.tx.Exec(query, sqlUint64(0), sqlHash256(id))
-	return err
+	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, sqlUint64(0), sqlHash256(id)).Scan(&dbID)
 }
 
 // RevertResolution sets the resolution_confirmed flag to false.
 func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
-	const query = `UPDATE contracts SET resolution_confirmed=false WHERE contract_id=$1;`
-	_, err := u.tx.Exec(query, sqlHash256(id))
-	return err
+	const query = `UPDATE contracts SET resolution_confirmed=false WHERE contract_id=$1 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
 }
 
 // ContractRevelant returns true if the contract is relevant to the host.
@@ -334,40 +326,34 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 func contractsForAction(tx txn, height uint64) (actions []contractAction, _ error) {
 	const query = `
 -- formation not confirmed, within rebroadcast window (rebroadcast)
-SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
+SELECT contract_id, 'formation' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
 UNION
--- formation confirmed, revision not confirmed, just outside proof window (broadcast final revision)
-SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND window_start BETWEEN $2 AND $3 AND confirmed_revision_number <> revision_number
+-- formation confirmed, revision not confirmed, just outside proof window (broadcast revision)
+SELECT contract_id, 'revision' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN $2 AND $3
 UNION
 -- formation confirmed, resolution not confirmed, status active, in proof window (broadcast storage proof)
-SELECT contract_id, 'resolve' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_status=$5
+SELECT contract_id, 'resolve' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_status=$5
 UNION
 -- formation confirmed, status active, outside proof window (mark as failed)
-SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
+SELECT contract_id, 'expire' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
 
-	maxRebroadcastHeight := height
-	if height >= rebroadcastBuffer {
-		maxRebroadcastHeight -= rebroadcastBuffer
+	var maxRebroadcastHeight uint64
+	if height >= contracts.RebroadcastBuffer {
+		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
 	}
+	minRevisionHeight := height + contracts.RevisionSubmissionBuffer
 
-	minRevisionHeight := height
-	if height >= revisionSubmissionBuffer {
-		minRevisionHeight -= revisionSubmissionBuffer
-	}
-	maxRevisionHeight := height
-	if height >= 1 {
-		maxRevisionHeight--
-	}
-
-	rows, err := tx.Query(query, maxRebroadcastHeight, minRevisionHeight, maxRevisionHeight, height, contracts.ContractStatusActive)
+	rows, err := tx.Query(query, maxRebroadcastHeight, height, minRevisionHeight, height, contracts.ContractStatusActive)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
+		var confirmedRevisionNumber, revisionNumber, windowStart, windowEnd uint64
+		var status contracts.ContractStatus
 		var action contractAction
-		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action); err != nil {
+		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action, (*sqlUint64)(&confirmedRevisionNumber), (*sqlUint64)(&revisionNumber), &windowStart, &windowEnd, &status); err != nil {
 			return nil, fmt.Errorf("failed to scan contract: %w", err)
 		}
 		actions = append(actions, action)

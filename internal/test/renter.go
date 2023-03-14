@@ -177,7 +177,7 @@ func explicitCoveredFields(txn types.Transaction) (cf types.CoveredFields) {
 
 // NewRenter creates a new renter for testing
 func NewRenter(privKey types.PrivateKey, dir string) (*Renter, error) {
-	node, err := newNode(privKey, dir)
+	node, err := NewNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}

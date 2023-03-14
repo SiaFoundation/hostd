@@ -18,10 +18,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// proofWindowBuffer is the number of blocks before the proof window the host
-// will refuse to accept a revision.
-const proofWindowBuffer = 36 // 6 hours
-
 type (
 	// ChainManager defines the interface required by the contract manager to
 	// interact with the consensus set.
@@ -69,9 +65,10 @@ type (
 
 		blockHeight uint64
 
-		processQueue chan uint64
-		mu           sync.Mutex                       // guards the following fields
-		locks        map[types.FileContractID]*locker // contracts must be locked while they are being modified
+		processQueue chan uint64 // signals that the contract manager should process actions for a given block height
+
+		mu    sync.Mutex                       // guards the following fields
+		locks map[types.FileContractID]*locker // contracts must be locked while they are being modified
 	}
 )
 
@@ -86,8 +83,10 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 	cm.mu.Lock()
 	contract, err := cm.store.Contract(id)
 	if err != nil {
+		cm.mu.Unlock()
 		return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
 	} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
+		cm.mu.Unlock()
 		return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
 	}
 
@@ -297,7 +296,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.ConfirmRevision(applied); err != nil {
 				return fmt.Errorf("failed to apply revision: %w", err)
 			}
-			log.Debug("contract revision applied", zap.String("contract", applied.ParentID.String()))
+			log.Debug("contract revision applied", zap.String("contract", applied.ParentID.String()), zap.Uint64("revisionNumber", applied.RevisionNumber))
 		}
 
 		for _, applied := range appliedResolutions {
@@ -357,8 +356,10 @@ func (cm *ContractManager) Close() error {
 // isGoodForModification validates if a contract can be modified
 func isGoodForModification(contract Contract, height uint64) error {
 	switch {
-	case (height + proofWindowBuffer) > contract.Revision.WindowStart:
-		return fmt.Errorf("contract is too close to the proof window start (%v > %v)", height+proofWindowBuffer, contract.Revision.WindowStart)
+	case contract.Status != ContractStatusActive && contract.Status != ContractStatusPending:
+		return fmt.Errorf("contract status is %v, contract cannot be used", contract.Status)
+	case (height + RevisionSubmissionBuffer) > contract.Revision.WindowStart:
+		return fmt.Errorf("contract is too close to the proof window to be revised (%v > %v)", height+RevisionSubmissionBuffer, contract.Revision.WindowStart)
 	case contract.Revision.RevisionNumber == math.MaxUint64:
 		return fmt.Errorf("contract has reached the maximum number of revisions")
 	}

@@ -24,7 +24,7 @@ var (
 	// ErrHostInternalError is returned if the host encountered an error during
 	// an RPC that doesn't need to be broadcast to the renter (e.g. insufficient
 	// funds).
-	ErrHostInternalError = errors.New("unable to form contract")
+	ErrHostInternalError = errors.New("internal error")
 	// ErrInvalidRenterSignature is returned when a contract's renter signature
 	// is invalid.
 	ErrInvalidRenterSignature = errors.New("invalid renter signature")

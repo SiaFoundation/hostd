@@ -14,15 +14,23 @@ import (
 type Wallet struct {
 	*node
 	store  *sqlite.Store
-	Wallet *wallet.SingleAddressWallet
+	wallet *wallet.SingleAddressWallet
 }
 
 // Close closes the wallet.
 func (w *Wallet) Close() error {
-	w.Wallet.Close()
+	w.wallet.Close()
 	w.store.Close()
 	w.node.Close()
 	return nil
+}
+
+func (w *Wallet) Store() *sqlite.Store {
+	return w.store
+}
+
+func (w *Wallet) Wallet() *wallet.SingleAddressWallet {
+	return w.wallet
 }
 
 // SendSiacoins helper func to send siacoins from a wallet.
@@ -33,12 +41,12 @@ func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transact
 	}
 	txn.SiacoinOutputs = outputs
 
-	toSign, release, err := w.Wallet.FundTransaction(&txn, siacoinOutput)
+	toSign, release, err := w.wallet.FundTransaction(&txn, siacoinOutput)
 	if err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
-	if err := w.Wallet.SignTransaction(w.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+	if err := w.wallet.SignTransaction(w.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to sign transaction: %w", err)
 	} else if err := w.tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to accept transaction set: %w", err)
@@ -48,7 +56,7 @@ func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transact
 
 // NewWallet initializes a new test wallet.
 func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
-	node, err := newNode(privKey, dir)
+	node, err := NewNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
@@ -69,6 +77,6 @@ func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
 	return &Wallet{
 		node:   node,
 		store:  db,
-		Wallet: wallet,
+		wallet: wallet,
 	}, nil
 }

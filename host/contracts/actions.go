@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -75,7 +76,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		log.Error("failed to get contract", zap.String("contract", id.String()), zap.Error(err))
 		return
 	}
-	log.Info("performing contract action", zap.String("action", string(action)), zap.String("contract", id.String()), zap.Uint64("negotiationHeight", contract.NegotiationHeight), zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd))
+	log.Info("performing contract action", zap.String("action", string(action)), zap.String("contract", id.String()), zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.Uint64("negotiationHeight", contract.NegotiationHeight), zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd))
 	start := time.Now()
 
 	cs := cm.chain.TipState()
@@ -102,9 +103,10 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 					Signature:     contract.RenterSignature[:],
 				},
 				{
-					ParentID:      types.Hash256(contract.Revision.ParentID),
-					CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
-					Signature:     contract.HostSignature[:],
+					ParentID:       types.Hash256(contract.Revision.ParentID),
+					CoveredFields:  types.CoveredFields{FileContractRevisions: []uint64{0}},
+					Signature:      contract.HostSignature[:],
+					PublicKeyIndex: 1,
 				},
 			},
 		}
@@ -122,6 +124,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			return
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{revisionTxn}); err != nil {
 			log.Error("failed to broadcast revision transaction", zap.String("contract", id.String()), zap.Error(err))
+			return
 		}
 		log.Info("broadcast revision transaction", zap.String("contract", id.String()), zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.String("transactionID", revisionTxn.ID().String()))
 	case actionBroadcastResolution:
@@ -184,7 +187,8 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			log.Error("failed to sign resolution transaction", zap.String("contractID", id.String()), zap.Error(err))
 			return
 		} else if err := cm.tpool.AcceptTransactionSet(resolutionTxnSet); err != nil { // broadcast the transaction set
-			log.Error("failed to broadcast resolution transaction set", zap.String("contractID", id.String()), zap.Error(err))
+			buf, _ := json.Marshal(resolutionTxnSet)
+			log.Error("failed to broadcast resolution transaction set", zap.String("contractID", id.String()), zap.Error(err), zap.ByteString("transactionSet", buf))
 			return
 		}
 		log.Info("broadcast storage proof", zap.String("contractID", id.String()), zap.String("transactionID", resolutionTxnSet[1].ID().String()))

@@ -37,17 +37,19 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 	}
 }
 
-type txpool struct {
+type TXPool struct {
 	tp modules.TransactionPool
 }
 
-func (tp txpool) RecommendedFee() (fee types.Currency) {
+// RecommendedFee returns the recommended fee for a transaction.
+func (tp TXPool) RecommendedFee() (fee types.Currency) {
 	_, max := tp.tp.FeeEstimation()
 	convertToCore(&max, &fee)
 	return
 }
 
-func (tp txpool) Transactions() []types.Transaction {
+// Transactions returns all transactions in the pool.
+func (tp TXPool) Transactions() []types.Transaction {
 	stxns := tp.tp.Transactions()
 	txns := make([]types.Transaction, len(stxns))
 	for i := range txns {
@@ -56,7 +58,8 @@ func (tp txpool) Transactions() []types.Transaction {
 	return txns
 }
 
-func (tp txpool) AcceptTransactionSet(txns []types.Transaction) error {
+// AcceptTransactionSet adds a transaction set to the pool.
+func (tp TXPool) AcceptTransactionSet(txns []types.Transaction) error {
 	stxns := make([]stypes.Transaction, len(txns))
 	for i := range stxns {
 		convertToSiad(&txns[i], &stxns[i])
@@ -68,7 +71,8 @@ func (tp txpool) AcceptTransactionSet(txns []types.Transaction) error {
 	return err
 }
 
-func (tp txpool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error) {
+// UnconfirmedParents returns the parents of a transaction in the pool.
+func (tp TXPool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error) {
 	pool := tp.Transactions()
 	outputToParent := make(map[types.SiacoinOutputID]*types.Transaction)
 	for i, txn := range pool {
@@ -89,7 +93,8 @@ func (tp txpool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction,
 	return parents, nil
 }
 
-func (tp txpool) Subscribe(subscriber modules.TransactionPoolSubscriber) {
+// Subscribe subscribes to the transaction pool.
+func (tp TXPool) Subscribe(subscriber modules.TransactionPoolSubscriber) {
 	tp.tp.TransactionPoolSubscribe(subscriber)
 }
 
@@ -101,7 +106,7 @@ type (
 		g  modules.Gateway
 		cs modules.ConsensusSet
 		cm *chain.Manager
-		tp *txpool
+		tp *TXPool
 		m  *Miner
 	}
 )
@@ -137,8 +142,16 @@ func (n *node) MineBlocks(address types.Address, count int) error {
 	return n.m.Mine(address, count)
 }
 
-// newNode creates a new Sia node and wallet with the given key
-func newNode(privKey types.PrivateKey, dir string) (*node, error) {
+func (n *node) ChainManager() *chain.Manager {
+	return n.cm
+}
+
+func (n *node) TPool() *TXPool {
+	return n.tp
+}
+
+// NewNode creates a new Sia node and wallet with the given key
+func NewNode(privKey types.PrivateKey, dir string) (*node, error) {
 	g, err := gateway.New("localhost:0", false, filepath.Join(dir, "gateway"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gateway: %w", err)
@@ -167,7 +180,7 @@ func newNode(privKey types.PrivateKey, dir string) (*node, error) {
 		g:  g,
 		cs: cs,
 		cm: cm,
-		tp: &txpool{tp},
+		tp: &TXPool{tp},
 		m:  m,
 	}, nil
 }

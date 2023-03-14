@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"strconv"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -70,17 +69,6 @@ func (sh sqlHash512) Value() (driver.Value, error) {
 
 func (su *sqlUint64) Scan(src interface{}) error {
 	switch src := src.(type) {
-	case string:
-		i, err := strconv.ParseUint(src, 10, 64)
-		if err != nil {
-			return err
-		}
-		*su = sqlUint64(i)
-	case int64:
-		if src < 0 {
-			return fmt.Errorf("cannot scan %v to uint64", src)
-		}
-		*su = sqlUint64(src)
 	case []byte:
 		*su = sqlUint64(binary.LittleEndian.Uint64(src))
 	default:
