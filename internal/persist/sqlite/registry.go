@@ -46,12 +46,12 @@ func (s *Store) SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) e
 				return registry.ErrNotEnoughSpace
 			}
 
-			return tx.QueryRow(insertQuery, sqlHash256(registryKey), entry.Revision, entry.Type, sqlHash512(entry.Signature), entry.Data, sqlUint64(expiration)).Scan((*sqlHash256)(&registryKey))
+			return tx.QueryRow(insertQuery, sqlHash256(registryKey), sqlUint64(entry.Revision), entry.Type, sqlHash512(entry.Signature), entry.Data, sqlUint64(expiration)).Scan((*sqlHash256)(&registryKey))
 		} else if err != nil {
 			return fmt.Errorf("failed to get registry entry: %w", err)
 		}
 		// key exists, update it
-		return tx.QueryRow(updateQuery, sqlHash256(registryKey), entry.Revision, entry.Type, sqlHash512(entry.Signature), entry.Data, sqlUint64(expiration)).Scan((*sqlHash256)(&registryKey))
+		return tx.QueryRow(updateQuery, sqlHash256(registryKey), sqlUint64(entry.Revision), entry.Type, sqlHash512(entry.Signature), entry.Data, sqlUint64(expiration)).Scan((*sqlHash256)(&registryKey))
 	})
 }
 
