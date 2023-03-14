@@ -43,7 +43,9 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 // processActions performs lifecycle actions on contracts. Triggerd by a
 // consensus change, changes are processed in the order they were received.
 func (cm *ContractManager) processActions() {
+	log := cm.log.Named("lifecycle")
 	for height := range cm.processQueue {
+		log.Debug("processing actions", zap.Uint64("height", height))
 		err := func() error {
 			done, err := cm.tg.Add()
 			if err != nil {
