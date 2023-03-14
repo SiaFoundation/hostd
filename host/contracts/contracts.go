@@ -13,7 +13,7 @@ const (
 	// RebroadcastBuffer is the number of blocks after the negotiation height to
 	// attempt to rebroadcast the contract.
 	RebroadcastBuffer = 12 // 2 hours
-	// revisionSubmissionBuffer number of blocks before the proof window to
+	// RevisionSubmissionBuffer number of blocks before the proof window to
 	// submit a revision and prevent modification of the contract.
 	RevisionSubmissionBuffer = 24 // 4 hours
 )

@@ -18,7 +18,7 @@ func TestWallet(t *testing.T) {
 	}
 	defer node1.Close()
 
-	w := node1.Wallet
+	w := node1.Wallet()
 
 	_, balance, _, err := w.Balance()
 	if err != nil {

@@ -27,7 +27,7 @@ func (stubMetricReporter) Report(any) (_ error) { return }
 
 // A Host is an ephemeral host that can be used for testing.
 type Host struct {
-	*node
+	*Node
 
 	store     *sqlite.Store
 	wallet    *wallet.SingleAddressWallet
@@ -68,7 +68,7 @@ func (h *Host) Close() error {
 	h.wallet.Close()
 	h.storage.Close()
 	h.store.Close()
-	h.node.Close()
+	h.Node.Close()
 	return nil
 }
 
@@ -179,7 +179,7 @@ func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
 	go rhpv3.Serve()
 
 	return &Host{
-		node:      node,
+		Node:      node,
 		store:     db,
 		wallet:    wallet,
 		settings:  settings,

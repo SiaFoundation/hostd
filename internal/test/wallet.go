@@ -12,7 +12,7 @@ import (
 
 // A Wallet is an ephemeral wallet that can be used for testing.
 type Wallet struct {
-	*node
+	*Node
 	store  *sqlite.Store
 	wallet *wallet.SingleAddressWallet
 }
@@ -21,14 +21,16 @@ type Wallet struct {
 func (w *Wallet) Close() error {
 	w.wallet.Close()
 	w.store.Close()
-	w.node.Close()
+	w.Node.Close()
 	return nil
 }
 
+// Store returns the wallet's store.
 func (w *Wallet) Store() *sqlite.Store {
 	return w.store
 }
 
+// Wallet returns the wallet's wallet.
 func (w *Wallet) Wallet() *wallet.SingleAddressWallet {
 	return w.wallet
 }
@@ -46,7 +48,7 @@ func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transact
 		return types.Transaction{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
-	if err := w.wallet.SignTransaction(w.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+	if err := w.wallet.SignTransaction(w.ChainManager().TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to sign transaction: %w", err)
 	} else if err := w.tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to accept transaction set: %w", err)
@@ -75,7 +77,7 @@ func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 	return &Wallet{
-		node:   node,
+		Node:   node,
 		store:  db,
 		wallet: wallet,
 	}, nil

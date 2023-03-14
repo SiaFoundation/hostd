@@ -37,6 +37,7 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 	}
 }
 
+// TXPool wraps a siad transaction pool with core types.
 type TXPool struct {
 	tp modules.TransactionPool
 }
@@ -99,8 +100,8 @@ func (tp TXPool) Subscribe(subscriber modules.TransactionPoolSubscriber) {
 }
 
 type (
-	// A node is a base Sia node that can be extended by a Renter or Host
-	node struct {
+	// A Node is a base Sia node that can be extended by a Renter or Host
+	Node struct {
 		privKey types.PrivateKey
 
 		g  modules.Gateway
@@ -111,47 +112,51 @@ type (
 	}
 )
 
-func (n *node) Close() error {
+// Close closes the node
+func (n *Node) Close() error {
 	n.tp.tp.Close()
 	n.cs.Close()
 	n.g.Close()
 	return nil
 }
 
-func (n *node) PublicKey() types.PublicKey {
+// PublicKey returns the public key of the node
+func (n *Node) PublicKey() types.PublicKey {
 	return n.privKey.PublicKey()
 }
 
 // GatewayAddr returns the address of the gateway
-func (n *node) GatewayAddr() string {
+func (n *Node) GatewayAddr() string {
 	return string(n.g.Address())
 }
 
 // ConnectPeer connects the host's gateway to a peer
-func (n *node) ConnectPeer(addr string) error {
+func (n *Node) ConnectPeer(addr string) error {
 	return n.g.Connect(modules.NetAddress(addr))
 }
 
 // TipState returns the current consensus state.
-func (n *node) TipState() consensus.State {
+func (n *Node) TipState() consensus.State {
 	return n.cm.TipState()
 }
 
 // MineBlocks mines n blocks sending the reward to address
-func (n *node) MineBlocks(address types.Address, count int) error {
+func (n *Node) MineBlocks(address types.Address, count int) error {
 	return n.m.Mine(address, count)
 }
 
-func (n *node) ChainManager() *chain.Manager {
+// ChainManager returns the chain manager
+func (n *Node) ChainManager() *chain.Manager {
 	return n.cm
 }
 
-func (n *node) TPool() *TXPool {
+// TPool returns the transaction pool
+func (n *Node) TPool() *TXPool {
 	return n.tp
 }
 
 // NewNode creates a new Sia node and wallet with the given key
-func NewNode(privKey types.PrivateKey, dir string) (*node, error) {
+func NewNode(privKey types.PrivateKey, dir string) (*Node, error) {
 	g, err := gateway.New("localhost:0", false, filepath.Join(dir, "gateway"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gateway: %w", err)
@@ -174,7 +179,7 @@ func NewNode(privKey types.PrivateKey, dir string) (*node, error) {
 		return nil, fmt.Errorf("failed to subscribe miner to consensus set: %w", err)
 	}
 	tp.TransactionPoolSubscribe(m)
-	return &node{
+	return &Node{
 		privKey: privKey,
 
 		g:  g,

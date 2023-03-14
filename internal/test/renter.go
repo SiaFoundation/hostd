@@ -18,7 +18,7 @@ import (
 type (
 	// A Renter is an ephemeral renter that can be used for testing
 	Renter struct {
-		*node
+		*Node
 
 		privKey types.PrivateKey
 		store   *sqlite.Store
@@ -30,7 +30,7 @@ type (
 func (r *Renter) Close() error {
 	r.wallet.Close()
 	r.store.Close()
-	r.node.Close()
+	r.Node.Close()
 	return nil
 }
 
@@ -197,7 +197,7 @@ func NewRenter(privKey types.PrivateKey, dir string) (*Renter, error) {
 	}
 
 	return &Renter{
-		node:    node,
+		Node:    node,
 		privKey: privKey,
 		store:   db,
 		wallet:  wallet,
