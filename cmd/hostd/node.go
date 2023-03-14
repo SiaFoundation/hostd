@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/types"
@@ -168,8 +169,8 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		}
 	default:
 		go func() {
-			if err := <-errCh; err != nil {
-				logger.Warn("consensus error", zap.Error(err))
+			if err := <-errCh; err != nil && !strings.Contains(err.Error(), "Threadgroup already stopped") {
+				logger.Warn("consensus subscribe error", zap.Error(err))
 			}
 		}()
 	}
