@@ -209,6 +209,13 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	}
 	instructions := executeReq.Program
 
+	// pay for the execution
+	if err := budget.Spend(pt.InitBaseCost); err != nil {
+		err = fmt.Errorf("failed to pay program init cost: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	}
+
 	var requiresContract, requiresFinalization bool
 	for _, instr := range instructions {
 		requiresContract = requiresContract || instr.RequiresContract()
