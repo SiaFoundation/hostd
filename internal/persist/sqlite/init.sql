@@ -63,6 +63,7 @@ CREATE INDEX locked_volume_sectors_sector_id ON locked_volume_sectors(volume_sec
 CREATE TABLE contracts (
 	id INTEGER PRIMARY KEY,
 	renewed_to INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
+	renewed_from INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
 	contract_id BLOB UNIQUE NOT NULL,
 	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max on clearing revisions
 	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
@@ -86,6 +87,7 @@ CREATE TABLE contracts (
 );
 CREATE INDEX contracts_contract_id ON contracts(contract_id);
 CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
+CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
 CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_start ON contracts(formation_confirmed, resolution_confirmed, window_start);
 CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_end ON contracts(formation_confirmed, resolution_confirmed, window_end);
 CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
