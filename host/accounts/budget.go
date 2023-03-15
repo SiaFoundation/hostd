@@ -1,7 +1,6 @@
 package accounts
 
 import (
-	"errors"
 	"fmt"
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
@@ -18,12 +17,6 @@ type (
 		committed bool
 		am        *AccountManager
 	}
-)
-
-var (
-	// ErrInsufficientBudget is returned when the renter's budget is not
-	// sufficient to cover the payment.
-	ErrInsufficientBudget = errors.New("insufficient budget")
 )
 
 // Remaining returns the amount remaining in the budget
@@ -56,7 +49,7 @@ func (b *Budget) Refund(amount types.Currency) {
 func (b *Budget) Spend(amount types.Currency) error {
 	spent := b.spent.Add(amount)
 	if b.max.Cmp(spent) < 0 {
-		return fmt.Errorf("unable to spend %v, %v remaining: %w", amount, b.max.Sub(b.spent), ErrInsufficientBudget)
+		return fmt.Errorf("unable to spend %v, %v remaining: %w", amount, b.max.Sub(b.spent), ErrInsufficientFunds)
 	}
 	b.spent = spent
 	return nil

@@ -15,10 +15,10 @@ import (
 var (
 	// ErrInsufficientFunds is returned when an account does not have enough
 	// funds to cover a debit.
-	ErrInsufficientFunds = errors.New("insufficient funds")
+	ErrInsufficientFunds = errors.New("ephemeral account balance was insufficient") // note: text is required for compatibility with siad
 	// ErrBalanceExceeded is returned when an account's balance exceeds the
 	// maximum balance.
-	ErrBalanceExceeded = errors.New("ephemeral account maximum balance exceeded")
+	ErrBalanceExceeded = errors.New("ephemeral account maximum balance exceeded") // note: text is required for compatibility with siad
 )
 
 type (
@@ -164,7 +164,7 @@ func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, a
 			am.mu.Unlock()
 			select {
 			case <-ctx.Done():
-				return nil, ErrInsufficientBudget // return ErrInsufficientBudget instead of context deadline exceeded
+				return nil, ErrInsufficientFunds // return ErrInsufficientFunds instead of context deadline exceeded
 			case <-ch:
 				continue // deposit received, try again
 			}
