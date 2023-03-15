@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"time"
 
 	"go.sia.tech/core/types"
 )
@@ -128,8 +129,8 @@ func (ur UpdateSettingsRequest) WithMaxRegistryEntries(value uint64) {
 }
 
 // WithAccountExpiry sets the AccountExpiry field of the request
-func (ur UpdateSettingsRequest) WithAccountExpiry(value uint64) {
-	ur["accountExpiry"] = strconv.FormatUint(value, 10)
+func (ur UpdateSettingsRequest) WithAccountExpiry(value time.Duration) {
+	ur["accountExpiry"] = strconv.FormatInt(int64(value), 10)
 }
 
 // patchSettings merges two settings maps. returns an error if the two maps are

@@ -118,8 +118,8 @@ var (
 		MinEgressPrice:  types.Siacoins(250).Div64(1 << 40),                      // 250 SC / TB
 		MinIngressPrice: types.Siacoins(10).Div64(1 << 40),                       // 10 SC / TB
 
-		AccountExpiry:     144 * 30,           // 30 days
-		MaxAccountBalance: types.Siacoins(10), // 10SC
+		AccountExpiry:     30 * 24 * time.Hour, // 30 days
+		MaxAccountBalance: types.Siacoins(10),  // 10SC
 
 		MaxRegistryEntries: 100000,
 	}
