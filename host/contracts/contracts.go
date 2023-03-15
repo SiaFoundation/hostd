@@ -31,6 +31,9 @@ const (
 	// has not yet been confirmed on the blockchain. The contract is still
 	// usable, but there is a risk that the contract will never be confirmed.
 	ContractStatusPending ContractStatus = iota
+	// ContractStatusRejected indicates that the contract formation transaction
+	// was never confirmed on the blockchain
+	ContractStatusRejected
 	// ContractStatusActive indicates that the contract has been confirmed on
 	// the blockchain and is currently active.
 	ContractStatusActive

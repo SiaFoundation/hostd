@@ -12,10 +12,11 @@ import (
 
 // An action determines what lifecycle event should be performed on a contract.
 const (
-	actionBroadcastFormation     = "formation"
-	actionBroadcastFinalRevision = "revision"
-	actionBroadcastResolution    = "resolve"
-	actionExpire                 = "expire"
+	ActionBroadcastFormation     = "formation"
+	ActionReject                 = "reject"
+	ActionBroadcastFinalRevision = "revision"
+	ActionBroadcastResolution    = "resolve"
+	ActionExpire                 = "expire"
 )
 
 func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint64) (types.StorageProof, error) {
@@ -82,7 +83,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 	cs := cm.chain.TipState()
 
 	switch action {
-	case actionBroadcastFormation:
+	case ActionBroadcastFormation:
 		formationSet, err := cm.store.ContractFormationSet(id)
 		if err != nil {
 			log.Error("failed to get formation set", zap.String("contract", id.String()), zap.Error(err))
@@ -93,7 +94,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			return
 		}
 		log.Info("broadcast formation transaction", zap.String("contract", id.String()), zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
-	case actionBroadcastFinalRevision:
+	case ActionBroadcastFinalRevision:
 		revisionTxn := types.Transaction{
 			FileContractRevisions: []types.FileContractRevision{contract.Revision},
 			Signatures: []types.TransactionSignature{
@@ -127,7 +128,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			return
 		}
 		log.Info("broadcast revision transaction", zap.String("contract", id.String()), zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.String("transactionID", revisionTxn.ID().String()))
-	case actionBroadcastResolution:
+	case ActionBroadcastResolution:
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
 		if missedPayout.Cmp(validPayout) >= 0 {
 			log.Info("skipping storage proof, no benefit to host", zap.String("contract", id.String()), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
@@ -192,7 +193,11 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			return
 		}
 		log.Info("broadcast storage proof", zap.String("contractID", id.String()), zap.String("transactionID", resolutionTxnSet[1].ID().String()))
-	case actionExpire:
+	case ActionReject:
+		if err := cm.store.SetContractStatus(id, ContractStatusRejected); err != nil {
+			log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))
+		}
+	case ActionExpire:
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
 		if validPayout.Cmp(missedPayout) > 0 {
 			// if the host valid payout is greater than the missed payout, the

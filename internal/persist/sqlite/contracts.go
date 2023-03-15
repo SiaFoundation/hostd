@@ -329,44 +329,6 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 	return roots, nil
 }
 
-func contractsForAction(tx txn, height uint64) (actions []contractAction, _ error) {
-	const query = `
--- formation not confirmed, within rebroadcast window (rebroadcast)
-SELECT contract_id, 'formation' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
-UNION
--- formation confirmed, revision not confirmed, just outside proof window (broadcast revision)
-SELECT contract_id, 'revision' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN $2 AND $3
-UNION
--- formation confirmed, resolution not confirmed, status active, in proof window (broadcast storage proof)
-SELECT contract_id, 'resolve' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_status=$5
-UNION
--- formation confirmed, status active, outside proof window (mark as failed)
-SELECT contract_id, 'expire' AS action, confirmed_revision_number, revision_number, window_start, window_end, contract_status FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
-
-	var maxRebroadcastHeight uint64
-	if height >= contracts.RebroadcastBuffer {
-		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
-	}
-	minRevisionHeight := height + contracts.RevisionSubmissionBuffer
-
-	rows, err := tx.Query(query, maxRebroadcastHeight, height, minRevisionHeight, height, contracts.ContractStatusActive)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query contracts: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var confirmedRevisionNumber, revisionNumber, windowStart, windowEnd uint64
-		var status contracts.ContractStatus
-		var action contractAction
-		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action, (*sqlUint64)(&confirmedRevisionNumber), (*sqlUint64)(&revisionNumber), &windowStart, &windowEnd, &status); err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		actions = append(actions, action)
-	}
-	return
-}
-
 // ContractAction calls contractFn on every contract in the store that
 // needs a lifecycle action performed.
 func (s *Store) ContractAction(height uint64, contractFn func(types.FileContractID, string)) error {
@@ -475,13 +437,71 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 	}
 }
 
+func contractsForAction(tx txn, height uint64) (actions []contractAction, _ error) {
+	const query = `
+-- formation not confirmed, within rebroadcast window (rebroadcast)
+SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
+UNION
+-- formation not confirmed, outside rebroadcast window (reject)
+SELECT contract_id, 'reject' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height < $1
+UNION
+-- formation confirmed, revision not confirmed, just outside proof window (broadcast revision)
+SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN $2 AND $3
+UNION
+-- formation confirmed, resolution not confirmed, status active, in proof window (broadcast storage proof)
+SELECT contract_id, 'resolve' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_status=$5
+UNION
+-- formation confirmed, status active, outside proof window (mark as failed)
+SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
+
+	var maxRebroadcastHeight uint64
+	if height >= contracts.RebroadcastBuffer {
+		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
+	}
+	minRevisionHeight := height + contracts.RevisionSubmissionBuffer
+
+	rows, err := tx.Query(query, maxRebroadcastHeight, height, minRevisionHeight, height, contracts.ContractStatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var confirmedRevisionNumber, revisionNumber, windowStart, windowEnd uint64
+		var status contracts.ContractStatus
+		var action contractAction
+		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action, (*sqlUint64)(&confirmedRevisionNumber), (*sqlUint64)(&revisionNumber), &windowStart, &windowEnd, &status); err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+		actions = append(actions, action)
+	}
+	return
+}
+
+func renterDBID(tx txn, renterKey types.PublicKey) (int64, error) {
+	var dbID int64
+	err := tx.QueryRow(`SELECT id FROM contract_renters WHERE public_key=$1;`, sqlHash256(renterKey)).Scan(&dbID)
+	if err == nil {
+		return dbID, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("failed to get renter: %w", err)
+	}
+	err = tx.QueryRow(`INSERT INTO contract_renters (public_key) VALUES ($1) RETURNING id;`, sqlHash256(renterKey)).Scan(&dbID)
+	return dbID, err
+}
+
 func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) (dbID int64, err error) {
-	const query = `INSERT INTO contracts (contract_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
+	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
 egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
 raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, resolution_confirmed, contract_status) VALUES
  ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id;`
+	renterID, err := renterDBID(tx, revision.RenterKey())
+	if err != nil {
+		return 0, fmt.Errorf("failed to get renter id: %w", err)
+	}
 	err = tx.QueryRow(query,
 		sqlHash256(revision.Revision.ParentID),
+		renterID,
 		sqlCurrency(lockedCollateral),
 		sqlCurrency(initialUsage.RPCRevenue),
 		sqlCurrency(initialUsage.StorageRevenue),
