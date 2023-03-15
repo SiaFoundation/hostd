@@ -482,8 +482,6 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		if err := s.ReadResponse(&req, 1024); err != nil {
 			return fmt.Errorf("failed to read finalize request: %w", err)
 		}
-		pe.log.Debug("received finalize request", zap.Uint64("revision number", req.RevisionNumber), zap.String("contract", pe.revision.Revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
-		start = time.Now()
 
 		// revise the contract with the values received from the renter
 		existing := pe.revision.Revision
@@ -504,8 +502,6 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		// update the size and root of the contract
 		revision.FileMerkleRoot = pe.updater.MerkleRoot()
 		revision.Filesize = rhpv2.SectorSize * pe.updater.SectorCount()
-		pe.log.Debug("revised contract", zap.Uint64("revision number", revision.RevisionNumber), zap.String("root", revision.FileMerkleRoot.String()), zap.Uint64("size", revision.Filesize), zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
-		start = time.Now()
 
 		// verify the renter signature
 		sigHash := rhp.HashRevision(revision)
@@ -514,7 +510,6 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			s.WriteResponseErr(err)
 			return err
 		}
-		pe.log.Debug("verified renter signature", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
 
 		// sign and commit the revision
 		signedRevision := contracts.SignedRevision{
@@ -540,7 +535,6 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			s.WriteResponseErr(ErrHostInternalError)
 			return fmt.Errorf("failed to commit revision: %w", err)
 		}
-		pe.log.Debug("committed revision", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
 
 		// send the signature to the renter
 		resp := rhpv3.RPCFinalizeProgramResponse{
@@ -549,7 +543,7 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		if err := s.WriteResponse(&resp); err != nil {
 			return fmt.Errorf("failed to write finalize response: %w", err)
 		}
-		pe.log.Debug("sent finalize response", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
+		pe.log.Debug("finalized contract", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
 	}
 
 	// commit the temporary sectors
