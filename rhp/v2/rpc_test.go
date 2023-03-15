@@ -200,6 +200,17 @@ func TestRenew(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 
+		old, err := host.Contracts().Contract(origin.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if old.Revision.Filesize != 0 {
+			t.Fatal("filesize mismatch")
+		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
+			t.Fatal("merkle root mismatch")
+		} else if old.RenewedTo != renewal.ID() {
+			t.Fatal("renewed to mismatch")
+		}
+
 		contract, err := host.Contracts().Contract(renewal.ID())
 		if err != nil {
 			t.Fatal(err)
@@ -213,6 +224,8 @@ func TestRenew(t *testing.T) {
 			t.Fatalf("expected zero risked collateral, got %d", contract.Usage.RiskedCollateral)
 		} else if !contract.Usage.RPCRevenue.Equals(settings.ContractPrice) {
 			t.Fatalf("expected %d RPC revenue, got %d", settings.ContractPrice, contract.Usage.RPCRevenue)
+		} else if contract.RenewedFrom != origin.ID() {
+			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
 		}
 	})
 
@@ -283,6 +296,17 @@ func TestRenew(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		old, err := host.Contracts().Contract(origin.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if old.Revision.Filesize != 0 {
+			t.Fatal("filesize mismatch")
+		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
+			t.Fatal("merkle root mismatch")
+		} else if old.RenewedTo != renewal.ID() {
+			t.Fatal("renewed to mismatch")
+		}
+
 		contract, err := host.Contracts().Contract(renewal.ID())
 		if err != nil {
 			t.Fatal(err)
@@ -294,6 +318,8 @@ func TestRenew(t *testing.T) {
 			t.Fatalf("locked collateral mismatch: expected at least %d, got %d", additionalCollateral, contract.LockedCollateral)
 		} else if !contract.Usage.RPCRevenue.Equals(settings.ContractPrice) {
 			t.Fatalf("expected %d RPC revenue, got %d", settings.ContractPrice, contract.Usage.RPCRevenue)
+		} else if contract.RenewedFrom != origin.ID() {
+			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
 		}
 	})
 }

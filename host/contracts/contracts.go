@@ -89,9 +89,12 @@ type (
 		// ResolutionConfirmed is true if the contract's resolution has been
 		// confirmed on the blockchain.
 		ResolutionConfirmed bool `json:"resolutionConfirmed"`
-		// RenewedTwo is the ID of the contract that renewed this contract. If
+		// RenewedTo is the ID of the contract that renewed this contract. If
 		// this contract was not renewed, this field is the zero value.
 		RenewedTo types.FileContractID `json:"renewedTo"`
+		// RenewedFrom is the ID of the contract that this contract renewed. If
+		// this contract is not a renewal, the field is the zero value.
+		RenewedFrom types.FileContractID `json:"renewedFrom"`
 	}
 
 	// A contractSectorAction defines an action to be performed on a contract's

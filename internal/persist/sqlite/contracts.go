@@ -216,11 +216,12 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 
 // Contracts returns a paginated list of contracts.
 func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
-	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
 	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
-LEFT JOIN contracts r ON (c.renewed_to=r.id)
+LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
+LEFT JOIN contracts rf ON (c.renewed_from=rf.id)
 ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
 	rows, err := s.query(query, limit, offset)
 	if err != nil {
@@ -241,11 +242,12 @@ ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
 
 // Contract returns the contract with the given ID.
 func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
-	const query = `SELECT c.contract_id, r.contract_id AS renewed_to, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
 	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
-LEFT JOIN contracts r ON (c.id = r.renewed_to)
+LEFT JOIN contracts rt ON (c.renewed_to = rt.id)
+LEFT JOIN contracts rf ON (c.renewed_from = rf.id)
 WHERE c.contract_id=$1;`
 	row := s.queryRow(query, sqlHash256(id))
 	return scanContract(row)
@@ -283,9 +285,13 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contrac
 			return fmt.Errorf("failed to update existing contract: %w", err)
 		}
 
+		err = tx.QueryRow(`UPDATE contracts SET renewed_from=$1 WHERE id=$2 RETURNING id;`, renewedDBID, createdDBID).Scan(&createdDBID)
+		if err != nil {
+			return fmt.Errorf("failed to update renewed contract: %w", err)
+		}
+
 		// move the sector roots from the old contract to the new contract
-		const transferQuery = `UPDATE contract_sector_roots SET contract_id=$1 WHERE contract_id=$2;`
-		_, err = tx.Exec(transferQuery, createdDBID, renewedDBID)
+		_, err = tx.Exec(`UPDATE contract_sector_roots SET contract_id=$1 WHERE contract_id=$2;`, createdDBID, renewedDBID)
 		return err
 	})
 }
@@ -538,6 +544,7 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 	var contractID types.FileContractID
 	err = row.Scan((*sqlHash256)(&contractID),
 		nullable((*sqlHash256)(&c.RenewedTo)),
+		nullable((*sqlHash256)(&c.RenewedFrom)),
 		&c.Status,
 		&c.NegotiationHeight,
 		&c.FormationConfirmed,
