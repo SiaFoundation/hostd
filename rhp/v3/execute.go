@@ -1,6 +1,7 @@
 package rhp
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -31,7 +32,7 @@ type (
 		budget *accounts.Budget
 		cost   rhpv3.ResourceCost
 
-		revision          types.FileContractRevision
+		revision          contracts.SignedRevision
 		remainingDuration uint64
 		updater           *contracts.ContractUpdater
 		tempSectors       []storage.TempSector
@@ -352,6 +353,20 @@ func (pe *programExecutor) executeStoreSector(instr *rhpv3.InstrStoreSector) ([]
 	return root[:], nil
 }
 
+func (pe *programExecutor) executeRevision(instr *rhpv3.InstrRevision) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := types.NewEncoder(&buf)
+	revisionTxn := types.Transaction{
+		FileContractRevisions: []types.FileContractRevision{pe.revision.Revision},
+		Signatures:            pe.revision.Signatures(),
+	}
+	revisionTxn.EncodeTo(enc)
+	if err := enc.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to encode revision: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
 func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCExecuteProgramResponse {
 	outputs := make(chan rhpv3.RPCExecuteProgramResponse, len(pe.instructions))
 	go func() {
@@ -400,6 +415,7 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 				output, err = pe.executeStoreSector(instr)
 				logLabel = "store sector"
 			case *rhpv3.InstrRevision:
+				output, err = pe.executeRevision(instr)
 			case *rhpv3.InstrReadRegistry, *rhpv3.InstrReadRegistryNoVersion:
 			case *rhpv3.InstrUpdateRegistry, *rhpv3.InstrUpdateRegistryNoType:
 			}
@@ -466,11 +482,11 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		if err := s.ReadResponse(&req, 1024); err != nil {
 			return fmt.Errorf("failed to read finalize request: %w", err)
 		}
-		pe.log.Debug("received finalize request", zap.Uint64("revision number", req.RevisionNumber), zap.String("contract", pe.revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
+		pe.log.Debug("received finalize request", zap.Uint64("revision number", req.RevisionNumber), zap.String("contract", pe.revision.Revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
 		start = time.Now()
 
 		// revise the contract with the values received from the renter
-		existing := pe.revision
+		existing := pe.revision.Revision
 		revision, err := rhp.Revise(existing, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
 		if err != nil {
 			err = fmt.Errorf("failed to revise contract: %w", err)
@@ -621,7 +637,7 @@ func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []b
 		priceTable: pt,
 		budget:     budget,
 
-		revision: revision.Revision,
+		revision: revision,
 		finalize: finalize,
 
 		log:       log,
