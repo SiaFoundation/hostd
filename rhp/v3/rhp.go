@@ -208,9 +208,11 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 		err = sh.handleRPCFundAccount(s)
 	case rhpv3.RPCLatestRevisionID:
 		err = sh.handleRPCLatestRevision(s)
-	case rhpv3.RPCRegistrySubscriptionID:
-	case rhpv3.RPCFormContractID:
 	case rhpv3.RPCRenewContractID:
+	case rhpv3.RPCRegistrySubscriptionID:
+		// not implemented
+	case rhpv3.RPCFormContractID:
+		// not implemented
 	default:
 		err = fmt.Errorf("unrecognized RPC ID, %q", rpcID)
 	}

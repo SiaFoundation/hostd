@@ -3,9 +3,11 @@ package rhp
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -16,6 +18,12 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
+)
+
+// read registry instruction versions
+const (
+	readRegistryNoType = 1
+	readRegistryType   = 2
 )
 
 type (
@@ -55,21 +63,7 @@ var (
 	ErrContractRequired = errors.New("contract required")
 )
 
-func (pe *programExecutor) errorOutput(err error) rhpv3.RPCExecuteProgramResponse {
-	output := rhpv3.RPCExecuteProgramResponse{
-		AdditionalCollateral: pe.cost.Collateral,
-		TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
-		FailureRefund:        pe.cost.Storage,
-		Error:                err,
-	}
-	if pe.updater != nil {
-		output.NewMerkleRoot = pe.updater.MerkleRoot()
-		output.NewSize = pe.updater.SectorCount() * rhpv2.SectorSize
-	}
-	return output
-}
-
-func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash256) rhpv3.RPCExecuteProgramResponse {
+func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash256, err error) rhpv3.RPCExecuteProgramResponse {
 	resp := rhpv3.RPCExecuteProgramResponse{
 		AdditionalCollateral: pe.cost.Collateral,
 		TotalCost:            pe.cost.Base.Add(pe.cost.Storage).Add(pe.cost.Egress).Add(pe.cost.Ingress),
@@ -77,6 +71,7 @@ func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash25
 		OutputLength:         uint64(len(output)),
 		Proof:                proof,
 		Output:               output,
+		Error:                err,
 	}
 	if pe.updater != nil {
 		resp.NewMerkleRoot = pe.updater.MerkleRoot()
@@ -354,6 +349,11 @@ func (pe *programExecutor) executeStoreSector(instr *rhpv3.InstrStoreSector) ([]
 }
 
 func (pe *programExecutor) executeRevision(instr *rhpv3.InstrRevision) ([]byte, error) {
+	// pay for execution
+	if err := pe.payForExecution(pe.priceTable.RevisionCost()); err != nil {
+		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
+	}
+
 	var buf bytes.Buffer
 	enc := types.NewEncoder(&buf)
 	revisionTxn := types.Transaction{
@@ -367,6 +367,107 @@ func (pe *programExecutor) executeRevision(instr *rhpv3.InstrRevision) ([]byte, 
 	return buf.Bytes(), nil
 }
 
+func (pe *programExecutor) executeReadRegistry(instr *rhpv3.InstrReadRegistry) ([]byte, error) {
+	if instr.Version != readRegistryNoType && instr.Version != readRegistryType {
+		return nil, fmt.Errorf("unsupported registry version: %v", instr.Version)
+	}
+
+	unlockKey, err := pe.programData.UnlockKey(instr.PublicKeyOffset, instr.PublicKeyLength)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read unlock key: %w", err)
+	} else if unlockKey.Algorithm != types.SpecifierEd25519 {
+		return nil, fmt.Errorf("unsupported unlock key algorithm: %v", unlockKey.Algorithm)
+	} else if len(unlockKey.Key) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid unlock key length: %v", len(unlockKey.Key))
+	}
+	publicKey := *(*types.PublicKey)(unlockKey.Key)
+
+	tweak, err := pe.programData.Hash(instr.TweakOffset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tweak: %w", err)
+	}
+
+	// pay for execution
+	if err := pe.payForExecution(pe.priceTable.ReadRegistryCost()); err != nil {
+		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
+	}
+
+	key := rhpv3.RegistryKey{
+		PublicKey: publicKey,
+		Tweak:     tweak,
+	}
+
+	value, err := pe.registry.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read registry value: %w", err)
+	}
+
+	var buf bytes.Buffer
+	enc := types.NewEncoder(&buf)
+	value.Signature.EncodeTo(enc)
+	enc.WriteUint64(value.Revision)
+	enc.Write(value.Data)
+	if instr.Version == readRegistryType {
+		enc.Write([]byte{value.Type})
+	}
+	if err := enc.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to encode registry value: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func (pe *programExecutor) executeUpdateRegistry(instr *rhpv3.InstrUpdateRegistry) ([]byte, error) {
+	tweak, err := pe.programData.Hash(instr.TweakOffset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tweak: %w", err)
+	}
+	revision, err := pe.programData.Uint64(instr.RevisionOffset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read revision: %w", err)
+	}
+	signature, err := pe.programData.Signature(instr.SignatureOffset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read signature: %w", err)
+	}
+	uk, err := pe.programData.UnlockKey(instr.PublicKeyOffset, instr.PublicKeyLength)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read unlock key: %w", err)
+	} else if uk.Algorithm != types.SpecifierEd25519 {
+		return nil, fmt.Errorf("unsupported unlock key algorithm: %v", uk.Algorithm)
+	} else if len(uk.Key) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid unlock key length: %v", len(uk.Key))
+	}
+	publicKey := *(*types.PublicKey)(uk.Key)
+
+	data, err := pe.programData.Bytes(instr.DataOffset, instr.DataLength)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read data: %w", err)
+	}
+
+	value := rhpv3.RegistryEntry{
+		RegistryKey: rhpv3.RegistryKey{
+			PublicKey: publicKey,
+			Tweak:     tweak,
+		},
+		RegistryValue: rhpv3.RegistryValue{
+			Revision:  revision,
+			Type:      instr.EntryType,
+			Data:      data,
+			Signature: signature,
+		},
+	}
+	expiration := pe.priceTable.HostBlockHeight + (144 * 365) // expires in 1 year
+	updated, err := pe.registry.Put(value, expiration)
+	if err != nil && strings.Contains(err.Error(), "invalid registry update") {
+		// if the update failed send the old signature and data
+		return append(updated.Signature[:], updated.Data...), err
+	} else if err != nil {
+		return nil, err
+	}
+	// successful update has no output
+	return nil, nil
+}
+
 func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCExecuteProgramResponse {
 	outputs := make(chan rhpv3.RPCExecuteProgramResponse, len(pe.instructions))
 	go func() {
@@ -378,7 +479,7 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 		for _, instruction := range pe.instructions {
 			select {
 			case <-ctx.Done():
-				outputs <- pe.errorOutput(ctx.Err())
+				outputs <- pe.instructionOutput(nil, nil, ctx.Err())
 				return
 			default:
 			}
@@ -416,15 +517,22 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 				logLabel = "store sector"
 			case *rhpv3.InstrRevision:
 				output, err = pe.executeRevision(instr)
-			case *rhpv3.InstrReadRegistry, *rhpv3.InstrReadRegistryNoVersion:
-			case *rhpv3.InstrUpdateRegistry, *rhpv3.InstrUpdateRegistryNoType:
+			case *rhpv3.InstrReadRegistry:
+				output, err = pe.executeReadRegistry(instr)
+			case *rhpv3.InstrReadRegistryNoVersion:
+				instr.Version = 1 // override the version
+				output, err = pe.executeReadRegistry(&instr.InstrReadRegistry)
+			case *rhpv3.InstrUpdateRegistry:
+				output, err = pe.executeUpdateRegistry(instr)
+			case *rhpv3.InstrUpdateRegistryNoType:
+				output, err = pe.executeUpdateRegistry(&instr.InstrUpdateRegistry)
 			}
 			if err != nil {
-				outputs <- pe.errorOutput(fmt.Errorf("failed to execute instruction %v: %w", logLabel, err))
-				return
+				err = fmt.Errorf("failed to execute instruction %v: %w", logLabel, err)
+			} else {
+				pe.log.Debug("executed instruction", zap.String("instruction", logLabel), zap.Duration("elapsed", time.Since(start)))
 			}
-			outputs <- pe.instructionOutput(output, proof)
-			pe.log.Debug("executed instruction", zap.String("instruction", logLabel), zap.Duration("elapsed", time.Since(start)))
+			outputs <- pe.instructionOutput(output, proof, err)
 		}
 	}()
 	return outputs
@@ -592,6 +700,24 @@ func (pd programData) Hash(offset uint64) (types.Hash256, error) {
 		return types.Hash256{}, fmt.Errorf("hash offset %v is out of bounds", offset)
 	}
 	return *(*types.Hash256)(pd[offset:]), nil
+}
+
+func (pd programData) UnlockKey(offset, length uint64) (types.UnlockKey, error) {
+	if offset+length > uint64(len(pd)) {
+		return types.UnlockKey{}, fmt.Errorf("unlock key offset %v is out of bounds", offset)
+	}
+
+	var key types.UnlockKey
+	key.Algorithm = *(*types.Specifier)(pd[offset : offset+16])
+	key.Key = pd[offset+16 : offset+length]
+	return key, nil
+}
+
+func (pd programData) Signature(offset uint64) (types.Signature, error) {
+	if offset+64 > uint64(len(pd)) {
+		return types.Signature{}, fmt.Errorf("signature offset %v is out of bounds", offset)
+	}
+	return *(*types.Signature)(pd[offset:]), nil
 }
 
 // Execute executes the program's instructions
