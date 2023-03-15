@@ -252,18 +252,18 @@ WHERE c.contract_id=$1;`
 }
 
 // AddContract adds a new contract to the database.
-func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
-	_, err := insertContract(&dbTxn{s}, revision, formationSet, lockedCollateral, negotationHeight)
+func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
+	_, err := insertContract(&dbTxn{s}, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
 	return err
 }
 
 // RenewContract adds a new contract to the database and sets the old
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract.
-func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error {
+func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
 	return s.transaction(func(tx txn) error {
 		// add the new contract
-		createdDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, negotationHeight)
+		createdDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, initialUsage, negotationHeight)
 		if err != nil {
 			return fmt.Errorf("failed to insert renewed contract: %w", err)
 		}
@@ -469,7 +469,7 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 	}
 }
 
-func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) (dbID int64, err error) {
+func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
 egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
 raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, resolution_confirmed, contract_status) VALUES
@@ -477,12 +477,12 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirm
 	err = tx.QueryRow(query,
 		sqlHash256(revision.Revision.ParentID),
 		sqlCurrency(lockedCollateral),
-		sqlCurrency(types.ZeroCurrency),
-		sqlCurrency(types.ZeroCurrency),
-		sqlCurrency(types.ZeroCurrency),
-		sqlCurrency(types.ZeroCurrency),
-		sqlCurrency(types.ZeroCurrency),
-		sqlCurrency(types.ZeroCurrency),
+		sqlCurrency(initialUsage.RPCRevenue),
+		sqlCurrency(initialUsage.StorageRevenue),
+		sqlCurrency(initialUsage.IngressRevenue),
+		sqlCurrency(initialUsage.EgressRevenue),
+		sqlCurrency(initialUsage.AccountFunding),
+		sqlCurrency(initialUsage.RiskedCollateral),
 		sqlUint64(revision.Revision.RevisionNumber),
 		negotationHeight,              // stored as int64 for queries, should never overflow
 		revision.Revision.WindowStart, // stored as int64 for queries, should never overflow

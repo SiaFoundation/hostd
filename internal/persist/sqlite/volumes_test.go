@@ -549,7 +549,7 @@ func TestPrune(t *testing.T) {
 			ParentID: types.FileContractID(frand.Entropy256()),
 		},
 	}
-	if err := db.AddContract(c, []types.Transaction{}, types.MaxCurrency, 100); err != nil {
+	if err := db.AddContract(c, []types.Transaction{}, types.MaxCurrency, contracts.Usage{}, 100); err != nil {
 		t.Fatal(err)
 	}
 	contractSectors, tempSectors, lockedSectors, deletedSectors := roots[:20], roots[20:40], roots[40:60], roots[60:]

@@ -136,81 +136,100 @@ func ClearingRevision(revision types.FileContractRevision, outputValues []types.
 
 // ValidateContractFormation verifies that the new contract is valid given the
 // host's settings.
-func ValidateContractFormation(fc types.FileContract, hostKey, renterKey types.UnlockKey, currentHeight uint64, settings rhpv2.HostSettings) error {
+func ValidateContractFormation(fc types.FileContract, hostKey, renterKey types.UnlockKey, currentHeight uint64, settings rhpv2.HostSettings) (types.Currency, error) {
 	switch {
 	case fc.Filesize != 0:
-		return errors.New("initial filesize should be 0")
+		return types.ZeroCurrency, errors.New("initial filesize should be 0")
 	case fc.RevisionNumber != 0:
-		return errors.New("initial revision number should be 0")
+		return types.ZeroCurrency, errors.New("initial revision number should be 0")
 	case fc.FileMerkleRoot != types.Hash256{}:
-		return errors.New("initial Merkle root should be empty")
+		return types.ZeroCurrency, errors.New("initial Merkle root should be empty")
 	case fc.WindowStart < currentHeight+settings.WindowSize:
-		return errors.New("contract ends too soon to safely submit the contract transaction")
+		return types.ZeroCurrency, errors.New("contract ends too soon to safely submit the contract transaction")
 	case fc.WindowStart > currentHeight+settings.MaxDuration:
-		return errors.New("contract duration is too long")
+		return types.ZeroCurrency, errors.New("contract duration is too long")
 	case fc.WindowEnd < fc.WindowStart+settings.WindowSize:
-		return errors.New("proof window is too small")
+		return types.ZeroCurrency, errors.New("proof window is too small")
 	case len(fc.ValidProofOutputs) != 2:
-		return errors.New("wrong number of valid proof outputs")
+		return types.ZeroCurrency, errors.New("wrong number of valid proof outputs")
 	case len(fc.MissedProofOutputs) != 3:
-		return errors.New("wrong number of missed proof outputs")
-	case fc.ValidProofOutputs[1].Address != settings.Address:
-		return errors.New("wrong address for host valid output")
-	case fc.MissedProofOutputs[1].Address != settings.Address:
-		return errors.New("wrong address for host missed output")
+		return types.ZeroCurrency, errors.New("wrong number of missed proof outputs")
+	case fc.ValidHostOutput().Address != settings.Address:
+		return types.ZeroCurrency, errors.New("wrong address for host valid output")
+	case fc.MissedHostOutput().Address != settings.Address:
+		return types.ZeroCurrency, errors.New("wrong address for host missed output")
 	case fc.MissedProofOutputs[2].Address != types.VoidAddress:
-		return errors.New("wrong address for void output")
-	case fc.ValidProofOutputs[1].Value.Cmp(settings.ContractPrice) < 0:
-		return errors.New("host valid payout is too small")
-	case fc.ValidProofOutputs[1].Value.Cmp(fc.MissedProofOutputs[1].Value) != 0:
-		return errors.New("host valid and missed outputs must be equal")
-	case fc.ValidProofOutputs[1].Value.Cmp(settings.MaxCollateral) > 0:
-		return errors.New("excessive initial collateral")
+		return types.ZeroCurrency, errors.New("wrong address for void output")
+	case fc.MissedProofOutputs[2].Value != types.ZeroCurrency:
+		return types.ZeroCurrency, errors.New("void output should have value 0")
+	case fc.ValidHostPayout().Cmp(settings.ContractPrice) < 0:
+		return types.ZeroCurrency, errors.New("host valid payout is too small")
+	case !fc.ValidHostPayout().Equals(fc.MissedHostPayout()):
+		return types.ZeroCurrency, errors.New("host valid and missed outputs must be equal")
+	case fc.ValidHostPayout().Cmp(settings.MaxCollateral) > 0:
+		return types.ZeroCurrency, errors.New("excessive initial collateral")
 	case fc.UnlockHash != types.Hash256(contractUnlockConditions(hostKey, renterKey).UnlockHash()):
-		return errors.New("incorrect unlock hash")
+		return types.ZeroCurrency, errors.New("incorrect unlock hash")
 	}
-	return nil
+	return fc.ValidHostPayout().Sub(settings.ContractPrice), nil
 }
 
 // ValidateContractRenewal verifies that the renewed contract is valid given the
 // old contract. A renewal is valid if the contract fields match and the
 // revision number is 0.
-func ValidateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, renterCost, hostBurn types.Currency, currentHeight uint64, settings rhpv2.HostSettings) error {
+func ValidateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, baseHostRevenue, baseRiskedCollateral types.Currency, currentHeight uint64, settings rhpv2.HostSettings) (storageRevenue, riskedCollateral, lockedCollateral types.Currency, err error) {
 	switch {
 	case renewal.RevisionNumber != 0:
-		return errors.New("revision number must be zero")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("revision number must be zero")
 	case renewal.Filesize != existing.Filesize:
-		return errors.New("filesize must not change")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("filesize must not change")
 	case renewal.FileMerkleRoot != existing.FileMerkleRoot:
-		return errors.New("file Merkle root must not change")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("file Merkle root must not change")
 	case renewal.WindowEnd < existing.WindowEnd:
-		return errors.New("renewal window must not end before current window")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("renewal window must not end before current window")
 	case renewal.WindowStart < currentHeight+settings.WindowSize:
-		return errors.New("contract ends too soon to safely submit the contract transaction")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("contract ends too soon to safely submit the contract transaction")
 	case renewal.WindowStart > currentHeight+settings.MaxDuration:
-		return errors.New("contract duration is too long")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("contract duration is too long")
 	case renewal.WindowEnd < renewal.WindowStart+settings.WindowSize:
-		return errors.New("proof window is too small")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("proof window is too small")
+	case len(renewal.ValidProofOutputs) != 2:
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of valid proof outputs")
+	case len(renewal.MissedProofOutputs) != 3:
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of missed proof outputs")
 	case renewal.ValidProofOutputs[1].Address != settings.Address:
-		return errors.New("wrong address for host output")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for host output")
 	case renewal.MissedProofOutputs[2].Address != types.VoidAddress:
-		return errors.New("wrong address for void output")
-	case renewal.ValidProofOutputs[1].Value.Cmp(renterCost) < 0:
-		return errors.New("insufficient initial host valid payout")
-	case renewal.MissedProofOutputs[1].Value.Cmp(renterCost) < 0:
-		return errors.New("insufficient initial host missed payout")
-	case renewal.ValidProofOutputs[1].Value.Sub(renterCost).Cmp(settings.MaxCollateral) > 0:
-		return errors.New("excessive initial collateral")
-	case renewal.MissedProofOutputs[1].Value.Cmp(renewal.ValidProofOutputs[1].Value) < 0:
-		return errors.New("host valid payout must be greater than host missed payout")
-	case renewal.MissedProofOutputs[2].Value.Cmp(hostBurn) < 0:
-		return errors.New("excessive initial void output")
-	case renewal.MissedProofOutputs[1].Value.Cmp(renewal.ValidProofOutputs[1].Value.Sub(hostBurn)) < 0:
-		return errors.New("insufficient host missed payout")
-	case renewal.UnlockHash != types.Hash256(contractUnlockConditions(hostKey, renterKey).UnlockHash()):
-		return errors.New("incorrect unlock hash")
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")
 	}
-	return nil
+
+	expectedBurn := baseHostRevenue.Add(baseRiskedCollateral)
+	hostBurn, underflow := renewal.ValidHostPayout().SubWithUnderflow(renewal.MissedHostPayout())
+	if underflow {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("host valid payout must be greater than host missed payout")
+	} else if hostBurn.Cmp(expectedBurn) > 0 {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("excessive host burn: expected at most %d got %d", baseRiskedCollateral, riskedCollateral)
+	} else if !renewal.MissedProofOutputs[2].Value.Equals(hostBurn) {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("risked collateral must be sent to void output")
+	}
+
+	// calculate the host's risked collateral as the difference between the burn
+	// and base revenue
+	riskedCollateral, underflow = hostBurn.SubWithUnderflow(baseHostRevenue)
+	if underflow {
+		riskedCollateral = types.ZeroCurrency
+	}
+
+	// calculate the locked collateral as the difference between the valid host
+	// payout and the base revenue
+	lockedCollateral, underflow = renewal.ValidHostPayout().SubWithUnderflow(baseHostRevenue)
+	if underflow {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("valid host output must be more than base storage cost")
+	} else if lockedCollateral.Cmp(settings.MaxCollateral) > 0 {
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("collateral exceeds maximum: expected at most %d got %d", settings.MaxCollateral, lockedCollateral)
+	}
+
+	return baseHostRevenue, riskedCollateral, lockedCollateral, nil
 }
 
 // ValidateClearingRevision verifies that the revision locks the current
@@ -241,11 +260,11 @@ func ValidateClearingRevision(current, final types.FileContractRevision) error {
 	for i := range final.ValidProofOutputs {
 		current, valid, missed := current.ValidProofOutputs[i], final.ValidProofOutputs[i], final.MissedProofOutputs[i]
 		switch {
-		case valid.Value.Cmp(current.Value) != 0:
+		case !valid.Value.Equals(current.Value):
 			return fmt.Errorf("valid proof output value %v must not change", i)
 		case valid.Address != current.Address:
 			return fmt.Errorf("valid proof output address %v must not change", i)
-		case valid.Value.Cmp(missed.Value) != 0:
+		case !valid.Value.Equals(missed.Value):
 			return fmt.Errorf("missed proof output %v must equal valid proof output", i)
 		case valid.Address != missed.Address:
 			return fmt.Errorf("missed proof output address %v must equal valid proof output", i)

@@ -44,7 +44,7 @@ func TestUpdateContractRoots(t *testing.T) {
 		},
 	}
 
-	if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, 0); err != nil {
+	if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}, 0); err != nil {
 		t.Fatal(err)
 	}
 

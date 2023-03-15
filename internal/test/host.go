@@ -62,10 +62,11 @@ var DefaultSettings = settings.Settings{
 
 // Close shutsdown the host
 func (h *Host) Close() error {
-	// h.rhpv3.Close()
 	h.rhpv2.Close()
+	h.rhpv3.Close()
 	h.settings.Close()
 	h.wallet.Close()
+	h.contracts.Close()
 	h.storage.Close()
 	h.store.Close()
 	h.Node.Close()
@@ -106,6 +107,11 @@ func (h *Host) RHPv3PriceTable() (crhpv3.HostPriceTable, error) {
 // WalletAddress returns the host's wallet address
 func (h *Host) WalletAddress() types.Address {
 	return h.wallet.Address()
+}
+
+// Contracts returns the host's contract manager
+func (h *Host) Contracts() *contracts.ContractManager {
+	return h.contracts
 }
 
 // NewHost initializes a new test host

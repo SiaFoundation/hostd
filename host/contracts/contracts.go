@@ -160,9 +160,10 @@ func (sr SignedRevision) Signatures() []types.TransactionSignature {
 			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 		},
 		{
-			ParentID:      types.Hash256(sr.Revision.ParentID),
-			Signature:     sr.HostSignature[:],
-			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
+			ParentID:       types.Hash256(sr.Revision.ParentID),
+			Signature:      sr.HostSignature[:],
+			CoveredFields:  types.CoveredFields{FileContractRevisions: []uint64{0}},
+			PublicKeyIndex: 1,
 		},
 	}
 }

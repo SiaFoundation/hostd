@@ -34,6 +34,16 @@ func (r *Renter) Close() error {
 	return nil
 }
 
+// PrivateKey returns the renter's private key
+func (r *Renter) PrivateKey() types.PrivateKey {
+	return r.privKey
+}
+
+// Wallet returns the renter's wallet
+func (r *Renter) Wallet() *wallet.SingleAddressWallet {
+	return r.wallet
+}
+
 // NewRHP2Session creates a new session, locks a contract, and retrieves the
 // host's settings
 func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey types.PublicKey, contractID types.FileContractID) (*worker.Session, error) {

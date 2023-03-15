@@ -53,10 +53,10 @@ type (
 		SetContractStatus(types.FileContractID, ContractStatus) error
 		// Add stores the provided contract, should error if the contract
 		// already exists in the store.
-		AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage, negotationHeight uint64) error
 		// RenewContract renews a contract. It is expected that the existing
 		// contract will be cleared.
-		RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage, negotationHeight uint64) error
 		// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
 		// are returned.
 		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)

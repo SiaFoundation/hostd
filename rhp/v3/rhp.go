@@ -46,9 +46,9 @@ type (
 		Unlock(id types.FileContractID)
 
 		// AddContract adds a new contract to the manager.
-		AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error
 		// RenewContract renews an existing contract.
-		RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, negotationHeight uint64) error
+		RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error
 		// ReviseContract atomically revises a contract and its sector roots
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
@@ -145,9 +145,6 @@ type (
 )
 
 var (
-	// ErrNoContractLocked is returned when a contract revision is attempted
-	// without a contract being locked.
-	ErrNoContractLocked = errors.New("no contract locked")
 	// ErrContractRevisionLimit is returned when a contract revision would
 	// exceed the maximum revision number.
 	ErrContractRevisionLimit = errors.New("max revision number reached")
