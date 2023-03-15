@@ -60,8 +60,14 @@ CREATE TABLE locked_volume_sectors ( -- should be cleared at startup. currently 
 );
 CREATE INDEX locked_volume_sectors_sector_id ON locked_volume_sectors(volume_sector_id);
 
+CREATE TABLE contract_renters (
+	id INTEGER PRIMARY KEY,
+	public_key BLOB UNIQUE NOT NULL,
+);
+
 CREATE TABLE contracts (
 	id INTEGER PRIMARY KEY,
+	renter_id INTEGER NOT NULL REFERENCES contract_renters(id),
 	renewed_to INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
 	renewed_from INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
 	contract_id BLOB UNIQUE NOT NULL,
@@ -86,6 +92,7 @@ CREATE TABLE contracts (
 	contract_status INTEGER NOT NULL
 );
 CREATE INDEX contracts_contract_id ON contracts(contract_id);
+CREATE INDEX contracts_renter_id ON contracts(renter_id);
 CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
 CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
 CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_start ON contracts(formation_confirmed, resolution_confirmed, window_start);
