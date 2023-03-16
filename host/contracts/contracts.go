@@ -47,6 +47,7 @@ const (
 	ContractStatusFailed
 )
 
+// fields that the contracts can be sorted by.
 const (
 	ContractSortStatus            = "status"
 	ContractSortNegotiationHeight = "negotiationHeight"
