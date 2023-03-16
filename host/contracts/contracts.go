@@ -3,6 +3,7 @@ package contracts
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -44,6 +45,12 @@ const (
 	// ContractStatusFailed indicates that the contract ended without a storage proof
 	// and the host was required to burn Siacoin.
 	ContractStatusFailed
+)
+
+const (
+	ContractSortStatus            = "status"
+	ContractSortNegotiationHeight = "negotiationHeight"
+	ContractSortExpirationHeight  = "expirationHeight"
 )
 
 type (
@@ -100,6 +107,30 @@ type (
 		RenewedFrom types.FileContractID `json:"renewedFrom"`
 	}
 
+	// ContractFilter defines the filter criteria for a contract query.
+	ContractFilter struct {
+		// filters
+		Statuses    []ContractStatus       `json:"statuses"`
+		ContractIDs []types.FileContractID `json:"contractIDs"`
+		RenewedFrom []types.FileContractID `json:"renewedFrom"`
+		RenewedTo   []types.FileContractID `json:"renewedTo"`
+		RenterKey   []types.PublicKey      `json:"renterKey"`
+
+		MinNegotiationHeight uint64 `json:"minNegotiationHeight"`
+		MaxNegotiationHeight uint64 `json:"maxNegotiationHeight"`
+
+		MinExpirationHeight uint64 `json:"minExpirationHeight"`
+		MaxExpirationHeight uint64 `json:"maxExpirationHeight"`
+
+		// pagination
+		Limit  int `json:"limit"`
+		Offset int `json:"offset"`
+
+		// sorting
+		SortField string `json:"sortField"`
+		SortDesc  bool   `json:"sortDesc"`
+	}
+
 	// A contractSectorAction defines an action to be performed on a contract's
 	// sectors.
 	contractSectorAction struct {
@@ -135,6 +166,8 @@ func (c ContractStatus) String() string {
 	switch c {
 	case ContractStatusPending:
 		return "pending"
+	case ContractStatusRejected:
+		return "rejected"
 	case ContractStatusActive:
 		return "active"
 	case ContractStatusSuccessful:
@@ -142,13 +175,33 @@ func (c ContractStatus) String() string {
 	case ContractStatusFailed:
 		return "failed"
 	default:
-		return "unknown"
+		panic("unrecognized contract status") // developer error
 	}
 }
 
 // MarshalJSON implements the json.Marshaler interface.
 func (c ContractStatus) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf(`"%s"`, c.String())), nil
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface.
+func (c *ContractStatus) UnmarshalJSON(b []byte) error {
+	status := strings.Trim(string(b), `"`)
+	switch status {
+	case "pending":
+		*c = ContractStatusPending
+	case "rejected":
+		*c = ContractStatusRejected
+	case "active":
+		*c = ContractStatusActive
+	case "successful":
+		*c = ContractStatusSuccessful
+	case "failed":
+		*c = ContractStatusFailed
+	default:
+		return fmt.Errorf("unrecognized contract status: %v", status)
+	}
+	return nil
 }
 
 // RenterKey returns the renter's public key.

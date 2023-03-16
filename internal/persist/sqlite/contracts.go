@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
@@ -215,15 +216,26 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 }
 
 // Contracts returns a paginated list of contracts.
-func (s *Store) Contracts(limit, offset int) ([]contracts.Contract, error) {
-	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+func (s *Store) Contracts(filter contracts.ContractFilter) ([]contracts.Contract, error) {
+	if filter.Limit <= 0 || filter.Limit > 100 {
+		filter.Limit = 100
+	}
+
+	whereClause, whereParams, err := buildContractFilter(filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build where clause: %w", err)
+	}
+
+	s.log.Debug("querying contracts", zap.String("clause", whereClause), zap.Any("params", append(whereParams, filter.Limit, filter.Offset)))
+
+	query := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
 	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
+INNER JOIN contract_renters r ON (c.renter_id=r.id)
 LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
-LEFT JOIN contracts rf ON (c.renewed_from=rf.id)
-ORDER BY c.window_end ASC LIMIT $1 OFFSET $2;`
-	rows, err := s.query(query, limit, offset)
+LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s %s LIMIT ? OFFSET ?`, whereClause, buildOrderBy(filter))
+	rows, err := s.query(query, append(whereParams, filter.Limit, filter.Offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
@@ -467,11 +479,9 @@ SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=
 	defer rows.Close()
 
 	for rows.Next() {
-		var confirmedRevisionNumber, revisionNumber, windowStart, windowEnd uint64
-		var status contracts.ContractStatus
 		var action contractAction
-		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action, (*sqlUint64)(&confirmedRevisionNumber), (*sqlUint64)(&revisionNumber), &windowStart, &windowEnd, &status); err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action); err != nil {
+			return nil, fmt.Errorf("failed to scan contract action: %w", err)
 		}
 		actions = append(actions, action)
 	}
@@ -494,7 +504,7 @@ func insertContract(tx txn, revision contracts.SignedRevision, formationSet []ty
 	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
 egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
 raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, resolution_confirmed, contract_status) VALUES
- ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id;`
+ ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) RETURNING id;`
 	renterID, err := renterDBID(tx, revision.RenterKey())
 	if err != nil {
 		return 0, fmt.Errorf("failed to get renter id: %w", err)
@@ -557,6 +567,91 @@ func decodeTxnSet(b []byte, txns *[]types.Transaction) error {
 		(*txns)[i].DecodeFrom(d)
 	}
 	return d.Err()
+}
+
+func buildContractFilter(filter contracts.ContractFilter) (string, []any, error) {
+	var whereClause []string
+	var queryParams []any
+
+	if len(filter.Statuses) != 0 {
+		whereClause = append(whereClause, `c.contract_status IN (`+queryPlaceHolders(len(filter.Statuses))+`)`)
+		queryParams = append(queryParams, queryArgs(filter.Statuses)...)
+	}
+
+	if len(filter.ContractIDs) != 0 {
+		whereClause = append(whereClause, `c.contract_id IN (`+queryPlaceHolders(len(filter.ContractIDs))+`)`)
+		for _, value := range filter.ContractIDs {
+			queryParams = append(queryParams, sqlHash256(value))
+		}
+	}
+
+	if len(filter.RenewedFrom) != 0 {
+		whereClause = append(whereClause, `rf.contract_id IN (`+queryPlaceHolders(len(filter.RenewedFrom))+`)`)
+		for _, value := range filter.RenewedFrom {
+			queryParams = append(queryParams, sqlHash256(value))
+		}
+	}
+
+	if len(filter.RenewedTo) != 0 {
+		whereClause = append(whereClause, `rt.contract_id IN (`+queryPlaceHolders(len(filter.RenewedTo))+`)`)
+		for _, value := range filter.RenewedTo {
+			queryParams = append(queryParams, sqlHash256(value))
+		}
+	}
+
+	if len(filter.RenterKey) != 0 {
+		whereClause = append(whereClause, `r.public_key IN (`+queryPlaceHolders(len(filter.RenterKey))+`)`)
+		for _, value := range filter.RenterKey {
+			queryParams = append(queryParams, sqlHash256(value))
+		}
+	}
+
+	if filter.MinNegotiationHeight > 0 && filter.MaxNegotiationHeight > 0 {
+		if filter.MinNegotiationHeight < filter.MaxNegotiationHeight {
+			return "", nil, errors.New("min negotiation height must be less than max negotiation height")
+		}
+		whereClause = append(whereClause, `c.negotiation_height BETWEEN ? AND ?`)
+		queryParams = append(queryParams, filter.MinNegotiationHeight, filter.MaxNegotiationHeight)
+	} else if filter.MinNegotiationHeight > 0 {
+		whereClause = append(whereClause, `c.negotiation_height >= ?`)
+		queryParams = append(queryParams, filter.MinNegotiationHeight)
+	} else if filter.MaxNegotiationHeight > 0 {
+		whereClause = append(whereClause, `c.negotiation_height <= ?`)
+		queryParams = append(queryParams, filter.MaxNegotiationHeight)
+	}
+
+	if filter.MinExpirationHeight > 0 && filter.MaxExpirationHeight > 0 {
+		if filter.MinExpirationHeight < filter.MaxExpirationHeight {
+			return "", nil, errors.New("min expiration height must be less than max expiration height")
+		}
+		whereClause = append(whereClause, `c.window_start BETWEEN ? AND ?`)
+		queryParams = append(queryParams, filter.MinExpirationHeight, filter.MaxExpirationHeight)
+	} else if filter.MinExpirationHeight > 0 {
+		whereClause = append(whereClause, `c.window_start >= ?`)
+		queryParams = append(queryParams, filter.MinExpirationHeight)
+	} else if filter.MaxExpirationHeight > 0 {
+		whereClause = append(whereClause, `c.window_start <= ?`)
+		queryParams = append(queryParams, filter.MaxExpirationHeight)
+	}
+	if len(whereClause) == 0 {
+		return "", nil, nil
+	}
+	return "WHERE " + strings.Join(whereClause, " AND "), queryParams, nil
+}
+
+func buildOrderBy(filter contracts.ContractFilter) string {
+	dir := "ASC"
+	if filter.SortDesc {
+		dir = "DESC"
+	}
+	switch filter.SortField {
+	case contracts.ContractSortStatus:
+		return `ORDER BY c.contract_status ` + dir
+	case contracts.ContractSortNegotiationHeight:
+		return `ORDER BY c.negotiation_height ` + dir
+	default:
+		return `ORDER BY c.window_start ` + dir
+	}
 }
 
 func scanContract(row scanner) (c contracts.Contract, err error) {

@@ -134,8 +134,8 @@ func (cm *ContractManager) Unlock(id types.FileContractID) {
 
 // Contracts returns a paginated list of contracts sorted by expiration
 // ascending.
-func (cm *ContractManager) Contracts(limit, offset int) ([]Contract, error) {
-	return cm.store.Contracts(limit, offset)
+func (cm *ContractManager) Contracts(filter ContractFilter) ([]Contract, error) {
+	return cm.store.Contracts(filter)
 }
 
 // Contract returns the contract with the given id.

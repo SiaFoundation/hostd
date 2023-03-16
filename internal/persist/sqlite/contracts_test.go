@@ -32,11 +32,24 @@ func TestUpdateContractRoots(t *testing.T) {
 	}
 	defer db.Close()
 
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	contractUnlockConditions := types.UnlockConditions{
+		PublicKeys: []types.UnlockKey{
+			renterKey.PublicKey().UnlockKey(),
+			hostKey.PublicKey().UnlockKey(),
+		},
+		SignaturesRequired: 2,
+	}
+
 	// add a contract to the database
 	contract := contracts.SignedRevision{
 		Revision: types.FileContractRevision{
-			ParentID: frand.Entropy256(),
+			ParentID:         frand.Entropy256(),
+			UnlockConditions: contractUnlockConditions,
 			FileContract: types.FileContract{
+				UnlockHash:     types.Hash256(contractUnlockConditions.UnlockHash()),
 				RevisionNumber: 1,
 				WindowStart:    100,
 				WindowEnd:      200,

@@ -543,10 +543,24 @@ func TestPrune(t *testing.T) {
 		}
 	}
 
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
 	// add a contract to store the sectors
+	contractUnlockConditions := types.UnlockConditions{
+		PublicKeys: []types.UnlockKey{
+			renterKey.PublicKey().UnlockKey(),
+			hostKey.PublicKey().UnlockKey(),
+		},
+		SignaturesRequired: 2,
+	}
 	c := contracts.SignedRevision{
 		Revision: types.FileContractRevision{
-			ParentID: types.FileContractID(frand.Entropy256()),
+			UnlockConditions: contractUnlockConditions,
+			ParentID:         types.FileContractID(frand.Entropy256()),
+			FileContract: types.FileContract{
+				UnlockHash: types.Hash256(contractUnlockConditions.UnlockHash()),
+			},
 		},
 	}
 	if err := db.AddContract(c, []types.Transaction{}, types.MaxCurrency, contracts.Usage{}, 100); err != nil {

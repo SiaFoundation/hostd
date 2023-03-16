@@ -62,7 +62,7 @@ CREATE INDEX locked_volume_sectors_sector_id ON locked_volume_sectors(volume_sec
 
 CREATE TABLE contract_renters (
 	id INTEGER PRIMARY KEY,
-	public_key BLOB UNIQUE NOT NULL,
+	public_key BLOB UNIQUE NOT NULL
 );
 
 CREATE TABLE contracts (
@@ -95,6 +95,9 @@ CREATE INDEX contracts_contract_id ON contracts(contract_id);
 CREATE INDEX contracts_renter_id ON contracts(renter_id);
 CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
 CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
+CREATE INDEX contracts_negotiation_height ON contracts(negotiation_height);
+CREATE INDEX contracts_window_start ON contracts(window_start);
+CREATE INDEX contracts_contract_status ON contracts(contract_status);
 CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_start ON contracts(formation_confirmed, resolution_confirmed, window_start);
 CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_end ON contracts(formation_confirmed, resolution_confirmed, window_end);
 CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);

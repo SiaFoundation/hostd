@@ -47,7 +47,7 @@ type (
 
 	// A ContractManager manages the host's contracts
 	ContractManager interface {
-		Contracts(limit, offset int) ([]contracts.Contract, error)
+		Contracts(filter contracts.ContractFilter) ([]contracts.Contract, error)
 		Contract(id types.FileContractID) (contracts.Contract, error)
 	}
 
@@ -91,7 +91,7 @@ func NewServer(g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wal
 		"POST /settings":                a.handlePOSTSettings,
 		"POST /settings/announce":       a.handlePOSTAnnounce,
 		"GET /financials/:period":       a.handleGETFinancials,
-		"GET /contracts":                a.handleGETContracts,
+		"POST /contracts":               a.handlePostContracts,
 		"GET /contracts/:id":            a.handleGETContract,
 		"DELETE /sectors/:root":         a.handleDeleteSector,
 		"GET /volumes":                  a.handleGETVolumes,

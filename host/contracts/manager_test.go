@@ -84,7 +84,8 @@ func formContract(renterKey, hostKey types.PrivateKey, c *contracts.ContractMana
 }
 
 func TestContractLockUnlock(t *testing.T) {
-	privKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	dir := t.TempDir()
 	opt := zap.NewDevelopmentConfig()
 	opt.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
@@ -99,7 +100,7 @@ func TestContractLockUnlock(t *testing.T) {
 	}
 	defer db.Close()
 
-	node, err := test.NewWallet(privKey, dir)
+	node, err := test.NewWallet(hostKey, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,13 +118,22 @@ func TestContractLockUnlock(t *testing.T) {
 	}
 	defer c.Close()
 
+	contractUnlockConditions := types.UnlockConditions{
+		PublicKeys: []types.UnlockKey{
+			renterKey.PublicKey().UnlockKey(),
+			hostKey.PublicKey().UnlockKey(),
+		},
+		SignaturesRequired: 2,
+	}
 	rev := contracts.SignedRevision{
 		Revision: types.FileContractRevision{
 			FileContract: types.FileContract{
+				UnlockHash:  types.Hash256(contractUnlockConditions.UnlockHash()),
 				WindowStart: 100,
 				WindowEnd:   200,
 			},
-			ParentID: frand.Entropy256(),
+			ParentID:         frand.Entropy256(),
+			UnlockConditions: contractUnlockConditions,
 		},
 	}
 
