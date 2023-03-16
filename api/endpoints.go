@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
@@ -14,6 +15,13 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
+)
+
+const (
+	sectorsPerScan = (4 << 30) / (1 << 22)
+	scanInterval   = 10 * time.Minute
+	sectorsStored  = (100 << 40) / (1 << 22)
+	fullCheckTime  = sectorsStored / sectorsPerScan * scanInterval
 )
 
 // checkServerError conditionally writes an error to the response if err is not
@@ -275,11 +283,6 @@ func (a *API) handlePUTVolumeResize(c jape.Context) {
 
 	err := a.volumes.ResizeVolume(id, req.MaxSectors)
 	a.checkServerError(c, "failed to resize volume", err)
-}
-
-func (a *API) handlePOSTVolumeCheck(c jape.Context) {
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
-	c.Encode([]types.Hash256{})
 }
 
 func (a *API) handleGETWallet(c jape.Context) {

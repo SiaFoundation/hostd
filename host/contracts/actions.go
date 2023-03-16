@@ -46,7 +46,13 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 // consensus change, changes are processed in the order they were received.
 func (cm *ContractManager) processActions() {
 	log := cm.log.Named("lifecycle")
-	for height := range cm.processQueue {
+	for {
+		var height uint64
+		select {
+		case height = <-cm.processQueue:
+		case <-cm.tg.Done():
+			return
+		}
 		log.Debug("processing actions", zap.Uint64("height", height))
 		err := func() error {
 			done, err := cm.tg.Add()

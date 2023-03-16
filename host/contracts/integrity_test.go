@@ -1,0 +1,181 @@
+package contracts_test
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	rhpv2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/internal/test"
+	stypes "go.sia.tech/siad/types"
+	"go.uber.org/zap"
+	"lukechampine.com/frand"
+)
+
+func TestCheckIntegrity(t *testing.T) {
+	hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	dir := t.TempDir()
+	opts := zap.NewDevelopmentConfig()
+	opts.OutputPaths = []string{}
+	log, err := opts.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	node, err := test.NewWallet(hostKey, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+
+	s, err := storage.NewVolumeManager(node.Store(), node.ChainManager(), log.Named("storage"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := contracts.NewManager(node.Store(), s, node.ChainManager(), node.TPool(), node.Wallet(), log.Named("contracts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := node.MineBlocks(node.Wallet().Address(), int(stypes.MaturityDelay+2)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // sync time
+
+	rev, err := formContract(renterKey, hostKey, c, node.Wallet(), node.ChainManager(), node.TPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contract, err := c.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.Status != contracts.ContractStatusPending {
+		t.Fatal("expected contract to be pending")
+	}
+
+	if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // sync time
+
+	contract, err = c.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.Status != contracts.ContractStatusActive {
+		t.Fatal("expected contract to be active")
+	}
+
+	updater, err := c.ReviseContract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer updater.Close()
+
+	var roots []types.Hash256
+	var releases []func() error
+	for i := 0; i < 5; i++ {
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhpv2.SectorRoot(&sector)
+		release, err := s.Write(root, &sector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		releases = append(releases, release)
+		roots = append(roots, root)
+		updater.AppendSector(root)
+	}
+
+	contract.Revision.RevisionNumber++
+	contract.Revision.Filesize = uint64(len(roots)) * rhpv2.SectorSize
+	contract.Revision.FileMerkleRoot = rhpv2.MetaRoot(roots)
+
+	if err := updater.Commit(contract.SignedRevision, contracts.Usage{}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, release := range releases {
+		if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// helper func to serialize integrity check
+	checkIntegrity := func() (issues, sectors uint64, err error) {
+		results, sectors, err := c.CheckIntegrity(context.Background(), rev.Revision.ParentID)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to check integrity: %w", err)
+		}
+
+		for result := range results {
+			if result.Error != nil {
+				issues++
+			}
+		}
+		return issues, sectors, nil
+	}
+
+	// check for issues, should be none
+	issues, checked, err := checkIntegrity()
+	if err != nil {
+		t.Fatal(err)
+	} else if checked != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), checked)
+	} else if issues != 0 {
+		t.Fatalf("expected %v issues, got %v", 0, issues)
+	}
+
+	// delete a sector
+	if err := s.RemoveSector(roots[3]); err != nil {
+		t.Fatal(err)
+	}
+
+	// check for issues, should be one
+	issues, checked, err = checkIntegrity()
+	if err != nil {
+		t.Fatal(err)
+	} else if checked != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), checked)
+	} else if issues != 1 {
+		t.Fatalf("expected %v issues, got %v", 1, issues)
+	}
+
+	// open the data file and corrupt the first sector
+	f, err := os.OpenFile(filepath.Join(dir, "data.dat"), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteAt([]byte{255}, 300); err != nil {
+		t.Fatal(err)
+	} else if err := f.Sync(); err != nil {
+		t.Fatal(err)
+	} else if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// check for issues, should be one
+	issues, checked, err = checkIntegrity()
+	if err != nil {
+		t.Fatal(err)
+	} else if checked != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), checked)
+	} else if issues != 2 {
+		t.Fatalf("expected %v issues, got %v", 2, issues)
+	}
+}

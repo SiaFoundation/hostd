@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"go.sia.tech/core/consensus"
@@ -49,6 +50,11 @@ type (
 	ContractManager interface {
 		Contracts(filter contracts.ContractFilter) ([]contracts.Contract, error)
 		Contract(id types.FileContractID) (contracts.Contract, error)
+
+		// CheckIntegrity checks the integrity of a contract's sector roots on
+		// disk. The result of each sector checked is sent on the returned
+		// channel. Read errors are logged.
+		CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan contracts.IntegrityResult, uint64, error)
 	}
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
@@ -68,6 +74,8 @@ type (
 		volumes   VolumeManager
 		wallet    Wallet
 		settings  Settings
+
+		checks integrityCheckJobs
 	}
 )
 
@@ -82,29 +90,31 @@ func NewServer(g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wal
 		log:       log,
 	}
 	r := jape.Mux(map[string]jape.Handler{
-		"GET /":                         a.handleGETState,
-		"GET /syncer/address":           a.handleGETSyncerAddr,
-		"GET /syncer/peers":             a.handleGETSyncerPeers,
-		"PUT /syncer/peers/:address":    a.handlePUTSyncerPeer,
-		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
-		"GET /settings":                 a.handleGETSettings,
-		"POST /settings":                a.handlePOSTSettings,
-		"POST /settings/announce":       a.handlePOSTAnnounce,
-		"GET /financials/:period":       a.handleGETFinancials,
-		"POST /contracts":               a.handlePostContracts,
-		"GET /contracts/:id":            a.handleGETContract,
-		"DELETE /sectors/:root":         a.handleDeleteSector,
-		"GET /volumes":                  a.handleGETVolumes,
-		"POST /volumes":                 a.handlePOSTVolume,
-		"GET /volumes/:id":              a.handleGETVolume,
-		"PUT /volumes/:id":              a.handlePUTVolume,
-		"DELETE /volumes/:id":           a.handleDeleteVolume,
-		"PUT /volumes/:id/resize":       a.handlePUTVolumeResize,
-		"POST /volumes/:id/check":       a.handlePOSTVolumeCheck,
-		"GET /wallet":                   a.handleGETWallet,
-		"GET /wallet/transactions":      a.handleGETWalletTransactions,
-		"GET /wallet/pending":           a.handleGETWalletPending,
-		"POST /wallet/send":             a.handlePOSTWalletSend,
+		"GET /":                           a.handleGETState,
+		"GET /syncer/address":             a.handleGETSyncerAddr,
+		"GET /syncer/peers":               a.handleGETSyncerPeers,
+		"PUT /syncer/peers/:address":      a.handlePUTSyncerPeer,
+		"DELETE /syncer/peers/:address":   a.handleDeleteSyncerPeer,
+		"GET /settings":                   a.handleGETSettings,
+		"POST /settings":                  a.handlePOSTSettings,
+		"POST /settings/announce":         a.handlePOSTAnnounce,
+		"GET /financials/:period":         a.handleGETFinancials,
+		"POST /contracts":                 a.handlePostContracts,
+		"GET /contracts/:id":              a.handleGETContract,
+		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
+		"DELETE /contracts/:id/integrity": a.handleDeleteContractCheck,
+		"POST /contracts/:id/integrity":   a.handlePOSTContractCheck,
+		"DELETE /sectors/:root":           a.handleDeleteSector,
+		"GET /volumes":                    a.handleGETVolumes,
+		"POST /volumes":                   a.handlePOSTVolume,
+		"GET /volumes/:id":                a.handleGETVolume,
+		"PUT /volumes/:id":                a.handlePUTVolume,
+		"DELETE /volumes/:id":             a.handleDeleteVolume,
+		"PUT /volumes/:id/resize":         a.handlePUTVolumeResize,
+		"GET /wallet":                     a.handleGETWallet,
+		"GET /wallet/transactions":        a.handleGETWalletTransactions,
+		"GET /wallet/pending":             a.handleGETWalletPending,
+		"POST /wallet/send":               a.handlePOSTWalletSend,
 	})
 	return r
 }

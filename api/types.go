@@ -11,6 +11,12 @@ import (
 )
 
 type (
+	// ContractIntegrityResponse is the response body for the [POST] /contracts/:id/check endpoint.
+	ContractIntegrityResponse struct {
+		BadSectors   []types.Hash256 `json:"badSectors"`
+		TotalSectors uint64          `json:"totalSectors"`
+	}
+
 	// AddVolumeRequest is the request body for the [POST] /volume endpoint.
 	AddVolumeRequest struct {
 		LocalPath  string `json:"localPath"`
