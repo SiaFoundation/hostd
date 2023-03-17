@@ -96,6 +96,10 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 	if err := fn(location, exists); err != nil {
 		unlockLocation(&dbTxn{s}, lockID)
 		return nil, fmt.Errorf("failed to store sector: %w", err)
+	} else if exists {
+		// if the sector is already stored in a volume, no need to update
+		// anything else
+		return s.unlockLocationFn(lockID), nil
 	}
 	// commit the sector location
 	err = s.transaction(func(tx txn) error {
