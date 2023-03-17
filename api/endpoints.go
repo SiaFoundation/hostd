@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
@@ -15,13 +14,6 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
-)
-
-const (
-	sectorsPerScan = (4 << 30) / (1 << 22)
-	scanInterval   = 10 * time.Minute
-	sectorsStored  = (100 << 40) / (1 << 22)
-	fullCheckTime  = sectorsStored / sectorsPerScan * scanInterval
 )
 
 // checkServerError conditionally writes an error to the response if err is not
@@ -35,10 +27,18 @@ func (a *API) checkServerError(c jape.Context, context string, err error) bool {
 }
 
 func (a *API) handleGETState(c jape.Context) {
-	if err := c.Error(errors.New("not implemented"), http.StatusInternalServerError); err != nil {
+	used, total, err := a.volumes.Usage()
+	if !a.checkServerError(c, "failed to get volume usage", err) {
 		return
 	}
-	c.Encode(struct{}{})
+
+	c.Encode(StatusResponse{
+		PublicKey:     a.hostKey,
+		WalletAddress: a.wallet.Address(),
+
+		UsedSectors:  used,
+		TotalSectors: total,
+	})
 }
 
 func (a *API) handleGETSyncerAddr(c jape.Context) {

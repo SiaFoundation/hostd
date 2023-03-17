@@ -11,6 +11,21 @@ import (
 )
 
 type (
+	// A StatusResponse is the response body for the [GET] / endpoint.
+	StatusResponse struct {
+		// meta
+		PublicKey     types.PublicKey `json:"publicKey"`
+		WalletAddress types.Address   `json:"walletAddress"`
+
+		// contracts
+		ActiveContracts uint64 `json:"activeContracts"`
+
+		// storage
+		PhysicalSectors uint64 `json:"physicalSectors"`
+		UsedSectors     uint64 `json:"usedSectors"`
+		TotalSectors    uint64 `json:"totalSectors"`
+	}
+
 	// ContractIntegrityResponse is the response body for the [POST] /contracts/:id/check endpoint.
 	ContractIntegrityResponse struct {
 		BadSectors   []types.Hash256 `json:"badSectors"`

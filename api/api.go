@@ -36,7 +36,7 @@ type (
 
 	// A VolumeManager manages the host's storage volumes
 	VolumeManager interface {
-		Usage() (usedBytes uint64, totalBytes uint64, err error)
+		Usage() (usedSectors uint64, totalSectors uint64, err error)
 		Volumes() ([]storage.VolumeMeta, error)
 		Volume(id int) (storage.VolumeMeta, error)
 		AddVolume(localPath string, maxSectors uint64) (storage.Volume, error)
@@ -67,6 +67,8 @@ type (
 
 	// An API provides an HTTP API for the host
 	API struct {
+		hostKey types.PublicKey
+
 		log *zap.Logger
 
 		syncer    Syncer
@@ -80,8 +82,10 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(hostKey types.PublicKey, g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	a := &API{
+		hostKey: hostKey,
+
 		syncer:    g,
 		contracts: cm,
 		volumes:   vm,
@@ -90,7 +94,7 @@ func NewServer(g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wal
 		log:       log,
 	}
 	r := jape.Mux(map[string]jape.Handler{
-		"GET /":                           a.handleGETState,
+		"GET /status":                     a.handleGETState,
 		"GET /syncer/address":             a.handleGETSyncerAddr,
 		"GET /syncer/peers":               a.handleGETSyncerPeers,
 		"PUT /syncer/peers/:address":      a.handlePUTSyncerPeer,
