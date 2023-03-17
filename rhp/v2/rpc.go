@@ -174,7 +174,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 
 	// read the renter's signatures
 	var renterSignaturesResp rhpv2.RPCFormContractSignatures
-	if err := s.readResponse(&renterSignaturesResp, minMessageSize, 30*time.Second); err != nil {
+	if err := s.readResponse(&renterSignaturesResp, 10*minMessageSize, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read renter signatures: %w", err)
 	}
 	// validate the renter's initial revision signature
