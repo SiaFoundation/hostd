@@ -149,6 +149,16 @@ func TestAddSector(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	volumes, err = db.Volumes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %v", len(volumes))
+	} else if volumes[0].UsedSectors != 1 {
+		t.Fatalf("expected 1 used sector, got %v", volumes[0].UsedSectors)
+	}
+
 	// try to store another sector in the volume, should return
 	// ErrNotEnoughStorage
 	_, err = db.StoreSector(frand.Entropy256(), func(storage.SectorLocation, bool) error { return nil })
