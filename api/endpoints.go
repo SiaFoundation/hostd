@@ -32,12 +32,14 @@ func (a *API) handleGETState(c jape.Context) {
 		return
 	}
 
-	c.Encode(StatusResponse{
+	c.Encode(StateResponse{
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
 
-		UsedSectors:  used,
-		TotalSectors: total,
+		ChainIndex: a.chain.TipState().Index,
+
+		StoredSectors: used,
+		TotalSectors:  total,
 	})
 }
 

@@ -18,8 +18,9 @@ type Client struct {
 }
 
 // State returns the current state of the host
-func (c *Client) State() error {
-	return c.c.GET("/", &struct{}{})
+func (c *Client) State() (resp StateResponse, err error) {
+	err = c.c.GET("/state", &resp)
+	return
 }
 
 // SyncerAddress returns the address of the syncer.
@@ -47,7 +48,7 @@ func (c *Client) SyncerDisconnect(address string) error {
 // Announce announces the host to the network. The announced address is
 // determined by the host's current settings.
 func (c *Client) Announce() error {
-	return c.c.POST("/announce", nil, nil)
+	return c.c.POST("/settings/announce", nil, nil)
 }
 
 // Settings returns the current settings of the host.
@@ -69,8 +70,8 @@ func (c *Client) Financials(period string) (periods []financials.Revenue, err er
 }
 
 // Contracts returns the contracts of the host.
-func (c *Client) Contracts(limit, offset int) (contracts []contracts.Contract, err error) {
-	err = c.c.GET(fmt.Sprintf("/contracts?limit=%d&offset=%d", limit, offset), &contracts)
+func (c *Client) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, err error) {
+	err = c.c.POST("/contracts", filter, &contracts)
 	return
 }
 
@@ -78,6 +79,21 @@ func (c *Client) Contracts(limit, offset int) (contracts []contracts.Contract, e
 func (c *Client) Contract(id types.FileContractID) (contract contracts.Contract, err error) {
 	err = c.c.GET("/contracts/"+id.String(), &contract)
 	return
+}
+
+// StartIntegrityCheck scans the volume with the specified ID for consistency errors.
+func (c *Client) StartIntegrityCheck(id types.FileContractID) error {
+	return c.c.PUT(fmt.Sprintf("/contracts/%v/integrity", id), nil)
+}
+
+func (c *Client) IntegrityCheckProgress(id types.FileContractID) (IntegrityCheckResult, error) {
+	var result IntegrityCheckResult
+	err := c.c.GET(fmt.Sprintf("/contracts/%v/integrity", id), &result)
+	return result, err
+}
+
+func (c *Client) DeleteIntegrityCheck(id types.FileContractID) error {
+	return c.c.DELETE(fmt.Sprintf("/contracts/%v/integrity", id))
 }
 
 // DeleteSector deletes the sector with the specified root. This can cause
@@ -126,12 +142,6 @@ func (c *Client) ResizeVolume(id int, sectors uint64) error {
 	return c.c.PUT(fmt.Sprintf("/volumes/%v/resize", id), req)
 }
 
-// CheckVolume scans the volume with the specified ID for consistency errors.
-func (c *Client) CheckVolume(id int) (missing []types.Hash256, err error) {
-	err = c.c.POST(fmt.Sprintf("/volumes/%v/check", id), nil, &missing)
-	return
-}
-
 // Wallet returns the state of the host's wallet.
 func (c *Client) Wallet() (resp WalletResponse, err error) {
 	err = c.c.GET("/wallet", &resp)
@@ -141,6 +151,11 @@ func (c *Client) Wallet() (resp WalletResponse, err error) {
 // Transactions returns the transactions of the host's wallet.
 func (c *Client) Transactions(limit, offset int) (transactions []wallet.Transaction, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallet/transactions?limit=%d&offset=%d", limit, offset), &transactions)
+	return
+}
+
+func (c *Client) PendingTransactions() (transactions []wallet.Transaction, err error) {
+	err = c.c.GET("/wallet/pending", &transactions)
 	return
 }
 

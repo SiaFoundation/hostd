@@ -117,11 +117,10 @@ func (a *API) handleDeleteContractCheck(c jape.Context) {
 
 	if !a.checks.ClearResult(contractID) {
 		c.Error(fmt.Errorf("no integrity check found for contract %v", contractID), http.StatusNotFound)
-		return
 	}
 }
 
-func (a *API) handlePOSTContractCheck(c jape.Context) {
+func (a *API) handlePUTContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {
 		c.Error(fmt.Errorf("failed to parse contract ID: %w", err), http.StatusBadRequest)
@@ -129,10 +128,5 @@ func (a *API) handlePOSTContractCheck(c jape.Context) {
 	}
 
 	_, err := a.checks.CheckContract(contractID)
-	if !a.checkServerError(c, "failed to check contract integrity", err) {
-		return
-	}
-
-	result, _ := a.checks.Results(contractID)
-	c.Encode(result)
+	a.checkServerError(c, "failed to check contract integrity", err)
 }

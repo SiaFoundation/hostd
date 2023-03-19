@@ -11,18 +11,21 @@ import (
 )
 
 type (
-	// A StatusResponse is the response body for the [GET] / endpoint.
-	StatusResponse struct {
+	// A StateResponse is the response body for the [GET] /state endpoint.
+	StateResponse struct {
 		// meta
 		PublicKey     types.PublicKey `json:"publicKey"`
 		WalletAddress types.Address   `json:"walletAddress"`
+
+		// consensus
+		ChainIndex types.ChainIndex `json:"index"`
 
 		// contracts
 		ActiveContracts uint64 `json:"activeContracts"`
 
 		// storage
+		StoredSectors   uint64 `json:"storedSectors"`
 		PhysicalSectors uint64 `json:"physicalSectors"`
-		UsedSectors     uint64 `json:"usedSectors"`
 		TotalSectors    uint64 `json:"totalSectors"`
 	}
 

@@ -65,6 +65,10 @@ type (
 		Disconnect(addr modules.NetAddress) error
 	}
 
+	ChainManager interface {
+		TipState() consensus.State
+	}
+
 	// An API provides an HTTP API for the host
 	API struct {
 		hostKey types.PublicKey
@@ -72,6 +76,7 @@ type (
 		log *zap.Logger
 
 		syncer    Syncer
+		chain     ChainManager
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
@@ -82,11 +87,12 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(hostKey types.PublicKey, g Syncer, cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	a := &API{
 		hostKey: hostKey,
 
 		syncer:    g,
+		chain:     chain,
 		contracts: cm,
 		volumes:   vm,
 		settings:  s,
@@ -94,7 +100,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, cm ContractManager, vm VolumeM
 		log:       log,
 	}
 	r := jape.Mux(map[string]jape.Handler{
-		"GET /status":                     a.handleGETState,
+		"GET /state":                      a.handleGETState,
 		"GET /syncer/address":             a.handleGETSyncerAddr,
 		"GET /syncer/peers":               a.handleGETSyncerPeers,
 		"PUT /syncer/peers/:address":      a.handlePUTSyncerPeer,
@@ -106,8 +112,8 @@ func NewServer(hostKey types.PublicKey, g Syncer, cm ContractManager, vm VolumeM
 		"POST /contracts":                 a.handlePostContracts,
 		"GET /contracts/:id":              a.handleGETContract,
 		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
+		"PUT /contracts/:id/integrity":    a.handlePUTContractCheck,
 		"DELETE /contracts/:id/integrity": a.handleDeleteContractCheck,
-		"POST /contracts/:id/integrity":   a.handlePOSTContractCheck,
 		"DELETE /sectors/:root":           a.handleDeleteSector,
 		"GET /volumes":                    a.handleGETVolumes,
 		"POST /volumes":                   a.handlePOSTVolume,
