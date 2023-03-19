@@ -102,7 +102,7 @@ func (tp txpool) Subscribe(s modules.TransactionPoolSubscriber) {
 
 type node struct {
 	g     modules.Gateway
-	cs    modules.ConsensusSet
+	cm    *chain.Manager
 	tp    modules.TransactionPool
 	w     *wallet.SingleAddressWallet
 	store *sqlite.Store
@@ -124,7 +124,7 @@ func (n *node) Close() error {
 	n.contracts.Close()
 	n.w.Close()
 	n.tp.Close()
-	n.cs.Close()
+	n.cm.Close()
 	n.g.Close()
 	n.store.Close()
 	return nil
@@ -244,7 +244,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 	return &node{
 		g:     g,
-		cs:    cs,
+		cm:    cm,
 		tp:    tp,
 		w:     w,
 		store: db,
