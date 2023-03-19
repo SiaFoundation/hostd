@@ -67,7 +67,7 @@ func (m *Manager) Close() error {
 	default:
 	}
 	close(m.close)
-	return nil
+	return m.cs.Close()
 }
 
 // Synced returns true if the chain manager is synced with the consensus set.
