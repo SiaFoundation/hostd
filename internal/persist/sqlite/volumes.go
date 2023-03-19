@@ -402,7 +402,7 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 
 func sectorDBID(tx txn, root types.Hash256) (id int64, err error) {
 	err = tx.QueryRow(`INSERT INTO stored_sectors (sector_root) VALUES ($1) ON CONFLICT (sector_root) DO NOTHING RETURNING id`, sqlHash256(root)).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) { // sector does not exist, create it
+	if errors.Is(err, sql.ErrNoRows) { // sector exists, retrieve the ID
 		err = tx.QueryRow(`SELECT id FROM stored_sectors WHERE sector_root=?`, sqlHash256(root)).Scan(&id)
 		return
 	} else if err != nil {
