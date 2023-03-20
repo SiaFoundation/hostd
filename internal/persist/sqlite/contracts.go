@@ -689,8 +689,9 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 func expiredContractSectors(tx txn, height uint64, batchSize int64) (ids []int64, _ error) {
 	const query = `SELECT csr.id FROM contract_sector_roots csr 
 INNER JOIN contracts c ON (csr.contract_id=c.id)
-WHERE c.window_end < $1 LIMIT $2;`
-	rows, err := tx.Query(query, height, batchSize)
+-- past proof window or not confirmed and past the rebroadcast height
+WHERE c.window_end < $1 OR c.contract_status=$2 LIMIT $3;`
+	rows, err := tx.Query(query, height, contracts.ContractStatusRejected, batchSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query expired sectors: %w", err)
 	}
