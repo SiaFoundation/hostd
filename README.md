@@ -1,4 +1,16 @@
-`hostd` is a next-generation Sia host, developed by the Sia Foundation. 
+`hostd` is an advanced Sia host solution created by the Sia Foundation, designed
+to enhance the experience for storage providers within the Sia network. Tailored
+for both individual and large-scale storage providers, `hostd` boasts a
+user-friendly interface and a robust API, empowering providers to efficiently
+manage their storage resources and revenue. `hostd` incorporates an embedded
+web-UI, simplifying deployment and enabling remote management capabilities,
+ensuring a smooth user experience across a diverse range of devices.
+
+# Current Status
+Please be advised that `hostd` is currently in alpha and should only be used on
+the Zen testnet. Using `hostd` on the main Sia network is not recommended. By
+limiting its use to the Zen testnet, you can safely explore its features and
+contribute to its improvement without risking your assets. 
 
 # Building
 `hostd` uses SQLite for its persistence. A gcc toolchain is required to build `hostd`
@@ -6,13 +18,14 @@
 CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-linkmode external -extldflags "-static"'  ./cmd/hostd
 ```
 
+## Testnet Builds
+`hostd` can be built to run on the Zen testnet by adding the `testnet` build tag.
+```sh
+CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ldflags '-linkmode external -extldflags "-static"'  ./cmd/hostd
+```
+
 # Docker
 hostd has a Dockerfile for easy containerization. The image can be pulled from `ghcr.io/siafoundation/hostd`.
-
-## Building image
-```sh
-docker build -f ./docker/Dockerfile .
-```
 
 ## Running container
 ```sh
@@ -23,6 +36,7 @@ docker run -d \
 -v /data:/data
 -v /storage:/storage
 -e HOSTD_API_PASSWORD=hostsarecool \
+ghcr.io/siafoundation/hostd:latest
 ```
 
 ## Docker Compose
@@ -42,4 +56,12 @@ services:
       - "/data:/data"
       - "/storage:/storage"
     restart: unless-stopped
+```
+
+## Testnet
+Suffix any tag with `-testnet` to use the testnet image.
+
+## Building image
+```sh
+docker build -t hostd -f ./docker/Dockerfile .
 ```
