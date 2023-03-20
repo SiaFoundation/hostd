@@ -86,12 +86,15 @@ func (c *Client) StartIntegrityCheck(id types.FileContractID) error {
 	return c.c.PUT(fmt.Sprintf("/contracts/%v/integrity", id), nil)
 }
 
+// IntegrityCheckProgress returns the progress of the integrity check for the
+// specified contract.
 func (c *Client) IntegrityCheckProgress(id types.FileContractID) (IntegrityCheckResult, error) {
 	var result IntegrityCheckResult
 	err := c.c.GET(fmt.Sprintf("/contracts/%v/integrity", id), &result)
 	return result, err
 }
 
+// DeleteIntegrityCheck deletes the integrity check for the specified contract.
 func (c *Client) DeleteIntegrityCheck(id types.FileContractID) error {
 	return c.c.DELETE(fmt.Sprintf("/contracts/%v/integrity", id))
 }
@@ -154,6 +157,7 @@ func (c *Client) Transactions(limit, offset int) (transactions []wallet.Transact
 	return
 }
 
+// PendingTransactions returns transactions that are not yet confirmed.
 func (c *Client) PendingTransactions() (transactions []wallet.Transaction, err error) {
 	err = c.c.GET("/wallet/pending", &transactions)
 	return

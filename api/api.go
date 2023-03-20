@@ -65,6 +65,7 @@ type (
 		Disconnect(addr modules.NetAddress) error
 	}
 
+	// A ChainManager retrieves the current blockchain state
 	ChainManager interface {
 		TipState() consensus.State
 	}
