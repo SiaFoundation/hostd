@@ -27,9 +27,11 @@ CREATE INDEX wallet_transactions_block_height_id ON wallet_transactions(block_he
 
 CREATE TABLE stored_sectors (
 	id INTEGER PRIMARY KEY,
-	sector_root BLOB UNIQUE NOT NULL
+	sector_root BLOB UNIQUE NOT NULL,
+	last_access_timestamp INTEGER NOT NULL
 );
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
+CREATE INDEX stored_sectors_last_access ON stored_sectors(last_access_timestamp);
 
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
@@ -401,21 +402,24 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 }
 
 func sectorDBID(tx txn, root types.Hash256) (id int64, err error) {
-	err = tx.QueryRow(`INSERT INTO stored_sectors (sector_root) VALUES ($1) ON CONFLICT (sector_root) DO NOTHING RETURNING id`, sqlHash256(root)).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) { // sector exists, retrieve the ID
-		err = tx.QueryRow(`SELECT id FROM stored_sectors WHERE sector_root=?`, sqlHash256(root)).Scan(&id)
-		return
-	} else if err != nil {
-		return 0, fmt.Errorf("failed to insert sector: %w", err)
-	}
+	err = tx.QueryRow(`INSERT INTO stored_sectors (sector_root, last_access_timestamp) VALUES ($1, $2) ON CONFLICT (sector_root) DO UPDATE SET last_access_timestamp=EXCLUDED.last_access_timestamp RETURNING id`, sqlHash256(root), sqlTime(time.Now())).Scan(&id)
 	return
 }
 
 func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err error) {
-	const query = `SELECT v.id, v.volume_id, v.volume_index, s.sector_root FROM volume_sectors v INNER JOIN stored_sectors s ON (s.id = v.sector_id) WHERE s.sector_root=?`
-	err = tx.QueryRow(query, sqlHash256(root)).Scan(&loc.ID, &loc.Volume, &loc.Index, (*sqlHash256)(&loc.Root))
+	var sectorDBID int64
+	err = tx.QueryRow(`UPDATE stored_sectors SET last_access_timestamp=$1 WHERE sector_root=$2 RETURNING id`, sqlTime(time.Now()), sqlHash256(root)).Scan(&sectorDBID)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = storage.ErrSectorNotFound
+		return storage.SectorLocation{}, storage.ErrSectorNotFound
+	} else if err != nil {
+		return storage.SectorLocation{}, fmt.Errorf("failed to update sector access time: %w", err)
+	}
+	loc.Root = root
+	const query = `SELECT v.id, v.volume_id, v.volume_index FROM volume_sectors v WHERE v.sector_id=$1`
+	err = tx.QueryRow(query, sectorDBID).Scan(&loc.ID, &loc.Volume, &loc.Index)
+	if errors.Is(err, sql.ErrNoRows) {
+		// should only happen if the sector was manually removed
+		return storage.SectorLocation{}, storage.ErrSectorNotFound
 	}
 	return
 }
