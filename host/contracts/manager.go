@@ -341,7 +341,10 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 		return nil, fmt.Errorf("failed to get sector roots: %w", err)
 	}
 	return &ContractUpdater{
-		store:       cm.store,
+		store: cm.store,
+		log:   cm.log.Named("contractUpdater"),
+
+		contractID:  contractID,
 		sectorRoots: roots,
 
 		done: done, // decrements the threadgroup counter after the updater is closed

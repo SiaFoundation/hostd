@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.uber.org/zap"
 )
 
 const (
@@ -144,10 +146,12 @@ type (
 	// and metadata.
 	ContractUpdater struct {
 		store ContractStore
+		log   *zap.Logger
 
 		once sync.Once
 		done func() // done is called when the updater is closed.
 
+		contractID    types.FileContractID
 		sectorActions []contractSectorAction
 		sectorRoots   []types.Hash256
 	}
@@ -309,6 +313,10 @@ func (cu *ContractUpdater) Close() error {
 
 // Commit atomically applies all changes to the contract store.
 func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
+	if revision.Revision.ParentID != cu.contractID {
+		panic("contract updater used with wrong contract")
+	}
+	start := time.Now()
 	err := cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
 		for i, action := range cu.sectorActions {
 			switch action.Action {
@@ -340,5 +348,6 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 	})
 	// clear the committed sector actions
 	cu.sectorActions = cu.sectorActions[:0]
+	cu.log.Debug("contract update committed", zap.String("contractID", revision.Revision.ParentID.String()), zap.Uint64("revision", revision.Revision.RevisionNumber), zap.Duration("elapsed", time.Since(start)))
 	return err
 }
