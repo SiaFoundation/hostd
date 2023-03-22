@@ -40,7 +40,8 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 
 // A Manager manages the current state of the blockchain.
 type Manager struct {
-	cs modules.ConsensusSet
+	cs      modules.ConsensusSet
+	network *consensus.Network
 
 	close chan struct{}
 	mu    sync.Mutex
@@ -52,6 +53,7 @@ func (m *Manager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tip = consensus.State{
+		Network: m.network,
 		Index: types.ChainIndex{
 			ID:     types.BlockID(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].ID()),
 			Height: uint64(cc.BlockHeight),
@@ -121,10 +123,12 @@ func NewManager(cs modules.ConsensusSet) (*Manager, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to get block at height %d", height)
 	}
-
+	n, _ := network()
 	m := &Manager{
-		cs: cs,
+		cs:      cs,
+		network: n,
 		tip: consensus.State{
+			Network: n,
 			Index: types.ChainIndex{
 				ID:     types.BlockID(block.ID()),
 				Height: uint64(height),

@@ -89,7 +89,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey type
 	}
 	cs := r.TipState()
 	contract := rhpv2.PrepareContractFormation(r.privKey, hostKey, renterPayout, hostCollateral, cs.Index.Height+duration, settings, r.WalletAddress())
-	formationCost := rhpv2.ContractFormationCost(contract, settings.ContractPrice)
+	formationCost := rhpv2.ContractFormationCost(cs, contract, settings.ContractPrice)
 	feeEstimate := r.tp.RecommendedFee().Mul64(2000)
 	formationTxn := types.Transaction{
 		MinerFees:     []types.Currency{feeEstimate},

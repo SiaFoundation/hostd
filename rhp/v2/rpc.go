@@ -509,7 +509,6 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 		s.t.WriteResponseErr(err)
 		return err
 	}
-
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
@@ -565,7 +564,6 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 			}
 			sector := (*[rhpv2.SectorSize]byte)(action.Data)
 			root := rhpv2.SectorRoot(sector)
-
 			release, err := sh.storage.Write(root, sector)
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
@@ -649,6 +647,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	if err := s.readResponse(&renterSigResponse, minMessageSize, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read renter signature: %w", err)
 	}
+
 	// validate the contract signature
 	renterSig := renterSigResponse.Signature
 	sigHash := rhp.HashRevision(revision)
@@ -686,9 +685,6 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	}
 	// update the session contract
 	s.contract = signedRevision
-
-	// add the amount spent
-	s.Spend(cost)
 
 	// send the host signature
 	hostSigResp := &rhpv2.RPCWriteResponse{Signature: hostSig}

@@ -192,11 +192,11 @@ func NewNode(privKey types.PrivateKey, dir string) (*Node, error) {
 
 // NewTestingPair creates a new renter and host pair, connects them to each
 // other, and funds both wallets.
-func NewTestingPair(dir string) (*Renter, *Host, error) {
+func NewTestingPair(dir string, debugLogging bool) (*Renter, *Host, error) {
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 
 	// initialize the host
-	host, err := NewHost(hostKey, filepath.Join(dir, "host"))
+	host, err := NewHost(hostKey, filepath.Join(dir, "host"), debugLogging)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create host: %w", err)
 	} else if err := host.UpdateSettings(DefaultSettings); err != nil {

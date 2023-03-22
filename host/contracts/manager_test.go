@@ -296,12 +296,12 @@ func TestContractLifecycle(t *testing.T) {
 	if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond) // sync time
+	time.Sleep(time.Second) // sync time
 	// confirm the proof
 	if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond) // sync time
+	time.Sleep(time.Second) // sync time
 
 	contract, err = c.Contract(rev.Revision.ParentID)
 	if err != nil {

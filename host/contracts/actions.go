@@ -151,12 +151,14 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			return
 		}
 		// get the proof leaf index
+		start := time.Now()
 		leafIndex := cs.StorageProofLeafIndex(contract.Revision.Filesize, windowStart, contract.Revision.ParentID)
 		sp, err := cm.buildStorageProof(contract.Revision.ParentID, leafIndex)
 		if err != nil {
 			log.Error("failed to build storage proof", zap.String("contract", id.String()), zap.Error(err))
 			return
 		}
+		log.Debug("built storage proof", zap.String("contract", id.String()), zap.Duration("elapsed", time.Since(start)), zap.Uint64("leafIndex", leafIndex))
 
 		// TODO: consider cost of proof submission and build proof.
 		fee := cm.tpool.RecommendedFee().Mul64(1000)
@@ -186,7 +188,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			UnlockConditions: cm.wallet.UnlockConditions(),
 		})
 		proofToSign := []types.Hash256{types.Hash256(resolutionTxnSet[1].SiacoinInputs[0].ParentID)}
-
+		start = time.Now()
 		if err := cm.wallet.SignTransaction(cs, &resolutionTxnSet[0], intermediateToSign, types.CoveredFields{WholeTransaction: true}); err != nil { // sign the intermediate transaction
 			log.Error("failed to sign resolution intermediate transaction", zap.String("contractID", id.String()), zap.Error(err))
 			return
@@ -198,7 +200,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			log.Error("failed to broadcast resolution transaction set", zap.String("contractID", id.String()), zap.Error(err), zap.ByteString("transactionSet", buf))
 			return
 		}
-		log.Info("broadcast storage proof", zap.String("contractID", id.String()), zap.String("transactionID", resolutionTxnSet[1].ID().String()))
+		log.Debug("broadcast storage proof", zap.String("contractID", id.String()), zap.String("transactionID", resolutionTxnSet[1].ID().String()), zap.Duration("elapsed", time.Since(start)))
 	case ActionReject:
 		if err := cm.store.SetContractStatus(id, ContractStatusRejected); err != nil {
 			log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))

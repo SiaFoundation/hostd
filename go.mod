@@ -8,9 +8,9 @@ require (
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
-	go.sia.tech/core v0.1.10
+	go.sia.tech/core v0.1.11-0.20230321182133-a445abd1a44f
 	go.sia.tech/jape v0.9.0
-	go.sia.tech/renterd v0.0.0-20230304141552-87e80454e2e3
+	go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
 	go.uber.org/zap v1.24.0
 	golang.org/x/term v0.5.0

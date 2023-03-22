@@ -117,14 +117,18 @@ func (h *Host) Contracts() *contracts.ContractManager {
 }
 
 // NewHost initializes a new test host
-func NewHost(privKey types.PrivateKey, dir string) (*Host, error) {
+func NewHost(privKey types.PrivateKey, dir string, debugLogging bool) (*Host, error) {
 	node, err := NewNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
 
 	opt := zap.NewDevelopmentConfig()
-	opt.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
+	if !debugLogging {
+		opt.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
+	} else {
+		opt.OutputPaths = []string{"stdout", filepath.Join(dir, "hostd.log")}
+	}
 	log, err := opt.Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logger: %w", err)

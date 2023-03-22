@@ -11,7 +11,6 @@ import (
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/core/wallet"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
@@ -178,7 +177,7 @@ func (sw *SingleAddressWallet) Address() types.Address {
 
 // UnlockConditions returns the unlock conditions of the wallet.
 func (sw *SingleAddressWallet) UnlockConditions() types.UnlockConditions {
-	return wallet.StandardUnlockConditions(sw.priv.PublicKey())
+	return sw.priv.PublicKey().StandardUnlockConditions()
 }
 
 // Balance returns the balance of the wallet.
@@ -276,7 +275,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	for i, sce := range fundingElements {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
 			ParentID:         types.SiacoinOutputID(sce.ID),
-			UnlockConditions: wallet.StandardUnlockConditions(sw.priv.PublicKey()),
+			UnlockConditions: sw.priv.PublicKey().StandardUnlockConditions(),
 		})
 		toSign[i] = types.Hash256(sce.ID)
 		sw.locked[sce.ID] = true
@@ -300,16 +299,6 @@ func (sw *SingleAddressWallet) SignTransaction(cs consensus.State, txn *types.Tr
 		return err
 	}
 	defer done()
-
-	// NOTE: siad uses different hardfork heights when -tags=testing is set,
-	// so we have to alter cs accordingly.
-	// TODO: remove this
-	switch {
-	case cs.Index.Height >= uint64(stypes.FoundationHardforkHeight):
-		cs.Index.Height = 298000
-	case cs.Index.Height >= uint64(stypes.ASICHardforkHeight):
-		cs.Index.Height = 179000
-	}
 
 	for _, id := range toSign {
 		var h types.Hash256
@@ -677,7 +666,7 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		log:   log,
 		tg:    threadgroup.New(),
 
-		addr:       wallet.StandardAddress(priv.PublicKey()),
+		addr:       priv.PublicKey().StandardAddress(),
 		locked:     make(map[types.SiacoinOutputID]bool),
 		tpoolSpent: make(map[types.SiacoinOutputID]bool),
 

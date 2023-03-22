@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/wallet"
@@ -25,6 +24,8 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected zero balance, got %v", balance)
 	}
 
+	initialState := w.TipState()
+
 	// mine a block to fund the wallet
 	if err := w.MineBlocks(w.Address(), 1); err != nil {
 		t.Fatal(err)
@@ -39,13 +40,13 @@ func TestWallet(t *testing.T) {
 	}
 
 	// mine until the first output has matured
-	if err := w.MineBlocks(types.Address{}, int(stypes.MaturityDelay)); err != nil {
+	if err := w.MineBlocks(types.VoidAddress, int(stypes.MaturityDelay)); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond) // sleep for consensus sync
 
 	// check the wallet's reported balance
-	expectedBalance := (consensus.State{}).BlockReward()
+	expectedBalance := initialState.BlockReward()
 	_, balance, _, err = w.Balance()
 	if err != nil {
 		t.Fatal(err)

@@ -107,9 +107,8 @@ func main() {
 			log.Fatal(err)
 		}
 		key := wallet.KeyFromSeed(&seed, 0)
-		address := wallet.StandardAddress(key.PublicKey())
 		log.Println("Recovery Phrase:", phrase)
-		log.Println("Address", address)
+		log.Println("Address", key.PublicKey().StandardAddress())
 		return
 	}
 
