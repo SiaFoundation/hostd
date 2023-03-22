@@ -123,14 +123,6 @@ CREATE TABLE temp_storage_sector_roots (
 CREATE INDEX temp_storage_sector_roots_sector_id ON temp_storage_sector_roots(sector_id);
 CREATE INDEX temp_storage_sector_roots_expiration_height ON temp_storage_sector_roots(expiration_height);
 
-CREATE TABLE accounts (
-	id INTEGER PRIMARY KEY,
-	account_id BLOB UNIQUE NOT NULL,
-	balance BLOB NOT NULL,
-	expiration_timestamp INTEGER NOT NULL
-);
-CREATE INDEX accounts_expiration_timestamp ON accounts(expiration_timestamp);
-
 CREATE TABLE registry_entries (
 	registry_key BLOB PRIMARY KEY,
 	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max
@@ -141,25 +133,45 @@ CREATE TABLE registry_entries (
 );
 CREATE INDEX registry_entries_expiration_height ON registry_entries(expiration_height);
 
-CREATE TABLE financial_account_funding (
-	source BLOB NOT NULL,
-	destination BLOB NOT NULL,
+CREATE TABLE accounts (
+	id INTEGER PRIMARY KEY,
+	account_id BLOB UNIQUE NOT NULL,
+	balance BLOB NOT NULL,
+	expiration_timestamp INTEGER NOT NULL
+);
+CREATE INDEX accounts_expiration_timestamp ON accounts(expiration_timestamp);
+
+CREATE TABLE account_financial_records (
+	id INTEGER PRIMARY KEY,
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	date_created INTEGER UNIQUE NOT NULL -- unique to limit growth
+);
+CREATE INDEX account_financial_records_account_id ON account_financial_records(account_id);
+CREATE INDEX account_financial_records_date_created ON account_financial_records(date_created);
+
+CREATE TABLE contract_financial_records (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts(id),
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	date_created INTEGER UNIQUE NOT NULL -- unique to limit growth
+);
+CREATE INDEX contract_financial_records_contract_id ON contract_financial_records(contract_id);
+CREATE INDEX contract_financial_records_date_created ON contract_financial_records(date_created);
+
+CREATE TABLE contract_account_funding ( -- tracks the funding of accounts from contracts, necessary to reduce account revenue during reorgs
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts(id),
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
 	amount BLOB NOT NULL,
 	date_created INTEGER NOT NULL
 );
-CREATE INDEX financial_account_funding_source ON financial_account_funding(source);
-CREATE INDEX financial_account_funding_date_created ON financial_account_funding(date_created);
-
-CREATE TABLE financial_records (
-	source_id BLOB NOT NULL,
-	egress_revenue BLOB NOT NULL,
-	ingress_revenue BLOB NOT NULL,
-	storage_revenue BLOB NOT NULL,
-	fee_revenue BLOB NOT NULL,
-	date_created INTEGER NOT NULL
-);
-CREATE INDEX financial_records_source_id ON financial_records(source_id);
-CREATE INDEX financial_records_date_created ON financial_records(date_created);
 
 CREATE TABLE host_statistics (
 	date_created INTEGER PRIMARY KEY,
@@ -168,7 +180,7 @@ CREATE TABLE host_statistics (
 	potential_ingress_revenue BLOB NOT NULL,
 	potential_egress_revenue BLOB NOT NULL,
 	potential_registry_read_revenue BLOB NOT NULL,
-	registry_write_revenue BLOB NOT NULL,
+	potential_registry_write_revenue BLOB NOT NULL,
 	rpc_revenue BLOB NOT NULL,
 	storage_revenue BLOB NOT NULL,
 	ingress_revenue BLOB NOT NULL,
