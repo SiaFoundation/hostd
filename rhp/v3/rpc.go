@@ -180,6 +180,49 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream) error {
 }
 
 func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
+	var req rhpv3.RPCLatestRevisionRequest
+	if err := s.ReadRequest(&req, 4096); err != nil {
+		return fmt.Errorf("failed to read latest revision request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	contract, err := sh.contracts.Lock(ctx, req.ContractID)
+	if errors.Is(err, contracts.ErrNotFound) {
+		s.WriteResponseErr(contracts.ErrNotFound)
+		return fmt.Errorf("failed to lock contract: %w", err)
+	}
+
+	resp := &rhpv3.RPCLatestRevisionResponse{
+		Revision: contract.Revision,
+	}
+	if err := s.WriteResponse(resp); err != nil {
+		return fmt.Errorf("failed to send latest revision response: %w", err)
+	}
+
+	pt, err := sh.readPriceTable(s)
+	if err != nil {
+		err = fmt.Errorf("failed to read price table: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	}
+
+	budget, err := sh.processPayment(s)
+	if err != nil {
+		err = fmt.Errorf("failed to process payment: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	}
+	defer budget.Rollback()
+
+	if err := budget.Spend(pt.LatestRevisionCost); err != nil {
+		err = fmt.Errorf("failed to pay %v for latest revision: %w", pt.LatestRevisionCost, err)
+		s.WriteResponseErr(err)
+		return err
+	} else if err := budget.Commit(); err != nil {
+		return fmt.Errorf("failed to commit payment: %w", err)
+	}
 	return nil
 }
 
