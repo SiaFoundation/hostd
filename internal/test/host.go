@@ -18,9 +18,10 @@ import (
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
-	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap"
 )
+
+const blocksPerMonth = 144 * 30
 
 type stubMetricReporter struct{}
 
@@ -45,7 +46,7 @@ type Host struct {
 // DefaultSettings returns the default settings for the test host
 var DefaultSettings = settings.Settings{
 	AcceptingContracts:  true,
-	MaxContractDuration: uint64(stypes.BlocksPerMonth) * 3,
+	MaxContractDuration: blocksPerMonth * 3,
 	MaxCollateral:       types.Siacoins(5000),
 
 	ContractPrice: types.Siacoins(1).Div64(4),
@@ -53,8 +54,8 @@ var DefaultSettings = settings.Settings{
 	BaseRPCPrice:      types.NewCurrency64(100),
 	SectorAccessPrice: types.NewCurrency64(100),
 
-	Collateral:      types.Siacoins(200).Div64(1e12).Div64(uint64(stypes.BlocksPerMonth)),
-	MinStoragePrice: types.Siacoins(100).Div64(1e12).Div64(uint64(stypes.BlocksPerMonth)),
+	Collateral:      types.Siacoins(200).Div64(1e12).Div64(blocksPerMonth),
+	MinStoragePrice: types.Siacoins(100).Div64(1e12).Div64(blocksPerMonth),
 	MinEgressPrice:  types.Siacoins(100).Div64(1e12),
 	MinIngressPrice: types.Siacoins(100).Div64(1e12),
 
