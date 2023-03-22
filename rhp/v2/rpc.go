@@ -675,7 +675,8 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	if !underflow {
 		costs.Storage = costs.Storage.Add(excess)
 	}
-	// adjust the collateral to account for the full transfer by the host
+	// adjust the collateral to account for the transfer by the host -- the host
+	// can risk less than the expected amount
 	costs.Collateral = risked
 
 	// commit the contract modifications

@@ -12,13 +12,11 @@ import (
 )
 
 func TestWallet(t *testing.T) {
-	node1, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir())
+	w, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer node1.Close()
-
-	w := node1.Wallet()
+	defer w.Close()
 
 	_, balance, _, err := w.Balance()
 	if err != nil {
@@ -28,7 +26,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// mine a block to fund the wallet
-	if err := node1.MineBlocks(w.Address(), 1); err != nil {
+	if err := w.MineBlocks(w.Address(), 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -41,7 +39,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// mine until the first output has matured
-	if err := node1.MineBlocks(types.Address{}, int(stypes.MaturityDelay)); err != nil {
+	if err := w.MineBlocks(types.Address{}, int(stypes.MaturityDelay)); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond) // sleep for consensus sync
@@ -81,7 +79,7 @@ func TestWallet(t *testing.T) {
 			Address: w.Address(),
 		}
 	}
-	splitTxn, err := node1.SendSiacoins(splitOutputs)
+	splitTxn, err := w.SendSiacoins(splitOutputs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +99,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// mine another block to confirm the transaction
-	if err := node1.MineBlocks(types.VoidAddress, 1); err != nil {
+	if err := w.MineBlocks(types.VoidAddress, 1); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond)
@@ -141,7 +139,7 @@ func TestWallet(t *testing.T) {
 	// send all the outputs to the burn address individually
 	var sentTransactions []types.Transaction
 	for i := 0; i < 20; i++ {
-		txn, err := node1.SendSiacoins([]types.SiacoinOutput{
+		txn, err := w.SendSiacoins([]types.SiacoinOutput{
 			{Value: expectedBalance.Div64(20)},
 		})
 		if err != nil {
@@ -165,7 +163,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// mine another block to confirm the transactions
-	if err := node1.MineBlocks(types.VoidAddress, 1); err != nil {
+	if err := w.MineBlocks(types.VoidAddress, 1); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond)
@@ -194,19 +192,19 @@ func TestWallet(t *testing.T) {
 	}
 
 	// start a new node to trigger a reorg
-	node2, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir())
+	w2, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer node2.Close()
+	defer w2.Close()
 
 	// mine enough blocks on the second node to trigger a reorg
-	if err := node2.MineBlocks(types.Address{}, int(stypes.MaturityDelay)*2); err != nil {
+	if err := w2.MineBlocks(types.Address{}, int(stypes.MaturityDelay)*2); err != nil {
 		t.Fatal(err)
 	}
 
 	// connect the nodes. node1 should begin reverting its blocks
-	if err := node1.ConnectPeer(node2.GatewayAddr()); err != nil {
+	if err := w.ConnectPeer(w2.GatewayAddr()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)

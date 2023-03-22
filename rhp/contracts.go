@@ -308,7 +308,7 @@ func ValidateRevision(current, revision types.FileContractRevision, payment, col
 
 	switch {
 	case !fromRenter.Equals(toHost):
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("expected %d to be transferred to host, got %d", fromRenter, toHost)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("expected %d to be transferred from renter to host, got %d", fromRenter, toHost)
 	case toHost.Cmp(payment) < 0:
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("insufficient host transfer: expected at least %d, got %d", payment, toHost)
 	case hostBurn.Cmp(collateral) > 0:
