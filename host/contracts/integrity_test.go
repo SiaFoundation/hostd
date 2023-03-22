@@ -45,18 +45,18 @@ func TestCheckIntegrity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c, err := contracts.NewManager(node.Store(), s, node.ChainManager(), node.TPool(), node.Wallet(), log.Named("contracts"))
+	c, err := contracts.NewManager(node.Store(), s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
 
-	if err := node.MineBlocks(node.Wallet().Address(), int(stypes.MaturityDelay+2)); err != nil {
+	if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay+2)); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond) // sync time
 
-	rev, err := formContract(renterKey, hostKey, c, node.Wallet(), node.ChainManager(), node.TPool())
+	rev, err := formContract(renterKey, hostKey, c, node, node.ChainManager(), node.TPool())
 	if err != nil {
 		t.Fatal(err)
 	}

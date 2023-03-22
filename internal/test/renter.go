@@ -9,7 +9,7 @@ import (
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/renterd/worker"
 	"go.uber.org/zap"

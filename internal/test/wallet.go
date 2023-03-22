@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
 	"go.uber.org/zap"
 )
@@ -13,13 +13,13 @@ import (
 // A Wallet is an ephemeral wallet that can be used for testing.
 type Wallet struct {
 	*Node
-	store  *sqlite.Store
-	wallet *wallet.SingleAddressWallet
+	*wallet.SingleAddressWallet
+	store *sqlite.Store
 }
 
 // Close closes the wallet.
 func (w *Wallet) Close() error {
-	w.wallet.Close()
+	w.SingleAddressWallet.Close()
 	w.store.Close()
 	w.Node.Close()
 	return nil
@@ -30,11 +30,6 @@ func (w *Wallet) Store() *sqlite.Store {
 	return w.store
 }
 
-// Wallet returns the wallet's wallet.
-func (w *Wallet) Wallet() *wallet.SingleAddressWallet {
-	return w.wallet
-}
-
 // SendSiacoins helper func to send siacoins from a wallet.
 func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transaction, err error) {
 	var siacoinOutput types.Currency
@@ -43,12 +38,12 @@ func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transact
 	}
 	txn.SiacoinOutputs = outputs
 
-	toSign, release, err := w.wallet.FundTransaction(&txn, siacoinOutput)
+	toSign, release, err := w.FundTransaction(&txn, siacoinOutput)
 	if err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
-	if err := w.wallet.SignTransaction(w.ChainManager().TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+	if err := w.SignTransaction(w.ChainManager().TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to sign transaction: %w", err)
 	} else if err := w.tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
 		return types.Transaction{}, fmt.Errorf("failed to accept transaction set: %w", err)
@@ -77,8 +72,8 @@ func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 	return &Wallet{
-		Node:   node,
-		store:  db,
-		wallet: wallet,
+		Node:                node,
+		SingleAddressWallet: wallet,
+		store:               db,
 	}, nil
 }

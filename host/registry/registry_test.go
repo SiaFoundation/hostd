@@ -9,7 +9,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.sia.tech/hostd/persist/sqlite"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

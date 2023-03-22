@@ -161,6 +161,38 @@ CREATE TABLE financial_records (
 CREATE INDEX financial_records_source_id ON financial_records(source_id);
 CREATE INDEX financial_records_date_created ON financial_records(date_created);
 
+CREATE TABLE host_statistics (
+	date_created INTEGER PRIMARY KEY,
+	potential_rpc_revenue BLOB NOT NULL,
+	potential_storage_revenue BLOB NOT NULL,
+	potential_ingress_revenue BLOB NOT NULL,
+	potential_egress_revenue BLOB NOT NULL,
+	potential_registry_read_revenue BLOB NOT NULL,
+	registry_write_revenue BLOB NOT NULL,
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	registry_read_revenue BLOB NOT NULL,
+	registry_write_revenue BLOB NOT NULL,
+	locked_collateral BLOB NOT NULL,
+	risked_collateral BLOB NOT NULL,
+	burnt_collateral BLOB NOT NULL,
+	pending_contracts INTEGER NOT NULL,
+	active_contracts INTEGER NOT NULL,
+	rejected_contracts INTEGER NOT NULL,
+	successful_contracts INTEGER NOT NULL,
+	failed_contracts INTEGER NOT NULL,
+	rhp2_ingress_data INTEGER NOT NULL,
+	rhp2_egress_data INTEGER NOT NULL,
+	rhp3_ingress_data INTEGER NOT NULL,
+	rhp3_egress_data INTEGER NOT NULL,
+	storage_usage INTEGER NOT NULL,
+	contract_sectors INTEGER NOT NULL,
+	temporary_sectors INTEGER NOT NULL,
+	registry_entries INTEGER NOT NULL
+);
+
 CREATE TABLE host_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	settings_revision INTEGER NOT NULL,

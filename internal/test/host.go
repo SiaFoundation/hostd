@@ -14,7 +14,7 @@ import (
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.sia.tech/hostd/persist/sqlite"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"

@@ -11,7 +11,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/internal/persist/sqlite"
+	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
 	"go.uber.org/zap"
