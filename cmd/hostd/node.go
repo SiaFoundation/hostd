@@ -169,7 +169,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		}
 	default:
 		go func() {
-			if err := <-errCh; err != nil && !strings.Contains(err.Error(), "Threadgroup already stopped") {
+			if err := <-errCh; err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {
 				logger.Warn("consensus subscribe error", zap.Error(err))
 			}
 		}()
