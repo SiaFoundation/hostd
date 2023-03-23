@@ -188,16 +188,10 @@ func explicitCoveredFields(txn types.Transaction) (cf types.CoveredFields) {
 }
 
 // NewRenter creates a new renter for testing
-func NewRenter(privKey types.PrivateKey, dir string) (*Renter, error) {
+func NewRenter(privKey types.PrivateKey, dir string, log *zap.Logger) (*Renter, error) {
 	node, err := NewNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
-	}
-	opt := zap.NewDevelopmentConfig()
-	opt.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
-	log, err := opt.Build()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "renter.db"), log.Named("sqlite"))
 	if err != nil {

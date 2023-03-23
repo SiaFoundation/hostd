@@ -105,6 +105,8 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 	cm.mu.Unlock()
 	select {
 	case <-c:
+		cm.mu.Lock()
+		defer cm.mu.Unlock()
 		contract, err := cm.store.Contract(id)
 		if err != nil {
 			return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)

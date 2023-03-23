@@ -54,16 +54,10 @@ func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transact
 }
 
 // NewWallet initializes a new test wallet.
-func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
+func NewWallet(privKey types.PrivateKey, dir string, log *zap.Logger) (*Wallet, error) {
 	node, err := NewNode(privKey, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
-	}
-	opt := zap.NewDevelopmentConfig()
-	opt.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
-	log, err := opt.Build()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {

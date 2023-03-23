@@ -16,7 +16,7 @@ import (
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
 	stypes "go.sia.tech/siad/types"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
@@ -87,20 +87,15 @@ func TestContractLockUnlock(t *testing.T) {
 	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	dir := t.TempDir()
-	opt := zap.NewDevelopmentConfig()
-	opt.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
-	log, err := opt.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
 
+	log := zaptest.NewLogger(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	node, err := test.NewWallet(hostKey, dir)
+	node, err := test.NewWallet(hostKey, dir, log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,13 +171,8 @@ func TestContractLifecycle(t *testing.T) {
 	hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
 
 	dir := t.TempDir()
-	log, err := zap.NewDevelopment()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer log.Sync()
-
-	node, err := test.NewWallet(hostKey, dir)
+	log := zaptest.NewLogger(t)
+	node, err := test.NewWallet(hostKey, dir, log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}

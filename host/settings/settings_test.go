@@ -9,24 +9,19 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
 func TestSettings(t *testing.T) {
 	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	dir := t.TempDir()
-	node, err := test.NewWallet(hostKey, dir)
+	log := zaptest.NewLogger(t)
+	node, err := test.NewWallet(hostKey, dir, log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer node.Close()
-
-	log, err := zap.NewDevelopment()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer log.Sync()
 
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {

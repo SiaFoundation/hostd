@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
 	stypes "go.sia.tech/siad/types"
+	"go.uber.org/zap"
 )
 
 func convertToSiad(core types.EncoderTo, siad encoding.SiaUnmarshaler) {
@@ -192,11 +193,11 @@ func NewNode(privKey types.PrivateKey, dir string) (*Node, error) {
 
 // NewTestingPair creates a new renter and host pair, connects them to each
 // other, and funds both wallets.
-func NewTestingPair(dir string, debugLogging bool) (*Renter, *Host, error) {
+func NewTestingPair(dir string, log *zap.Logger) (*Renter, *Host, error) {
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 
 	// initialize the host
-	host, err := NewHost(hostKey, filepath.Join(dir, "host"), debugLogging)
+	host, err := NewHost(hostKey, filepath.Join(dir, "host"), log.Named("host"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create host: %w", err)
 	} else if err := host.UpdateSettings(DefaultSettings); err != nil {
@@ -204,7 +205,7 @@ func NewTestingPair(dir string, debugLogging bool) (*Renter, *Host, error) {
 	}
 
 	// initialize the renter
-	renter, err := NewRenter(renterKey, filepath.Join(dir, "renter"))
+	renter, err := NewRenter(renterKey, filepath.Join(dir, "renter"), log.Named("renter"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create renter: %w", err)
 	}

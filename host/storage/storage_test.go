@@ -14,7 +14,7 @@ import (
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
@@ -28,22 +28,11 @@ func checkFileSize(fp string, expectedSize int64) error {
 	return nil
 }
 
-func testLog(tb testing.TB) *zap.Logger {
-	opt := zap.NewDevelopmentConfig()
-	opt.OutputPaths = []string{filepath.Join(tb.TempDir(), "hostd.log")}
-	log, err := opt.Build()
-	if err != nil {
-		tb.Fatal(err)
-	}
-	tb.Cleanup(func() { log.Sync() })
-	return log
-}
-
 func TestVolumeLoad(t *testing.T) {
 	const expectedSectors = 150
 	dir := t.TempDir()
 
-	log := testLog(t)
+	log := zaptest.NewLogger(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +127,7 @@ func TestAddVolume(t *testing.T) {
 	const expectedSectors = 500
 	dir := t.TempDir()
 
-	log := testLog(t)
+	log := zaptest.NewLogger(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +187,7 @@ func TestRemoveVolume(t *testing.T) {
 	dir := t.TempDir()
 
 	// create the database
-	log := testLog(t)
+	log := zaptest.NewLogger(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +260,7 @@ func TestVolumeGrow(t *testing.T) {
 	dir := t.TempDir()
 
 	// create the database
-	log := testLog(t)
+	log := zaptest.NewLogger(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +327,7 @@ func TestVolumeShrink(t *testing.T) {
 	dir := t.TempDir()
 
 	// create the database
-	log := testLog(t)
+	log := zaptest.NewLogger(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -481,7 +470,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	dir := t.TempDir()
 
 	// create the database
-	log := testLog(t)
+	log := zaptest.NewLogger(t)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -571,7 +560,7 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	dir := b.TempDir()
 
 	// create the database
-	log := testLog(b)
+	log := zaptest.NewLogger(b)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		b.Fatal(err)
@@ -635,7 +624,7 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	dir := b.TempDir()
 
 	// create the database
-	log := testLog(b)
+	log := zaptest.NewLogger(b)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		b.Fatal(err)
@@ -702,7 +691,7 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	dir := b.TempDir()
 
 	// create the database
-	log := testLog(b)
+	log := zaptest.NewLogger(b)
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		b.Fatal(err)

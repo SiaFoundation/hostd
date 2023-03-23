@@ -45,6 +45,7 @@ github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5
 github.com/aws/aws-sdk-go v1.44.156 h1:3RhbBTZ87HoI5OP2JjcKdd5qOnyo9YOAW8+Bb/h0vSE=
 github.com/aws/aws-sdk-go v1.44.156/go.mod h1:aVsgQcEevwlmQ7qHE9I3h+dtQgpqhFB+i8Phjh7fkwI=
 github.com/benbjohnson/clock v1.3.0 h1:ip6w0uFQkncKQ979AypyG0ER7mqUSBdKLOgAle/AT8A=
+github.com/benbjohnson/clock v1.3.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/beorn7/perks v1.0.0/go.mod h1:KWe93zE9D1o94FZ5RNwFwVgaQK1VOXiVxmqh+CedLV8=
 github.com/cenkalti/backoff/v4 v4.2.0 h1:HN5dHm3WBOgndBH6E8V0q2jIYIR3s9yglV8k/+MN3u4=
@@ -315,16 +316,12 @@ go.opentelemetry.io/otel/trace v1.13.0/go.mod h1:muCvmmO9KKpvuXSf3KKAXXB2ygNYHQ+
 go.opentelemetry.io/proto/otlp v0.7.0/go.mod h1:PqfVotwruBrMGOCsRd/89rSnXhoiJIqeYNgFYFoEGnI=
 go.opentelemetry.io/proto/otlp v0.19.0 h1:IVN6GR+mhC4s5yfcTbmzHYODqvWAp3ZedA2SJPI1Nnw=
 go.opentelemetry.io/proto/otlp v0.19.0/go.mod h1:H7XAot3MsfNsj7EXtrA2q5xSNQ10UqI405h3+duxN4U=
-go.sia.tech/core v0.1.10 h1:YjbyLjf2Z7rINcmk6CCqQHAuv5o7lHYIAoEkA01z1lU=
-go.sia.tech/core v0.1.10/go.mod h1:6p9xq0pd2WZmju7g8ncSmQRt8HWtsVIOoWKKMXpQCH0=
 go.sia.tech/core v0.1.11-0.20230321182133-a445abd1a44f h1:GZ+LRRvLQKCpD8QLCHCuKi5hvT6tNvbJwbyXEWIp+vQ=
 go.sia.tech/core v0.1.11-0.20230321182133-a445abd1a44f/go.mod h1:D17UWSn99SEfQnEaR9G9n6Kz9+BwqMoUgZ6Cl424LsQ=
 go.sia.tech/jape v0.9.0 h1:kWgMFqALYhLMJYOwWBgJda5ko/fi4iZzRxHRP7pp8NY=
 go.sia.tech/jape v0.9.0/go.mod h1:4QqmBB+t3W7cNplXPj++ZqpoUb2PeiS66RLpXmEGap4=
 go.sia.tech/mux v1.2.0 h1:ofa1Us9mdymBbGMY2XH/lSpY8itFsKIo/Aq8zwe+GHU=
 go.sia.tech/mux v1.2.0/go.mod h1:Yyo6wZelOYTyvrHmJZ6aQfRoer3o4xyKQ4NmQLJrBSo=
-go.sia.tech/renterd v0.0.0-20230304141552-87e80454e2e3 h1:CJ5WsBoPqta/jTiarNS43UDDMWtNF3tK+HnvydScE+w=
-go.sia.tech/renterd v0.0.0-20230304141552-87e80454e2e3/go.mod h1:CNzhlff0FXrKlfGsjpOurbcHOgjG4SiUXBqyOVMq0uI=
 go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76 h1:W+xv7IP1bjt+jtRCIgP5Ci+YdvTjUB7juf4oONDeFG4=
 go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76/go.mod h1:TUw/Zn68MYQZbP5MU7wQy6K9aLi8uCoIVCNVVBQ+cF4=
 go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca h1:aZMg2AKevn7jKx+wlusWQfwSM5pNU9aGtRZme29q3O4=

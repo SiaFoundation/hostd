@@ -11,6 +11,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
@@ -36,7 +37,7 @@ func randomSettings() settings.Settings {
 }
 
 func TestSettings(t *testing.T) {
-	log := testLog(t)
+	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "hostdb.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)

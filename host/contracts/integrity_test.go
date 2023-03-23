@@ -14,23 +14,16 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/test"
 	stypes "go.sia.tech/siad/types"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
 func TestCheckIntegrity(t *testing.T) {
 	hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
 
+	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	opts := zap.NewDevelopmentConfig()
-	opts.OutputPaths = []string{}
-	log, err := opts.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer log.Sync()
-
-	node, err := test.NewWallet(hostKey, dir)
+	node, err := test.NewWallet(hostKey, dir, log)
 	if err != nil {
 		t.Fatal(err)
 	}

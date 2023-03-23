@@ -13,11 +13,13 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/renterd/wallet"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
 func TestSettings(t *testing.T) {
-	renter, host, err := test.NewTestingPair(t.TempDir(), false)
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +64,8 @@ func TestSettings(t *testing.T) {
 }
 
 func TestUploadDownload(t *testing.T) {
-	renter, host, err := test.NewTestingPair(t.TempDir(), false)
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +147,8 @@ func TestUploadDownload(t *testing.T) {
 }
 
 func TestRenew(t *testing.T) {
-	renter, host, err := test.NewTestingPair(t.TempDir(), false)
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +331,8 @@ func TestRenew(t *testing.T) {
 }
 
 func BenchmarkUpload(b *testing.B) {
-	renter, host, err := test.NewTestingPair(b.TempDir(), true)
+	log := zaptest.NewLogger(b)
+	renter, host, err := test.NewTestingPair(b.TempDir(), log)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -379,7 +384,8 @@ func BenchmarkUpload(b *testing.B) {
 }
 
 func BenchmarkDownload(b *testing.B) {
-	renter, host, err := test.NewTestingPair(b.TempDir(), false)
+	log := zaptest.NewLogger(b)
+	renter, host, err := test.NewTestingPair(b.TempDir(), log)
 	if err != nil {
 		b.Fatal(err)
 	}

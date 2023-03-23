@@ -8,10 +8,12 @@ import (
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/wallet"
 	stypes "go.sia.tech/siad/types"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestWallet(t *testing.T) {
-	w, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir())
+	log := zaptest.NewLogger(t)
+	w, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir(), log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +195,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// start a new node to trigger a reorg
-	w2, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir())
+	w2, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir(), log.Named("wallet2"))
 	if err != nil {
 		t.Fatal(err)
 	}
