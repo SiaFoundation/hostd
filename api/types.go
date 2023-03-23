@@ -11,6 +11,10 @@ import (
 )
 
 type (
+	SyncerConnectRequest struct {
+		Address string `json:"address"`
+	}
+
 	// A StateResponse is the response body for the [GET] /state endpoint.
 	StateResponse struct {
 		// meta
