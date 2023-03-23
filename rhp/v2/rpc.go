@@ -103,9 +103,8 @@ func (sh *SessionHandler) rpcUnlock(s *session) error {
 	if s.contract.Revision.ParentID == (types.FileContractID{}) {
 		return ErrNoContractLocked
 	}
-
-	s.contract = contracts.SignedRevision{}
 	sh.contracts.Unlock(s.contract.Revision.ParentID)
+	s.contract = contracts.SignedRevision{}
 	return nil
 }
 
