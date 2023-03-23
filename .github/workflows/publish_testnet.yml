@@ -36,7 +36,7 @@ jobs:
             type=ref,event=branch
             type=sha,prefix=
             type=semver,pattern={{version}}
-      - uses: docker/build-push-action@v2
+      - uses: docker/build-push-action@v4
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -94,7 +94,7 @@ jobs:
           GOARCH: arm64
         run: |
           go build -trimpath -o bin/macos_arm64/ -a -ldflags '-s -w' ./cmd/hostd
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: hostd-testnet-macos
           path: bin/
@@ -112,7 +112,7 @@ jobs:
           GOARCH: amd64
         run: |
           go build -trimpath -o bin/windows_amd64/ -a -ldflags '-s -w' ./cmd/hostd
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: hostd-testnet-windows
           path: bin/
