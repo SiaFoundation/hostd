@@ -359,7 +359,7 @@ func (s *Store) ContractAction(height uint64, contractFn func(types.FileContract
 // contract formation.
 func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transaction, error) {
 	var buf []byte
-	err := s.queryRow(`SELECT formation_txn_set FROM contracts WHERE id=$1;`, sqlHash256(id)).Scan(&buf)
+	err := s.queryRow(`SELECT formation_txn_set FROM contracts WHERE contract_id=$1;`, sqlHash256(id)).Scan(&buf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query formation txn set: %w", err)
 	}
