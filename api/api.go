@@ -104,7 +104,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm Contrac
 		"GET /state":                      a.handleGETState,
 		"GET /syncer/address":             a.handleGETSyncerAddr,
 		"GET /syncer/peers":               a.handleGETSyncerPeers,
-		"PUT /syncer/peers/:address":      a.handlePUTSyncerPeer,
+		"PUT /syncer/peers":               a.handlePUTSyncerPeer,
 		"DELETE /syncer/peers/:address":   a.handleDeleteSyncerPeer,
 		"GET /settings":                   a.handleGETSettings,
 		"POST /settings":                  a.handlePOSTSettings,

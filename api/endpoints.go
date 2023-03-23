@@ -60,12 +60,12 @@ func (a *API) handleGETSyncerPeers(c jape.Context) {
 }
 
 func (a *API) handlePUTSyncerPeer(c jape.Context) {
-	var addr modules.NetAddress
-	if err := c.DecodeParam("address", &addr); err != nil {
+	var addr string
+	if err := c.Decode(&addr); err != nil {
 		c.Error(fmt.Errorf("failed to parse peer address: %w", err), http.StatusBadRequest)
 		return
 	}
-	err := a.syncer.Connect(addr)
+	err := a.syncer.Connect(modules.NetAddress(addr))
 	a.checkServerError(c, "failed to connect to peer", err)
 }
 

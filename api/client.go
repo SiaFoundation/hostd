@@ -37,7 +37,7 @@ func (c *Client) SyncerPeers() (peers []Peer, err error) {
 
 // SyncerConnect connects to a peer.
 func (c *Client) SyncerConnect(address string) error {
-	return c.c.PUT(fmt.Sprintf("/syncer/peers/%s", address), nil)
+	return c.c.PUT("/syncer/peers", address)
 }
 
 // SyncerDisconnect disconnects from a peer.
