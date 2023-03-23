@@ -36,4 +36,6 @@ jobs:
       #     analyzers: |
       #       go.sia.tech/jape.Analyzer
       - name: Build
-        run: CGO_ENABLED=1 go build -o bin/ ./cmd/hostd
+        env:
+          CGO_ENABLED: 1
+        run: go build -o bin/ ./cmd/hostd
