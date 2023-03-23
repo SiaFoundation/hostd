@@ -11,6 +11,7 @@ import (
 )
 
 type (
+	// SyncerConnectRequest is the request body for the [PUT] /syncer/peers endpoint.
 	SyncerConnectRequest struct {
 		Address string `json:"address"`
 	}

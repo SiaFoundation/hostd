@@ -95,7 +95,6 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			log.Error("failed to get formation set", zap.String("contract", id.String()), zap.Error(err))
 			return
 		} else if err := cm.tpool.AcceptTransactionSet(formationSet); err != nil {
-			// TODO: recalc financials
 			log.Error("failed to broadcast formation transaction", zap.String("contract", id.String()), zap.Error(err))
 			return
 		}
@@ -160,7 +159,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		}
 		log.Debug("built storage proof", zap.String("contract", id.String()), zap.Duration("elapsed", time.Since(start)), zap.Uint64("leafIndex", leafIndex))
 
-		// TODO: consider cost of proof submission and build proof.
+		// TODO: consider cost of broadcasting the proof
 		fee := cm.tpool.RecommendedFee().Mul64(1000)
 		resolutionTxnSet := []types.Transaction{
 			{

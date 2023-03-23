@@ -57,6 +57,8 @@ func TestVolumeLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cm.Close()
+	defer cm.Close()
 
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
@@ -119,8 +121,9 @@ func TestVolumeLoad(t *testing.T) {
 	release, err = vm.Write(root, &sector)
 	if err != nil {
 		t.Fatal(err)
+	} else if err := release(); err != nil {
+		t.Fatal(err)
 	}
-	release()
 }
 
 func TestAddVolume(t *testing.T) {
@@ -152,6 +155,8 @@ func TestAddVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cm.Close()
+	defer cm.Close()
 
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
 	if err != nil {
@@ -212,6 +217,8 @@ func TestRemoveVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cm.Close()
+	defer cm.Close()
 
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
@@ -285,6 +292,8 @@ func TestVolumeGrow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cm.Close()
+	defer cm.Close()
 
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
@@ -352,6 +361,7 @@ func TestVolumeShrink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cm.Close()
 
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
@@ -495,6 +505,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cm.Close()
 
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
@@ -583,6 +594,7 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer cm.Close()
 
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
@@ -647,6 +659,7 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer cm.Close()
 
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
@@ -714,6 +727,7 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer cm.Close()
 
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))

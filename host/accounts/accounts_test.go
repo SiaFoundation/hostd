@@ -29,6 +29,7 @@ func TestCredit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	am := NewManager(db, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
 	accountID := frand.Entropy256()
@@ -56,6 +57,7 @@ func TestBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	am := NewManager(db, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
 	accountID := frand.Entropy256()
