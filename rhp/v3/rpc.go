@@ -193,7 +193,7 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
 		s.WriteResponseErr(contracts.ErrNotFound)
 		return fmt.Errorf("failed to lock contract: %w", err)
 	}
-	defer sh.contracts.Unlock(contract.Revision.ParentID)
+	sh.contracts.Unlock(contract.Revision.ParentID)
 
 	resp := &rhpv3.RPCLatestRevisionResponse{
 		Revision: contract.Revision,
