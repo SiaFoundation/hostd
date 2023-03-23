@@ -226,6 +226,10 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
 	return nil
 }
 
+func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream) error {
+	return nil
+}
+
 // handleRPCExecute handles an RPCExecuteProgram request.
 func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	// read the price table
@@ -243,6 +247,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 		s.WriteResponseErr(err)
 		return err
 	}
+	// note: the budget is committed by the executor, no need to commit it in the handler.
 	defer budget.Rollback()
 
 	// read the program request
@@ -299,6 +304,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	// create the program executor
 	log := sh.log.Named("mdm")
 	log.Debug("executing program", zap.Int("instructions", len(instructions)), zap.String("budget", budget.Remaining().ExactString()), zap.String("contract", contract.Revision.ParentID.String()), zap.Bool("requiresFinalization", requiresFinalization))
+	// note: the budget is committed by the executor, no need to commit it in the handler.
 	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, contract, requiresFinalization, log)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)

@@ -212,7 +212,8 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse rhp2 addr: %w", err)
 	}
-	discoveredAddr := net.JoinHostPort(string(g.Address()), rhp2Port)
+	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
+	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
 	sr, err := settings.NewConfigManager(walletKey, discoveredAddr, db, cm, txpool{tp}, w, logger.Named("settings"))
 	if err != nil {
