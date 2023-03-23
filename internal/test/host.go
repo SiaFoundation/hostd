@@ -47,6 +47,7 @@ type Host struct {
 var DefaultSettings = settings.Settings{
 	AcceptingContracts:  true,
 	MaxContractDuration: blocksPerMonth * 3,
+	WindowSize:          144,
 	MaxCollateral:       types.Siacoins(5000),
 
 	ContractPrice: types.Siacoins(1).Div64(4),
