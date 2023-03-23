@@ -221,6 +221,7 @@ CREATE TABLE host_settings (
 	max_account_balance BLOB NOT NULL,
 	max_account_age INTEGER NOT NULL,
 	max_contract_duration INTEGER NOT NULL,
+	window_size INTEGER NOT NULL,
 	ingress_limit INTEGER NOT NULL,
 	egress_limit INTEGER NOT NULL,
 	registry_limit INTEGER NOT NULL

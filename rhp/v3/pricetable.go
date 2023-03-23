@@ -151,7 +151,7 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 		CollateralCost:    settings.Collateral,
 		MaxCollateral:     settings.MaxCollateral,
 		MaxDuration:       settings.MaxContractDuration,
-		WindowSize:        144,
+		WindowSize:        settings.WindowSize,
 		RenewContractCost: types.Siacoins(100).Div64(1e9),
 
 		// Registry related fields.

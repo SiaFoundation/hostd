@@ -38,6 +38,7 @@ type (
 		AcceptingContracts  bool   `json:"acceptingContracts"`
 		NetAddress          string `json:"netAddress"`
 		MaxContractDuration uint64 `json:"maxContractDuration"`
+		WindowSize          uint64 `json:"windowSize"`
 
 		// Pricing
 		ContractPrice     types.Currency `json:"contractPrice"`
@@ -102,7 +103,8 @@ type (
 )
 
 var (
-	defaultSettings = Settings{
+	// DefaultSettings are the default settings for the host
+	DefaultSettings = Settings{
 		AcceptingContracts:  false,
 		NetAddress:          "",
 		MaxContractDuration: 6 * blocksPerMonth, // 6 months
@@ -120,6 +122,7 @@ var (
 
 		AccountExpiry:     30 * 24 * time.Hour, // 30 days
 		MaxAccountBalance: types.Siacoins(10),  // 10SC
+		WindowSize:        144,                 // 144 blocks
 
 		MaxRegistryEntries: 100000,
 	}
@@ -253,10 +256,10 @@ func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm
 
 	settings, err := m.store.Settings()
 	if errors.Is(err, ErrNoSettings) {
-		if err := store.UpdateSettings(defaultSettings); err != nil {
+		if err := store.UpdateSettings(DefaultSettings); err != nil {
 			return nil, fmt.Errorf("failed to initialize settings: %w", err)
 		}
-		settings = defaultSettings // use the default settings
+		settings = DefaultSettings // use the default settings
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}

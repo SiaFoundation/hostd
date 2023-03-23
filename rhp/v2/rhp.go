@@ -220,7 +220,7 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		MaxDownloadBatchSize: defaultBatchSize,
 		MaxReviseBatchSize:   defaultBatchSize,
 		SectorSize:           rhpv2.SectorSize,
-		WindowSize:           144,
+		WindowSize:           settings.WindowSize,
 
 		// contract formation
 		AcceptingContracts: settings.AcceptingContracts,
