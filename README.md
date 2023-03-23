@@ -1,3 +1,11 @@
+# [![Sia](https://sia.tech/banners/sia-banner-hostd.png)](http://sia.tech)
+
+[![GoDoc](https://godoc.org/go.sia.tech/hostd?status.svg)](https://godoc.org/go.sia.tech/hostd)
+
+A host for Sia.
+
+## Overview
+
 `hostd` is an advanced Sia host solution created by the Sia Foundation, designed
 to enhance the experience for storage providers within the Sia network. Tailored
 for both individual and large-scale storage providers, `hostd` boasts a
