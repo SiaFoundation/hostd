@@ -71,46 +71,46 @@ jobs:
           name: hostd-linux
           path: bin/
           retention-days: 30
-#  build-mac: 
-#    runs-on: macos-latest
-#    steps:
-#      - uses: actions/checkout@v3
-#      - uses: actions/setup-go@v3
-#        with:
-#          go-version: 'stable'
-#      - name: Build amd64
-#        env:
-#          CGO_ENABLED: 1
-#          GOOS: darwin
-#          GOARCH: amd64
-#        run: |
-#          go build -trimpath -o bin/macos_amd64/ -a -ldflags '-s -w' ./cmd/hostd
-#      - name: Build arm64
-#        env:
-#          CGO_ENABLED: 1
-#          GOOS: darwin
-#          GOARCH: arm64
-#        run: |
-#          go build -trimpath -o bin/macos_arm64/ -a -ldflags '-s -w' ./cmd/hostd
-#      - uses: actions/upload-artifact@v2
-#        with:
-#          name: hostd-macos
-#          path: bin/
-#  build-windows: 
-#    runs-on: windows-latest
-#    steps:
-#      - uses: actions/checkout@v3
-#      - uses: actions/setup-go@v3
-#        with:
-#          go-version: 'stable'
-#      - name: Build amd64
-#        env:
-#          CGO_ENABLED: 1
-#          GOOS: windows
-#          GOARCH: amd64
-#        run: |
-#          go build -trimpath -o bin/windows_amd64/ -a -ldflags '-s -w' ./cmd/hostd
-#      - uses: actions/upload-artifact@v2
-#        with:
-#          name: hostd-macos
-#          path: bin/
+  build-mac: 
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 'stable'
+      - name: Build amd64
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: amd64
+        run: |
+          go build -trimpath -o bin/macos_amd64/ -a -ldflags '-s -w' ./cmd/hostd
+      - name: Build arm64
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          go build -trimpath -o bin/macos_arm64/ -a -ldflags '-s -w' ./cmd/hostd
+      - uses: actions/upload-artifact@v2
+        with:
+          name: hostd-macos
+          path: bin/
+  build-windows: 
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 'stable'
+      - name: Build amd64
+        env:
+          CGO_ENABLED: 1
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          go build -trimpath -o bin/windows_amd64/ -a -ldflags '-s -w' ./cmd/hostd
+      - uses: actions/upload-artifact@v2
+        with:
+          name: hostd-windows
+          path: bin/
