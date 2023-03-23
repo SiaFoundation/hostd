@@ -26,6 +26,7 @@ func TestSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer log.Sync()
 
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {

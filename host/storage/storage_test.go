@@ -35,6 +35,7 @@ func testLog(tb testing.TB) *zap.Logger {
 	if err != nil {
 		tb.Fatal(err)
 	}
+	tb.Cleanup(func() { log.Sync() })
 	return log
 }
 

@@ -22,6 +22,7 @@ type (
 
 		privKey types.PrivateKey
 		store   *sqlite.Store
+		log     *zap.Logger
 		wallet  *wallet.SingleAddressWallet
 	}
 )
@@ -31,6 +32,7 @@ func (r *Renter) Close() error {
 	r.wallet.Close()
 	r.store.Close()
 	r.Node.Close()
+	r.log.Sync()
 	return nil
 }
 
@@ -210,6 +212,7 @@ func NewRenter(privKey types.PrivateKey, dir string) (*Renter, error) {
 		Node:    node,
 		privKey: privKey,
 		store:   db,
+		log:     log,
 		wallet:  wallet,
 	}, nil
 }

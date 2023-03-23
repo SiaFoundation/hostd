@@ -23,13 +23,14 @@ func (s ephemeralSettings) Settings() settings.Settings {
 	}
 }
 
-func testLog(t *testing.T) *zap.Logger {
+func testLog(tb testing.TB) *zap.Logger {
 	opt := zap.NewDevelopmentConfig()
-	opt.OutputPaths = []string{filepath.Join(t.TempDir(), "hostd.log")}
+	opt.OutputPaths = []string{filepath.Join(tb.TempDir(), "hostd.log")}
 	log, err := opt.Build()
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
+	tb.Cleanup(func() { log.Sync() })
 	return log
 }
 

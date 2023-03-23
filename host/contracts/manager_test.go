@@ -180,6 +180,7 @@ func TestContractLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer log.Sync()
 
 	node, err := test.NewWallet(hostKey, dir)
 	if err != nil {

@@ -15,6 +15,7 @@ type Wallet struct {
 	*Node
 	*wallet.SingleAddressWallet
 	store *sqlite.Store
+	log   *zap.Logger
 }
 
 // Close closes the wallet.
@@ -22,6 +23,7 @@ func (w *Wallet) Close() error {
 	w.SingleAddressWallet.Close()
 	w.store.Close()
 	w.Node.Close()
+	w.log.Sync()
 	return nil
 }
 
@@ -74,6 +76,7 @@ func NewWallet(privKey types.PrivateKey, dir string) (*Wallet, error) {
 	return &Wallet{
 		Node:                node,
 		SingleAddressWallet: wallet,
+		log:                 log,
 		store:               db,
 	}, nil
 }

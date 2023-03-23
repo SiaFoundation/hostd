@@ -32,6 +32,7 @@ type Host struct {
 	*Node
 
 	store     *sqlite.Store
+	log       *zap.Logger
 	wallet    *wallet.SingleAddressWallet
 	settings  *settings.ConfigManager
 	storage   *storage.VolumeManager
@@ -74,6 +75,7 @@ func (h *Host) Close() error {
 	h.storage.Close()
 	h.store.Close()
 	h.Node.Close()
+	h.log.Sync()
 	return nil
 }
 
@@ -189,6 +191,7 @@ func NewHost(privKey types.PrivateKey, dir string, debugLogging bool) (*Host, er
 	return &Host{
 		Node:      node,
 		store:     db,
+		log:       log,
 		wallet:    wallet,
 		settings:  settings,
 		storage:   storage,
