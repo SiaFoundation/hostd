@@ -189,9 +189,10 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
 	defer cancel()
 
 	contract, err := sh.contracts.Lock(ctx, req.ContractID)
-	if errors.Is(err, contracts.ErrNotFound) {
-		s.WriteResponseErr(contracts.ErrNotFound)
-		return fmt.Errorf("failed to lock contract: %w", err)
+	if err != nil {
+		err := fmt.Errorf("failed to lock contract: %w", err)
+		s.WriteResponseErr(err)
+		return err
 	}
 	sh.contracts.Unlock(contract.Revision.ParentID)
 
