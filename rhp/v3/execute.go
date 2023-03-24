@@ -30,8 +30,7 @@ type (
 	programData []byte
 
 	programExecutor struct {
-		hostKey   types.PrivateKey
-		renterKey types.PublicKey
+		hostKey types.PrivateKey
 
 		instructions []rhpv3.Instruction
 		programData  programData
@@ -40,7 +39,7 @@ type (
 		budget *accounts.Budget
 		cost   rhpv3.ResourceCost
 
-		revision          contracts.SignedRevision
+		revision          *contracts.SignedRevision
 		remainingDuration uint64
 		updater           *contracts.ContractUpdater
 		tempSectors       []storage.TempSector
@@ -613,7 +612,7 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 
 		// verify the renter signature
 		sigHash := rhp.HashRevision(revision)
-		if !pe.renterKey.VerifyHash(sigHash, req.Signature) {
+		if !pe.revision.RenterKey().VerifyHash(sigHash, req.Signature) {
 			err = ErrInvalidRenterSignature
 			s.WriteResponseErr(err)
 			return err
@@ -746,10 +745,9 @@ func (pe *programExecutor) Execute(ctx context.Context, s *rhpv3.Stream) error {
 	return nil
 }
 
-func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget *accounts.Budget, revision contracts.SignedRevision, finalize bool, log *zap.Logger) (*programExecutor, error) {
+func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget *accounts.Budget, revision *contracts.SignedRevision, finalize bool, log *zap.Logger) (*programExecutor, error) {
 	ex := &programExecutor{
-		hostKey:   sh.privateKey,
-		renterKey: revision.RenterKey(),
+		hostKey: sh.privateKey,
 
 		instructions: instructions,
 		programData:  programData(data),
