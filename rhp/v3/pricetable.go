@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"container/list"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -40,6 +41,12 @@ type (
 	}
 )
 
+var (
+	// ErrNoPriceTable is returned if a price table is requested but the UID
+	// does not exist or has expired.
+	ErrNoPriceTable = errors.New("no price table found")
+)
+
 // expirePriceTables removes expired price tables from the list of valid price
 // tables. It is called by expirationTimer every time a price table expires.
 func (pm *priceTableManager) pruneExpired() {
@@ -73,7 +80,7 @@ func (pm *priceTableManager) Get(id [16]byte) (rhpv3.HostPriceTable, error) {
 	pt, ok := pm.priceTables[id]
 	pm.mu.RUnlock()
 	if !ok {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("unrecognized price table ID: %x", id)
+		return rhpv3.HostPriceTable{}, ErrNoPriceTable
 	}
 	return pt, nil
 }

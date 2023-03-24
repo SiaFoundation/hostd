@@ -146,7 +146,7 @@ func main() {
 	}
 	defer apiListener.Close()
 
-	node, err := newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir, bootstrap, walletKey, logger)
+	node, hostKey, err := newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir, bootstrap, walletKey, logger)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -155,20 +155,20 @@ func main() {
 	auth := jape.BasicAuth(apiPassword)
 	web := http.Server{
 		Handler: webRouter{
-			api: auth(api.NewServer(walletKey.PublicKey(), node.g, node.cm, node.contracts, node.storage, node.settings, node.w, logger.Named("api"))),
+			api: auth(api.NewServer(hostKey.PublicKey(), node.g, node.cm, node.contracts, node.storage, node.settings, node.w, logger.Named("api"))),
 			ui:  createUIHandler(),
 		},
 		ReadTimeout: 30 * time.Second,
 	}
 
 	if docker {
-		logger.Info("hostd listening on", zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
+		logger.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
 	} else {
 		log.Println("api listening on:", apiListener.Addr().String())
 		log.Println("p2p listening on:", node.g.Address())
 		log.Println("rhp2 listening on:", node.rhp2.LocalAddr())
 		log.Println("rhp3 listening on:", node.rhp3.LocalAddr())
-		log.Println("host public key:", walletKey.PublicKey())
+		log.Println("host public key:", hostKey.PublicKey())
 	}
 
 	go func() {

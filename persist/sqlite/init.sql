@@ -230,7 +230,7 @@ CREATE TABLE host_settings (
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
-	host_key BLOB, -- host key will eventually be stored instead of passed into the CLI, this will make migrating from siad easier
+	host_key BLOB, 
 	wallet_last_processed_change BLOB, -- last processed consensus change for the wallet
 	contracts_last_processed_change BLOB, -- last processed consensus change for the contract manager
 	wallet_height INTEGER, -- height of the wallet as of the last processed change

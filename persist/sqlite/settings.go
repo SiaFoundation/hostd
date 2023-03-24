@@ -1,10 +1,13 @@
 package sqlite
 
 import (
+	"crypto/ed25519"
 	"database/sql"
 	"errors"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
+	"go.uber.org/zap"
 )
 
 // Settings returns the current host settings.
@@ -60,4 +63,16 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 		settings.AccountExpiry, settings.MaxContractDuration, settings.WindowSize,
 		settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries)
 	return err
+}
+
+// HostKey returns the host's private key.
+func (s *Store) HostKey() types.PrivateKey {
+	var buf []byte
+	err := s.queryRow(`SELECT host_key FROM global_settings WHERE id=0;`).Scan(&buf)
+	if err != nil {
+		s.log.Panic("failed to get host key", zap.Error(err), zap.Stack("stacktrace"))
+	} else if len(buf) != ed25519.PrivateKeySize {
+		s.log.Panic("host key has incorrect length", zap.Int("expected", ed25519.PrivateKeySize), zap.Int("actual", len(buf)))
+	}
+	return types.PrivateKey(buf)
 }
