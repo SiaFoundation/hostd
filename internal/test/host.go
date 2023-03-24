@@ -120,6 +120,7 @@ func (h *Host) Contracts() *contracts.ContractManager {
 	return h.contracts
 }
 
+// Storage returns the host's storage manager
 func (h *Host) Storage() *storage.VolumeManager {
 	return h.storage
 }

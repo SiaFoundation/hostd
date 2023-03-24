@@ -193,6 +193,7 @@ func (ps *PaymentSession) LatestRevision(contractID types.FileContractID) (types
 	return resp.Revision, nil
 }
 
+// StoreSector stores the given sector for the given duration
 func (ps *PaymentSession) StoreSector(sector *[rhpv2.SectorSize]byte, duration uint64, budget types.Currency) error {
 	stream := ps.t.DialStream()
 	defer stream.Close()
