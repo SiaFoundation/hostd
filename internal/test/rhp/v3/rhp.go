@@ -38,8 +38,8 @@ type (
 	}
 )
 
-// A Session is an RHP3 session with the host
 type (
+	// A Session is an RHP3 session with the host
 	Session struct {
 		hostKey types.PublicKey
 		cm      ChainManager
@@ -48,6 +48,8 @@ type (
 		pt rhpv3.HostPriceTable
 	}
 
+	// A PaymentSession is an RHP3 session with the host that supports payments
+	// either from a contract or an ephemeral account
 	PaymentSession struct {
 		*Session
 		payment paymentMethod
