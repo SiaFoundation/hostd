@@ -193,6 +193,41 @@ func (ps *PaymentSession) LatestRevision(contractID types.FileContractID) (types
 	return resp.Revision, nil
 }
 
+func (ps *PaymentSession) StoreSector(sector *[rhpv2.SectorSize]byte, duration uint64, budget types.Currency) error {
+	stream := ps.t.DialStream()
+	defer stream.Close()
+
+	req := rhpv3.RPCExecuteProgramRequest{
+		Program: []rhpv3.Instruction{
+			&rhpv3.InstrStoreSector{
+				DataOffset: 0,
+				Duration:   duration,
+			},
+		},
+		ProgramData: sector[:],
+	}
+
+	if err := stream.WriteRequest(rhpv3.RPCExecuteProgramID, &ps.pt.UID); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	} else if ps.processPayment(stream, ps.pt.InitBaseCost.Add(budget)) != nil {
+		return fmt.Errorf("failed to pay: %w", err)
+	} else if err := stream.WriteResponse(&req); err != nil {
+		return fmt.Errorf("failed to write response: %w", err)
+	}
+	var cancelToken types.Specifier // unused
+	if err := stream.ReadResponse(&cancelToken, 4096); err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var resp rhpv3.RPCExecuteProgramResponse
+	if err := stream.ReadResponse(&resp, 4096); err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	} else if resp.Error != nil {
+		return fmt.Errorf("failed to append sector: %w", resp.Error)
+	}
+	return nil
+}
+
 // AppendSector appends a sector to the contract
 func (ps *PaymentSession) AppendSector(sector *[rhpv2.SectorSize]byte, revision *rhpv2.ContractRevision, renterKey types.PrivateKey, budget types.Currency) error {
 	stream := ps.t.DialStream()
