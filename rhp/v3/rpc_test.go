@@ -1,17 +1,23 @@
-package rhp
+package rhp_test
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"net"
+	"reflect"
 	"testing"
 	"time"
 
 	nlog "gitlab.com/NebulousLabs/log"
 	nmux "gitlab.com/NebulousLabs/siamux"
 	smux "gitlab.com/NebulousLabs/siamux/mux"
+	rhpv2 "go.sia.tech/core/rhp/v2"
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/internal/test"
 	smods "go.sia.tech/siad/modules"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
@@ -92,5 +98,131 @@ func TestTransportReadWriteCompat(t *testing.T) {
 		t.Fatal(err)
 	} else if string(resp.PriceTableJSON) != "hello world" {
 		t.Fatal("unexpected response")
+	}
+}
+
+func TestPriceTable(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	pt, err := host.RHPv3PriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	retrieved, err := session.ScanPriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// clear the UID field
+	pt.UID = retrieved.UID
+	if !reflect.DeepEqual(pt, retrieved) {
+		t.Fatal("price tables don't match")
+	}
+
+	// pay for a price table using a contract payment
+	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	account := rhpv3.Account(renter.PublicKey())
+	contractSession := session.WithContractPayment(&revision, renter.PrivateKey(), account)
+	defer contractSession.Close()
+
+	retrieved, err = contractSession.RegisterPriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// clear the UID field
+	pt.UID = retrieved.UID
+	if !reflect.DeepEqual(pt, retrieved) {
+		t.Fatal("price tables don't match")
+	}
+
+	// fund an account
+	_, err = contractSession.FundAccount(account, types.Siacoins(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// pay for a price table using an account
+	retrieved, err = session.WithAccountPayment(account, renter.PrivateKey()).RegisterPriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// clear the UID field
+	pt.UID = retrieved.UID
+	if !reflect.DeepEqual(pt, retrieved) {
+		t.Fatal("price tables don't match")
+	}
+}
+
+func TestUploadDownload(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// register the price table
+	contractSession := session.WithContractPayment(&revision, renter.PrivateKey(), rhpv3.Account(renter.PublicKey()))
+	pt, err := contractSession.RegisterPriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fund an account
+	account := rhpv3.Account(renter.PublicKey())
+	_, err = contractSession.FundAccount(account, types.Siacoins(10))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// upload a sector
+	accountSession := contractSession.WithAccountPayment(account, renter.PrivateKey())
+	// calculate the cost of the upload
+	usage := pt.AppendSectorCost(revision.Revision.WindowStart - renter.TipState().Index.Height)
+	cost, _ := usage.Total()
+	var sector [rhpv2.SectorSize]byte
+	frand.Read(sector[:256])
+	root := rhpv2.SectorRoot(&sector)
+	err = accountSession.AppendSector(&sector, &revision, renter.PrivateKey(), cost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// download the sector
+	usage = pt.ReadSectorCost(rhpv2.SectorSize)
+	cost, _ = usage.Total()
+	downloaded, err := accountSession.ReadSector(root, 0, rhpv2.SectorSize, cost)
+	if err != nil {
+		t.Fatal(err)
+	} else if !bytes.Equal(downloaded, sector[:]) {
+		t.Fatal("downloaded sector doesn't match")
 	}
 }
