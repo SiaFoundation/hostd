@@ -9,6 +9,7 @@ import (
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	rhpv3 "go.sia.tech/hostd/internal/test/rhp/v3"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/renterd/worker"
@@ -64,6 +65,11 @@ func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey ty
 	return session, nil
 }
 
+// NewRHP3Session creates a new session
+func (r *Renter) NewRHP3Session(ctx context.Context, hostAddr string, hostKey types.PublicKey) (*rhpv3.Session, error) {
+	return rhpv3.NewSession(ctx, hostKey, hostAddr, r.ChainManager())
+}
+
 // Settings returns the host's current settings
 func (r *Renter) Settings(ctx context.Context, hostAddr string, hostKey types.PublicKey) (rhpv2.HostSettings, error) {
 	t, err := dialTransport(ctx, hostAddr, hostKey)
@@ -92,7 +98,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey type
 	cs := r.TipState()
 	contract := rhpv2.PrepareContractFormation(r.privKey, hostKey, renterPayout, hostCollateral, cs.Index.Height+duration, settings, r.WalletAddress())
 	formationCost := rhpv2.ContractFormationCost(cs, contract, settings.ContractPrice)
-	feeEstimate := r.tp.RecommendedFee().Mul64(2000)
+	feeEstimate := r.TPool().RecommendedFee().Mul64(2000)
 	formationTxn := types.Transaction{
 		MinerFees:     []types.Currency{feeEstimate},
 		FileContracts: []types.FileContract{contract},
@@ -197,7 +203,7 @@ func NewRenter(privKey types.PrivateKey, dir string, log *zap.Logger) (*Renter, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
-	wallet, err := wallet.NewSingleAddressWallet(privKey, node.cm, node.tp, db, log.Named("wallet"))
+	wallet, err := wallet.NewSingleAddressWallet(privKey, node.ChainManager(), node.TPool(), db, log.Named("wallet"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}

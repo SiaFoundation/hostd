@@ -271,9 +271,9 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 		requiresContract = requiresContract || instr.RequiresContract()
 		requiresFinalization = requiresFinalization || instr.RequiresFinalization()
 	}
-
+	log := sh.log.Named("mdm")
 	// if the program requires a contract, lock it
-	var contract contracts.SignedRevision
+	var revision *contracts.SignedRevision
 	if requiresContract || requiresFinalization {
 		if executeReq.FileContractID == (types.FileContractID{}) {
 			err = ErrContractRequired
@@ -284,13 +284,15 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		contract, err = sh.contracts.Lock(ctx, executeReq.FileContractID)
+		contract, err := sh.contracts.Lock(ctx, executeReq.FileContractID)
 		if err != nil {
 			err = fmt.Errorf("failed to lock contract: %w", err)
 			s.WriteResponseErr(err)
 			return err
 		}
 		defer sh.contracts.Unlock(contract.Revision.ParentID)
+		revision = &contract
+		log = log.With(zap.String("contractID", contract.Revision.ParentID.String())) // attach the contract ID to the logger
 	}
 
 	// generate a cancellation token and write it to the stream. Currently just
@@ -303,11 +305,10 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	log.Debug("executing program", zap.Int("instructions", len(instructions)), zap.String("budget", budget.Remaining().ExactString()), zap.Bool("requiresFinalization", requiresFinalization))
 	// create the program executor
-	log := sh.log.Named("mdm")
-	log.Debug("executing program", zap.Int("instructions", len(instructions)), zap.String("budget", budget.Remaining().ExactString()), zap.String("contract", contract.Revision.ParentID.String()), zap.Bool("requiresFinalization", requiresFinalization))
 	// note: the budget is committed by the executor, no need to commit it in the handler.
-	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, contract, requiresFinalization, log)
+	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, revision, requiresFinalization, log)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to create program executor: %w", err)

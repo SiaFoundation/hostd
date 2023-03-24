@@ -34,32 +34,8 @@ func TestSettings(t *testing.T) {
 	renterSettings, err := renter.Settings(context.Background(), host.RHPv2Addr(), host.PublicKey())
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// note: cannot use reflect.DeepEqual directly because the types are different
-	hostVal := reflect.ValueOf(hostSettings)
-	renterVal := reflect.ValueOf(renterSettings)
-	if hostVal.NumField() != renterVal.NumField() {
-		t.Fatalf("mismatched number of fields: host %v, renter %v", hostVal.NumField(), renterVal.NumField())
-	}
-
-	for i := 0; i < hostVal.NumField(); i++ {
-		fieldName := hostVal.Type().Field(i).Name
-		hostField := hostVal.FieldByName(fieldName)
-		renterField := renterVal.FieldByName(fieldName)
-
-		// check if the types are equal
-		if hostField.Kind() != renterField.Kind() {
-			t.Fatalf("field %s mismatch: host %v, renter %v", fieldName, hostField.Kind(), renterField.Kind())
-		}
-
-		// get the underlying values
-		va := hostField.Interface()
-		vb := renterField.Interface()
-
-		if !reflect.DeepEqual(va, vb) {
-			t.Errorf("field %s mismatch: host %v, renter %v", fieldName, hostField.Interface(), renterField.Interface())
-		}
+	} else if !reflect.DeepEqual(hostSettings, renterSettings) {
+		t.Errorf("host settings mismatch")
 	}
 }
 
