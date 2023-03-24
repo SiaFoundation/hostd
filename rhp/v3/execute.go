@@ -248,8 +248,9 @@ func (pe *programExecutor) executeReadSector(instr *rhpv3.InstrReadSector) ([]by
 	if !instr.ProofRequired {
 		return sector[offset : offset+length], nil, nil
 	}
-
-	var proof []types.Hash256
+	proofStart := offset / rhpv2.LeafSize
+	proofEnd := offset + length/rhpv2.LeafSize
+	proof := rhpv2.BuildProof(sector, proofStart, proofEnd, nil)
 	return sector[offset : offset+length], proof, nil
 }
 
