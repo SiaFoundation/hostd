@@ -51,7 +51,7 @@ docker run -d \
   -p 9981-9983:9981-9983 \
   -v ./data:/data \
   -v ./storage:/storage \
-  -e HOSTD_WALLET_SEED=my wallet seed
+  -e HOSTD_WALLET_SEED="my wallet seed" \
   -e HOSTD_API_PASSWORD=hostsarecool \
     ghcr.io/siafoundation/hostd:latest
 ```
