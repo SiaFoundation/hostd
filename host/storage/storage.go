@@ -116,22 +116,10 @@ func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLoc
 // cleanup removes all sectors that are not referenced by a contract.
 // This function is called periodically by the cleanup timer.
 func (vm *VolumeManager) cleanup() {
-	done, err := vm.tg.Add()
-	if err != nil {
-		vm.log.Error("failed to add to threadgroup", zap.Error(err))
+	if err := vm.PruneSectors(); errors.Is(err, threadgroup.ErrClosed) {
 		return
-	}
-	defer done()
-
-	// expire temp sectors
-	currentHeight := vm.cm.TipState().Index.Height
-	if err := vm.vs.ExpireTempSectors(currentHeight); err != nil {
+	} else if err != nil {
 		vm.log.Error("failed to expire temp sectors", zap.Error(err))
-	}
-
-	// prune sectors
-	if err := vm.vs.PruneSectors(); err != nil {
-		vm.log.Error("failed to prune sectors", zap.Error(err))
 	}
 	// reset the timer
 	vm.cleanTimer.Reset(cleanupInterval)
@@ -659,6 +647,26 @@ func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
 	defer done()
 
 	return vm.vs.AddTemporarySectors(sectors)
+}
+
+// PruneSectors removes expired sectors from the volume store.
+func (vm *VolumeManager) PruneSectors() error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+	// expire temp sectors
+	currentHeight := vm.cm.TipState().Index.Height
+	if err := vm.vs.ExpireTempSectors(currentHeight); err != nil {
+		return fmt.Errorf("failed to expire temp sectors: %w", err)
+	}
+
+	// prune sectors
+	if err := vm.vs.PruneSectors(); err != nil {
+		return fmt.Errorf("failed to prune sectors: %w", err)
+	}
+	return nil
 }
 
 // NewVolumeManager creates a new VolumeManager.

@@ -169,7 +169,7 @@ func TestPriceTable(t *testing.T) {
 	}
 }
 
-func TestUploadDownload(t *testing.T) {
+func TestAppendSector(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	renter, host, err := test.NewTestingPair(t.TempDir(), log)
 	if err != nil {
@@ -224,5 +224,82 @@ func TestUploadDownload(t *testing.T) {
 		t.Fatal(err)
 	} else if !bytes.Equal(downloaded, sector[:]) {
 		t.Fatal("downloaded sector doesn't match")
+	}
+}
+
+func TestStoreSector(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// register the price table
+	contractSession := session.WithContractPayment(&revision, renter.PrivateKey(), rhpv3.Account(renter.PublicKey()))
+	pt, err := contractSession.RegisterPriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fund an account
+	account := rhpv3.Account(renter.PublicKey())
+	_, err = contractSession.FundAccount(account, types.Siacoins(10))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// upload a sector
+	accountSession := contractSession.WithAccountPayment(account, renter.PrivateKey())
+	// calculate the cost of the upload
+	usage := pt.StoreSectorCost(10)
+	cost, _ := usage.Total()
+	var sector [rhpv2.SectorSize]byte
+	frand.Read(sector[:256])
+	root := rhpv2.SectorRoot(&sector)
+	err = accountSession.StoreSector(&sector, 10, cost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// download the sector
+	usage = pt.ReadSectorCost(rhpv2.SectorSize)
+	cost, _ = usage.Total()
+	downloaded, err := accountSession.ReadSector(root, 0, rhpv2.SectorSize, cost)
+	if err != nil {
+		t.Fatal(err)
+	} else if !bytes.Equal(downloaded, sector[:]) {
+		t.Fatal("downloaded sector doesn't match")
+	}
+
+	// mine until the sector expires
+	if err := host.MineBlocks(types.VoidAddress, 10); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // sync time
+
+	// prune the sectors
+	if err := host.Storage().PruneSectors(); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the sector was deleted
+	usage = pt.ReadSectorCost(rhpv2.SectorSize)
+	cost, _ = usage.Total()
+	_, err = accountSession.ReadSector(root, 0, rhpv2.SectorSize, cost)
+	if err == nil {
+		t.Fatal("expected error when reading sector")
 	}
 }

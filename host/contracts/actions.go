@@ -70,7 +70,7 @@ func (cm *ContractManager) processActions() {
 			return nil
 		}()
 		if err != nil {
-			cm.log.Panic("failed to process contract actions", zap.Error(err))
+			cm.log.Panic("failed to process contract actions", zap.Error(err), zap.Stack("stack"))
 		}
 	}
 }
@@ -220,7 +220,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 			log.Error("failed to set contract status", zap.String("contract", id.String()), zap.Error(err))
 		}
 	default:
-		log.Panic("unrecognized contract action", zap.String("action", string(action)))
+		log.Panic("unrecognized contract action", zap.String("action", string(action)), zap.Stack("stack"))
 	}
 	log.Info("contract action completed", zap.String("action", string(action)), zap.String("contract", id.String()), zap.Duration("elapsed", time.Since(start)))
 }

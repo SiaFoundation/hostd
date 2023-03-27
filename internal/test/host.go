@@ -120,6 +120,11 @@ func (h *Host) Contracts() *contracts.ContractManager {
 	return h.contracts
 }
 
+// Storage returns the host's storage manager
+func (h *Host) Storage() *storage.VolumeManager {
+	return h.storage
+}
+
 // NewHost initializes a new test host
 func NewHost(privKey types.PrivateKey, dir string, log *zap.Logger) (*Host, error) {
 	node, err := NewNode(privKey, dir)

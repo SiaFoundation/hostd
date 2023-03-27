@@ -148,24 +148,24 @@ func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhpv3.ChainManager, 
 	return rhp3, nil
 }
 
-func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey, logger *zap.Logger) (*node, error) {
+func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey, logger *zap.Logger) (*node, types.PrivateKey, error) {
 	gatewayDir := filepath.Join(dir, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create gateway dir: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway dir: %w", err)
 	}
 	g, err := gateway.New(gatewayAddr, bootstrap, gatewayDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create gateway: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway: %w", err)
 	}
 	consensusDir := filepath.Join(dir, "consensus")
 	if err := os.MkdirAll(consensusDir, 0700); err != nil {
-		return nil, err
+		return nil, types.PrivateKey{}, err
 	}
 	cs, errCh := consensus.New(g, bootstrap, consensusDir)
 	select {
 	case err := <-errCh:
 		if err != nil {
-			return nil, fmt.Errorf("failed to create consensus: %w", err)
+			return nil, types.PrivateKey{}, fmt.Errorf("failed to create consensus: %w", err)
 		}
 	default:
 		go func() {
@@ -176,71 +176,74 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 	tpoolDir := filepath.Join(dir, "tpool")
 	if err := os.MkdirAll(tpoolDir, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create tpool dir: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create tpool dir: %w", err)
 	}
 	tp, err := transactionpool.New(cs, g, tpoolDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create tpool: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create tpool: %w", err)
 	}
 
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), logger.Named("sqlite"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sqlite store: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create sqlite store: %w", err)
 	}
+
+	// load the host identity
+	hostKey := db.HostKey()
 
 	cm, err := chain.NewManager(cs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create chain manager: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create chain manager: %w", err)
 	}
 
 	w, err := wallet.NewSingleAddressWallet(walletKey, cm, txpool{tp}, db, logger.Named("wallet"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
 	rhp2Listener, err := net.Listen("tcp", rhp2Addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to listen on rhp2 addr: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp2 addr: %w", err)
 	}
 
 	rhp3Listener, err := net.Listen("tcp", rhp3Addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to listen on rhp3 addr: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp3 addr: %w", err)
 	}
 
 	_, rhp2Port, err := net.SplitHostPort(rhp2Addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse rhp2 addr: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to parse rhp2 addr: %w", err)
 	}
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	sr, err := settings.NewConfigManager(walletKey, discoveredAddr, db, cm, txpool{tp}, w, logger.Named("settings"))
+	sr, err := settings.NewConfigManager(hostKey, discoveredAddr, db, cm, txpool{tp}, w, logger.Named("settings"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create settings manager: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
 	accountManager := accounts.NewManager(db, sr)
 
 	sm, err := storage.NewVolumeManager(db, cm, logger.Named("volumes"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage manager: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 
 	contractManager, err := contracts.NewManager(db, sm, cm, txpool{tp}, w, logger.Named("contracts"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create contract manager: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create contract manager: %w", err)
 	}
-	registryManager := registry.NewManager(walletKey, db)
+	registryManager := registry.NewManager(hostKey, db)
 
-	rhp2, err := startRHP2(rhp2Listener, walletKey, rhp3Listener.Addr().String(), cm, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
+	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to start rhp2: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
-	rhp3, err := startRHP3(rhp3Listener, walletKey, cm, txpool{tp}, w, accountManager, contractManager, registryManager, sr, sm, logger.Named("rhpv3"))
+	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, txpool{tp}, w, accountManager, contractManager, registryManager, sr, sm, logger.Named("rhpv3"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to start rhp3: %w", err)
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}
 
 	return &node{
@@ -258,5 +261,5 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 		rhp2: rhp2,
 		rhp3: rhp3,
-	}, nil
+	}, hostKey, nil
 }

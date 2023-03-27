@@ -6,7 +6,9 @@ import (
 
 	"fmt"
 
+	"go.sia.tech/core/types"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 const clearLockedSectors = `DELETE FROM locked_volume_sectors;`
@@ -15,6 +17,13 @@ const clearLockedSectors = `DELETE FROM locked_volume_sectors;`
 //
 //go:embed init.sql
 var initDatabase string
+
+func generateHostKey(tx txn) (err error) {
+	key := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	var dbID int64
+	err = tx.QueryRow(`UPDATE global_settings SET host_key=? RETURNING id`, key[:]).Scan(&dbID)
+	return
+}
 
 func (s *Store) init() error {
 	// calculate the expected final database version
@@ -26,6 +35,8 @@ func (s *Store) init() error {
 		if version == 0 {
 			if _, err := tx.Exec(initDatabase); err != nil {
 				return fmt.Errorf("failed to initialize database: %w", err)
+			} else if err = generateHostKey(tx); err != nil {
+				return fmt.Errorf("failed to generate host key: %w", err)
 			}
 			return nil
 		} else if version == targetVersion {
