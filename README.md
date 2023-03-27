@@ -40,7 +40,7 @@ CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ld
 
 # Docker
 
-hostd has a Dockerfile for easy containerization. The image can be pulled from `ghcr.io/siafoundation/hostd`.
+`hostd` has a Dockerfile for easy containerization. The image can be pulled from `ghcr.io/siafoundation/hostd`.
 
 ## Running container
 
