@@ -127,7 +127,7 @@ func (sh *SessionHandler) processAccountPayment(s *rhpv3.Stream, height uint64) 
 
 // processPayment initializes an RPC budget using funds from a contract or an
 // ephemeral account.
-func (sh *SessionHandler) processPayment(s *rhpv3.Stream) (*accounts.Budget, error) {
+func (sh *SessionHandler) processPayment(s *rhpv3.Stream, pt *rhpv3.HostPriceTable) (*accounts.Budget, error) {
 	var paymentType types.Specifier
 	if err := readRequest(s, &paymentType, 16, 30*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to read payment type: %w", err)
@@ -135,7 +135,7 @@ func (sh *SessionHandler) processPayment(s *rhpv3.Stream) (*accounts.Budget, err
 	var account rhpv3.Account
 	var amount types.Currency
 	var err error
-	currentHeight := sh.chain.TipState().Index.Height
+	currentHeight := pt.HostBlockHeight
 	switch paymentType {
 	case rhpv3.PaymentTypeContract:
 		account, amount, err = sh.processContractPayment(s, currentHeight)
