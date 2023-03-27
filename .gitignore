@@ -1,3 +1,5 @@
 bin/
 .DS_Store
 .vscode
+data/
+storage/

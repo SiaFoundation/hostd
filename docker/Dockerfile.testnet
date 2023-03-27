@@ -10,8 +10,8 @@ RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata testnet' -trimpath -a
 # Build image that will be used to run hostd.
 FROM docker.io/library/alpine:3
 LABEL maintainer="The Sia Foundation <info@sia.tech>" \
-      org.opencontainers.image.description.vendor="xmrig" \
-      org.opencontainers.image.description="A hostd container - used to host files on the sia storage network" \
+      org.opencontainers.image.description.vendor="The Sia Foundation" \
+      org.opencontainers.image.description="A hostd container - provide storage on the Sia Zen testnet and earn Siacoin" \
       org.opencontainers.image.source="https://github.com/SiaFoundation/hostd" \
       org.opencontainers.image.licenses=MIT
 

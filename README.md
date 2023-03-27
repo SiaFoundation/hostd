@@ -49,8 +49,9 @@ docker run -d \
   --name hostd \
   -p 127.0.0.1:9980:9980 \
   -p 9981-9983:9981-9983 \
-  -v /data:/data \
-  -v /storage:/storage \
+  -v ./data:/data \
+  -v ./storage:/storage \
+  -e HOSTD_WALLET_SEED=my wallet seed
   -e HOSTD_API_PASSWORD=hostsarecool \
     ghcr.io/siafoundation/hostd:latest
 ```
@@ -63,6 +64,7 @@ services:
   host:
     image: ghcr.io/siafoundation/hostd:latest
     environment:
+      - HOSTD_WALLET_SEED=my wallet seed
       - HOSTD_API_PASSWORD=hostsarecool
     ports:
       - "9980:9980/tcp"
@@ -81,6 +83,14 @@ Suffix any tag with `-testnet` to use the testnet image.
 
 ## Building image
 
+### Production
+
 ```sh
-docker build -t hostd -f ./docker/Dockerfile .
+docker build -t hostd:latest -f ./docker/Dockerfile .
+```
+
+### Testnet
+
+```sh
+docker build -t hostd:latest-testnet -f ./docker/Dockerfile.testnet .
 ```
