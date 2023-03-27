@@ -345,7 +345,7 @@ func TestShrinkVolume(t *testing.T) {
 }
 
 func TestRemoveVolume(t *testing.T) {
-	const initialSectors = 64
+	const initialSectors = 128
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {

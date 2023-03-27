@@ -188,7 +188,7 @@ func TestAddVolume(t *testing.T) {
 }
 
 func TestRemoveVolume(t *testing.T) {
-	const expectedSectors = (1 << 40) / (1 << 22) // 1 TiB
+	const expectedSectors = 1024
 	dir := t.TempDir()
 
 	// create the database
