@@ -1,6 +1,5 @@
 # Helper image to build hostd.
-FROM golang AS builder
-LABEL maintainer="The Sia Foundation <info@sia.tech>"
+FROM docker.io/library/golang:1.20 AS builder
 
 WORKDIR /hostd
 
@@ -9,8 +8,12 @@ COPY . .
 RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata testnet' -trimpath -a -ldflags '-linkmode external -extldflags "-static"'  ./cmd/hostd
 
 # Build image that will be used to run hostd.
-FROM alpine
-LABEL maintainer="The Sia Foundation <info@sia.tech>"
+FROM docker.io/library/alpine:3
+LABEL maintainer="The Sia Foundation <info@sia.tech>" \
+      org.opencontainers.image.description.vendor="The Sia Foundation" \
+      org.opencontainers.image.description="A hostd container - provide storage on the Sia Zen testnet and earn Siacoin" \
+      org.opencontainers.image.source="https://github.com/SiaFoundation/hostd" \
+      org.opencontainers.image.licenses=MIT
 
 ENV PUID=0
 ENV PGID=0
