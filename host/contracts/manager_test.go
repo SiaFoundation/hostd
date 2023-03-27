@@ -77,7 +77,7 @@ func formContract(renterKey, hostKey types.PrivateKey, c *contracts.ContractMana
 		RenterSignature: renterKey.SignHash(sigHash),
 	}
 
-	if err := c.AddContract(rev, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}, 100); err != nil {
+	if err := c.AddContract(rev, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}); err != nil {
 		return contracts.SignedRevision{}, fmt.Errorf("failed to add contract: %w", err)
 	}
 	return rev, nil
@@ -132,7 +132,7 @@ func TestContractLockUnlock(t *testing.T) {
 		},
 	}
 
-	if err := c.AddContract(rev, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}, 100); err != nil {
+	if err := c.AddContract(rev, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 

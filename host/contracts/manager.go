@@ -147,18 +147,18 @@ func (cm *ContractManager) Contract(id types.FileContractID) (Contract, error) {
 
 // AddContract stores the provided contract, should error if the contract
 // already exists.
-func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage, negotationHeight uint64) error {
+func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return err
 	}
 	defer done()
-	return cm.store.AddContract(revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
+	return cm.store.AddContract(revision, formationSet, lockedCollateral, initialUsage, cm.chain.TipState().Index.Height)
 }
 
 // RenewContract renews a contract. It is expected that the existing
 // contract will be cleared.
-func (cm *ContractManager) RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage, negotationHeight uint64) error {
+func (cm *ContractManager) RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return err
@@ -173,7 +173,7 @@ func (cm *ContractManager) RenewContract(renewal SignedRevision, existing Signed
 	} else if existing.Revision.RevisionNumber != types.MaxRevisionNumber {
 		return errors.New("existing contract must be cleared")
 	}
-	return cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, initialUsage, negotationHeight)
+	return cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, initialUsage, cm.chain.TipState().Index.Height)
 }
 
 // SectorRoots returns the roots of all sectors stored by the contract.

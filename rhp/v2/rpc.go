@@ -210,7 +210,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 	usage := contracts.Usage{
 		RPCRevenue: settings.ContractPrice,
 	}
-	if err := sh.contracts.AddContract(signedRevision, formationTxnSet, hostCollateral, usage, currentHeight); err != nil {
+	if err := sh.contracts.AddContract(signedRevision, formationTxnSet, hostCollateral, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to add contract to store: %w", err)
 	}
@@ -393,7 +393,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		return err
 	}
 	// update the existing contract and add the renewed contract to the store
-	if err := sh.contracts.RenewContract(signedRenewal, signedClearing, renewalTxnSet, lockedCollateral, usage, state.Index.Height); err != nil {
+	if err := sh.contracts.RenewContract(signedRenewal, signedClearing, renewalTxnSet, lockedCollateral, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to renew contract: %w", err)
 	}
