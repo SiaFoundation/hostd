@@ -11,7 +11,7 @@ RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata testnet' -trimpath -a
 FROM docker.io/library/alpine:3
 LABEL maintainer="The Sia Foundation <info@sia.tech>" \
       org.opencontainers.image.description.vendor="The Sia Foundation" \
-      org.opencontainers.image.description="A hostd container - provide storage on the Sia Zen testnet and earn Siacoin" \
+      org.opencontainers.image.description="A hostd container - provide storage on the Sia Zen testnet and earn testnet Siacoin" \
       org.opencontainers.image.source="https://github.com/SiaFoundation/hostd" \
       org.opencontainers.image.licenses=MIT
 
