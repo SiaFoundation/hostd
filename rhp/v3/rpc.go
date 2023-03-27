@@ -61,7 +61,7 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream) error {
 
 	// process the payment, catch connection closed errors since the renter
 	// likely did not intend to pay
-	budget, err := sh.processPayment(s)
+	budget, err := sh.processPayment(s, &pt)
 	if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
@@ -140,7 +140,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream) error {
 	}
 
 	// read the payment from the stream
-	budget, err := sh.processPayment(s)
+	budget, err := sh.processPayment(s, &pt)
 	if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
@@ -210,7 +210,7 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
 		return err
 	}
 
-	budget, err := sh.processPayment(s)
+	budget, err := sh.processPayment(s, &pt)
 	if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
@@ -243,7 +243,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 	}
 
 	// create the program budget
-	budget, err := sh.processPayment(s)
+	budget, err := sh.processPayment(s, &pt)
 	if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
