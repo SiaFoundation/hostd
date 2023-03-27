@@ -141,7 +141,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 
 	// validate the contract formation fields. note: the v1 contract type
 	// does not contain the public keys or signatures.
-	hostCollateral, err := rhp.ValidateContractFormation(formationTxn.FileContracts[0], hostPub.UnlockKey(), renterPub.UnlockKey(), currentHeight, settings)
+	hostCollateral, err := validateContractFormation(formationTxn.FileContracts[0], hostPub.UnlockKey(), renterPub.UnlockKey(), currentHeight, settings)
 	if err != nil {
 		err := fmt.Errorf("contract rejected: validation failed: %w", err)
 		s.t.WriteResponseErr(err)
@@ -308,7 +308,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 	}
 
 	// validate the renewal
-	baseRevenue, riskedCollateral, lockedCollateral, err := rhp.ValidateContractRenewal(existingRevision, renewedContract, hostUnlockKey, req.RenterKey, baseRevenue, baseCollateral, state.Index.Height, settings)
+	baseRevenue, riskedCollateral, lockedCollateral, err := validateContractRenewal(existingRevision, renewedContract, hostUnlockKey, req.RenterKey, baseRevenue, baseCollateral, state.Index.Height, settings)
 	if err != nil {
 		err = fmt.Errorf("invalid contract renewal: %w", err)
 		s.t.WriteResponseErr(err)
@@ -358,6 +358,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 
 	// verify the clearing revision signature
 	clearingRevSigHash := rhp.HashRevision(clearingRevision)
+	// important: verify using the existing contract's renter key
 	if !s.contract.RenterKey().VerifyHash(clearingRevSigHash, renterSigsResp.FinalRevisionSignature) {
 		err := fmt.Errorf("failed to verify clearing revision signature: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
