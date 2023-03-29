@@ -290,10 +290,15 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		err = fmt.Errorf("failed to create clearing revision: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
-	} else if err := rhp.ValidateClearingRevision(existingRevision, clearingRevision); err != nil {
+	}
+	finalPayment, err := rhp.ValidateClearingRevision(existingRevision, clearingRevision, types.ZeroCurrency)
+	if err != nil {
 		err = fmt.Errorf("invalid clearing revision: %w", err)
 		s.t.WriteResponseErr(err)
 		return err
+	}
+	clearingUsage := contracts.Usage{
+		RPCRevenue: finalPayment,
 	}
 
 	// calculate the "base" storage cost to the renter and risked collateral for
@@ -314,7 +319,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		s.t.WriteResponseErr(err)
 		return err
 	}
-	usage := contracts.Usage{
+	renewalUsage := contracts.Usage{
 		RPCRevenue:       settings.ContractPrice,
 		RiskedCollateral: riskedCollateral,
 		StorageRevenue:   baseRevenue.Sub(settings.ContractPrice),
@@ -393,7 +398,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		return err
 	}
 	// update the existing contract and add the renewed contract to the store
-	if err := sh.contracts.RenewContract(signedRenewal, signedClearing, renewalTxnSet, lockedCollateral, usage); err != nil {
+	if err := sh.contracts.RenewContract(signedRenewal, signedClearing, renewalTxnSet, lockedCollateral, clearingUsage, renewalUsage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to renew contract: %w", err)
 	}

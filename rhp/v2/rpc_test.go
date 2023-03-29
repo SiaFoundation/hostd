@@ -171,7 +171,7 @@ func TestRenew(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		renewal, _, err := session.RenewContract(context.Background(), []types.Transaction{renewalTxn}, types.ZeroCurrency)
+		renewal, _, err := session.RenewContract(context.Background(), []types.Transaction{renewalTxn}, settings.BaseRPCPrice)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,6 +191,8 @@ func TestRenew(t *testing.T) {
 			t.Fatal("merkle root mismatch")
 		} else if old.RenewedTo != renewal.ID() {
 			t.Fatal("renewed to mismatch")
+		} else if !old.Usage.RPCRevenue.Equals(settings.ContractPrice.Add(settings.BaseRPCPrice)) {
+			t.Fatalf("expected rpc revenue to equal contract price + base rpc price %d, got %d", settings.ContractPrice.Add(settings.BaseRPCPrice), old.Usage.RPCRevenue)
 		}
 
 		contract, err := host.Contracts().Contract(renewal.ID())
@@ -273,7 +275,7 @@ func TestRenew(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		renewal, _, err := session.RenewContract(context.Background(), []types.Transaction{renewalTxn}, types.ZeroCurrency)
+		renewal, _, err := session.RenewContract(context.Background(), []types.Transaction{renewalTxn}, settings.BaseRPCPrice)
 		if err != nil {
 			t.Fatal(err)
 		}
