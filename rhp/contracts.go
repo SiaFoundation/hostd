@@ -123,7 +123,10 @@ func ClearingRevision(revision types.FileContractRevision, outputValues []types.
 		return types.FileContractRevision{}, errors.New("incorrect number of outputs")
 	}
 
+	oldValid := revision.ValidProofOutputs
+	revision.ValidProofOutputs = make([]types.SiacoinOutput, len(outputValues))
 	for i := range outputValues {
+		revision.ValidProofOutputs[i].Address = oldValid[i].Address
 		revision.ValidProofOutputs[i].Value = outputValues[i]
 	}
 	revision.MissedProofOutputs = revision.ValidProofOutputs
@@ -136,24 +139,40 @@ func ClearingRevision(revision types.FileContractRevision, outputValues []types.
 // ValidateClearingRevision verifies that the revision locks the current
 // contract by setting its revision number to the maximum value and the valid
 // and missed proof outputs are the same.
-func ValidateClearingRevision(current, final types.FileContractRevision) error {
+func ValidateClearingRevision(current, final types.FileContractRevision, finalPayment types.Currency) (types.Currency, error) {
 	switch {
 	case final.Filesize != 0:
-		return errors.New("filesize must be 0")
+		return types.ZeroCurrency, errors.New("filesize must be 0")
 	case final.FileMerkleRoot != types.Hash256{}:
-		return errors.New("file merkle root must be empty")
+		return types.ZeroCurrency, errors.New("file merkle root must be empty")
 	case current.WindowStart != final.WindowStart:
-		return errors.New("window start must not change")
+		return types.ZeroCurrency, errors.New("window start must not change")
 	case current.WindowEnd != final.WindowEnd:
-		return errors.New("window end must not change")
+		return types.ZeroCurrency, errors.New("window end must not change")
+	case len(final.MissedProofOutputs) != 2:
+		return types.ZeroCurrency, errors.New("wrong number of proof outputs")
 	case len(final.ValidProofOutputs) != len(final.MissedProofOutputs):
-		return errors.New("wrong number of proof outputs")
+		return types.ZeroCurrency, errors.New("valid proof outputs must equal missed proof outputs")
 	case final.RevisionNumber != types.MaxRevisionNumber:
-		return errors.New("revision number must be max value")
+		return types.ZeroCurrency, errors.New("revision number must be max value")
 	case final.UnlockHash != current.UnlockHash:
-		return errors.New("unlock hash must not change")
+		return types.ZeroCurrency, errors.New("unlock hash must not change")
 	case final.UnlockConditions.UnlockHash() != current.UnlockConditions.UnlockHash():
-		return errors.New("unlock conditions must not change")
+		return types.ZeroCurrency, errors.New("unlock conditions must not change")
+	}
+
+	fromRenter, underflow := current.ValidRenterPayout().SubWithUnderflow(final.MissedRenterPayout())
+	if underflow {
+		return types.ZeroCurrency, errors.New("renter valid payout must not increase")
+	}
+
+	toHost, underflow := final.ValidHostPayout().SubWithUnderflow(current.ValidHostPayout())
+	if underflow {
+		return types.ZeroCurrency, errors.New("host valid payout must not decrease")
+	} else if !fromRenter.Equals(toHost) {
+		return types.ZeroCurrency, fmt.Errorf("expected host to receive %v, but got %v", fromRenter, toHost)
+	} else if fromRenter.Cmp(finalPayment) < 0 {
+		return types.ZeroCurrency, fmt.Errorf("expected host payment of at least %v, but got %v", finalPayment, fromRenter)
 	}
 
 	// validate both valid and missed outputs are equal to the current valid
@@ -161,17 +180,15 @@ func ValidateClearingRevision(current, final types.FileContractRevision) error {
 	for i := range final.ValidProofOutputs {
 		current, valid, missed := current.ValidProofOutputs[i], final.ValidProofOutputs[i], final.MissedProofOutputs[i]
 		switch {
-		case !valid.Value.Equals(current.Value):
-			return fmt.Errorf("valid proof output value %v must not change", i)
-		case valid.Address != current.Address:
-			return fmt.Errorf("valid proof output address %v must not change", i)
-		case !valid.Value.Equals(missed.Value):
-			return fmt.Errorf("missed proof output %v must equal valid proof output", i)
-		case valid.Address != missed.Address:
-			return fmt.Errorf("missed proof output address %v must equal valid proof output", i)
+		case valid.Address != current.Address: // address doesn't change
+			return types.ZeroCurrency, fmt.Errorf("valid proof output address %v must not change", i)
+		case valid.Address != missed.Address: // valid and missed address are the same
+			return types.ZeroCurrency, fmt.Errorf("missed proof output address %v must equal valid proof output", i)
+		case !valid.Value.Equals(missed.Value): // valid and missed value are the same
+			return types.ZeroCurrency, fmt.Errorf("missed proof output %v must equal valid proof output", i)
 		}
 	}
-	return nil
+	return toHost, nil
 }
 
 // ValidateRevision verifies that a new revision is valid given the current
