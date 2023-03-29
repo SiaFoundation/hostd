@@ -291,7 +291,13 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 		s.t.WriteResponseErr(err)
 		return err
 	}
-	finalPayment, err := rhp.ValidateClearingRevision(existingRevision, clearingRevision, types.ZeroCurrency)
+	expectedExchange := settings.BaseRPCPrice
+	// if the contract has less than the host's current base RPC price, cap
+	// the exchange at the contract's remaining value
+	if expectedExchange.Cmp(existingRevision.ValidRenterPayout()) > 0 {
+		expectedExchange = existingRevision.ValidRenterPayout()
+	}
+	finalPayment, err := rhp.ValidateClearingRevision(existingRevision, clearingRevision, expectedExchange)
 	if err != nil {
 		err = fmt.Errorf("invalid clearing revision: %w", err)
 		s.t.WriteResponseErr(err)
