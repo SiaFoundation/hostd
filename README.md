@@ -68,7 +68,7 @@ services:
       - HOSTD_API_PASSWORD=hostsarecool
     ports:
       - 127.0.0.1:9980:9980/tcp
-	  - 9981-9983:9981-9983/tcp
+      - 9981-9983:9981-9983/tcp
     volumes:
       - /data:/data
       - /storage:/storage
