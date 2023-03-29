@@ -90,13 +90,7 @@ func (u *updateContractTxn) AddUsage(revenue contracts.Usage) error {
 	if err != nil {
 		return fmt.Errorf("failed to get existing revenue: %w", err)
 	}
-
-	total.RPCRevenue = total.RPCRevenue.Add(revenue.RPCRevenue)
-	total.StorageRevenue = total.StorageRevenue.Add(revenue.StorageRevenue)
-	total.IngressRevenue = total.IngressRevenue.Add(revenue.IngressRevenue)
-	total.EgressRevenue = total.EgressRevenue.Add(revenue.EgressRevenue)
-	total.AccountFunding = total.AccountFunding.Add(revenue.AccountFunding)
-	total.RiskedCollateral = total.RiskedCollateral.Add(revenue.RiskedCollateral)
+	total = total.Add(revenue)
 
 	var dbID int64 // unused, but required by QueryRow to ensure exactly one row is updated
 	return u.tx.QueryRow(`UPDATE contracts SET (rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6) WHERE id=$7 RETURNING id;`,
@@ -271,39 +265,64 @@ func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []ty
 	return err
 }
 
+func clearContract(tx txn, revision contracts.SignedRevision, renewedDBID int64, usage contracts.Usage) (dbID int64, err error) {
+	// get the existing contract's current usage
+	var total contracts.Usage
+	err = tx.QueryRow(`SELECT id, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral FROM contracts WHERE contract_id=$1`, sqlHash256(revision.Revision.ParentID)).Scan(
+		&dbID,
+		(*sqlCurrency)(&total.RPCRevenue),
+		(*sqlCurrency)(&total.StorageRevenue),
+		(*sqlCurrency)(&total.IngressRevenue),
+		(*sqlCurrency)(&total.EgressRevenue),
+		(*sqlCurrency)(&total.AccountFunding),
+		(*sqlCurrency)(&total.RiskedCollateral))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get existing usage: %w", err)
+	}
+	total = total.Add(usage)
+
+	// update the existing contract
+	const clearQuery = `UPDATE contracts SET (renewed_to, revision_number, host_sig, renter_sig, raw_revision, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) WHERE id=$12 RETURNING id;`
+	err = tx.QueryRow(clearQuery,
+		renewedDBID,
+		sqlUint64(revision.Revision.RevisionNumber),
+		sqlHash512(revision.HostSignature),
+		sqlHash512(revision.RenterSignature),
+		encodeRevision(revision.Revision),
+		sqlCurrency(total.RPCRevenue),
+		sqlCurrency(total.StorageRevenue),
+		sqlCurrency(total.IngressRevenue),
+		sqlCurrency(total.EgressRevenue),
+		sqlCurrency(total.AccountFunding),
+		sqlCurrency(total.RiskedCollateral),
+		dbID,
+	).Scan(&dbID)
+	return
+}
+
 // RenewContract adds a new contract to the database and sets the old
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract.
-func (s *Store) RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
+func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotationHeight uint64) error {
 	return s.transaction(func(tx txn) error {
 		// add the new contract
-		createdDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, initialUsage, negotationHeight)
+		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotationHeight)
 		if err != nil {
 			return fmt.Errorf("failed to insert renewed contract: %w", err)
 		}
 
-		// update the existing contract
-		const clearQuery = `UPDATE contracts SET (renewed_to, revision_number, host_sig, renter_sig, raw_revision) = ($1, $2, $3, $4, $5) WHERE contract_id=$6 RETURNING id;`
-		var renewedDBID int64
-		err = tx.QueryRow(clearQuery,
-			createdDBID,
-			sqlUint64(existing.Revision.RevisionNumber),
-			sqlHash512(existing.HostSignature),
-			sqlHash512(existing.RenterSignature),
-			encodeRevision(existing.Revision),
-			sqlHash256(existing.Revision.ParentID),
-		).Scan(&renewedDBID)
+		clearedDBID, err := clearContract(tx, clearing, renewedDBID, clearingUsage)
 		if err != nil {
-			return fmt.Errorf("failed to update existing contract: %w", err)
+			return fmt.Errorf("faile to clear contract: %w", err)
 		}
 
-		err = tx.QueryRow(`UPDATE contracts SET renewed_from=$1 WHERE id=$2 RETURNING id;`, renewedDBID, createdDBID).Scan(&createdDBID)
+		err = tx.QueryRow(`UPDATE contracts SET renewed_from=$1 WHERE id=$2 RETURNING id;`, clearedDBID, renewedDBID).Scan(&renewedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to update renewed contract: %w", err)
 		}
 
 		// move the sector roots from the old contract to the new contract
-		_, err = tx.Exec(`UPDATE contract_sector_roots SET contract_id=$1 WHERE contract_id=$2;`, createdDBID, renewedDBID)
+		_, err = tx.Exec(`UPDATE contract_sector_roots SET contract_id=$1 WHERE contract_id=$2;`, renewedDBID, clearedDBID)
 		return err
 	})
 }
