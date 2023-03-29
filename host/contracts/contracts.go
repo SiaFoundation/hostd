@@ -166,6 +166,18 @@ var (
 	ErrContractExists = errors.New("contract already exists")
 )
 
+// Add returns the sum of two usages.
+func (u Usage) Add(b Usage) (c Usage) {
+	return Usage{
+		RPCRevenue:       u.RPCRevenue.Add(b.RPCRevenue),
+		StorageRevenue:   u.StorageRevenue.Add(b.StorageRevenue),
+		EgressRevenue:    u.EgressRevenue.Add(b.EgressRevenue),
+		IngressRevenue:   u.IngressRevenue.Add(b.IngressRevenue),
+		AccountFunding:   u.AccountFunding.Add(b.AccountFunding),
+		RiskedCollateral: u.RiskedCollateral.Add(b.RiskedCollateral),
+	}
+}
+
 // String returns the string representation of a ContractStatus.
 func (c ContractStatus) String() string {
 	switch c {
