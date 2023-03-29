@@ -165,6 +165,8 @@ func NewHost(privKey types.PrivateKey, dir string, log *zap.Logger) (*Host, erro
 	settings, err := settings.NewConfigManager(privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
+	} else if err := settings.UpdateSettings(DefaultSettings); err != nil {
+		return nil, fmt.Errorf("failed to update host settings: %w", err)
 	}
 
 	registry := registry.NewManager(privKey, db)

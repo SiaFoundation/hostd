@@ -200,8 +200,6 @@ func NewTestingPair(dir string, log *zap.Logger) (*Renter, *Host, error) {
 	host, err := NewHost(hostKey, filepath.Join(dir, "host"), log.Named("host"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create host: %w", err)
-	} else if err := host.UpdateSettings(DefaultSettings); err != nil {
-		return nil, nil, fmt.Errorf("failed to update host settings: %w", err)
 	}
 
 	// initialize the renter
