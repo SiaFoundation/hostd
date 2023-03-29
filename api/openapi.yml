@@ -1,0 +1,462 @@
+openapi: 3.1.0
+info:
+  title: hostd API
+  description: >
+    The Host API provides a comprehensive interface for managing a host in the
+    Sia network. It enables clients to control various aspects of a host's
+    operations, such as connecting to peers, updating settings, managing
+    contracts, handling wallet transactions, and managing storage volumes.
+    This API facilitates seamless interaction between renters and hosts,
+    allowing for efficient storage and retrieval of data in a decentralized
+    manner.
+  version: 0.0.1
+security:
+  - basicAuth: []
+paths:
+  /syncer/peers:
+    get:
+      summary: Get the syncer peers
+      operationId: getSyncerPeers
+      responses:
+        '200':
+          description: List of syncer peers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Peer'
+    put:
+      summary: Connect to a syncer peer
+      operationId: connectSyncerPeer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncerConnectRequest'
+      responses:
+        '200':
+          description: Successfully connected to syncer peer
+          content:
+            application/json:
+              schema:
+                type: object
+  /settings:
+    get:
+      summary: Get settings
+      responses:
+        '200':
+          description: Settings retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+    put:
+      summary: Update settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsRequest'
+      responses:
+        '200':
+          description: Settings updated successfully
+  /settings/announce:
+    post:
+      summary: Announce the host
+      responses:
+        '200':
+          description: Host announced successfully
+  /volume:
+    post:
+      summary: Add a new volume
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddVolumeRequest'
+      responses:
+        '200':
+          description: Volume added successfully
+
+  /volume/{id}:
+    put:
+      summary: Update a volume
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVolumeRequest'
+      responses:
+        '200':
+          description: Volume updated successfully
+
+  /volume/{id}/resize:
+    put:
+      summary: Resize a volume
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResizeVolumeRequest'
+      responses:
+        '200':
+          description: Volume resized successfully
+  /contracts:
+    post:
+      summary: Get the contracts of the host
+      operationId: getContracts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContractFilter'
+      responses:
+        '200':
+          description: List of contracts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /contracts/{id}/integrity:
+    put:
+      summary: Start integrity check for the specified contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Integrity check started successfully
+    get:
+      summary: Get integrity check progress for the specified contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Integrity check progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrityCheckResult'
+    delete:
+      summary: Delete the integrity check for the specified contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Integrity check deleted successfully
+  /wallet:
+    get:
+      summary: Get wallet information
+      responses:
+        '200':
+          description: Wallet information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+  /wallet/send:
+    post:
+      summary: Send Siacoins
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletSendSiacoinsRequest'
+      responses:
+        '200':
+          description: Siacoins sent successfully
+  /wallet/transactions:
+    get:
+      summary: Get wallet transactions
+      responses:
+        '200':
+          description: Wallet transactions retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+  /wallet/pending:
+    get:
+      summary: Get pending wallet transactions
+      responses:
+        '200':
+          description: Pending wallet transactions retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+
+components:
+  securitySchemes:
+    basicAuth: 
+      type: http
+      scheme: basic
+  schemas:
+    SyncerConnectRequest:
+      type: object
+      properties:
+        address:
+          type: string
+    Peer:
+      type: object
+      properties:
+        address:
+          type: string
+        version:
+          type: string
+    Settings:
+      type: object
+      properties:
+        acceptingContracts:
+          type: boolean
+        netAddress:
+          type: string
+        maxContractDuration:
+          type: integer
+          format: uint64
+        contractPrice:
+          type: string
+        baseRPCPrice:
+          type: string
+        sectorAccessPrice:
+          type: string
+        collateral:
+          type: string
+        maxCollateral:
+          type: string
+        maxAccountBalance:
+          type: string
+        minStoragePrice:
+          type: string
+        minEgressPrice:
+          type: string
+        minIngressPrice:
+          type: string
+        ingressLimit:
+          type: integer
+          format: uint64
+        egressLimit:
+          type: integer
+          format: uint64
+        maxRegistryEntries:
+          type: integer
+          format: uint64
+        accountExpiry:
+          type: integer
+          format: int64
+    UpdateSettingsRequest:
+      type: object
+      properties:
+        acceptingContracts:
+          type: boolean
+          nullable: true
+        netAddress:
+          type: string
+          nullable: true
+        maxContractDuration:
+          type: integer
+          nullable: true
+        contractPrice:
+          type: string
+          nullable: true
+        baseRPCPrice:
+          type: string
+          nullable: true
+        sectorAccessPrice:
+          type: string
+          nullable: true
+        collateral:
+          type: string
+          nullable: true
+        maxCollateral:
+          type: string
+          nullable: true
+        maxAccountBalance:
+          type: string
+          nullable: true
+        minStoragePrice:
+          type: string
+          nullable: true
+        minEgressPrice:
+          type: string
+          nullable: true
+        minIngressPrice:
+          type: string
+          nullable: true
+        ingressLimit:
+          type: integer
+          nullable: true
+        egressLimit:
+          type: integer
+          nullable: true
+        maxRegistryEntries:
+          type: integer
+          nullable: true
+        accountExpiry:
+          type: integer
+          nullable: true
+      additionalProperties: false
+    ContractFilter:
+      type: object
+      properties:
+        statuses:
+          type: array
+          items:
+            type: string
+        contractIDs:
+          type: array
+          items:
+            type: string
+        renewedFrom:
+          type: array
+          items:
+            type: string
+        renewedTo:
+          type: array
+          items:
+            type: string
+        renterKey:
+          type: array
+          items:
+            type: string
+        minNegotiationHeight:
+          type: integer
+          format: int64
+        maxNegotiationHeight:
+          type: integer
+          format: int64
+        minExpirationHeight:
+          type: integer
+          format: int64
+        maxExpirationHeight:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        sortField:
+          type: string
+        sortDesc:
+          type: boolean
+    IntegrityCheckResult:
+      type: object
+      properties:
+        badSectors:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrityResult'
+        totalSectors:
+          type: integer
+          format: uint64
+          example: 256
+    IntegrityResult:
+      type: object
+      properties:
+        root:
+          type: string
+          example: 'f8d48f9fee77324eb2a7b28e08a5d114c5e6cca6b33d435d788d266112d7602d'
+        actualRoot:
+          type: string
+          example: 'f8d48f9fee77324eb2a7b28e08a5d114c5e6cca6b33d435d788d266112d7602d'
+        error:
+          type: string
+          example: 'sector root mismatch'
+    AddVolumeRequest:
+      type: object
+      properties:
+        localPath:
+          type: string
+          example: '/mnt/storage/volume.dat'
+        maxSectors:
+          type: integer
+          format: uint64
+          example: 5000
+    UpdateVolumeRequest:
+      type: object
+      properties:
+        readOnly:
+          type: boolean
+          example: false
+    ResizeVolumeRequest:
+      type: object
+      properties:
+        maxSectors:
+          type: integer
+          format: uint64
+          example: 10000
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+        index:
+          type: string
+        transaction:
+          type: object
+          additionalProperties: true
+        inflow:
+          type: string
+        outflow:
+          type: string
+        source:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    WalletSendSiacoinsRequest:
+      type: object
+      properties:
+        address:
+          type: string
+        amount:
+          type: string
+    WalletResponse:
+      type: object
+      properties:
+        scanHeight:
+          type: integer
+          format: int64
+        address:
+          type: string
+        spendable:
+          type: string
+        confirmed:
+          type: string
+        unconfirmed:
+          type: string
