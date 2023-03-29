@@ -67,13 +67,11 @@ services:
       - HOSTD_WALLET_SEED=my wallet seed
       - HOSTD_API_PASSWORD=hostsarecool
     ports:
-      - "9980:9980/tcp"
-      - "9981:9981/tcp"
-      - "9982:9982/tcp"
-      - "9983:9983/tcp"
+      - 127.0.0.1:9980:9980/tcp
+	  - 9981-9983:9981-9983/tcp
     volumes:
-      - "/data:/data"
-      - "/storage:/storage"
+      - /data:/data
+      - /storage:/storage
     restart: unless-stopped
 ```
 
