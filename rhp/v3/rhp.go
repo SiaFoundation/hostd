@@ -48,7 +48,7 @@ type (
 		// AddContract adds a new contract to the manager.
 		AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage) error
 		// RenewContract renews an existing contract.
-		RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage) error
+		RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage) error
 		// ReviseContract atomically revises a contract and its sector roots
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
