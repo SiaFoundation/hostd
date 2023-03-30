@@ -1,4 +1,4 @@
-name: Test
+name: Main
 on:
   workflow_dispatch:
   pull_request:
@@ -18,23 +18,12 @@ jobs:
     steps:
       - name: Configure git
         run: git config --global core.autocrlf false # required on Windows
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Setup Go
-        uses: actions/setup-go@v3
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.go-version }}
-      - name: Lint
-        uses: golangci/golangci-lint-action@v3
       - name: Test
-        uses: n8maninger/action-golang-test@v1
-        with:
-          args: "-race;-tags=testing debug netgo"
-      # - name: Check Endpoints
-      #   uses: SiaFoundation/action-golang-analysis@HEAD
-      #   with:
-      #     analyzers: |
-      #       go.sia.tech/jape.Analyzer
+        uses: ./.github/actions/test
       - name: Build
         env:
           CGO_ENABLED: 1

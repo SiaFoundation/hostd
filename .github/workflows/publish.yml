@@ -10,9 +10,25 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+'
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 'stable'
+      - name: Test
+        uses: ./.github/actions/test
   docker:
     runs-on: ubuntu-latest
+    needs: [ test ]
     permissions:
       packages: write
       contents: read
@@ -43,11 +59,14 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
   build-linux:
     runs-on: ubuntu-latest
+    needs: [ test ]
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
+      - name: Build Version
+        uses: ./.github/actions/version
       - name: Install dependencies
         run: |
           sudo apt install -y gcc-aarch64-linux-gnu
@@ -56,61 +75,125 @@ jobs:
           CGO_ENABLED: 1
           GOOS: linux
           GOARCH: amd64
+          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
         run: |
-          go build -trimpath -o bin/linux_amd64/ -a -ldflags '-s -w' ./cmd/hostd
+          mkdir -p release
+          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          cp README.md LICENSE api/openapi.yml bin/
+          zip -qj $ZIP_OUTPUT bin/*
       - name: Build arm64
         env:
           CGO_ENABLED: 1
           GOOS: linux
           GOARCH: arm64
+          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
           CC: aarch64-linux-gnu-gcc
         run: |
-          go build -trimpath -o bin/linux_arm64/ -a -ldflags '-s -w' ./cmd/hostd
+          mkdir -p release
+          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          cp README.md LICENSE api/openapi.yml bin/
+          zip -qj $ZIP_OUTPUT bin/*
       - uses: actions/upload-artifact@v3
         with:
-          name: hostd-linux
-          path: bin/
-          retention-days: 30
+          name: hostd
+          path: release/
   build-mac: 
     runs-on: macos-latest
+    needs: [ test ]
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
+      - name: Build Version
+        uses: ./.github/actions/version
+#      - name: Setup notarization
+#        env:
+#          APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
+#          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+#          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+#          APPLE_KEY_B64: ${{ secrets.APPLE_KEY_B64 }}
+#          APPLE_CERT_B64: ${{ secrets.APPLE_CERT_B64 }}
+#          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+#          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+#        run: |
+#          # extract apple cert
+#          APPLE_CERT_PATH=$RUNNER_TEMP/apple_cert.p12
+#          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+#          echo -n "$APPLE_CERT_B64" | base64 --decode --output $APPLE_CERT_PATH
+#
+#          # extract apple key
+#          mkdir -p ~/private_keys
+#          APPLE_API_KEY_PATH=~/private_keys/AuthKey_$APPLE_API_KEY.p8
+#          echo -n "$APPLE_KEY_B64" | base64 --decode --output $APPLE_API_KEY_PATH
+#
+#          # create temp keychain
+#          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+#          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+#          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+#
+#          # import keychain
+#          security import $APPLE_CERT_PATH -P $APPLE_CERT_PASSWORD -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+#          security list-keychain -d user -s $KEYCHAIN_PATH
+#          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $APPLE_KEYCHAIN_PASSWORD $KEYCHAIN_PATH
       - name: Build amd64
         env:
           CGO_ENABLED: 1
           GOOS: darwin
           GOARCH: amd64
+          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
         run: |
-          go build -trimpath -o bin/macos_amd64/ -a -ldflags '-s -w' ./cmd/hostd
+          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          mkdir -p release
+          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          cp README.md LICENSE api/openapi.yml bin/
+          # codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
+          ditto -ck bin $ZIP_OUTPUT
+          # xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
       - name: Build arm64
         env:
           CGO_ENABLED: 1
           GOOS: darwin
           GOARCH: arm64
+          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
         run: |
-          go build -trimpath -o bin/macos_arm64/ -a -ldflags '-s -w' ./cmd/hostd
+          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          mkdir -p release
+          go build -trimpath -o bin/macos_amd64/ -a -ldflags '-s -w' ./cmd/hostd
+          cp README.md LICENSE api/openapi.yml bin/
+          # codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
+          ditto -ck bin $ZIP_OUTPUT
+          # xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
       - uses: actions/upload-artifact@v3
         with:
-          name: hostd-macos
-          path: bin/
+          name: hostd
+          path: release/
   build-windows: 
     runs-on: windows-latest
+    needs: [ test ]
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
+      - name: Build Version
+        uses: ./.github/actions/version
       - name: Build amd64
         env:
           CGO_ENABLED: 1
           GOOS: windows
           GOARCH: amd64
+          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
+        shell: bash
         run: |
-          go build -trimpath -o bin/windows_amd64/ -a -ldflags '-s -w' ./cmd/hostd
+          mkdir -p release
+          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          cp README.md LICENSE api/openapi.yml bin/
+          7z a $ZIP_OUTPUT bin/*
       - uses: actions/upload-artifact@v3
         with:
-          name: hostd-windows
-          path: bin/
+          name: hostd
+          path: release/

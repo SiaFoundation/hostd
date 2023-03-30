@@ -1,0 +1,18 @@
+name: Build Version
+description: determines the build's version
+
+runs:
+  using: composite
+  steps:
+    - name: Build Version
+      continue-on-error: true
+      id: determineVersion
+      shell: bash
+      run: |
+        RELEASE=$(git describe --tags --exact-match --match v*.*.* --abbrev=0 2>/dev/null)
+        if [ $? -ne 0 ]; then
+          RELEASE=$(git log -1 --pretty=format:%h)
+        fi
+        echo "RELEASE=${RELEASE}" >> $GITHUB_OUTPUT
+        
+

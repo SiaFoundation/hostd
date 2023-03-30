@@ -1,0 +1,20 @@
+name: Test
+description: Lints and tests hostd
+
+runs:
+  using: composite
+  steps:
+    - name: Configure git # required for golangci-lint on Windows
+      shell: bash
+      run: git config --global core.autocrlf false
+    - name: Lint
+      uses: golangci/golangci-lint-action@v3
+    - name: Test
+      uses: n8maninger/action-golang-test@v1
+      with:
+        args: "-race;-tags=testing netgo"
+#   - name: Check Endpoints
+#     uses: SiaFoundation/action-golang-analysis@HEAD
+#     with:
+#       analyzers: |
+#         go.sia.tech/jape.Analyzer
