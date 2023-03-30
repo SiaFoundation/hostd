@@ -3,6 +3,7 @@ package test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -103,8 +104,6 @@ func (tp TXPool) Subscribe(subscriber modules.TransactionPoolSubscriber) {
 type (
 	// A Node is a base Sia node that can be extended by a Renter or Host
 	Node struct {
-		privKey types.PrivateKey
-
 		g  modules.Gateway
 		cs modules.ConsensusSet
 		cm *chain.Manager
@@ -119,11 +118,6 @@ func (n *Node) Close() error {
 	n.cs.Close()
 	n.g.Close()
 	return nil
-}
-
-// PublicKey returns the public key of the node
-func (n *Node) PublicKey() types.PublicKey {
-	return n.privKey.PublicKey()
 }
 
 // GatewayAddr returns the address of the gateway
@@ -157,7 +151,7 @@ func (n *Node) TPool() *TXPool {
 }
 
 // NewNode creates a new Sia node and wallet with the given key
-func NewNode(privKey types.PrivateKey, dir string) (*Node, error) {
+func NewNode(dir string) (*Node, error) {
 	g, err := gateway.New("localhost:0", false, filepath.Join(dir, "gateway"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gateway: %w", err)
@@ -181,8 +175,6 @@ func NewNode(privKey types.PrivateKey, dir string) (*Node, error) {
 	}
 	tp.TransactionPoolSubscribe(m)
 	return &Node{
-		privKey: privKey,
-
 		g:  g,
 		cs: cs,
 		cm: cm,
@@ -196,21 +188,27 @@ func NewNode(privKey types.PrivateKey, dir string) (*Node, error) {
 func NewTestingPair(dir string, log *zap.Logger) (*Renter, *Host, error) {
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 
+	node, err := NewNode(dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create node: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "host"), 0700); err != nil {
+		return nil, nil, fmt.Errorf("failed to create host dir: %w", err)
+	} else if err := os.MkdirAll(filepath.Join(dir, "renter"), 0700); err != nil {
+		return nil, nil, fmt.Errorf("failed to create renter dir: %w", err)
+	}
+
 	// initialize the host
-	host, err := NewHost(hostKey, filepath.Join(dir, "host"), log.Named("host"))
+	host, err := NewHost(hostKey, filepath.Join(dir, "host"), node, log.Named("host"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create host: %w", err)
 	}
 
 	// initialize the renter
-	renter, err := NewRenter(renterKey, filepath.Join(dir, "renter"), log.Named("renter"))
+	renter, err := NewRenter(renterKey, filepath.Join(dir, "renter"), node, log.Named("renter"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create renter: %w", err)
-	}
-
-	// connect the renter and host
-	if err := host.ConnectPeer(renter.GatewayAddr()); err != nil {
-		return nil, nil, fmt.Errorf("failed to connect node gateways: %w", err)
 	}
 
 	// mine enough blocks to fund the host's wallet

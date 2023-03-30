@@ -55,7 +55,7 @@ func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transact
 
 // NewWallet initializes a new test wallet.
 func NewWallet(privKey types.PrivateKey, dir string, log *zap.Logger) (*Wallet, error) {
-	node, err := NewNode(privKey, dir)
+	node, err := NewNode(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}

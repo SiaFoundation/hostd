@@ -32,8 +32,8 @@ type (
 func (r *Renter) Close() error {
 	r.wallet.Close()
 	r.store.Close()
-	r.Node.Close()
 	r.log.Sync()
+	r.Node.Close()
 	return nil
 }
 
@@ -127,6 +127,11 @@ func (r *Renter) WalletAddress() types.Address {
 	return r.wallet.Address()
 }
 
+// PublicKey returns the renter's public key
+func (r *Renter) PublicKey() types.PublicKey {
+	return r.privKey.PublicKey()
+}
+
 // dialTransport is a convenience function that connects to the specified
 // host
 func dialTransport(ctx context.Context, hostIP string, hostKey types.PublicKey) (_ *rhpv2.Transport, err error) {
@@ -194,11 +199,7 @@ func explicitCoveredFields(txn types.Transaction) (cf types.CoveredFields) {
 }
 
 // NewRenter creates a new renter for testing
-func NewRenter(privKey types.PrivateKey, dir string, log *zap.Logger) (*Renter, error) {
-	node, err := NewNode(privKey, dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create node: %w", err)
-	}
+func NewRenter(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) (*Renter, error) {
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "renter.db"), log.Named("sqlite"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)

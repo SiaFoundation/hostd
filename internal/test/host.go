@@ -31,6 +31,7 @@ func (stubMetricReporter) Report(any) (_ error) { return }
 type Host struct {
 	*Node
 
+	privKey   types.PrivateKey
 	store     *sqlite.Store
 	log       *zap.Logger
 	wallet    *wallet.SingleAddressWallet
@@ -125,13 +126,13 @@ func (h *Host) Storage() *storage.VolumeManager {
 	return h.storage
 }
 
-// NewHost initializes a new test host
-func NewHost(privKey types.PrivateKey, dir string, log *zap.Logger) (*Host, error) {
-	node, err := NewNode(privKey, dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create node: %w", err)
-	}
+// PublicKey returns the host's public key
+func (h *Host) PublicKey() types.PublicKey {
+	return h.privKey.PublicKey()
+}
 
+// NewHost initializes a new test host
+func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) (*Host, error) {
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
@@ -186,6 +187,7 @@ func NewHost(privKey types.PrivateKey, dir string, log *zap.Logger) (*Host, erro
 
 	return &Host{
 		Node:      node,
+		privKey:   privKey,
 		store:     db,
 		log:       log,
 		wallet:    wallet,
