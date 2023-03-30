@@ -193,34 +193,28 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 		return
 	}
 
-	sh.log.Debug("starting RPC", zap.String("rpc", rpcID.String()))
-	s.SetDeadline(time.Now().Add(30 * time.Second))
-	start := time.Now()
-	switch rpcID {
-	case rhpv3.RPCAccountBalanceID:
-		err = sh.handleRPCAccountBalance(s)
-	case rhpv3.RPCUpdatePriceTableID:
-		err = sh.handleRPCPriceTable(s)
-	case rhpv3.RPCExecuteProgramID:
-		s.SetDeadline(time.Now().Add(time.Minute))
-		err = sh.handleRPCExecute(s)
-	case rhpv3.RPCFundAccountID:
-		err = sh.handleRPCFundAccount(s)
-	case rhpv3.RPCLatestRevisionID:
-		err = sh.handleRPCLatestRevision(s)
-	case rhpv3.RPCRenewContractID:
-	case rhpv3.RPCRegistrySubscriptionID:
-		// not implemented
-	case rhpv3.RPCFormContractID:
-		// not implemented
-	default:
-		err = fmt.Errorf("unrecognized RPC ID, %q", rpcID)
+	rpcs := map[types.Specifier]func(*rhpv3.Stream, *zap.Logger) error{
+		rhpv3.RPCAccountBalanceID:   sh.handleRPCAccountBalance,
+		rhpv3.RPCUpdatePriceTableID: sh.handleRPCPriceTable,
+		rhpv3.RPCExecuteProgramID:   sh.handleRPCExecute,
+		rhpv3.RPCFundAccountID:      sh.handleRPCFundAccount,
+		rhpv3.RPCLatestRevisionID:   sh.handleRPCLatestRevision,
+		rhpv3.RPCRenewContractID:    sh.handleRPCRenew,
 	}
-	if err != nil {
-		sh.log.Warn("rpc error", zap.String("rpc", rpcID.String()), zap.Error(err), zap.String("remoteAddress", remoteAddr))
+	rpcFn, ok := rpcs[rpcID]
+	if !ok {
+		sh.log.Debug("unrecognized RPC ID", zap.String("rpc", rpcID.String()))
 		return
 	}
-	sh.log.Debug("rpc success", zap.String("rpc", rpcID.String()), zap.String("remoteAddress", remoteAddr), zap.Duration("elapsed", time.Since(start)))
+
+	log := sh.log.Named(rpcID.String()).With(zap.String("peerAddr", remoteAddr))
+	start := time.Now()
+	s.SetDeadline(time.Now().Add(time.Minute))
+	if err = rpcFn(s, log); err != nil {
+		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
+		return
+	}
+	log.Debug("RPC success", zap.Duration("elapsed", time.Since(start)))
 }
 
 // HostKey returns the host's ed25519 public key

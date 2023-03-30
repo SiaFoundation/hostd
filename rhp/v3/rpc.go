@@ -40,7 +40,7 @@ func readRequest(s *rhpv3.Stream, req rhpv3.ProtocolObject, maxLen uint64, timeo
 }
 
 // handleRPCPriceTable sends the host's price table to the renter.
-func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream) error {
+func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) error {
 	pt, err := sh.PriceTable()
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
@@ -87,7 +87,7 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream) error {
 	return nil
 }
 
-func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream) error {
+func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger) error {
 	// read the price table ID from the stream
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
@@ -130,7 +130,7 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream) error {
 	return nil
 }
 
-func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream) error {
+func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logger) error {
 	// get the price table to use for payment
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
@@ -179,7 +179,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream) error {
 	return nil
 }
 
-func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
+func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logger) error {
 	var req rhpv3.RPCLatestRevisionRequest
 	if err := s.ReadRequest(&req, 4096); err != nil {
 		return fmt.Errorf("failed to read latest revision request: %w", err)
@@ -228,12 +228,12 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream) error {
 	return nil
 }
 
-func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream) error {
+func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error {
 	return nil
 }
 
 // handleRPCExecute handles an RPCExecuteProgram request.
-func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
+func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) error {
 	// read the price table
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
@@ -271,7 +271,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream) error {
 		requiresContract = requiresContract || instr.RequiresContract()
 		requiresFinalization = requiresFinalization || instr.RequiresFinalization()
 	}
-	log := sh.log.Named("mdm")
+	log = log.Named("mdm")
 	// if the program requires a contract, lock it
 	var revision *contracts.SignedRevision
 	if requiresContract || requiresFinalization {
