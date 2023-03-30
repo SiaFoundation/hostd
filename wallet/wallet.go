@@ -519,6 +519,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		}
 	}
 
+	var removed []types.SiacoinOutputID
 	// begin a database transaction to update the wallet state
 	err = sw.store.UpdateWallet(cc.ID, uint64(cc.BlockHeight), func(tx UpdateTransaction) error {
 		// add new siacoin outputs and remove spent or reverted siacoin outputs
@@ -543,11 +544,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					return fmt.Errorf("failed to remove siacoin element %v: %w", diff.ID, err)
 				}
 				sw.log.Debug("removed utxo", zap.String("id", diff.ID.String()), zap.String("value", diff.SiacoinOutput.Value.String()), zap.String("address", diff.SiacoinOutput.UnlockHash.String()))
-				// release the locks on the spent outputs
-				sw.mu.Lock()
-				delete(sw.locked, types.SiacoinOutputID(diff.ID))
-				delete(sw.tpoolUtxos, types.SiacoinOutputID(diff.ID))
-				sw.mu.Unlock()
+				removed = append(removed, types.SiacoinOutputID(diff.ID))
 			}
 		}
 
@@ -620,6 +617,14 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		sw.log.Error("failed to update wallet", zap.Error(err), zap.String("changeID", cc.ID.String()), zap.Uint64("height", uint64(cc.BlockHeight)))
 		sw.Close()
 	}
+
+	// revert locks on removed outputs
+	sw.mu.Lock()
+	for _, id := range removed {
+		delete(sw.locked, id)
+	}
+	sw.mu.Unlock()
+
 	atomic.StoreUint64(&sw.scanHeight, uint64(cc.BlockHeight))
 	sw.log.Debug("applied consensus change", zap.String("changeID", cc.ID.String()), zap.Int("applied", len(cc.AppliedBlocks)), zap.Int("reverted", len(cc.RevertedBlocks)), zap.Uint64("height", uint64(cc.BlockHeight)), zap.Duration("elapsed", time.Since(start)), zap.String("address", sw.addr.String()))
 }

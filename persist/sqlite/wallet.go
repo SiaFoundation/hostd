@@ -46,7 +46,7 @@ func (tx *updateWalletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
 // RemoveSiacoinElement removes a spendable siacoin output from the wallet
 // either due to a spend or a reorg.
 func (tx *updateWalletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error {
-	_, err := tx.tx.Exec(`DELETE FROM wallet_utxos WHERE id=?`, sqlHash256(id))
+	err := tx.tx.QueryRow(`DELETE FROM wallet_utxos WHERE id=? RETURNING id`, sqlHash256(id)).Scan((*sqlHash256)(&id))
 	return err
 }
 
