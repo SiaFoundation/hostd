@@ -131,8 +131,8 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 		return fmt.Errorf("failed to read RPC ID: %w", err)
 	}
 
-	var rpcFn func(*session) error
-	rpcFn, ok := map[types.Specifier]func(*session) error{
+	var rpcFn func(*session, *zap.Logger) error
+	rpcFn, ok := map[types.Specifier]func(*session, *zap.Logger) error{
 		rhpv2.RPCFormContractID:       sh.rpcFormContract,
 		rhpv2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
 		rhpv2.RPCLockID:               sh.rpcLock,
@@ -149,13 +149,15 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 	}
 	start := time.Now()
 	recordEnd := sh.recordRPC(id, sess)
-	err = rpcFn(sess)
+	log := sh.log.Named(id.String()).With(zap.String("peerAddr", sess.conn.RemoteAddr().String()))
+	log.Debug("RPC start")
+	err = rpcFn(sess, log)
 	recordEnd(err)
 	if err != nil {
-		sh.log.Warn("RPC error", zap.Stringer("RPC", id), zap.Error(err), zap.String("remote", sess.conn.RemoteAddr().String()))
+		log.Warn("RPC error", zap.Error(err), zap.String("remote", sess.conn.RemoteAddr().String()))
 		return fmt.Errorf("RPC %q error: %w", id, err)
 	}
-	sh.log.Debug("RPC complete", zap.Stringer("RPC", id), zap.String("remote", sess.conn.RemoteAddr().String()), zap.Duration("elapsed", time.Since(start)))
+	log.Debug("RPC success", zap.Duration("elapsed", time.Since(start)))
 	return nil
 }
 

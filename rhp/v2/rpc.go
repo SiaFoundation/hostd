@@ -33,7 +33,7 @@ var (
 	ErrContractAlreadyLocked = errors.New("contract already locked")
 )
 
-func (sh *SessionHandler) rpcSettings(s *session) error {
+func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) error {
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
@@ -49,7 +49,7 @@ func (sh *SessionHandler) rpcSettings(s *session) error {
 	}, 30*time.Second)
 }
 
-func (sh *SessionHandler) rpcLock(s *session) error {
+func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 	var req rhpv2.RPCLockRequest
 	if err := s.readRequest(&req, minMessageSize, 30*time.Second); err != nil {
 		return err
@@ -98,7 +98,7 @@ func (sh *SessionHandler) rpcLock(s *session) error {
 }
 
 // rpcUnlock unlocks the contract associated with the session.
-func (sh *SessionHandler) rpcUnlock(s *session) error {
+func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) error {
 	// check if a contract is locked
 	if s.contract.Revision.ParentID == (types.FileContractID{}) {
 		return ErrNoContractLocked
@@ -110,7 +110,7 @@ func (sh *SessionHandler) rpcUnlock(s *session) error {
 
 // rpcFormContract is an RPC that forms a contract between a renter and the
 // host.
-func (sh *SessionHandler) rpcFormContract(s *session) error {
+func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 	var req rhpv2.RPCFormContractRequest
 	if err := s.readRequest(&req, 10*minMessageSize, time.Minute); err != nil {
 		return err
@@ -197,7 +197,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 	} else if err = sh.tpool.AcceptTransactionSet(formationTxnSet); err != nil {
 		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
 		buf, _ := json.Marshal(formationTxnSet)
-		sh.log.Error("failed to broadcast formation transaction", zap.Error(err), zap.String("txnset", string(buf)))
+		log.Error("failed to broadcast formation transaction", zap.Error(err), zap.String("txnset", string(buf)))
 		s.t.WriteResponseErr(err)
 		return err
 	}
@@ -241,7 +241,7 @@ func (sh *SessionHandler) rpcFormContract(s *session) error {
 
 // rpcRenewAndClearContract is an RPC that renews a contract and clears the
 // existing contract
-func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
+func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) error {
 	state := sh.cm.TipState()
 	settings, err := sh.Settings()
 	if err != nil {
@@ -422,7 +422,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session) error {
 }
 
 // rpcSectorRoots returns the Merkle roots of the sectors in a contract
-func (sh *SessionHandler) rpcSectorRoots(s *session) error {
+func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 	currentHeight := sh.cm.TipState().Index.Height
 	if err := s.ContractRevisable(currentHeight); err != nil {
 		err := fmt.Errorf("contract not revisable: %w", err)
@@ -512,7 +512,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session) error {
 	return nil
 }
 
-func (sh *SessionHandler) rpcWrite(s *session) error {
+func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 	currentHeight := sh.cm.TipState().Index.Height
 	// get the locked contract and check that it is revisable
 	if err := s.ContractRevisable(currentHeight); err != nil {
@@ -705,7 +705,7 @@ func (sh *SessionHandler) rpcWrite(s *session) error {
 	return nil
 }
 
-func (sh *SessionHandler) rpcRead(s *session) error {
+func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 	currentHeight := sh.cm.TipState().Index.Height
 	// get the locked contract and check that it is revisable
 	if err := s.ContractRevisable(currentHeight); err != nil {
