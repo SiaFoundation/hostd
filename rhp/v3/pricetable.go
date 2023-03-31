@@ -180,7 +180,7 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 func (sh *SessionHandler) readPriceTable(s *rhpv3.Stream) (rhpv3.HostPriceTable, error) {
 	// read the price table ID from the stream
 	var uid rhpv3.SettingsID
-	if err := readRequest(s, &uid, 16, 30*time.Second); err != nil {
+	if err := s.ReadRequest(&uid, 16); err != nil {
 		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to read price table ID: %w", err)
 	}
 	return sh.priceTables.Get(uid)

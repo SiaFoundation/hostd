@@ -8,26 +8,18 @@ import (
 	"go.sia.tech/core/types"
 )
 
-func contractUnlockConditions(hostKey, renterKey types.UnlockKey) types.UnlockConditions {
-	return types.UnlockConditions{
-		PublicKeys:         []types.UnlockKey{renterKey, hostKey},
-		SignaturesRequired: 2,
-	}
-}
-
-// hashClearingRevisionCompat returns the hash of a clearing revision
-// TODO: remove
-func hashClearingRevisionCompat(clearing types.FileContractRevision, renewal types.FileContract) types.Hash256 {
+// hashFinalRevision returns the hash of the final revision during contract renewal
+func hashFinalRevision(clearing types.FileContractRevision, renewal types.FileContract) types.Hash256 {
 	h := types.NewHasher()
-	clearing.EncodeTo(h.E)
 	renewal.EncodeTo(h.E)
+	clearing.EncodeTo(h.E)
 	return h.Sum()
 }
 
 // validateContractRenewal verifies that the renewed contract is valid given the
 // old contract. A renewal is valid if the contract fields match and the
 // revision number is 0.
-func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, walletAddress types.Address, baseHostRevenue, baseRiskedCollateral types.Currency, currentHeight uint64, pt rhpv3.HostPriceTable) (storageRevenue, riskedCollateral, lockedCollateral types.Currency, err error) {
+func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, walletAddress types.Address, baseHostRevenue, baseRiskedCollateral types.Currency, pt rhpv3.HostPriceTable) (storageRevenue, riskedCollateral, lockedCollateral types.Currency, err error) {
 	switch {
 	case renewal.RevisionNumber != 0:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("revision number must be zero")
@@ -37,9 +29,9 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("file Merkle root must not change")
 	case renewal.WindowEnd < existing.WindowEnd:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("renewal window must not end before current window")
-	case renewal.WindowStart < currentHeight+pt.WindowSize:
+	case renewal.WindowStart < pt.HostBlockHeight+pt.WindowSize:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("contract ends too soon to safely submit the contract transaction")
-	case renewal.WindowStart > currentHeight+pt.MaxDuration:
+	case renewal.WindowStart > pt.HostBlockHeight+pt.MaxDuration:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("contract duration is too long")
 	case renewal.WindowEnd < renewal.WindowStart+pt.WindowSize:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("proof window is too small")

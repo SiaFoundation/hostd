@@ -209,7 +209,7 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 
 	log := sh.log.Named(rpcID.String()).With(zap.String("peerAddr", remoteAddr))
 	start := time.Now()
-	s.SetDeadline(time.Now().Add(time.Minute))
+	s.SetDeadline(time.Now().Add(time.Minute)) // set the initial deadline, may be overwritten by the handler
 	if err = rpcFn(s, log); err != nil {
 		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
 		return

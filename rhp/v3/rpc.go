@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,11 +11,16 @@ import (
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/rhp"
+	"go.sia.tech/renterd/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
-const maxProgramRequestSize = 20 << 20 // 20 MiB
+const (
+	maxRequestSize        = 4096     // 4 KiB
+	maxProgramRequestSize = 20 << 20 // 20 MiB
+)
 
 var (
 	// ErrTxnMissingContract is returned if the transaction set does not contain
@@ -28,14 +34,25 @@ var (
 	// ErrInvalidRenterSignature is returned when a contract's renter signature
 	// is invalid.
 	ErrInvalidRenterSignature = errors.New("invalid renter signature")
+	// ErrNotAcceptingContracts is returned when the host is not accepting
+	// contracts.
+	ErrNotAcceptingContracts = errors.New("host is not accepting contracts")
 )
 
-func readRequest(s *rhpv3.Stream, req rhpv3.ProtocolObject, maxLen uint64, timeout time.Duration) error {
-	s.SetDeadline(time.Now().Add(30 * time.Second))
-	if err := s.ReadRequest(req, maxLen); err != nil {
-		return err
+func validRenewalTxnSet(txnset []types.Transaction) error {
+	switch {
+	case len(txnset) == 0:
+		return errors.New("transaction set does not contain any transactions")
+	case len(txnset[len(txnset)-1].FileContracts) != 1:
+		return errors.New("transaction set must contain exactly one file contract")
+	case len(txnset[len(txnset)-1].FileContractRevisions) != 1:
+		return errors.New("transaction set must contain exactly one file contract revision")
 	}
-	s.SetDeadline(time.Time{})
+	for _, txn := range txnset[:len(txnset)-1] {
+		if len(txn.FileContracts) != 0 || len(txn.FileContractRevisions) != 0 {
+			return errors.New("transaction set contains non-renewal transactions")
+		}
+	}
 	return nil
 }
 
@@ -88,6 +105,7 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) 
 }
 
 func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger) error {
+	s.SetDeadline(time.Now().Add(time.Minute))
 	// read the price table ID from the stream
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
@@ -98,7 +116,7 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger)
 
 	// read the fund request from the stream
 	var fundReq rhpv3.RPCFundAccountRequest
-	if err := readRequest(s, &fundReq, 32, 30*time.Second); err != nil {
+	if err := s.ReadRequest(&fundReq, 32); err != nil {
 		return fmt.Errorf("failed to read fund account request: %w", err)
 	}
 
@@ -131,6 +149,7 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger)
 }
 
 func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logger) error {
+	s.SetDeadline(time.Now().Add(time.Minute))
 	// get the price table to use for payment
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
@@ -157,7 +176,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 
 	// read the account balance request from the stream
 	var req rhpv3.RPCAccountBalanceRequest
-	if err := readRequest(s, &req, 32, 30*time.Second); err != nil {
+	if err := s.ReadRequest(&req, 32); err != nil {
 		return fmt.Errorf("failed to read account balance request: %w", err)
 	}
 
@@ -180,8 +199,9 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 }
 
 func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logger) error {
+	s.SetDeadline(time.Now().Add(time.Minute))
 	var req rhpv3.RPCLatestRevisionRequest
-	if err := s.ReadRequest(&req, 4096); err != nil {
+	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
 		return fmt.Errorf("failed to read latest revision request: %w", err)
 	}
 
@@ -229,11 +249,203 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 }
 
 func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error {
+	s.SetDeadline(time.Now().Add(2 * time.Minute))
+	if !sh.settings.Settings().AcceptingContracts {
+		s.WriteResponseErr(ErrNotAcceptingContracts)
+		return ErrNotAcceptingContracts
+	}
+	pt, err := sh.readPriceTable(s)
+	if errors.Is(err, ErrNoPriceTable) {
+		// no price table, send the renter a default one
+		pt, err = sh.PriceTable()
+		if err != nil {
+			s.WriteResponseErr(ErrHostInternalError)
+			return fmt.Errorf("failed to get price table: %w", err)
+		}
+		buf, err := json.Marshal(pt)
+		if err != nil {
+			s.WriteResponseErr(ErrHostInternalError)
+			return fmt.Errorf("failed to marshal price table: %w", err)
+		}
+		ptResp := &rhpv3.RPCUpdatePriceTableResponse{
+			PriceTableJSON: buf,
+		}
+		if err := s.WriteResponse(ptResp); err != nil {
+			return fmt.Errorf("failed to send price table response: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("failed to read price table: %w", err)
+	}
+
+	var req rhpv3.RPCRenewContractRequest
+	if err := s.ReadRequest(&req, 10*maxRequestSize); err != nil {
+		return fmt.Errorf("failed to read renew contract request: %w", err)
+	} else if err := validRenewalTxnSet(req.TransactionSet); err != nil {
+		err = fmt.Errorf("invalid renewal transaction set: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	} else if req.RenterKey.Algorithm != types.SpecifierEd25519 || len(req.RenterKey.Key) != ed25519.PublicKeySize {
+		err = errors.New("renter key must be an ed25519 public key")
+		s.WriteResponseErr(err)
+		return err
+	}
+
+	renterKey := *(*types.PublicKey)(req.RenterKey.Key)
+	hostUnlockKey := sh.privateKey.PublicKey().UnlockKey()
+	parents := req.TransactionSet[:len(req.TransactionSet)-1]
+	renewalTxn := req.TransactionSet[len(req.TransactionSet)-1]
+	clearingRevision := renewalTxn.FileContractRevisions[0]
+	renewal := renewalTxn.FileContracts[0]
+
+	// lock the existing contract
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	existing, err := sh.contracts.Lock(ctx, clearingRevision.ParentID)
+	if err != nil {
+		err := fmt.Errorf("failed to lock contract: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	}
+	defer sh.contracts.Unlock(clearingRevision.ParentID)
+
+	// validate the final revision and renter signature
+	finalPayment, err := rhp.ValidateClearingRevision(existing.Revision, clearingRevision, types.ZeroCurrency)
+	if err != nil {
+		err := fmt.Errorf("failed to validate clearing revision: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	}
+	finalRevisionSigHash := hashFinalRevision(clearingRevision, renewal)
+	if !existing.RenterKey().VerifyHash(finalRevisionSigHash, req.FinalRevisionSignature) { // important to verify using the existing contract's renter key
+		err := fmt.Errorf("failed to verify final revision signature: %w", ErrInvalidRenterSignature)
+		s.WriteResponseErr(err)
+		return err
+	}
+	signedClearingRevision := contracts.SignedRevision{
+		Revision:        clearingRevision,
+		RenterSignature: req.FinalRevisionSignature,
+		HostSignature:   sh.privateKey.SignHash(finalRevisionSigHash),
+	}
+
+	// calculate the "base" storage cost to the renter and risked collateral for
+	// the host for the data already in the contract. If the contract height did
+	// not increase, base costs are zero since the storage is already paid for.
+	baseRevenue := pt.ContractPrice.Add(pt.RenewContractCost)
+	var baseCollateral types.Currency
+	if renewal.WindowStart > existing.Revision.WindowStart {
+		extension := uint64(renewal.WindowStart - existing.Revision.WindowStart)
+		baseRevenue = baseRevenue.Add(pt.WriteStoreCost.Mul64(renewal.Filesize).Mul64(extension))
+		baseCollateral = pt.CollateralCost.Mul64(renewal.Filesize).Mul64(extension)
+	}
+
+	baseRevenue, lockedCollateral, riskedCollateral, err := validateContractRenewal(existing.Revision, renewal, hostUnlockKey, req.RenterKey, sh.wallet.Address(), baseRevenue, baseCollateral, pt)
+	if err != nil {
+		err := fmt.Errorf("failed to validate renewal: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	}
+
+	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
+	toSign, release, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
+	if err != nil {
+		s.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", ErrHostInternalError))
+		return fmt.Errorf("failed to fund renewal transaction: %w", err)
+	}
+	defer release()
+
+	hostAdditions := &rhpv3.RPCRenewContractHostAdditions{
+		SiacoinInputs:          renewalTxn.SiacoinInputs[renterInputs:],
+		SiacoinOutputs:         renewalTxn.SiacoinOutputs[renterOutputs:],
+		FinalRevisionSignature: signedClearingRevision.HostSignature,
+	}
+	if err := s.WriteResponse(hostAdditions); err != nil {
+		return fmt.Errorf("failed to write host additions: %w", err)
+	}
+
+	var renterSigsResp rhpv3.RPCRenewSignatures
+	if err := s.ReadRequest(&renterSigsResp, 10*maxRequestSize); err != nil {
+		return fmt.Errorf("failed to read renter signatures: %w", err)
+	}
+
+	// create the initial revision and verify the renter's signature
+	renewalRevision := rhp.InitialRevision(&renewalTxn, hostUnlockKey, req.RenterKey)
+	renewalSigHash := rhp.HashRevision(renewalRevision)
+	if !renterKey.VerifyHash(renewalSigHash, renterSigsResp.RevisionSignature) {
+		err := fmt.Errorf("failed to verify renter revision signature: %w", ErrInvalidRenterSignature)
+		s.WriteResponseErr(err)
+		return err
+	}
+	signedRenewal := contracts.SignedRevision{
+		Revision:        renewalRevision,
+		HostSignature:   sh.privateKey.SignHash(renewalSigHash),
+		RenterSignature: renterSigsResp.RevisionSignature,
+	}
+
+	// add the final revision signatures to the transaction
+	renewalTxn.Signatures = append(renewalTxn.Signatures, types.TransactionSignature{
+		ParentID:       types.Hash256(existing.Revision.ParentID),
+		PublicKeyIndex: 0,
+		CoveredFields: types.CoveredFields{
+			FileContracts:         []uint64{0},
+			FileContractRevisions: []uint64{0},
+		},
+		Signature: req.FinalRevisionSignature[:],
+	}, types.TransactionSignature{
+		ParentID:       types.Hash256(existing.Revision.ParentID),
+		PublicKeyIndex: 1,
+		CoveredFields: types.CoveredFields{
+			FileContracts:         []uint64{0},
+			FileContractRevisions: []uint64{0},
+		},
+		Signature: signedClearingRevision.HostSignature[:],
+	})
+	// add the renter's signatures to the transaction
+	renewalTxn.Signatures = append(renewalTxn.Signatures, renterSigsResp.TransactionSignatures...)
+	renterSigs := len(renewalTxn.Signatures)
+
+	// sign and broadcast the transaction
+	if err := sh.wallet.SignTransaction(sh.chain.TipState(), &renewalTxn, toSign, wallet.ExplicitCoveredFields(renewalTxn)); err != nil {
+		s.WriteResponseErr(fmt.Errorf("failed to sign renewal transaction: %w", ErrHostInternalError))
+		return fmt.Errorf("failed to sign renewal transaction: %w", err)
+	}
+	renewalTxnSet := append(parents, renewalTxn)
+	if err := sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
+		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
+		s.WriteResponseErr(err)
+		return err
+	}
+
+	// calculate the usage
+	finalRevisionUsage := contracts.Usage{
+		RPCRevenue: finalPayment,
+	}
+	renewalUsage := contracts.Usage{
+		RPCRevenue:       pt.RenewContractCost,
+		StorageRevenue:   baseRevenue.Sub(pt.RenewContractCost),
+		RiskedCollateral: riskedCollateral,
+	}
+	// renew the contract in the manager
+	err = sh.contracts.RenewContract(signedRenewal, signedClearingRevision, renewalTxnSet, lockedCollateral, finalRevisionUsage, renewalUsage)
+	if err != nil {
+		s.WriteResponseErr(fmt.Errorf("failed to renew contract: %w", ErrHostInternalError))
+		return fmt.Errorf("failed to renew contract: %w", err)
+	}
+
+	// send the signatures to the renter
+	hostSigs := &rhpv3.RPCRenewSignatures{
+		TransactionSignatures: renewalTxn.Signatures[renterSigs:],
+		RevisionSignature:     signedRenewal.HostSignature,
+	}
+	if err := s.WriteResponse(hostSigs); err != nil {
+		return fmt.Errorf("failed to write host signatures: %w", err)
+	}
 	return nil
 }
 
 // handleRPCExecute handles an RPCExecuteProgram request.
 func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) error {
+	s.SetDeadline(time.Now().Add(5 * time.Minute))
 	// read the price table
 	pt, err := sh.readPriceTable(s)
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 // processContractPayment initializes an RPC budget using funds from a contract.
 func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64) (rhpv3.Account, types.Currency, error) {
 	var req rhpv3.PayByContractRequest
-	if err := readRequest(s, &req, 4096, 30*time.Second); err != nil {
+	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to read contract payment request: %w", err)
 	}
 
@@ -106,7 +106,7 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 // account.
 func (sh *SessionHandler) processAccountPayment(s *rhpv3.Stream, height uint64) (rhpv3.Account, types.Currency, error) {
 	var req rhpv3.PayByEphemeralAccountRequest
-	if err := readRequest(s, &req, 1024, 15*time.Second); err != nil {
+	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to read ephemeral account payment request: %w", err)
 	}
 
@@ -129,7 +129,7 @@ func (sh *SessionHandler) processAccountPayment(s *rhpv3.Stream, height uint64) 
 // ephemeral account.
 func (sh *SessionHandler) processPayment(s *rhpv3.Stream, pt *rhpv3.HostPriceTable) (*accounts.Budget, error) {
 	var paymentType types.Specifier
-	if err := readRequest(s, &paymentType, 16, 30*time.Second); err != nil {
+	if err := s.ReadRequest(&paymentType, 16); err != nil {
 		return nil, fmt.Errorf("failed to read payment type: %w", err)
 	}
 	var account rhpv3.Account
@@ -162,13 +162,13 @@ func (sh *SessionHandler) processPayment(s *rhpv3.Stream, pt *rhpv3.HostPriceTab
 // account. Accounts can only be funded by a contract.
 func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *rhpv3.Stream, accountID rhpv3.Account) (fundAmount, balance types.Currency, _ error) {
 	var paymentType types.Specifier
-	if err := readRequest(s, &paymentType, 16, 30*time.Second); err != nil {
+	if err := s.ReadRequest(&paymentType, 16); err != nil {
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to read payment type: %w", err)
 	} else if paymentType != rhpv3.PaymentTypeContract {
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("unrecognized payment type: %q", paymentType)
 	}
 	var req rhpv3.PayByContractRequest
-	if err := readRequest(s, &req, 4096, 30*time.Second); err != nil {
+	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to read contract payment request: %w", err)
 	}
 
