@@ -79,7 +79,7 @@ jobs:
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
-          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           zip -qj $ZIP_OUTPUT bin/*
       - name: Build arm64
@@ -92,7 +92,7 @@ jobs:
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
-          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           zip -qj $ZIP_OUTPUT bin/*
       - uses: actions/upload-artifact@v3
@@ -147,7 +147,7 @@ jobs:
         run: |
           ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
           mkdir -p release
-          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           # codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
           ditto -ck bin $ZIP_OUTPUT
@@ -161,7 +161,7 @@ jobs:
         run: |
           ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
           mkdir -p release
-          go build -trimpath -o bin/macos_amd64/ -a -ldflags '-s -w' ./cmd/hostd
+          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           # codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
           ditto -ck bin $ZIP_OUTPUT
@@ -190,7 +190,7 @@ jobs:
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
-          go build -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           7z a $ZIP_OUTPUT bin/*
       - uses: actions/upload-artifact@v3
