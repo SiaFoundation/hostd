@@ -21,7 +21,7 @@ var initDatabase string
 func generateHostKey(tx txn) (err error) {
 	key := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	var dbID int64
-	err = tx.QueryRow(`UPDATE global_settings SET host_key=? RETURNING id`, key[:]).Scan(&dbID)
+	err = tx.QueryRow(`UPDATE global_settings SET host_key=? RETURNING id`, key).Scan(&dbID)
 	return
 }
 

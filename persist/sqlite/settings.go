@@ -66,13 +66,12 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 }
 
 // HostKey returns the host's private key.
-func (s *Store) HostKey() types.PrivateKey {
-	var buf []byte
-	err := s.queryRow(`SELECT host_key FROM global_settings WHERE id=0;`).Scan(&buf)
+func (s *Store) HostKey() (pk types.PrivateKey) {
+	err := s.queryRow(`SELECT host_key FROM global_settings WHERE id=0;`).Scan(&pk)
 	if err != nil {
 		s.log.Panic("failed to get host key", zap.Error(err), zap.Stack("stacktrace"))
-	} else if len(buf) != ed25519.PrivateKeySize {
-		s.log.Panic("host key has incorrect length", zap.Int("expected", ed25519.PrivateKeySize), zap.Int("actual", len(buf)))
+	} else if n := len(pk); n != ed25519.PrivateKeySize {
+		s.log.Panic("host key has incorrect length", zap.Int("expected", ed25519.PrivateKeySize), zap.Int("actual", n))
 	}
-	return types.PrivateKey(buf)
+	return
 }
