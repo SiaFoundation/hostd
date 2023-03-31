@@ -55,7 +55,7 @@ func (s *session) ContractRevisable(height uint64) error {
 		return ErrNoContractLocked
 	case s.contract.Revision.RevisionNumber == types.MaxRevisionNumber:
 		return ErrContractRevisionLimit
-	case uint64(s.contract.Revision.WindowStart) < height:
+	case s.contract.Revision.WindowStart-contracts.RevisionSubmissionBuffer < height:
 		return ErrContractExpired
 	}
 	return nil

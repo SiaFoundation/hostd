@@ -27,10 +27,12 @@ var (
 	// ErrInvalidRenterSignature is returned when a contract's renter signature
 	// is invalid.
 	ErrInvalidRenterSignature = errors.New("invalid renter signature")
-
 	// ErrContractAlreadyLocked is returned when a renter tries to lock
 	// a contract before unlocking the previous one.
 	ErrContractAlreadyLocked = errors.New("contract already locked")
+	// ErrNotAcceptingContracts is returned when the host is not accepting
+	// contracts.
+	ErrNotAcceptingContracts = errors.New("host is not accepting contracts")
 )
 
 func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) error {
@@ -111,6 +113,10 @@ func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) error {
 // rpcFormContract is an RPC that forms a contract between a renter and the
 // host.
 func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
+	if !sh.settings.Settings().AcceptingContracts {
+		s.t.WriteResponseErr(ErrNotAcceptingContracts)
+		return ErrNotAcceptingContracts
+	}
 	var req rhpv2.RPCFormContractRequest
 	if err := s.readRequest(&req, 10*minMessageSize, time.Minute); err != nil {
 		return err
@@ -247,6 +253,9 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to get host settings: %w", err)
+	} else if !settings.AcceptingContracts {
+		s.t.WriteResponseErr(ErrNotAcceptingContracts)
+		return ErrNotAcceptingContracts
 	}
 
 	hostUnlockKey := sh.privateKey.PublicKey().UnlockKey()
@@ -254,10 +263,6 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	// make sure the current contract is revisable
 	if err := s.ContractRevisable(state.Index.Height); err != nil {
 		err := fmt.Errorf("contract not revisable: %w", err)
-		s.t.WriteResponseErr(err)
-		return err
-	} else if !settings.AcceptingContracts {
-		err := fmt.Errorf("host is not accepting contracts")
 		s.t.WriteResponseErr(err)
 		return err
 	}
@@ -350,7 +355,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 
 	// read the renter's signatures for the renewal
 	var renterSigsResp rhpv2.RPCRenewAndClearContractSignatures
-	if err = s.readResponse(&renterSigsResp, 4096, 30*time.Second); err != nil {
+	if err = s.readResponse(&renterSigsResp, minMessageSize, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read renter signatures: %w", err)
 	} else if len(renterSigsResp.RevisionSignature.Signature) != 64 {
 		return fmt.Errorf("invalid renter signature length: %w", ErrInvalidRenterSignature)
