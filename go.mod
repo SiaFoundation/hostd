@@ -12,6 +12,7 @@ require (
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
+	go.sia.tech/web/hostd v0.0.0-20230330233636-9ae27b2629a4
 	go.uber.org/zap v1.24.0
 	golang.org/x/term v0.5.0
 	golang.org/x/time v0.3.0

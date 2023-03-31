@@ -326,6 +326,8 @@ go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76 h1:W+xv7IP1bjt+jtRCIgP5Ci
 go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76/go.mod h1:TUw/Zn68MYQZbP5MU7wQy6K9aLi8uCoIVCNVVBQ+cF4=
 go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca h1:aZMg2AKevn7jKx+wlusWQfwSM5pNU9aGtRZme29q3O4=
 go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca/go.mod h1:h/1afFwpxzff6/gG5i1XdAgPK7dEY6FaibhK7N5F86Y=
+go.sia.tech/web/hostd v0.0.0-20230330233636-9ae27b2629a4 h1:p2D+dZ0P/Z8tK1EZp4+T4lS5TZZ4+eAtfE2ku521YHY=
+go.sia.tech/web/hostd v0.0.0-20230330233636-9ae27b2629a4/go.mod h1:TZMNvx5bM/hABia/9SmXFINTaInp+mCkhGUZinCl03Y=
 go.uber.org/atomic v1.4.0/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=
 go.uber.org/atomic v1.7.0/go.mod h1:fEN4uk6kAWBTFdckzkM89CLk9XfWZrxpCo0nPH17wJc=
 go.uber.org/atomic v1.10.0 h1:9qC72Qh0+3MqyJbAn8YU5xVq1frD8bn3JtD2oXtafVQ=
