@@ -104,6 +104,14 @@ jobs:
   build-mac: 
     runs-on: macos-latest
     needs: [ test ]
+    env:
+      APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_KEY_B64: ${{ secrets.APPLE_KEY_B64 }}
+      APPLE_CERT_B64: ${{ secrets.APPLE_CERT_B64 }}
+      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
@@ -112,14 +120,6 @@ jobs:
       - name: Build Version
         uses: ./.github/actions/version
       - name: Setup notarization
-        env:
-          APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_KEY_B64: ${{ secrets.APPLE_KEY_B64 }}
-          APPLE_CERT_B64: ${{ secrets.APPLE_CERT_B64 }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
         run: |
           # extract apple cert
           APPLE_CERT_PATH=$RUNNER_TEMP/apple_cert.p12
