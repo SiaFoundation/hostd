@@ -173,7 +173,7 @@ CREATE TABLE contract_account_funding ( -- tracks the funding of accounts from c
 	date_created INTEGER NOT NULL
 );
 
-CREATE TABLE host_statistics (
+CREATE TABLE host_stats (
 	date_created INTEGER PRIMARY KEY,
 	potential_rpc_revenue BLOB NOT NULL,
 	potential_storage_revenue BLOB NOT NULL,
@@ -190,6 +190,7 @@ CREATE TABLE host_statistics (
 	locked_collateral BLOB NOT NULL,
 	risked_collateral BLOB NOT NULL,
 	burnt_collateral BLOB NOT NULL,
+	wallet_balance BLOB NOT NULL,
 	pending_contracts INTEGER NOT NULL,
 	active_contracts INTEGER NOT NULL,
 	rejected_contracts INTEGER NOT NULL,
