@@ -65,8 +65,6 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
-      - name: Build Version
-        uses: ./.github/actions/version
       - name: Install dependencies
         run: |
           sudo apt install -y gcc-aarch64-linux-gnu
@@ -75,11 +73,10 @@ jobs:
           CGO_ENABLED: 1
           GOOS: linux
           GOARCH: amd64
-          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
         run: |
           mkdir -p release
-          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
-          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
+          ZIP_OUTPUT=release/hostd_${GOOS}_${GOARCH}.zip
+          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           zip -qj $ZIP_OUTPUT bin/*
       - name: Build arm64
@@ -87,11 +84,10 @@ jobs:
           CGO_ENABLED: 1
           GOOS: linux
           GOARCH: arm64
-          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
           CC: aarch64-linux-gnu-gcc
         run: |
           mkdir -p release
-          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          ZIP_OUTPUT=release/hostd_${GOOS}_${GOARCH}.zip
           go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           zip -qj $ZIP_OUTPUT bin/*
@@ -107,8 +103,6 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
-      - name: Build Version
-        uses: ./.github/actions/version
       - name: Setup notarization
         env:
           APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
@@ -151,9 +145,8 @@ jobs:
           CGO_ENABLED: 1
           GOOS: darwin
           GOARCH: amd64
-          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
         run: |
-          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          ZIP_OUTPUT=release/hostd_${GOOS}_${GOARCH}.zip
           mkdir -p release
           go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
@@ -172,9 +165,8 @@ jobs:
           CGO_ENABLED: 1
           GOOS: darwin
           GOARCH: arm64
-          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
         run: |
-          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          ZIP_OUTPUT=release/hostd_${GOOS}_${GOARCH}.zip
           mkdir -p release
           go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
@@ -193,18 +185,15 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
-      - name: Build Version
-        uses: ./.github/actions/version
       - name: Build amd64
         env:
           CGO_ENABLED: 1
           GOOS: windows
           GOARCH: amd64
-          RELEASE: ${{ steps.determineVersion.outputs.RELEASE }}
         shell: bash
         run: |
           mkdir -p release
-          ZIP_OUTPUT=release/hostd_${RELEASE}_${GOOS}_${GOARCH}.zip
+          ZIP_OUTPUT=release/hostd_${GOOS}_${GOARCH}.zip
           go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           7z a $ZIP_OUTPUT bin/*

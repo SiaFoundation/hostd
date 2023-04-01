@@ -5,7 +5,7 @@ WORKDIR /hostd
 
 # Copy and build binary.
 COPY . .
-RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata testnet' -trimpath -a -ldflags '-linkmode external -extldflags "-static"'  ./cmd/hostd
+RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata testnet' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/hostd
 
 # Build image that will be used to run hostd.
 FROM docker.io/library/alpine:3
