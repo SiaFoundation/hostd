@@ -3,3 +3,4 @@ bin/
 .vscode
 data/
 storage/
+build/meta.go

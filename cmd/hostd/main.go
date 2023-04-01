@@ -95,10 +95,11 @@ func main() {
 	flag.Parse()
 
 	log.Println("hostd", build.Version())
+	log.Println("Network", build.Network())
 	switch flag.Arg(0) {
 	case "version":
-		log.Println("Commit:", build.GitRevision())
-		log.Println("Build Date:", build.Date())
+		log.Println("Commit:", build.Commit())
+		log.Println("Build Date:", build.BuildTime())
 		return
 	case "seed":
 		var seed [32]byte

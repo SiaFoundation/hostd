@@ -27,6 +27,7 @@ Our current goal is work towards the first stable release of `hostd` by integrat
 `hostd` uses SQLite for its persistence. A gcc toolchain is required to build `hostd`
 
 ```sh
+go generate ./...
 CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-linkmode external -extldflags "-static"'  ./cmd/hostd
 ```
 
@@ -35,6 +36,7 @@ CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-
 `hostd` can be built to run on the Zen testnet by adding the `testnet` build tag.
 
 ```sh
+go generate ./...
 CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ldflags '-linkmode external -extldflags "-static"'  ./cmd/hostd
 ```
 
@@ -56,7 +58,7 @@ docker run -d \
     ghcr.io/siafoundation/hostd:latest
 ```
 
-## Docker Compose
+### Docker Compose
 
 ```yml
 version: "3.9"
