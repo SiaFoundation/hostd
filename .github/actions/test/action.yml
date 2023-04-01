@@ -7,6 +7,9 @@ runs:
     - name: Configure git # required for golangci-lint on Windows
       shell: bash
       run: git config --global core.autocrlf false
+    - name: Generate
+      shell: bash
+      run: go generate ./...
     - name: Lint
       uses: golangci/golangci-lint-action@v3
     - name: Test

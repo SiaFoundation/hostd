@@ -61,12 +61,24 @@ func BuildTime() time.Time {
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (t *gitTime) UnmarshalJSON(buf []byte) error {
-	parsed, err := time.Parse(time.RFC1123Z, strings.Trim(string(buf), `"`))
-	if err != nil {
-		return fmt.Errorf("failed to parse time: %w", err)
+	timeFormats := []string{
+		time.RFC1123Z,
+		"Mon, 2 Jan 2006 15:04:05 -0700",
+		"2006-01-02 15:04:05 -0700",
+		time.UnixDate,
+		time.ANSIC,
+		time.RFC3339,
+		time.RFC1123,
 	}
-	*t = gitTime(parsed)
-	return nil
+
+	for _, format := range timeFormats {
+		parsed, err := time.Parse(format, strings.Trim(string(buf), `"`))
+		if err == nil {
+			*t = gitTime(parsed)
+			return nil
+		}
+	}
+	return errors.New("failed to parse time")
 }
 
 func getGitMeta() (meta gitMeta, _ error) {

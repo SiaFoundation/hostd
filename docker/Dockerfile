@@ -5,6 +5,7 @@ WORKDIR /hostd
 
 # Copy and build binary.
 COPY . .
+RUN go generate ./...
 RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/hostd
 
 # Build image that will be used to run hostd.

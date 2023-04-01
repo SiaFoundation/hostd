@@ -67,9 +67,10 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
-      - name: Install dependencies
+      - name: Setup
         run: |
           sudo apt install -y gcc-aarch64-linux-gnu
+          go generate ./...
       - name: Build amd64
         env:
           CGO_ENABLED: 1
@@ -78,7 +79,6 @@ jobs:
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
-          go generate ./...
           go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           zip -qj $ZIP_OUTPUT bin/*
@@ -91,8 +91,7 @@ jobs:
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
-          go generate ./...
-          go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
+          GOOS=linux GOARCH=arm64 go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           zip -qj $ZIP_OUTPUT bin/*
       - uses: actions/upload-artifact@v3
@@ -107,7 +106,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
-      - name: Setup notarization
+      - name: Setup
         env:
           APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -137,6 +136,9 @@ jobs:
           security import $APPLE_CERT_PATH -P $APPLE_CERT_PASSWORD -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security find-identity -v $KEYCHAIN_PATH -p codesigning
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $APPLE_KEYCHAIN_PASSWORD $KEYCHAIN_PATH
+          
+          # generate
+          go generate ./...
       - name: Build amd64
         env:
           APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
@@ -152,8 +154,7 @@ jobs:
         run: |
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           mkdir -p release
-          go generate ./...
-          go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
+          go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           /usr/bin/codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
           ditto -ck bin $ZIP_OUTPUT
@@ -173,8 +174,7 @@ jobs:
         run: |
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           mkdir -p release
-          go generate ./...
-          go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
+          go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           /usr/bin/codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
           ditto -ck bin $ZIP_OUTPUT
@@ -191,6 +191,9 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: 'stable'
+      - name: Setup
+        run: |
+          go generate ./...
       - name: Build amd64
         env:
           CGO_ENABLED: 1
@@ -200,7 +203,6 @@ jobs:
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
-          go generate ./...
           go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
           7z a $ZIP_OUTPUT bin/*
