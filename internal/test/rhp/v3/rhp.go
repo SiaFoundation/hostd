@@ -439,7 +439,7 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 		FileContractRevisions: []types.FileContractRevision{clearingRevision},
 		FileContracts:         []types.FileContract{renewal},
 	}
-	renterCost := rhpv2.ContractRenewalCost(state, renewal, pt.ContractPrice, txnFee, baseCost)
+	renterCost := rhpv2.ContractRenewalCost(state, renewal, pt.ContractPrice.Add(pt.RenewContractCost), txnFee, baseCost)
 	toSign, release, err := s.w.FundTransaction(&renewTxn, renterCost)
 	if err != nil {
 		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to fund transaction: %w", err)
@@ -624,11 +624,10 @@ func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency
 	// Thus the host has conflicting requirements, and renewing the contract is
 	// impossible until they change their settings.
 
+	rpcRevenue := pt.ContractPrice.Add(pt.RenewContractCost)
 	// calculate base price and collateral
-	basePrice := pt.RenewContractCost
-	var baseCollateral types.Currency
-
 	// if the contract height did not increase both prices are zero
+	var basePrice, baseCollateral types.Currency
 	if contractEnd := uint64(endHeight + pt.WindowSize); contractEnd > fc.WindowEnd {
 		timeExtension := uint64(contractEnd - fc.WindowEnd)
 		basePrice = basePrice.Add(pt.WriteStoreCost.Mul64(fc.Filesize).Mul64(timeExtension))
@@ -636,7 +635,7 @@ func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency
 	}
 
 	// calculate payouts
-	hostValidPayout := pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
+	hostValidPayout := rpcRevenue.Add(basePrice).Add(baseCollateral).Add(newCollateral)
 	voidMissedPayout := basePrice.Add(baseCollateral)
 	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
 		// TODO: detect this elsewhere
