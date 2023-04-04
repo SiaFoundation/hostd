@@ -67,7 +67,7 @@ func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey ty
 
 // NewRHP3Session creates a new session
 func (r *Renter) NewRHP3Session(ctx context.Context, hostAddr string, hostKey types.PublicKey) (*rhpv3.Session, error) {
-	return rhpv3.NewSession(ctx, hostKey, hostAddr, r.ChainManager())
+	return rhpv3.NewSession(ctx, hostKey, hostAddr, r.ChainManager(), r.Wallet())
 }
 
 // Settings returns the host's current settings
