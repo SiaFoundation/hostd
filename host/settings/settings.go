@@ -215,6 +215,11 @@ func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
 }
 
+// DiscoveredRHP2Address returns the rhp2 address that was discovered by the gateway
+func (m *ConfigManager) DiscoveredRHP2Address() string {
+	return m.discoveredRHPAddr
+}
+
 func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 	// encode the announcement
 	var buf bytes.Buffer

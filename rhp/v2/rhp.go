@@ -82,6 +82,7 @@ type (
 
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
+		DiscoveredRHP2Address() string
 		Settings() settings.Settings
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
@@ -207,6 +208,16 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 	if err != nil {
 		return rhpv2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
 	}
+
+	netaddr := settings.NetAddress
+	if len(netaddr) == 0 {
+		netaddr = sh.settings.DiscoveredRHP2Address()
+	}
+	// if the net address is still empty, return an error
+	if len(netaddr) == 0 {
+		return rhpv2.HostSettings{}, errors.New("no net address found")
+	}
+
 	return rhpv2.HostSettings{
 		// protocol version
 		Version: Version,
@@ -214,7 +225,7 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		// host info
 		Address:          sh.wallet.Address(),
 		SiaMuxPort:       sh.rhp3Port,
-		NetAddress:       settings.NetAddress,
+		NetAddress:       netaddr,
 		TotalStorage:     totalSectors * rhpv2.SectorSize,
 		RemainingStorage: (totalSectors - usedSectors) * rhpv2.SectorSize,
 
