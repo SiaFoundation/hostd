@@ -329,18 +329,18 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 		HostSignature:   sh.privateKey.SignHash(finalRevisionSigHash),
 	}
 
+	rpcRevenue := pt.RenewContractCost.Add(pt.ContractPrice)
 	// calculate the "base" storage cost to the renter and risked collateral for
 	// the host for the data already in the contract. If the contract height did
 	// not increase, base costs are zero since the storage is already paid for.
-	baseRevenue := pt.RenewContractCost
-	var baseCollateral types.Currency
+	var baseStorageRevenue, baseCollateral types.Currency
 	if renewal.WindowStart > existing.Revision.WindowStart {
 		extension := uint64(renewal.WindowStart - existing.Revision.WindowStart)
-		baseRevenue = baseRevenue.Add(pt.WriteStoreCost.Mul64(renewal.Filesize).Mul64(extension))
+		baseStorageRevenue = pt.WriteStoreCost.Mul64(renewal.Filesize).Mul64(extension)
 		baseCollateral = pt.CollateralCost.Mul64(renewal.Filesize).Mul64(extension)
 	}
 
-	baseRevenue, riskedCollateral, lockedCollateral, err := validateContractRenewal(existing.Revision, renewal, hostUnlockKey, req.RenterKey, sh.wallet.Address(), baseRevenue, baseCollateral, pt)
+	riskedCollateral, lockedCollateral, err := validateContractRenewal(existing.Revision, renewal, hostUnlockKey, req.RenterKey, sh.wallet.Address(), rpcRevenue, baseStorageRevenue, baseCollateral, pt)
 	if err != nil {
 		err := fmt.Errorf("failed to validate renewal: %w", err)
 		s.WriteResponseErr(err)
@@ -422,8 +422,8 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 		RPCRevenue: finalPayment,
 	}
 	renewalUsage := contracts.Usage{
-		RPCRevenue:       pt.RenewContractCost,
-		StorageRevenue:   baseRevenue.Sub(pt.RenewContractCost),
+		RPCRevenue:       rpcRevenue,
+		StorageRevenue:   baseStorageRevenue,
 		RiskedCollateral: riskedCollateral,
 	}
 	// renew the contract in the manager
