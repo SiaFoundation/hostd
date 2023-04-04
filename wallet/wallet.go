@@ -245,7 +245,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	defer done()
 
 	if amount.IsZero() {
-		return nil, nil, nil
+		return nil, func() {}, nil
 	}
 
 	sw.mu.Lock()
