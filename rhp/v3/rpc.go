@@ -322,6 +322,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 		s.WriteResponseErr(err)
 		return err
 	}
+	// sign the clearing revision
 	signedClearingRevision := contracts.SignedRevision{
 		Revision:        clearingRevision,
 		RenterSignature: req.FinalRevisionSignature,
@@ -331,7 +332,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	// calculate the "base" storage cost to the renter and risked collateral for
 	// the host for the data already in the contract. If the contract height did
 	// not increase, base costs are zero since the storage is already paid for.
-	baseRevenue := pt.ContractPrice.Add(pt.RenewContractCost)
+	baseRevenue := pt.RenewContractCost
 	var baseCollateral types.Currency
 	if renewal.WindowStart > existing.Revision.WindowStart {
 		extension := uint64(renewal.WindowStart - existing.Revision.WindowStart)
@@ -339,7 +340,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 		baseCollateral = pt.CollateralCost.Mul64(renewal.Filesize).Mul64(extension)
 	}
 
-	baseRevenue, lockedCollateral, riskedCollateral, err := validateContractRenewal(existing.Revision, renewal, hostUnlockKey, req.RenterKey, sh.wallet.Address(), baseRevenue, baseCollateral, pt)
+	baseRevenue, riskedCollateral, lockedCollateral, err := validateContractRenewal(existing.Revision, renewal, hostUnlockKey, req.RenterKey, sh.wallet.Address(), baseRevenue, baseCollateral, pt)
 	if err != nil {
 		err := fmt.Errorf("failed to validate renewal: %w", err)
 		s.WriteResponseErr(err)

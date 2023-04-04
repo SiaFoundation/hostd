@@ -47,7 +47,7 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")
 	}
 
-	expectedBurn := baseHostRevenue.Add(baseRiskedCollateral)
+	expectedBurn := baseHostRevenue.Sub(pt.RenewContractCost).Add(baseRiskedCollateral)
 	hostBurn, underflow := renewal.ValidHostPayout().SubWithUnderflow(renewal.MissedHostPayout())
 	if underflow {
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("host valid payout must be greater than host missed payout")
@@ -59,7 +59,7 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 
 	// calculate the host's risked collateral as the difference between the burn
 	// and base revenue
-	riskedCollateral, underflow = hostBurn.SubWithUnderflow(baseHostRevenue)
+	riskedCollateral, underflow = hostBurn.SubWithUnderflow(baseHostRevenue.Sub(pt.RenewContractCost))
 	if underflow {
 		riskedCollateral = types.ZeroCurrency
 	}
