@@ -52,7 +52,7 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 	if underflow {
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("host valid payout must be greater than host missed payout")
 	} else if hostBurn.Cmp(expectedBurn) > 0 {
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("excessive host burn: expected at most %d got %d", baseRiskedCollateral, riskedCollateral)
+		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("excessive host burn: expected at most %d got %d", expectedBurn, hostBurn)
 	} else if !renewal.MissedProofOutputs[2].Value.Equals(hostBurn) {
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("risked collateral must be sent to void output")
 	}
