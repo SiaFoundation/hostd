@@ -304,7 +304,7 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 	}
 	return s.transaction(func(tx txn) error {
 		var nextIndex uint64
-		err := tx.QueryRow(`SELECT COALESCE(MAX(volume_index)+1, 0) AS next_index FROM volume_sectors WHERE volume_id=?;`, id).Scan(&nextIndex)
+		err := tx.QueryRow(`SELECT total_sectors FROM storage_volumes WHERE id=?;`, id).Scan(&nextIndex)
 		if err != nil {
 			return fmt.Errorf("failed to get last volume index: %w", err)
 		}
