@@ -321,9 +321,12 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 			return fmt.Errorf("failed to update renewed contract: %w", err)
 		}
 
-		// move the sector roots from the old contract to the new contract
-		_, err = tx.Exec(`UPDATE contract_sector_roots SET contract_id=$1 WHERE contract_id=$2;`, renewedDBID, clearedDBID)
-		return err
+		// copy the sector roots from the old contract to the new contract
+		_, err = tx.Exec(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) SELECT $1, sector_id, root_index FROM contract_sector_roots WHERE contract_id=$2;`, renewedDBID, clearedDBID)
+		if err != nil {
+			return fmt.Errorf("failed to copy sector roots: %w", err)
+		}
+		return nil
 	})
 }
 
