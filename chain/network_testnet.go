@@ -10,5 +10,5 @@ import (
 
 // network returns the Sia network consts and genesis block for the current build.
 func network() (*consensus.Network, types.Block) {
-	return chain.Mainnet()
+	return chain.TestnetZen()
 }
