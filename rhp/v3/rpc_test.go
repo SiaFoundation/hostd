@@ -303,3 +303,289 @@ func TestStoreSector(t *testing.T) {
 		t.Fatal("expected error when reading sector")
 	}
 }
+
+func TestRenew(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	t.Run("empty contract", func(t *testing.T) {
+		state := renter.TipState()
+		// form a contract
+		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		settings, err := renter.Settings(context.Background(), host.RHPv2Addr(), host.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// mine a few blocks into the contract
+		if err := host.MineBlocks(host.WalletAddress(), 10); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+
+		// register a price table to use for the renewal
+		contractSess := session.WithContractPayment(&origin, renter.PrivateKey(), rhpv3.Account(renter.PublicKey()))
+		pt, err := contractSess.RegisterPriceTable()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		state = renter.TipState()
+		renewHeight := origin.Revision.WindowStart + 10
+		renterFunds := types.Siacoins(10)
+		additionalCollateral := types.Siacoins(20)
+		renewal, _, err := session.RenewContract(&origin, settings.Address, renter.PrivateKey(), renterFunds, additionalCollateral, renewHeight)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// mine a block to confirm the revision
+		if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		old, err := host.Contracts().Contract(origin.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if old.Revision.Filesize != 0 {
+			t.Fatal("filesize mismatch")
+		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
+			t.Fatal("merkle root mismatch")
+		} else if old.RenewedTo != renewal.ID() {
+			t.Fatal("renewed to mismatch")
+		} else if !old.Usage.RPCRevenue.Equals(pt.ContractPrice) {
+			t.Fatalf("expected rpc revenue to equal contract price + base rpc price %d, got %d", settings.ContractPrice.Add(settings.BaseRPCPrice), old.Usage.RPCRevenue)
+		}
+
+		contract, err := host.Contracts().Contract(renewal.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Revision.Filesize != origin.Revision.Filesize {
+			t.Fatal("filesize mismatch")
+		} else if contract.Revision.FileMerkleRoot != origin.Revision.FileMerkleRoot {
+			t.Fatal("merkle root mismatch")
+		} else if !contract.LockedCollateral.Equals(additionalCollateral) {
+			t.Fatalf("locked collateral mismatch: expected %d, got %d", additionalCollateral, contract.LockedCollateral)
+		} else if !contract.Usage.RiskedCollateral.IsZero() {
+			t.Fatalf("expected zero risked collateral, got %d", contract.Usage.RiskedCollateral)
+		} else if !contract.Usage.RPCRevenue.Equals(pt.RenewContractCost) {
+			t.Fatalf("expected %d RPC revenue, got %d", settings.ContractPrice, contract.Usage.RPCRevenue)
+		} else if contract.RenewedFrom != origin.ID() {
+			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
+		}
+	})
+
+	t.Run("non-empty contract", func(t *testing.T) {
+		// form a contract
+		state := renter.TipState()
+		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		settings, err := renter.Settings(context.Background(), host.RHPv2Addr(), host.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+
+		// register a price table to use for the renewal
+		contractSess := session.WithContractPayment(&origin, renter.PrivateKey(), rhpv3.Account(renter.PublicKey()))
+		pt, err := contractSess.RegisterPriceTable()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// fund an account leaving no funds for the renewal
+		accountID := rhpv3.Account(renter.PublicKey())
+		if _, err := contractSess.FundAccount(accountID, origin.Revision.ValidRenterPayout().Sub(pt.FundAccountCost)); err != nil {
+			t.Fatal(err)
+		}
+
+		// generate a sector
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:256])
+
+		// calculate the remaining duration of the contract
+		var remainingDuration uint64
+		contractExpiration := uint64(origin.Revision.WindowStart)
+		currentHeight := renter.TipState().Index.Height
+		if contractExpiration < currentHeight {
+			t.Fatal("contract expired")
+		}
+
+		accountSess := session.WithAccountPayment(accountID, renter.PrivateKey())
+
+		// upload the sector
+		remainingDuration = contractExpiration - currentHeight
+		cost, _ := rhpv2.RPCAppendCost(settings, remainingDuration)
+		if err := accountSess.AppendSector(&sector, &origin, renter.PrivateKey(), cost); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine a few blocks into the contract
+		if err := host.MineBlocks(host.WalletAddress(), 10); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		state = renter.TipState()
+		renewHeight := origin.Revision.WindowStart + 10
+		baseRiskedCollateral := settings.Collateral.Mul64(renewHeight - origin.Revision.WindowStart).Mul64(origin.Revision.Filesize)
+		renterFunds := types.Siacoins(10)
+		additionalCollateral := types.Siacoins(20)
+		renewal, _, err := session.RenewContract(&origin, settings.Address, renter.PrivateKey(), renterFunds, additionalCollateral, renewHeight)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expectedExchange := settings.ContractPrice.Add(pt.FundAccountCost)
+		old, err := host.Contracts().Contract(origin.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if old.Revision.Filesize != 0 {
+			t.Fatal("filesize mismatch")
+		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
+			t.Fatal("merkle root mismatch")
+		} else if old.RenewedTo != renewal.ID() {
+			t.Fatal("renewed to mismatch")
+		} else if !old.Usage.RPCRevenue.Equals(expectedExchange) { // renewal renew goes on the new contract
+			t.Fatalf("expected rpc revenue to equal contract price + fund account cost %d, got %d", expectedExchange, old.Usage.RPCRevenue)
+		}
+
+		contract, err := host.Contracts().Contract(renewal.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Revision.Filesize != origin.Revision.Filesize {
+			t.Fatal("filesize mismatch")
+		} else if contract.Revision.FileMerkleRoot != origin.Revision.FileMerkleRoot {
+			t.Fatal("merkle root mismatch")
+		} else if contract.LockedCollateral.Cmp(additionalCollateral) <= 0 {
+			t.Fatalf("locked collateral mismatch: expected at least %d, got %d", additionalCollateral, contract.LockedCollateral)
+		} else if !contract.Usage.RPCRevenue.Equals(pt.RenewContractCost) {
+			t.Fatalf("expected %d RPC revenue, got %d", pt.RenewContractCost, contract.Usage.RPCRevenue)
+		} else if !contract.Usage.RiskedCollateral.Equals(baseRiskedCollateral) {
+			t.Fatalf("expected %d risked collateral, got %d", baseRiskedCollateral, contract.Usage.RiskedCollateral)
+		} else if contract.RenewedFrom != origin.ID() {
+			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
+		}
+	})
+
+	/*t.Run("non-empty contract", func(t *testing.T) {
+		// form a contract
+		state := renter.TipState()
+		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), origin.ID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+
+		// generate a sector
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:256])
+		sectorRoot := rhpv2.SectorRoot(&sector)
+
+		// calculate the remaining duration of the contract
+		var remainingDuration uint64
+		contractExpiration := uint64(session.Revision().Revision.WindowStart)
+		currentHeight := renter.TipState().Index.Height
+		if contractExpiration < currentHeight {
+			t.Fatal("contract expired")
+		}
+		// upload the sector
+		remainingDuration = contractExpiration - currentHeight
+		price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+		writtenRoot, err := session.Append(context.Background(), &sector, price, collateral)
+		if err != nil {
+			t.Fatal(err)
+		} else if writtenRoot != sectorRoot {
+			t.Fatal("sector root mismatch")
+		}
+
+		// mine a few blocks into the contract
+		if err := host.MineBlocks(host.WalletAddress(), 10); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		settings := session.Settings()
+		renewHeight := origin.Revision.WindowStart + 10
+		current := session.Revision().Revision
+		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
+		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), renter.PrivateKey(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		renewalTxn := types.Transaction{
+			FileContracts: []types.FileContract{renewed},
+		}
+
+		cost := rhpv2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
+		toSign, discard, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer discard()
+
+		if err := renter.Wallet().SignTransaction(host.TipState(), &renewalTxn, toSign, wallet.ExplicitCoveredFields(renewalTxn)); err != nil {
+			t.Fatal(err)
+		}
+
+		renewal, _, err := session.RenewContract(context.Background(), []types.Transaction{renewalTxn}, settings.BaseRPCPrice)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expectedExchange := settings.ContractPrice.Add(settings.BaseRPCPrice).Add(settings.BaseRPCPrice) // contract price + upload sector base RPC price + renewal base RPC price
+		old, err := host.Contracts().Contract(origin.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if old.Revision.Filesize != 0 {
+			t.Fatal("filesize mismatch")
+		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
+			t.Fatal("merkle root mismatch")
+		} else if old.RenewedTo != renewal.ID() {
+			t.Fatal("renewed to mismatch")
+		} else if !old.Usage.RPCRevenue.Equals(expectedExchange) {
+			t.Fatalf("expected rpc revenue to equal contract price + base rpc price %d, got %d", expectedExchange, old.Usage.RPCRevenue)
+		}
+
+		contract, err := host.Contracts().Contract(renewal.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Revision.Filesize != current.Filesize {
+			t.Fatal("filesize mismatch")
+		} else if contract.Revision.FileMerkleRoot != current.FileMerkleRoot {
+			t.Fatal("merkle root mismatch")
+		} else if contract.LockedCollateral.Cmp(additionalCollateral) <= 0 {
+			t.Fatalf("locked collateral mismatch: expected at least %d, got %d", additionalCollateral, contract.LockedCollateral)
+		} else if !contract.Usage.RPCRevenue.Equals(settings.ContractPrice) {
+			t.Fatalf("expected %d RPC revenue, got %d", settings.ContractPrice, contract.Usage.RPCRevenue)
+		} else if contract.RenewedFrom != origin.ID() {
+			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
+		}
+	})*/
+}
