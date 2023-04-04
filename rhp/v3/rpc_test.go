@@ -384,8 +384,10 @@ func TestRenew(t *testing.T) {
 			t.Fatalf("locked collateral mismatch: expected %d, got %d", additionalCollateral, contract.LockedCollateral)
 		} else if !contract.Usage.RiskedCollateral.IsZero() {
 			t.Fatalf("expected zero risked collateral, got %d", contract.Usage.RiskedCollateral)
-		} else if !contract.Usage.RPCRevenue.Equals(settings.ContractPrice.Add(pt.RenewContractCost)) {
-			t.Fatalf("expected %d RPC revenue, got %d", settings.ContractPrice.Add(pt.RenewContractCost), contract.Usage.RPCRevenue)
+		} else if !contract.Usage.RPCRevenue.Equals(pt.ContractPrice) {
+			t.Fatalf("expected %d RPC revenue, got %d", settings.ContractPrice, contract.Usage.RPCRevenue)
+		} else if !contract.Usage.StorageRevenue.Equals(pt.RenewContractCost) { // renew contract cost is treated as storage revenue because it is burned
+			t.Fatalf("expected %d storage revenue, got %d", pt.RenewContractCost, contract.Usage.StorageRevenue)
 		} else if contract.RenewedFrom != origin.ID() {
 			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
 		}
@@ -452,13 +454,16 @@ func TestRenew(t *testing.T) {
 
 		state = renter.TipState()
 		renewHeight := origin.Revision.WindowStart + 10
-		baseRiskedCollateral := settings.Collateral.Mul64(renewHeight - origin.Revision.WindowStart).Mul64(origin.Revision.Filesize)
 		renterFunds := types.Siacoins(10)
 		additionalCollateral := types.Siacoins(20)
 		renewal, _, err := session.RenewContract(&origin, settings.Address, renter.PrivateKey(), renterFunds, additionalCollateral, renewHeight)
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		extension := renewal.Revision.WindowEnd - origin.Revision.WindowEnd
+		baseStorageRevenue := pt.RenewContractCost.Add(pt.WriteStoreCost.Mul64(origin.Revision.Filesize).Mul64(extension)) // renew contract cost is included because it is burned on failure
+		baseRiskedCollateral := settings.Collateral.Mul64(extension).Mul64(origin.Revision.Filesize)
 
 		expectedExchange := pt.ContractPrice.Add(pt.FundAccountCost)
 		old, err := host.Contracts().Contract(origin.ID())
@@ -483,10 +488,12 @@ func TestRenew(t *testing.T) {
 			t.Fatal("merkle root mismatch")
 		} else if contract.LockedCollateral.Cmp(additionalCollateral) <= 0 {
 			t.Fatalf("locked collateral mismatch: expected at least %d, got %d", additionalCollateral, contract.LockedCollateral)
-		} else if !contract.Usage.RPCRevenue.Equals(pt.RenewContractCost.Add(pt.ContractPrice)) {
-			t.Fatalf("expected %d RPC revenue, got %d", pt.RenewContractCost.Add(pt.ContractPrice), contract.Usage.RPCRevenue)
+		} else if !contract.Usage.RPCRevenue.Equals(pt.ContractPrice) {
+			t.Fatalf("expected %d RPC revenue, got %d", pt.ContractPrice, contract.Usage.RPCRevenue)
 		} else if !contract.Usage.RiskedCollateral.Equals(baseRiskedCollateral) {
 			t.Fatalf("expected %d risked collateral, got %d", baseRiskedCollateral, contract.Usage.RiskedCollateral)
+		} else if !contract.Usage.StorageRevenue.Equals(baseStorageRevenue) {
+			t.Fatalf("expected %d storage revenue, got %d", baseStorageRevenue, contract.Usage.StorageRevenue)
 		} else if contract.RenewedFrom != origin.ID() {
 			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
 		}
