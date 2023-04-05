@@ -39,23 +39,6 @@ var (
 	ErrNotAcceptingContracts = errors.New("host is not accepting contracts")
 )
 
-func validRenewalTxnSet(txnset []types.Transaction) error {
-	switch {
-	case len(txnset) == 0:
-		return errors.New("transaction set does not contain any transactions")
-	case len(txnset[len(txnset)-1].FileContracts) != 1:
-		return errors.New("transaction set must contain exactly one file contract")
-	case len(txnset[len(txnset)-1].FileContractRevisions) != 1:
-		return errors.New("transaction set must contain exactly one file contract revision")
-	}
-	for _, txn := range txnset[:len(txnset)-1] {
-		if len(txn.FileContracts) != 0 || len(txn.FileContractRevisions) != 0 {
-			return errors.New("transaction set contains non-renewal transactions")
-		}
-	}
-	return nil
-}
-
 // handleRPCPriceTable sends the host's price table to the renter.
 func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) error {
 	pt, err := sh.PriceTable()
@@ -371,7 +354,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	// create the initial revision and verify the renter's signature
 	renewalRevision := rhp.InitialRevision(&renewalTxn, hostUnlockKey, req.RenterKey)
 	renewalSigHash := rhp.HashRevision(renewalRevision)
-	if !renterKey.VerifyHash(renewalSigHash, renterSigsResp.RevisionSignature) {
+	if validateRenterRevisionSignature(renterSigsResp.RevisionSignature, renewalRevision.ParentID, renewalSigHash, renterKey) != nil {
 		err := fmt.Errorf("failed to verify renter revision signature: %w", ErrInvalidRenterSignature)
 		s.WriteResponseErr(err)
 		return err
@@ -379,7 +362,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	signedRenewal := contracts.SignedRevision{
 		Revision:        renewalRevision,
 		HostSignature:   sh.privateKey.SignHash(renewalSigHash),
-		RenterSignature: renterSigsResp.RevisionSignature,
+		RenterSignature: *(*types.Signature)(renterSigsResp.RevisionSignature.Signature),
 	}
 
 	// add the final revision signatures to the transaction
@@ -435,7 +418,14 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	// send the signatures to the renter
 	hostSigs := &rhpv3.RPCRenewSignatures{
 		TransactionSignatures: renewalTxn.Signatures[renterSigs:],
-		RevisionSignature:     signedRenewal.HostSignature,
+		RevisionSignature: types.TransactionSignature{
+			ParentID:       types.Hash256(signedRenewal.Revision.ParentID),
+			PublicKeyIndex: 1,
+			CoveredFields: types.CoveredFields{
+				FileContractRevisions: []uint64{0},
+			},
+			Signature: signedRenewal.HostSignature[:],
+		},
 	}
 	if err := s.WriteResponse(hostSigs); err != nil {
 		return fmt.Errorf("failed to write host signatures: %w", err)
@@ -528,5 +518,58 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 		return fmt.Errorf("failed to execute program: %w", err)
 	}
 
+	return nil
+}
+
+func validateRenterRevisionSignature(sig types.TransactionSignature, fcID types.FileContractID, sigHash types.Hash256, renterKey types.PublicKey) error {
+	switch {
+	case sig.ParentID != types.Hash256(fcID):
+		return errors.New("revision signature has invalid parent ID")
+	case sig.PublicKeyIndex != 0:
+		return errors.New("revision signature has invalid public key index")
+	case len(sig.Signature) != ed25519.SignatureSize:
+		return errors.New("revision signature has invalid length")
+	case len(sig.CoveredFields.SiacoinInputs) != 0:
+		return errors.New("signature should not cover siacoin inputs")
+	case len(sig.CoveredFields.SiacoinOutputs) != 0:
+		return errors.New("signature should not cover siacoin outputs")
+	case len(sig.CoveredFields.FileContracts) != 0:
+		return errors.New("signature should not cover file contract")
+	case len(sig.CoveredFields.StorageProofs) != 0:
+		return errors.New("signature should not cover storage proofs")
+	case len(sig.CoveredFields.SiafundInputs) != 0:
+		return errors.New("signature should not cover siafund inputs")
+	case len(sig.CoveredFields.SiafundOutputs) != 0:
+		return errors.New("signature should not cover siafund outputs")
+	case len(sig.CoveredFields.MinerFees) != 0:
+		return errors.New("signature should not cover miner fees")
+	case len(sig.CoveredFields.ArbitraryData) != 0:
+		return errors.New("signature should not cover arbitrary data")
+	case len(sig.CoveredFields.Signatures) != 0:
+		return errors.New("signature should not cover signatures")
+	case len(sig.CoveredFields.FileContractRevisions) != 1:
+		return errors.New("signature should cover one file contract revision")
+	case sig.CoveredFields.FileContractRevisions[0] != 0:
+		return errors.New("signature should cover the first file contract revision")
+	case !renterKey.VerifyHash(sigHash, *(*types.Signature)(sig.Signature)):
+		return errors.New("revision signature is invalid")
+	}
+	return nil
+}
+
+func validRenewalTxnSet(txnset []types.Transaction) error {
+	switch {
+	case len(txnset) == 0:
+		return errors.New("transaction set does not contain any transactions")
+	case len(txnset[len(txnset)-1].FileContracts) != 1:
+		return errors.New("transaction set must contain exactly one file contract")
+	case len(txnset[len(txnset)-1].FileContractRevisions) != 1:
+		return errors.New("transaction set must contain exactly one file contract revision")
+	}
+	for _, txn := range txnset[:len(txnset)-1] {
+		if len(txn.FileContracts) != 0 || len(txn.FileContractRevisions) != 0 {
+			return errors.New("transaction set contains non-renewal transactions")
+		}
+	}
 	return nil
 }
