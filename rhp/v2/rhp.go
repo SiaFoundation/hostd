@@ -246,8 +246,8 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		Collateral:             settings.Collateral,
 		MaxCollateral:          settings.MaxCollateral,
 		StoragePrice:           settings.MinStoragePrice,
-		DownloadBandwidthPrice: settings.MinIngressPrice,
-		UploadBandwidthPrice:   settings.MinEgressPrice,
+		DownloadBandwidthPrice: settings.MinEgressPrice,
+		UploadBandwidthPrice:   settings.MinIngressPrice,
 
 		RevisionNumber: settings.Revision,
 	}, nil
