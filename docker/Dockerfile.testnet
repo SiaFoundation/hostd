@@ -37,4 +37,4 @@ EXPOSE 9883/tcp
 
 USER ${PUID}:${PGID}
 
-ENTRYPOINT [ "hostd", "--docker", "--dir", "/data", "--http", ":9880" ]
+ENTRYPOINT [ "hostd", "--log.stdout", "--env", "--dir", "/data", "--http", ":9880" ]

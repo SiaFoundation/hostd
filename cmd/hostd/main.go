@@ -30,12 +30,10 @@ var (
 	dir         string
 	bootstrap   bool
 
-	logLevel string
+	logLevel  string
+	logStdout bool
 
-	// adjusts hostd for better docker integration.
-	// - logs to stdout
-	// - disables stdin prompts
-	docker bool
+	disableStdin bool
 )
 
 func check(context string, err error) {
@@ -49,7 +47,7 @@ func getAPIPassword() string {
 	if len(apiPassword) != 0 {
 		log.Printf("Using %s environment variable.", apiPasswordEnvVariable)
 		return apiPassword
-	} else if docker {
+	} else if disableStdin {
 		log.Fatalf("%s must be set via environment variable when running in docker.", apiPasswordEnvVariable)
 	}
 
@@ -67,7 +65,7 @@ func getWalletKey() types.PrivateKey {
 	phrase := os.Getenv(walletSeedEnvVariable)
 	if len(phrase) != 0 {
 		log.Printf("Using %s environment variable.", walletSeedEnvVariable)
-	} else if docker {
+	} else if disableStdin {
 		log.Fatalf("%s must be set via environment variable when running in docker.", walletSeedEnvVariable)
 	} else {
 		fmt.Print("Enter wallet seed: ")
@@ -91,7 +89,8 @@ func main() {
 	flag.StringVar(&dir, "dir", ".", "directory to store hostd metadata")
 	flag.BoolVar(&bootstrap, "bootstrap", true, "bootstrap the gateway and consensus modules")
 	flag.StringVar(&logLevel, "log.level", "warn", "log level (debug, info, warn, error)")
-	flag.BoolVar(&docker, "docker", false, "setting docker to true adjusts hostd for better docker integration (default false)")
+	flag.BoolVar(&logStdout, "log.stdout", false, "log to stdout (default false)")
+	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
 	flag.Parse()
 
 	log.Println("hostd", build.Version())
@@ -119,7 +118,7 @@ func main() {
 
 	cfg := zap.NewProductionConfig()
 	cfg.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
-	if docker {
+	if logStdout {
 		cfg.OutputPaths = append(cfg.OutputPaths, "stdout")
 	}
 	switch logLevel {
@@ -162,7 +161,7 @@ func main() {
 		ReadTimeout: 30 * time.Second,
 	}
 
-	if docker {
+	if logStdout {
 		logger.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
 	} else {
 		log.Println("api listening on:", apiListener.Addr().String())
@@ -175,7 +174,7 @@ func main() {
 	go func() {
 		err := web.Serve(apiListener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			if docker {
+			if logStdout {
 				logger.Error("failed to serve web", zap.Error(err))
 				return
 			}
@@ -187,7 +186,7 @@ func main() {
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
-	if docker {
+	if logStdout {
 		logger.Info("shutdown initiated")
 	} else {
 		log.Println("Shutting down...")
