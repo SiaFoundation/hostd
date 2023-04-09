@@ -109,9 +109,9 @@ var (
 		NetAddress:          "",
 		MaxContractDuration: 6 * blocksPerMonth, // 6 months
 
-		ContractPrice:     types.Siacoins(1).Div64(5),
-		BaseRPCPrice:      types.NewCurrency64(100),
-		SectorAccessPrice: types.NewCurrency64(100),
+		ContractPrice:     types.Siacoins(1).Div64(5),   // 200 ms / contract
+		BaseRPCPrice:      types.Siacoins(1).Div64(1e7), // 100ms / million RPCs
+		SectorAccessPrice: types.Siacoins(1).Div64(1e7), // 100ms / million sectors
 
 		Collateral:    types.Siacoins(100).Div64(1 << 40).Div64(blocksPerMonth), // 100 SC / TB / month
 		MaxCollateral: types.Siacoins(1000),
