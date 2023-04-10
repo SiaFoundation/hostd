@@ -32,16 +32,88 @@ const (
 	statInterval = 5 * time.Minute
 )
 
-// CurrentMetrics returns the current metrics for the host.
-func (s *Store) CurrentMetrics() (m metrics.Metrics, err error) {
+// MetricPeriod returns aggregated metrics for the period between start and end.
+func (s *Store) PeriodMetrics(start, end time.Time, interval metrics.Interval) (period []metrics.Metrics, err error) {
+	if start.After(end) {
+		return nil, errors.New("start time must be before end time")
+	}
+
+	current := start
+	switch interval {
+	case metrics.Interval15Minutes:
+		current = current.Truncate(15 * time.Minute)
+	case metrics.IntervalHourly:
+		current = current.Truncate(time.Hour)
+	case metrics.IntervalDaily:
+		y, m, d := current.Date()
+		current = time.Date(y, m, d, 0, 0, 0, 0, current.Location())
+	case metrics.IntervalMonthly:
+		y, m, _ := current.Date()
+		current = time.Date(y, m, 1, 0, 0, 0, 0, current.Location())
+	case metrics.IntervalYearly:
+		y, _, _ := current.Date()
+		current = time.Date(y, 1, 1, 0, 0, 0, 0, current.Location())
+	default:
+		return nil, fmt.Errorf("invalid interval: %v", interval)
+	}
+
+	err = s.transaction(func(tx txn) error {
+		for current.Before(end) {
+			m, err := aggregateMetrics(tx, current)
+			if err != nil {
+				return fmt.Errorf("failed to get metrics: %w", err)
+			}
+			period = append(period, m)
+
+			switch interval {
+			case metrics.Interval15Minutes:
+				current = current.Add(15 * time.Minute)
+			case metrics.IntervalHourly:
+				current = current.Add(time.Hour)
+			case metrics.IntervalDaily:
+				current = current.AddDate(0, 0, 1)
+			case metrics.IntervalMonthly:
+				current = current.AddDate(0, 1, 0)
+			case metrics.IntervalYearly:
+				current = current.AddDate(1, 0, 0)
+			}
+		}
+		return nil
+	})
+	return
+}
+
+// Metrics returns aggregate metrics for the host as of the timestamp.
+func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
+	return aggregateMetrics(&dbTxn{s}, timestamp)
+}
+
+func mustScanCurrency(b []byte) types.Currency {
+	var c sqlCurrency
+	if err := c.Scan(b); err != nil {
+		panic(err)
+	}
+	return types.Currency(c)
+}
+
+func mustScanUint64(b []byte) uint64 {
+	var u sqlUint64
+	if err := u.Scan(b); err != nil {
+		panic(err)
+	}
+	return uint64(u)
+}
+
+func aggregateMetrics(tx txn, timestamp time.Time) (m metrics.Metrics, err error) {
 	const query = `WITH summary AS (
 SELECT 
 	stat, stat_value, 
 	ROW_NUMBER() OVER (PARTITION BY stat ORDER BY date_created DESC) AS rank 
-FROM host_stats s)
+FROM host_stats s
+WHERE s.date_created <= $1)
 SELECT stat, stat_value FROM summary WHERE rank=1;
 `
-	rows, err := s.query(query)
+	rows, err := tx.Query(query, timestamp)
 	if err != nil {
 		return metrics.Metrics{}, fmt.Errorf("failed to query metrics: %w", err)
 	}
@@ -74,23 +146,8 @@ SELECT stat, stat_value FROM summary WHERE rank=1;
 			m.Storage.TempSectors = mustScanUint64(value)
 		}
 	}
+	m.Timestamp = timestamp
 	return
-}
-
-func mustScanCurrency(b []byte) types.Currency {
-	var c sqlCurrency
-	if err := c.Scan(b); err != nil {
-		panic(err)
-	}
-	return types.Currency(c)
-}
-
-func mustScanUint64(b []byte) uint64 {
-	var u sqlUint64
-	if err := u.Scan(b); err != nil {
-		panic(err)
-	}
-	return uint64(u)
 }
 
 // trackNumericStat tracks a numeric stat, incrementing the current value by
