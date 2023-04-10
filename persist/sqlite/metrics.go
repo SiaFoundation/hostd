@@ -22,6 +22,7 @@ const (
 	metricPhysicalSectors = "physicalSectors"
 	metricContractSectors = "contractSectors"
 	metricTempSectors     = "tempSectors"
+	metricRegistryEntries = "registryEntries"
 
 	// bandwidth
 	metricRHP2Ingress = "rhp2Ingress"
@@ -146,6 +147,8 @@ SELECT stat, stat_value FROM summary WHERE rank=1;
 			m.Storage.ContractSectors = mustScanUint64(value)
 		case metricTempSectors:
 			m.Storage.TempSectors = mustScanUint64(value)
+		case metricRegistryEntries:
+			m.Storage.RegistryEntries = mustScanUint64(value)
 		}
 	}
 	m.Timestamp = timestamp

@@ -43,6 +43,7 @@ type (
 		PhysicalSectors uint64 `json:"physicalSectors"`
 		ContractSectors uint64 `json:"contractSectors"`
 		TempSectors     uint64 `json:"tempSectors"`
+		RegistryEntries uint64 `json:"registryEntries"`
 	}
 
 	// Metrics is a collection of metrics for the host.

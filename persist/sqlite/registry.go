@@ -45,8 +45,12 @@ func (s *Store) SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) e
 			} else if count >= max {
 				return registry.ErrNotEnoughSpace
 			}
-
-			return tx.QueryRow(insertQuery, sqlHash256(registryKey), sqlUint64(entry.Revision), entry.Type, sqlHash512(entry.Signature), entry.Data, sqlUint64(expiration)).Scan((*sqlHash256)(&registryKey))
+			err = tx.QueryRow(insertQuery, sqlHash256(registryKey), sqlUint64(entry.Revision), entry.Type, sqlHash512(entry.Signature), entry.Data, sqlUint64(expiration)).Scan((*sqlHash256)(&registryKey))
+			if err != nil {
+				return fmt.Errorf("failed to insert registry entry: %w", err)
+			} else if err := trackNumericStat(tx, metricRegistryEntries, 1); err != nil {
+				return fmt.Errorf("failed to track registry entry: %w", err)
+			}
 		} else if err != nil {
 			return fmt.Errorf("failed to get registry entry: %w", err)
 		}
