@@ -32,7 +32,7 @@ const (
 	statInterval = 5 * time.Minute
 )
 
-// MetricPeriod returns aggregated metrics for the period between start and end.
+// PeriodMetrics returns aggregated metrics for the period between start and end.
 func (s *Store) PeriodMetrics(start, end time.Time, interval metrics.Interval) (period []metrics.Metrics, err error) {
 	if start.After(end) {
 		return nil, errors.New("start time must be before end time")

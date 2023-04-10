@@ -19,6 +19,7 @@ const (
 )
 
 type (
+	// RevenueMetrics is a collection of metrics related to revenue.
 	RevenueMetrics struct {
 		RPC           types.Currency `json:"rpc"`
 		Storage       types.Currency `json:"storage"`

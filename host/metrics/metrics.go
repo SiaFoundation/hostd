@@ -5,6 +5,7 @@ import (
 )
 
 type (
+	// A Store retrieves metrics
 	Store interface {
 		// PeriodMetrics returns aggregated metrics for the period between start and end.
 		PeriodMetrics(start, end time.Time, interval Interval) (period []Metrics, err error)
@@ -23,7 +24,7 @@ func (mm *MetricManager) PeriodMetrics(start, end time.Time, interval Interval) 
 	return mm.store.PeriodMetrics(start, end, interval)
 }
 
-// CurrentMetrics returns the current metrics for the host.
+// Metrics returns the current metrics for the host.
 func (mm *MetricManager) Metrics(timestamp time.Time) (m Metrics, err error) {
 	return mm.store.Metrics(timestamp)
 }
