@@ -104,6 +104,7 @@ type (
 		rhp3Port   string
 
 		listener net.Listener
+		monitor  rhp.DataMonitor
 		tg       *threadgroup.ThreadGroup
 
 		cm     ChainManager
@@ -166,7 +167,7 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 func (sh *SessionHandler) upgrade(conn net.Conn) error {
 	// wrap the conn with the bandwidth limiters
 	ingressLimiter, egressLimiter := sh.settings.BandwidthLimiters()
-	conn = rhp.NewConn(conn, ingressLimiter, egressLimiter)
+	conn = rhp.NewConn(conn, sh.monitor, ingressLimiter, egressLimiter)
 
 	t, err := rhpv2.NewHostTransport(conn, sh.privateKey)
 	if err != nil {
@@ -264,9 +265,7 @@ func (sh *SessionHandler) Serve() error {
 		}
 		go func() {
 			defer conn.Close()
-
-			ingress, egress := sh.settings.BandwidthLimiters()
-			if err := sh.upgrade(rhp.NewConn(conn, ingress, egress)); err != nil {
+			if err := sh.upgrade(conn); err != nil {
 				sh.log.Debug("failed to upgrade connection", zap.Error(err), zap.String("remoteAddr", conn.RemoteAddr().String()))
 			}
 		}()
@@ -279,7 +278,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, monitor rhp.DataMonitor, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
 	_, rhp3Port, err := net.SplitHostPort(rhp3Addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse rhp3 addr: %w", err)
@@ -291,6 +290,7 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string
 		rhp3Port:   rhp3Port,
 
 		listener: l,
+		monitor:  monitor,
 		cm:       cm,
 		tpool:    tpool,
 		wallet:   wallet,

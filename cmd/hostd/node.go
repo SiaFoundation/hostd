@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/rhp"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
@@ -115,13 +116,17 @@ type node struct {
 	registry  *registry.Manager
 	storage   *storage.VolumeManager
 
-	rhp2 *rhpv2.SessionHandler
-	rhp3 *rhpv3.SessionHandler
+	rhp2Monitor *rhp.DataRecorder
+	rhp2        *rhpv2.SessionHandler
+	rhp3Monitor *rhp.DataRecorder
+	rhp3        *rhpv3.SessionHandler
 }
 
 func (n *node) Close() error {
 	n.rhp3.Close()
 	n.rhp2.Close()
+	n.rhp2Monitor.Close()
+	n.rhp3Monitor.Close()
 	n.storage.Close()
 	n.contracts.Close()
 	n.w.Close()
@@ -132,8 +137,8 @@ func (n *node) Close() error {
 	return nil
 }
 
-func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager, log *zap.Logger) (*rhpv2.SessionHandler, error) {
-	rhp2, err := rhpv2.NewSessionHandler(l, hostKey, rhp3Addr, cs, tp, w, cm, sr, sm, discordMetricReporter{}, log)
+func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager, monitor rhp.DataMonitor, log *zap.Logger) (*rhpv2.SessionHandler, error) {
+	rhp2, err := rhpv2.NewSessionHandler(l, hostKey, rhp3Addr, cs, tp, w, cm, sr, sm, monitor, discardMetricReporter{}, log)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +146,8 @@ func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhp
 	return rhp2, nil
 }
 
-func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhpv3.ChainManager, tp rhpv3.TransactionPool, w rhpv3.Wallet, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, log *zap.Logger) (*rhpv3.SessionHandler, error) {
-	rhp3, err := rhpv3.NewSessionHandler(l, hostKey, cs, tp, w, am, cm, rm, sm, sr, discordMetricReporter{}, log)
+func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhpv3.ChainManager, tp rhpv3.TransactionPool, w rhpv3.Wallet, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, monitor rhp.DataMonitor, log *zap.Logger) (*rhpv3.SessionHandler, error) {
+	rhp3, err := rhpv3.NewSessionHandler(l, hostKey, cs, tp, w, am, cm, rm, sm, sr, monitor, discardMetricReporter{}, log)
 	if err != nil {
 		return nil, err
 	}
@@ -238,12 +243,14 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 	registryManager := registry.NewManager(hostKey, db)
 
-	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, txpool{tp}, w, contractManager, sr, sm, logger.Named("rhpv2"))
+	rhp2Monitor := rhp.NewDataRecorder(&rhp2MonitorStore{db}, logger.Named("rhp2Monitor"))
+	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, txpool{tp}, w, contractManager, sr, sm, rhp2Monitor, logger.Named("rhpv2"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
-	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, txpool{tp}, w, accountManager, contractManager, registryManager, sr, sm, logger.Named("rhpv3"))
+	rhp3Monitor := rhp.NewDataRecorder(&rhp3MonitorStore{db}, logger.Named("rhp3Monitor"))
+	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, txpool{tp}, w, accountManager, contractManager, registryManager, sr, sm, rhp3Monitor, logger.Named("rhpv3"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}
@@ -262,7 +269,9 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		storage:   sm,
 		registry:  registryManager,
 
-		rhp2: rhp2,
-		rhp3: rhp3,
+		rhp2Monitor: rhp2Monitor,
+		rhp2:        rhp2,
+		rhp3Monitor: rhp3Monitor,
+		rhp3:        rhp3,
 	}, hostKey, nil
 }
