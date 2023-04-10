@@ -58,6 +58,8 @@ func (s *Store) PeriodMetrics(start, end time.Time, interval metrics.Interval) (
 	}
 
 	err = s.transaction(func(tx txn) error {
+		// TODO: this would be more performant in a single query, then parsing
+		// the results, but this is quicker and performant enough short-term.
 		for current.Before(end) {
 			m, err := aggregateMetrics(tx, current)
 			if err != nil {

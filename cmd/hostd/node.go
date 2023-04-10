@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
@@ -107,6 +108,7 @@ type node struct {
 	w     *wallet.SingleAddressWallet
 	store *sqlite.Store
 
+	metrics   *metrics.MetricManager
 	settings  *settings.ConfigManager
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
@@ -253,6 +255,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		w:     w,
 		store: db,
 
+		metrics:   metrics.NewManager(db),
 		settings:  sr,
 		accounts:  accountManager,
 		contracts: contractManager,

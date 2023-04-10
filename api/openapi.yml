@@ -41,6 +41,61 @@ paths:
             application/json:
               schema:
                 type: object
+  /metrics:
+    get:
+      summary: Retrieve host metrics for the current time or a specified timestamp
+      description: Fetches a collection of host metrics, including contract and storage metrics, for the current time or a specified timestamp.
+      parameters:
+        - name: timestamp
+          in: query
+          description: The timestamp for which to retrieve metrics
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        200:
+          description: Successfully retrieved host metrics for the specified timestamp or current time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metrics'
+        400:
+          description: Bad request (e.g., failed to parse timestamp)
+  /metrics/{period}:
+    get:
+      summary: Retrieve host metrics for a specified period
+      description: Fetches a collection of host metrics, including contract and storage metrics, for the specified period.
+      parameters:
+        - name: period
+          in: path
+          description: The period for which to retrieve metrics (e.g., hourly, daily, weekly, etc.)
+          required: true
+          schema:
+            type: string
+        - name: start
+          in: query
+          description: The start time for the metrics period
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          description: The end time for the metrics period
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        200:
+          description: Successfully retrieved host metrics for the specified period
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metrics'
+        400:
+          description: Bad request (e.g., failed to parse start time, end time, or period)
   /settings:
     get:
       summary: Get settings
@@ -237,6 +292,74 @@ components:
           type: string
         version:
           type: string
+    RevenueMetrics:
+      type: object
+      properties:
+        rpc:
+          type: string
+          format: biginteger
+        storage:
+          type: string
+          format: biginteger
+        ingress:
+          type: string
+          format: biginteger
+        egress:
+          type: string
+          format: biginteger
+        registryRead:
+          type: string
+          format: biginteger
+        registryWrite:
+          type: string
+          format: biginteger
+    ContractMetrics:
+      type: object
+      properties:
+        pending:
+          type: integer
+          format: uint64
+        active:
+          type: integer
+          format: uint64
+        rejected:
+          type: integer
+          format: uint64
+        failed:
+          type: integer
+          format: uint64
+        successful:
+          type: integer
+          format: uint64
+    StorageMetrics:
+      type: object
+      properties:
+        physicalSectors:
+          type: integer
+          format: uint64
+        contractSectors:
+          type: integer
+          format: uint64
+        tempSectors:
+          type: integer
+          format: uint64
+    Metrics:
+      type: object
+      properties:
+        potentialRevenue:
+          $ref: '#/components/schemas/RevenueMetrics'
+        earnedRevenue:
+          $ref: '#/components/schemas/RevenueMetrics'
+        contracts:
+          $ref: '#/components/schemas/ContractMetrics'
+        storage:
+          $ref: '#/components/schemas/StorageMetrics'
+        balance:
+          type: string
+          format: biginteger
+        timestamp:
+          type: string
+          format: date-time
     Settings:
       type: object
       properties:

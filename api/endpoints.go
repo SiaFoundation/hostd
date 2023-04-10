@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/financials"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/jape"
@@ -128,11 +129,35 @@ func (a *API) handlePOSTSettings(c jape.Context) {
 	c.Encode(settings)
 }
 
-func (a *API) handleGETFinancials(c jape.Context) {
-	if err := c.Error(errors.New("not implemented"), http.StatusInternalServerError); err != nil {
+func (a *API) handleGETMetrics(c jape.Context) {
+	var timestamp time.Time
+	c.DecodeForm("timestamp", &timestamp)
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	metrics, err := a.metrics.Metrics(timestamp)
+	if !a.checkServerError(c, "failed to get metrics", err) {
 		return
 	}
-	c.Encode([]financials.Revenue{})
+	c.Encode(metrics)
+}
+
+func (a *API) handleGETPeriodMetrics(c jape.Context) {
+	var start, end time.Time
+	var interval metrics.Interval
+	if err := c.DecodeForm("start", &start); err != nil {
+		c.Error(fmt.Errorf("failed to parse start time: %w", err), http.StatusBadRequest)
+	} else if err := c.DecodeForm("end", &end); err != nil {
+		c.Error(fmt.Errorf("failed to parse end time: %w", err), http.StatusBadRequest)
+	} else if err := c.DecodeParam("interval", &interval); err != nil {
+		c.Error(fmt.Errorf("failed to parse period: %w", err), http.StatusBadRequest)
+	}
+	period, err := a.metrics.PeriodMetrics(start, end, interval)
+	if !a.checkServerError(c, "failed to get metrics", err) {
+		return
+	}
+	c.Encode(period)
 }
 
 func (a *API) handlePostContracts(c jape.Context) {

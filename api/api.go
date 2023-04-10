@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/wallet"
@@ -32,6 +34,14 @@ type (
 		Announce() error
 		UpdateSettings(s settings.Settings) error
 		Settings() settings.Settings
+	}
+
+	// Metrics retrieves metrics related to the host
+	Metrics interface {
+		// PeriodMetrics returns aggregated metrics for the period between start and end.
+		PeriodMetrics(start, end time.Time, interval metrics.Interval) (period []metrics.Metrics, err error)
+		// Metrics returns aggregated metrics for the host as of the timestamp.
+		Metrics(time.Time) (m metrics.Metrics, err error)
 	}
 
 	// A VolumeManager manages the host's storage volumes
@@ -81,6 +91,7 @@ type (
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
+		metrics   Metrics
 		settings  Settings
 
 		checks integrityCheckJobs
@@ -88,7 +99,7 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm ContractManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	a := &API{
 		hostKey: hostKey,
 
@@ -96,6 +107,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm Contrac
 		chain:     chain,
 		contracts: cm,
 		volumes:   vm,
+		metrics:   m,
 		settings:  s,
 		wallet:    w,
 		log:       log,
@@ -109,7 +121,8 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm Contrac
 		"GET /settings":                   a.handleGETSettings,
 		"POST /settings":                  a.handlePOSTSettings,
 		"POST /settings/announce":         a.handlePOSTAnnounce,
-		"GET /financials/:period":         a.handleGETFinancials,
+		"GET /metrics":                    a.handleGETMetrics,
+		"GET /metrics/:period":            a.handleGETPeriodMetrics,
 		"POST /contracts":                 a.handlePostContracts,
 		"GET /contracts/:id":              a.handleGETContract,
 		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
