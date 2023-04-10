@@ -15,7 +15,7 @@ import (
 func (s *Store) StorageUsage() (usedSectors, totalSectors uint64, err error) {
 	// nulls are not included in COUNT() -- counting sector roots is equivalent
 	// to counting used sectors.
-	const query = `SELECT SUM(total_sectors) AS total_sectors, SUM(used_sectors) AS used_sectors FROM storage_volumes`
+	const query = `SELECT COALESCE(SUM(total_sectors), 0) AS total_sectors, COALESCE(SUM(used_sectors), 0) AS used_sectors FROM storage_volumes`
 	err = s.queryRow(query).Scan(&totalSectors, &usedSectors)
 	return
 }
