@@ -19,6 +19,7 @@ const (
 	metricFailedContracts     = "failedContracts"
 
 	// storage
+	metricTotalSectors    = "totalSectors"
 	metricPhysicalSectors = "physicalSectors"
 	metricContractSectors = "contractSectors"
 	metricTempSectors     = "tempSectors"
@@ -95,12 +96,12 @@ func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
 func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
 	return s.transaction(func(tx txn) error {
 		if ingress > 0 {
-			if err := trackNumericStat(tx, metricRHP2Ingress, int(ingress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP2Ingress, int(ingress)); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
 			}
 		}
 		if egress > 0 {
-			if err := trackNumericStat(tx, metricRHP2Egress, int(egress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP2Egress, int(egress)); err != nil {
 				return fmt.Errorf("failed to track egress: %w", err)
 			}
 		}
@@ -112,12 +113,12 @@ func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
 func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
 	return s.transaction(func(tx txn) error {
 		if ingress > 0 {
-			if err := trackNumericStat(tx, metricRHP3Ingress, int(ingress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP3Ingress, int(ingress)); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
 			}
 		}
 		if egress > 0 {
-			if err := trackNumericStat(tx, metricRHP3Egress, int(egress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP3Egress, int(egress)); err != nil {
 				return fmt.Errorf("failed to track egress: %w", err)
 			}
 		}
@@ -175,6 +176,8 @@ SELECT stat, stat_value FROM summary WHERE rank=1;
 			m.Contracts.Successful = mustScanUint64(value)
 		case metricFailedContracts:
 			m.Contracts.Failed = mustScanUint64(value)
+		case metricTotalSectors:
+			m.Storage.TotalSectors = mustScanUint64(value)
 		case metricPhysicalSectors:
 			m.Storage.PhysicalSectors = mustScanUint64(value)
 		case metricContractSectors:
@@ -197,9 +200,9 @@ SELECT stat, stat_value FROM summary WHERE rank=1;
 	return
 }
 
-// trackNumericStat tracks a numeric stat, incrementing the current value by
+// incrementNumericStat tracks a numeric stat, incrementing the current value by
 // delta. If the resulting value is negative, the function panics.
-func trackNumericStat(tx txn, stat string, delta int) error {
+func incrementNumericStat(tx txn, stat string, delta int) error {
 	timestamp := time.Now().Truncate(statInterval)
 	var current uint64
 	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
@@ -222,10 +225,10 @@ func trackNumericStat(tx txn, stat string, delta int) error {
 	return nil
 }
 
-// trackCurrencyStat tracks a currency stat. If negative is false, the current
+// incrementCurrencyStat tracks a currency stat. If negative is false, the current
 // value is incremented by delta. Otherwise, the value is decremented. If the
 // resulting value would be negative, the function panics.
-func trackCurrencyStat(tx txn, stat string, delta types.Currency, negative bool) error {
+func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative bool) error {
 	timestamp := time.Now().Truncate(statInterval)
 	var current types.Currency
 	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, metricContractSectors, sqlTime(timestamp)).Scan((*sqlCurrency)(&current))

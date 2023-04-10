@@ -48,6 +48,7 @@ type (
 
 	// StorageMetrics is a collection of metrics related to storage.
 	StorageMetrics struct {
+		TotalSectors    uint64 `json:"totalSectors"`
 		PhysicalSectors uint64 `json:"physicalSectors"`
 		ContractSectors uint64 `json:"contractSectors"`
 		TempSectors     uint64 `json:"tempSectors"`

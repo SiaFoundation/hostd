@@ -51,7 +51,7 @@ func (u *updateContractTxn) AppendSector(root types.Hash256) error {
 	err = u.tx.QueryRow(`INSERT INTO contract_sector_roots (contract_id, root_index, sector_id) SELECT $1, $2, id FROM stored_sectors WHERE sector_root=$3 RETURNING sector_id;`, u.contractDBID, nextIndex, sqlHash256(root)).Scan(&sectorID)
 	if err != nil {
 		return fmt.Errorf("failed to append sector: %w", err)
-	} else if err := trackNumericStat(u.tx, metricContractSectors, 1); err != nil {
+	} else if err := incrementNumericStat(u.tx, metricContractSectors, 1); err != nil {
 		return fmt.Errorf("failed to track contract sectors: %w", err)
 	}
 	return nil
@@ -153,7 +153,7 @@ func (u *updateContractTxn) TrimSectors(n int) error {
 	_, err = u.tx.Exec(`DELETE FROM contract_sector_roots WHERE contract_id=$1 AND root_index > $2;`, u.contractDBID, maxIndex-uint64(n))
 	if err != nil {
 		return fmt.Errorf("failed to trim sectors: %w", err)
-	} else if err := trackNumericStat(u.tx, metricContractSectors, -n); err != nil {
+	} else if err := incrementNumericStat(u.tx, metricContractSectors, -n); err != nil {
 		return fmt.Errorf("failed to update contract metric: %w", err)
 	}
 	return err
@@ -480,7 +480,7 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 			query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
 			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
 				return fmt.Errorf("failed to delete sectors: %w", err)
-			} else if err := trackNumericStat(tx, metricContractSectors, len(sectorIDs)); err != nil {
+			} else if err := incrementNumericStat(tx, metricContractSectors, len(sectorIDs)); err != nil {
 				return fmt.Errorf("failed to track contract sectors: %w", err)
 			}
 			return nil
@@ -576,7 +576,7 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirm
 	).Scan(&dbID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert contract: %w", err)
-	} else if err := trackNumericStat(tx, metricPendingContracts, 1); err != nil {
+	} else if err := incrementNumericStat(tx, metricPendingContracts, 1); err != nil {
 		return 0, fmt.Errorf("failed to track pending contracts: %w", err)
 	}
 	return
@@ -764,9 +764,9 @@ func updateContractMetrics(tx txn, prev, current contracts.ContractStatus) error
 		return fmt.Errorf("invalid contract status: %v", current)
 	}
 
-	if err := trackNumericStat(tx, initialMetric, -1); err != nil {
+	if err := incrementNumericStat(tx, initialMetric, -1); err != nil {
 		return fmt.Errorf("failed to decrement initial contract metric: %w", err)
-	} else if err := trackNumericStat(tx, finalMetric, 1); err != nil {
+	} else if err := incrementNumericStat(tx, finalMetric, 1); err != nil {
 		return fmt.Errorf("failed to increment final contract metric: %w", err)
 	}
 	return nil
