@@ -78,6 +78,9 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 				return fmt.Errorf("failed to add temp sector root: %w", err)
 			}
 		}
+		if err := trackNumericStat(tx, metricTempSectors, len(sectors)); err != nil {
+			return fmt.Errorf("failed to update metric: %w", err)
+		}
 		return nil
 	})
 }
@@ -102,6 +105,8 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 			query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
 			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
 				return fmt.Errorf("failed to delete sectors: %w", err)
+			} else if err := trackNumericStat(tx, metricTempSectors, -len(sectorIDs)); err != nil {
+				return fmt.Errorf("failed to update metric: %w", err)
 			}
 			return nil
 		})
@@ -161,6 +166,10 @@ func (s *Store) PruneSectors() error {
 				} else if _, err := metaUpdateStmt.Exec(volumeID); err != nil {
 					return fmt.Errorf("failed to update volume metadata: %w", err)
 				}
+			}
+
+			if trackNumericStat(tx, metricPhysicalSectors, -len(sectorIDs)) != nil {
+				return fmt.Errorf("failed to update metric: %w", err)
 			}
 			return nil
 		})

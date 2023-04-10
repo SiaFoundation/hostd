@@ -51,6 +51,8 @@ func (u *updateContractTxn) AppendSector(root types.Hash256) error {
 	err = u.tx.QueryRow(`INSERT INTO contract_sector_roots (contract_id, root_index, sector_id) SELECT $1, $2, id FROM stored_sectors WHERE sector_root=$3 RETURNING sector_id;`, u.contractDBID, nextIndex, sqlHash256(root)).Scan(&sectorID)
 	if err != nil {
 		return fmt.Errorf("failed to append sector: %w", err)
+	} else if err := trackNumericStat(u.tx, metricContractSectors, 1); err != nil {
+		return fmt.Errorf("failed to track contract sectors: %w", err)
 	}
 	return nil
 }
@@ -137,29 +139,38 @@ func (u *updateContractTxn) UpdateSector(index uint64, root types.Hash256) error
 }
 
 // TrimSectors removes the last n sector roots from the contract.
-func (u *updateContractTxn) TrimSectors(n uint64) error {
+func (u *updateContractTxn) TrimSectors(n int) error {
+	if n < 0 {
+		panic("negative sector count")
+	}
 	var maxIndex uint64
 	err := u.tx.QueryRow(`SELECT COALESCE(MAX(root_index), 0) FROM contract_sector_roots WHERE contract_id=$1;`, u.contractDBID).Scan(&maxIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get max index: %w", err)
-	} else if n > maxIndex {
+	} else if uint64(n) > maxIndex {
 		return fmt.Errorf("cannot trim %v sectors from contract with %v sectors", n, maxIndex)
 	}
-	_, err = u.tx.Exec(`DELETE FROM contract_sector_roots WHERE contract_id=$1 AND root_index > $2;`, u.contractDBID, maxIndex-n)
+	_, err = u.tx.Exec(`DELETE FROM contract_sector_roots WHERE contract_id=$1 AND root_index > $2;`, u.contractDBID, maxIndex-uint64(n))
+	if err != nil {
+		return fmt.Errorf("failed to trim sectors: %w", err)
+	} else if err := trackNumericStat(u.tx, metricContractSectors, -n); err != nil {
+		return fmt.Errorf("failed to update contract metric: %w", err)
+	}
 	return err
 }
 
 // SetStatus sets the contract's status.
 func (u *updateContractsTxn) SetStatus(id types.FileContractID, status contracts.ContractStatus) error {
-	const query = `UPDATE contracts SET contract_status=$1 WHERE contract_id=$2 RETURNING id;`
-	var dbID int64
-	return u.tx.QueryRow(query, status, sqlHash256(id)).Scan(&dbID)
+	return setContractStatus(u.tx, id, status)
 }
 
 // ConfirmFormation sets the formation_confirmed flag to true.
 func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 	const query = `UPDATE contracts SET formation_confirmed=true WHERE contract_id=$1;`
 	_, err := u.tx.Exec(query, sqlHash256(id))
+	if err != nil {
+		return fmt.Errorf("failed to confirm formation: %w", err)
+	}
 	return err
 }
 
@@ -174,14 +185,20 @@ func (u *updateContractsTxn) ConfirmRevision(revision types.FileContractRevision
 func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID) error {
 	const query = `UPDATE contracts SET resolution_confirmed=true WHERE contract_id=$1 RETURNING id;`
 	var dbID int64
-	return u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
+	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
+		return fmt.Errorf("failed to confirm resolution: %w", err)
+	}
+	return nil
 }
 
 // RevertFormation sets the formation_confirmed flag to false.
 func (u *updateContractsTxn) RevertFormation(id types.FileContractID) error {
 	const query = `UPDATE contracts SET formation_confirmed=false WHERE contract_id=$1 RETURNING id;`
 	var dbID int64
-	return u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
+	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
+		return fmt.Errorf("failed to revert formation: %w", err)
+	}
+	return nil
 }
 
 // RevertRevision sets the confirmed revision number to 0.
@@ -195,7 +212,10 @@ func (u *updateContractsTxn) RevertRevision(id types.FileContractID) error {
 func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
 	const query = `UPDATE contracts SET resolution_confirmed=false WHERE contract_id=$1 RETURNING id;`
 	var dbID int64
-	return u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
+	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
+		return fmt.Errorf("failed to revert resolution: %w", err)
+	}
+	return nil
 }
 
 // ContractRevelant returns true if the contract is relevant to the host.
@@ -394,9 +414,7 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 
 // SetContractStatus sets the contract's status.
 func (s *Store) SetContractStatus(id types.FileContractID, status contracts.ContractStatus) error {
-	const query = `UPDATE contracts SET contract_status=$1 WHERE contract_id=$2 RETURNING id;`
-	var dbID int64
-	return s.queryRow(query, status, sqlHash256(id)).Scan(&dbID)
+	return setContractStatus(&dbTxn{s}, id, status)
 }
 
 // LastContractChange gets the last consensus change processed by the
@@ -462,6 +480,8 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 			query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
 			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
 				return fmt.Errorf("failed to delete sectors: %w", err)
+			} else if err := trackNumericStat(tx, metricContractSectors, len(sectorIDs)); err != nil {
+				return fmt.Errorf("failed to track contract sectors: %w", err)
 			}
 			return nil
 		})
@@ -554,6 +574,11 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirm
 		false,        // resolution_confirmed
 		contracts.ContractStatusPending,
 	).Scan(&dbID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert contract: %w", err)
+	} else if err := trackNumericStat(tx, metricPendingContracts, 1); err != nil {
+		return 0, fmt.Errorf("failed to track pending contracts: %w", err)
+	}
 	return
 }
 
@@ -706,6 +731,60 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		panic("contract id mismatch")
 	}
 	return
+}
+
+func updateContractMetrics(tx txn, prev, current contracts.ContractStatus) error {
+	var initialMetric, finalMetric string
+	switch prev {
+	case contracts.ContractStatusPending:
+		initialMetric = metricPendingContracts
+	case contracts.ContractStatusRejected:
+		initialMetric = metricRejectedContracts
+	case contracts.ContractStatusActive:
+		initialMetric = metricActiveContracts
+	case contracts.ContractStatusSuccessful:
+		initialMetric = metricSuccessfulContracts
+	case contracts.ContractStatusFailed:
+		initialMetric = metricFailedContracts
+	default:
+		return fmt.Errorf("invalid prev contract status: %v", current)
+	}
+	switch current {
+	case contracts.ContractStatusPending:
+		finalMetric = metricPendingContracts
+	case contracts.ContractStatusRejected:
+		finalMetric = metricRejectedContracts
+	case contracts.ContractStatusActive:
+		finalMetric = metricActiveContracts
+	case contracts.ContractStatusSuccessful:
+		finalMetric = metricSuccessfulContracts
+	case contracts.ContractStatusFailed:
+		finalMetric = metricFailedContracts
+	default:
+		return fmt.Errorf("invalid contract status: %v", current)
+	}
+
+	if err := trackNumericStat(tx, initialMetric, -1); err != nil {
+		return fmt.Errorf("failed to decrement initial contract metric: %w", err)
+	} else if err := trackNumericStat(tx, finalMetric, 1); err != nil {
+		return fmt.Errorf("failed to increment final contract metric: %w", err)
+	}
+	return nil
+}
+
+func setContractStatus(tx txn, id types.FileContractID, status contracts.ContractStatus) error {
+	var current contracts.ContractStatus
+	if err := tx.QueryRow(`SELECT contract_status FROM contracts WHERE contract_id=$1`, sqlHash256(id)).Scan(&current); err != nil {
+		return fmt.Errorf("failed to query contract status: %w", err)
+	}
+
+	var dbID int64
+	if err := tx.QueryRow(`UPDATE contracts SET contract_status=$1 WHERE contract_id=$2 RETURNING id;`, status, sqlHash256(id)).Scan(&dbID); err != nil {
+		return fmt.Errorf("failed to update contract status: %w", err)
+	} else if err := updateContractMetrics(tx, current, status); err != nil {
+		return fmt.Errorf("failed to update contract metrics: %w", err)
+	}
+	return nil
 }
 
 func expiredContractSectors(tx txn, height uint64, batchSize int64) (ids []int64, _ error) {

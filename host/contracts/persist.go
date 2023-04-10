@@ -14,7 +14,7 @@ type (
 		// SwapSectors swaps the sector roots at the given indices.
 		SwapSectors(i, j uint64) error
 		// TrimSectors removes the last n sector roots from the contract.
-		TrimSectors(n uint64) error
+		TrimSectors(n int) error
 		// UpdateSector updates the sector root at the given index.
 		UpdateSector(index uint64, newRoot types.Hash256) error
 

@@ -345,7 +345,7 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 					return fmt.Errorf("failed to swap sectors: %w", err)
 				}
 			case sectorActionTrim:
-				if err := tx.TrimSectors(action.A); err != nil {
+				if err := tx.TrimSectors(int(action.A)); err != nil {
 					return fmt.Errorf("failed to trim sectors: %w", err)
 				}
 			}

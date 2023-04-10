@@ -124,7 +124,7 @@ func TestUpdateContractRoots(t *testing.T) {
 	toRemove := 3
 	roots = roots[:len(roots)-toRemove]
 	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
-		return tx.TrimSectors(uint64(toRemove))
+		return tx.TrimSectors(toRemove)
 	})
 	if err != nil {
 		t.Fatal(err)

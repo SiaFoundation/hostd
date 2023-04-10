@@ -120,6 +120,8 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors+1 WHERE id=$1`, location.Volume)
 		if err != nil {
 			return fmt.Errorf("failed to update volume usage: %w", err)
+		} else if trackNumericStat(tx, metricPhysicalSectors, 1) != nil {
+			return fmt.Errorf("failed to update metric: %w", err)
 		}
 		return nil
 	})
