@@ -91,6 +91,40 @@ func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
 	return aggregateMetrics(&dbTxn{s}, timestamp)
 }
 
+// IncrementRHP2DataUsage increments the RHP2 ingress and egress metrics.
+func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
+	return s.transaction(func(tx txn) error {
+		if ingress > 0 {
+			if err := trackNumericStat(tx, metricRHP2Ingress, int(ingress)); err != nil {
+				return fmt.Errorf("failed to track ingress: %w", err)
+			}
+		}
+		if egress > 0 {
+			if err := trackNumericStat(tx, metricRHP2Egress, int(egress)); err != nil {
+				return fmt.Errorf("failed to track egress: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// IncrementRHP3DataUsage increments the RHP3 ingress and egress metrics.
+func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
+	return s.transaction(func(tx txn) error {
+		if ingress > 0 {
+			if err := trackNumericStat(tx, metricRHP3Ingress, int(ingress)); err != nil {
+				return fmt.Errorf("failed to track ingress: %w", err)
+			}
+		}
+		if egress > 0 {
+			if err := trackNumericStat(tx, metricRHP3Egress, int(egress)); err != nil {
+				return fmt.Errorf("failed to track egress: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 func mustScanCurrency(b []byte) types.Currency {
 	var c sqlCurrency
 	if err := c.Scan(b); err != nil {
@@ -149,6 +183,14 @@ SELECT stat, stat_value FROM summary WHERE rank=1;
 			m.Storage.TempSectors = mustScanUint64(value)
 		case metricRegistryEntries:
 			m.Storage.RegistryEntries = mustScanUint64(value)
+		case metricRHP2Ingress:
+			m.RHP2Data.Ingress = mustScanUint64(value)
+		case metricRHP2Egress:
+			m.RHP2Data.Egress = mustScanUint64(value)
+		case metricRHP3Ingress:
+			m.RHP3Data.Ingress = mustScanUint64(value)
+		case metricRHP3Egress:
+			m.RHP3Data.Egress = mustScanUint64(value)
 		}
 	}
 	m.Timestamp = timestamp

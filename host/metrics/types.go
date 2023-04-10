@@ -29,6 +29,14 @@ type (
 		RegistryWrite types.Currency `json:"registryWrite"`
 	}
 
+	// DataMetrics is a collection of metrics related to data usage.
+	DataMetrics struct {
+		// Ingress returns the number of bytes received by the host.
+		Ingress uint64 `json:"ingress"`
+		// Egress returns the number of bytes sent by the host.
+		Egress uint64 `json:"egress"`
+	}
+
 	// ContractMetrics is a collection of metrics related to contracts.
 	ContractMetrics struct {
 		Pending    uint64 `json:"pending"`
@@ -52,6 +60,8 @@ type (
 		EarnedRevenue    RevenueMetrics  `json:"earnedRevenue"`
 		Contracts        ContractMetrics `json:"contracts"`
 		Storage          StorageMetrics  `json:"storage"`
+		RHP2Data         DataMetrics     `json:"rhp2Data"`
+		RHP3Data         DataMetrics     `json:"rhp3Data"`
 		Balance          types.Currency  `json:"balance"`
 		Timestamp        time.Time       `json:"timestamp"`
 	}
