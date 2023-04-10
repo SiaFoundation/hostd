@@ -209,7 +209,7 @@ func TestContractLifecycle(t *testing.T) {
 		t.Fatal(err)
 	} else if contract.Status != contracts.ContractStatusPending {
 		t.Fatal("expected contract to be pending")
-	} else if m, err := node.Store().CurrentMetrics(); err != nil {
+	} else if m, err := node.Store().Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if m.Contracts.Pending != 1 {
 		t.Fatal("expected 1 pending contract")
@@ -225,7 +225,7 @@ func TestContractLifecycle(t *testing.T) {
 		t.Fatal(err)
 	} else if contract.Status != contracts.ContractStatusActive {
 		t.Fatal("expected contract to be active")
-	} else if m, err := node.Store().CurrentMetrics(); err != nil {
+	} else if m, err := node.Store().Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if m.Contracts.Pending != 0 {
 		t.Fatal("expected 0 pending contracts")
@@ -311,7 +311,7 @@ func TestContractLifecycle(t *testing.T) {
 		t.Fatal("expected contract to be successful")
 	} else if !contract.ResolutionConfirmed {
 		t.Fatal("expected resolution to be confirmed")
-	} else if m, err := node.Store().CurrentMetrics(); err != nil {
+	} else if m, err := node.Store().Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if m.Contracts.Active != 0 {
 		t.Fatal("expected 0 active contracts")
