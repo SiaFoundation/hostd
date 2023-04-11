@@ -139,7 +139,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm Contrac
 		"GET /wallet/transactions":        a.handleGETWalletTransactions,
 		"GET /wallet/pending":             a.handleGETWalletPending,
 		"POST /wallet/send":               a.handlePOSTWalletSend,
-		"GET /system/dir/:path":           a.handleGETSystemDir,
+		"GET /system/dir/*path":           a.handleGETSystemDir,
 	})
 	return r
 }

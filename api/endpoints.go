@@ -361,17 +361,12 @@ func (a *API) handleGETSystemDir(c jape.Context) {
 	var path string
 	if err := c.DecodeParam("path", &path); err != nil {
 		c.Error(fmt.Errorf("failed to parse path: %w", err), http.StatusBadRequest)
-	}
-
-	if path == "." { // handle current directory.
-		path, _ = os.Getwd()
-	} else if path == "~" { // handle user home directory.
+	} else if path == "/~" { // handle user home directory.
 		path, _ = os.UserHomeDir()
 	} else if len(path) == 0 { // handle empty path for root directory.
 		path = "/"
 	}
 	path, _ = filepath.Abs(path)
-
 	dir, err := os.ReadDir(path)
 	if errors.Is(err, os.ErrNotExist) {
 		c.Error(fmt.Errorf("path does not exist: %w", err), http.StatusBadRequest)
@@ -380,6 +375,7 @@ func (a *API) handleGETSystemDir(c jape.Context) {
 		return
 	}
 
+	// get disk usage
 	free, total, err := disk.Usage(path)
 	if !a.checkServerError(c, "failed to get disk usage", err) {
 		return
