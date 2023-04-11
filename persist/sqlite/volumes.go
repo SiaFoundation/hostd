@@ -120,7 +120,7 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors+1 WHERE id=$1`, location.Volume)
 		if err != nil {
 			return fmt.Errorf("failed to update volume usage: %w", err)
-		} else if incrementNumericStat(tx, metricPhysicalSectors, 1) != nil {
+		} else if err := incrementNumericStat(tx, metricPhysicalSectors, 1, time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
 		return nil
@@ -286,7 +286,7 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 			_, err = tx.Exec(updateMetaQuery, len(locations), id)
 			if err != nil {
 				return fmt.Errorf("failed to update volume metadata: %w", err)
-			} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locations)); err != nil {
+			} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locations), time.Now()); err != nil {
 				return fmt.Errorf("failed to update total sector metric: %w", err)
 			}
 			return nil
@@ -331,7 +331,7 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 
 		if _, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id); err != nil {
 			return fmt.Errorf("failed to update volume metadata: %w", err)
-		} else if err := incrementNumericStat(tx, metricTotalSectors, int(maxSectors-nextIndex)); err != nil {
+		} else if err := incrementNumericStat(tx, metricTotalSectors, int(maxSectors-nextIndex), time.Now()); err != nil {
 			return fmt.Errorf("failed to update total sectors metric: %w", err)
 		}
 		return nil
@@ -371,7 +371,7 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 		_, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id)
 		if err != nil {
 			return fmt.Errorf("failed to update volume metadata: %w", err)
-		} else if err := incrementNumericStat(tx, metricTotalSectors, -int(totalSectors-maxSectors)); err != nil {
+		} else if err := incrementNumericStat(tx, metricTotalSectors, -int(totalSectors-maxSectors), time.Now()); err != nil {
 			return fmt.Errorf("failed to update total sectors metric: %w", err)
 		}
 		return nil

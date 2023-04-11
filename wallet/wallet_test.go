@@ -39,6 +39,10 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {
 		t.Fatalf("expected zero balance, got %v", balance)
+	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero balance, got %d", m.Balance)
 	}
 
 	// mine until the first output has matured
@@ -54,6 +58,10 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if !balance.Equals(expectedBalance) {
 		t.Fatalf("expected %d balance, got %d", expectedBalance, balance)
+	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.Equals(expectedBalance) {
+		t.Fatalf("expected %d balance, got %d", expectedBalance, m.Balance)
 	}
 
 	// check that the wallet has a single transaction
@@ -115,6 +123,10 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected %v balance, got %v", expectedBalance, balance)
 	} else if !unconfirmed.Equals(types.ZeroCurrency) {
 		t.Fatalf("expected zero unconfirmed balance, got %v", unconfirmed)
+	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.Equals(expectedBalance) {
+		t.Fatalf("expected %d balance, got %d", expectedBalance, m.Balance)
 	}
 
 	// check that the wallet has two transactions
@@ -177,6 +189,10 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if count != 22 {
 		t.Fatalf("expected 22 transactions, got %v", count)
+	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected %d balance, got %d", types.ZeroCurrency, m.Balance)
 	}
 
 	// check that the paginated transactions are in the proper order
@@ -218,6 +234,10 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if !balance.Equals(types.ZeroCurrency) {
 		t.Fatalf("expected zero balance, got %v", balance)
+	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected %d balance, got %d", types.ZeroCurrency, m.Balance)
 	}
 
 	// check that all transactions have been deleted

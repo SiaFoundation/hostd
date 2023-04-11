@@ -565,6 +565,54 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			}
 		}
 
+		for i, diff := range cc.RevertedDiffs {
+			blockTimestamp := time.Unix(int64(cc.RevertedBlocks[i].Timestamp), 0)
+			for _, sco := range diff.SiacoinOutputDiffs {
+				var addr types.Address
+				copy(addr[:], sco.SiacoinOutput.UnlockHash[:])
+				if addr != sw.addr {
+					continue
+				}
+
+				var value types.Currency
+				convertToCore(sco.SiacoinOutput.Value, &value)
+				switch sco.Direction {
+				case modules.DiffApply:
+					if err := tx.AddWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to add wallet delta: %w", err)
+					}
+				case modules.DiffRevert:
+					if err := tx.SubWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to sub wallet delta: %w", err)
+					}
+				}
+			}
+		}
+
+		for i, diff := range cc.AppliedDiffs {
+			blockTimestamp := time.Unix(int64(cc.AppliedBlocks[i].Timestamp), 0)
+			for _, sco := range diff.SiacoinOutputDiffs {
+				var addr types.Address
+				copy(addr[:], sco.SiacoinOutput.UnlockHash[:])
+				if addr != sw.addr {
+					continue
+				}
+
+				var value types.Currency
+				convertToCore(sco.SiacoinOutput.Value, &value)
+				switch sco.Direction {
+				case modules.DiffApply:
+					if err := tx.AddWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to add wallet delta: %w", err)
+					}
+				case modules.DiffRevert:
+					if err := tx.SubWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to sub wallet delta: %w", err)
+					}
+				}
+			}
+		}
+
 		// calculate the block height of the first applied block
 		blockHeight = uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + 1
 		// apply transactions

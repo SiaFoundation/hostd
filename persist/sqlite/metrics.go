@@ -31,6 +31,9 @@ const (
 	metricRHP3Ingress = "rhp3Ingress"
 	metricRHP3Egress  = "rhp3Egress"
 
+	// wallet
+	metricWalletBalance = "walletBalance"
+
 	statInterval = 5 * time.Minute
 )
 
@@ -96,12 +99,12 @@ func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
 func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
 	return s.transaction(func(tx txn) error {
 		if ingress > 0 {
-			if err := incrementNumericStat(tx, metricRHP2Ingress, int(ingress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP2Ingress, int(ingress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
 			}
 		}
 		if egress > 0 {
-			if err := incrementNumericStat(tx, metricRHP2Egress, int(egress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP2Egress, int(egress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track egress: %w", err)
 			}
 		}
@@ -113,12 +116,12 @@ func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
 func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
 	return s.transaction(func(tx txn) error {
 		if ingress > 0 {
-			if err := incrementNumericStat(tx, metricRHP3Ingress, int(ingress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP3Ingress, int(ingress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
 			}
 		}
 		if egress > 0 {
-			if err := incrementNumericStat(tx, metricRHP3Egress, int(egress)); err != nil {
+			if err := incrementNumericStat(tx, metricRHP3Egress, int(egress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track egress: %w", err)
 			}
 		}
@@ -145,13 +148,12 @@ func mustScanUint64(b []byte) uint64 {
 func aggregateMetrics(tx txn, timestamp time.Time) (m metrics.Metrics, err error) {
 	const query = `WITH summary AS (
 SELECT 
-	stat, stat_value, 
-	ROW_NUMBER() OVER (PARTITION BY stat ORDER BY date_created DESC) AS rank 
+stat, stat_value, 
+ROW_NUMBER() OVER (PARTITION BY stat ORDER BY date_created DESC) AS rank 
 FROM host_stats s
-WHERE s.date_created <= $1)
-SELECT stat, stat_value FROM summary WHERE rank=1;
-`
-	rows, err := tx.Query(query, timestamp)
+WHERE s.date_created<=$1)
+SELECT stat, stat_value FROM summary WHERE rank=1;`
+	rows, err := tx.Query(query, sqlTime(timestamp))
 	if err != nil {
 		return metrics.Metrics{}, fmt.Errorf("failed to query metrics: %w", err)
 	}
@@ -194,6 +196,8 @@ SELECT stat, stat_value FROM summary WHERE rank=1;
 			m.RHP3Data.Ingress = mustScanUint64(value)
 		case metricRHP3Egress:
 			m.RHP3Data.Egress = mustScanUint64(value)
+		case metricWalletBalance:
+			m.Balance = mustScanCurrency(value)
 		}
 	}
 	m.Timestamp = timestamp
@@ -202,8 +206,8 @@ SELECT stat, stat_value FROM summary WHERE rank=1;
 
 // incrementNumericStat tracks a numeric stat, incrementing the current value by
 // delta. If the resulting value is negative, the function panics.
-func incrementNumericStat(tx txn, stat string, delta int) error {
-	timestamp := time.Now().Truncate(statInterval)
+func incrementNumericStat(tx txn, stat string, delta int, timestamp time.Time) error {
+	timestamp = timestamp.Truncate(statInterval)
 	var current uint64
 	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -228,10 +232,10 @@ func incrementNumericStat(tx txn, stat string, delta int) error {
 // incrementCurrencyStat tracks a currency stat. If negative is false, the current
 // value is incremented by delta. Otherwise, the value is decremented. If the
 // resulting value would be negative, the function panics.
-func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative bool) error {
-	timestamp := time.Now().Truncate(statInterval)
+func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative bool, timestamp time.Time) error {
+	timestamp = timestamp.Truncate(statInterval)
 	var current types.Currency
-	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, metricContractSectors, sqlTime(timestamp)).Scan((*sqlCurrency)(&current))
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlCurrency)(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to query existing value: %w", err)
 	}
@@ -241,9 +245,52 @@ func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative b
 	} else {
 		value = value.Add(delta)
 	}
-	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, metricContractSectors, sqlCurrency(value), sqlTime(timestamp))
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlCurrency(value), sqlTime(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
+	}
+	return nil
+}
+
+// reflowCurrencyStat updates all currency stats after the given timestamp. If
+// negative is false, the current value is incremented by delta. Otherwise, the
+// value is decremented. If the resulting value would be negative, the function
+// panics.
+func reflowCurrencyStat(tx txn, stat string, startTime time.Time, value types.Currency, negative bool) error {
+	startTime = startTime.Truncate(statInterval)
+	rows, err := tx.Query(`SELECT stat_value, date_created FROM host_stats WHERE stat=$1 AND date_created > $2 ORDER BY date_created ASC`, stat, sqlTime(startTime))
+	if err != nil {
+		return fmt.Errorf("failed to query existing value: %w", err)
+	}
+	defer rows.Close()
+	var values []types.Currency
+	var timestamps []time.Time
+	for rows.Next() {
+		var v types.Currency
+		var timestamp time.Time
+		if err := rows.Scan((*sqlCurrency)(&v), (*sqlTime)(&timestamp)); err != nil {
+			return fmt.Errorf("failed to scan row: %w", err)
+		}
+		if negative {
+			v = v.Sub(value)
+		} else {
+			v = v.Add(value)
+		}
+		values = append(values, v)
+		timestamps = append(timestamps, timestamp)
+	}
+
+	stmt, err := tx.Prepare(`UPDATE host_stats SET stat_value=$1 WHERE stat=$2 AND date_created=$3 RETURNING date_created`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+	for i := range values {
+		var dbTime time.Time
+		err := stmt.QueryRow(sqlCurrency(values[i]), stat, sqlTime(timestamps[i])).Scan((*sqlTime)(&dbTime))
+		if err != nil {
+			return fmt.Errorf("failed to update stat: %w", err)
+		}
 	}
 	return nil
 }
