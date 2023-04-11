@@ -80,6 +80,13 @@ type (
 	// UpdateSettingsRequest is the request body for the [PUT] /settings
 	// endpoint. It will be merged with the current settings.
 	UpdateSettingsRequest map[string]any
+
+	// SystemDirResponse is the response body for the [GET] /system/dir endpoint.
+	SystemDirResponse struct {
+		TotalBytes  uint64   `json:"totalBytes"`
+		FreeBytes   uint64   `json:"freeBytes"`
+		Directories []string `json:"directories"`
+	}
 )
 
 // WithAcceptingContracts sets the AcceptingContracts field of the request

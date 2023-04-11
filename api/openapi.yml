@@ -273,6 +273,36 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Transaction'
+  /system/dir/{path}:
+    get:
+      summary: Retrieve system directory information
+      operationId: getSystemDir
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The path of the directory to retrieve information about
+      responses:
+        '200':
+          description: Successfully retrieved directory information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemDirResponse'
+        '400':
+          description: Bad request (invalid path)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
 components:
   securitySchemes:
@@ -582,4 +612,22 @@ components:
         confirmed:
           type: string
         unconfirmed:
+          type: string
+    SystemDirResponse:
+      type: object
+      properties:
+        totalBytes:
+          type: integer
+          format: uint64
+        freeBytes:
+          type: integer
+          format: uint64
+        directories:
+          type: array
+          items:
+            type: string
+    Error:
+      type: object
+      properties:
+        error:
           type: string

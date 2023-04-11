@@ -14,6 +14,7 @@ require (
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
 	go.sia.tech/web/hostd v0.0.0-20230330233636-9ae27b2629a4
 	go.uber.org/zap v1.24.0
+	golang.org/x/sys v0.7.0
 	golang.org/x/term v0.5.0
 	golang.org/x/time v0.3.0
 	lukechampine.com/frand v1.4.2
@@ -60,7 +61,6 @@ require (
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/crypto v0.5.0 // indirect
 	golang.org/x/net v0.7.0 // indirect
-	golang.org/x/sys v0.5.0 // indirect
 	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/tools v0.5.0 // indirect
 	google.golang.org/genproto v0.0.0-20221118155620-16455021b5e6 // indirect

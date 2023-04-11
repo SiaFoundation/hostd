@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -12,6 +13,7 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/internal/disk"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
@@ -352,6 +354,40 @@ func (a *API) handlePOSTWalletSend(c jape.Context) {
 	}
 
 	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+}
+
+func (a *API) handleGETSystemDir(c jape.Context) {
+	var path string
+	if err := c.DecodeParam("path", &path); err != nil {
+		c.Error(fmt.Errorf("failed to parse path: %w", err), http.StatusBadRequest)
+	} else if len(path) == 0 {
+		path, _ = os.UserHomeDir()
+	}
+
+	dir, err := os.ReadDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		c.Error(fmt.Errorf("path does not exist: %w", err), http.StatusBadRequest)
+		return
+	} else if !a.checkServerError(c, "failed to read dir", err) {
+		return
+	}
+
+	free, total, err := disk.Usage(path)
+	if !a.checkServerError(c, "failed to get disk usage", err) {
+		return
+	}
+
+	resp := SystemDirResponse{
+		FreeBytes:  free,
+		TotalBytes: total,
+	}
+
+	for _, entry := range dir {
+		if entry.IsDir() {
+			resp.Directories = append(resp.Directories, entry.Name())
+		}
+	}
+	c.Encode(resp)
 }
 
 func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset int) {
