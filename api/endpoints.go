@@ -153,7 +153,7 @@ func (a *API) handleGETPeriodMetrics(c jape.Context) {
 		c.Error(fmt.Errorf("failed to parse start time: %w", err), http.StatusBadRequest)
 	} else if err := c.DecodeForm("end", &end); err != nil {
 		c.Error(fmt.Errorf("failed to parse end time: %w", err), http.StatusBadRequest)
-	} else if err := c.DecodeParam("interval", &interval); err != nil {
+	} else if err := c.DecodeParam("period", &interval); err != nil {
 		c.Error(fmt.Errorf("failed to parse period: %w", err), http.StatusBadRequest)
 	}
 	period, err := a.metrics.PeriodMetrics(start, end, interval)
