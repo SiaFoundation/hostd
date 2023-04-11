@@ -25,14 +25,6 @@ type (
 		// consensus
 		Synced     bool             `json:"synced"`
 		ChainIndex types.ChainIndex `json:"index"`
-
-		// contracts
-		ActiveContracts uint64 `json:"activeContracts"`
-
-		// storage
-		StoredSectors   uint64 `json:"storedSectors"`
-		PhysicalSectors uint64 `json:"physicalSectors"`
-		TotalSectors    uint64 `json:"totalSectors"`
 	}
 
 	// ContractIntegrityResponse is the response body for the [POST] /contracts/:id/check endpoint.

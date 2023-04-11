@@ -31,20 +31,12 @@ func (a *API) checkServerError(c jape.Context, context string, err error) bool {
 }
 
 func (a *API) handleGETState(c jape.Context) {
-	used, total, err := a.volumes.Usage()
-	if !a.checkServerError(c, "failed to get volume usage", err) {
-		return
-	}
-
 	c.Encode(StateResponse{
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
 
 		ChainIndex: a.chain.TipState().Index,
 		Synced:     a.chain.Synced(),
-
-		StoredSectors: used,
-		TotalSectors:  total,
 	})
 }
 
