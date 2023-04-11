@@ -286,6 +286,8 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 			_, err = tx.Exec(updateMetaQuery, len(locations), id)
 			if err != nil {
 				return fmt.Errorf("failed to update volume metadata: %w", err)
+			} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locations)); err != nil {
+				return fmt.Errorf("failed to update total sector metric: %w", err)
 			}
 			return nil
 		})
