@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -360,9 +361,16 @@ func (a *API) handleGETSystemDir(c jape.Context) {
 	var path string
 	if err := c.DecodeParam("path", &path); err != nil {
 		c.Error(fmt.Errorf("failed to parse path: %w", err), http.StatusBadRequest)
-	} else if len(path) == 0 {
-		path, _ = os.UserHomeDir()
 	}
+
+	if path == "." { // handle current directory.
+		path, _ = os.Getwd()
+	} else if path == "~" { // handle user home directory.
+		path, _ = os.UserHomeDir()
+	} else if len(path) == 0 { // handle empty path for root directory.
+		path = "/"
+	}
+	path, _ = filepath.Abs(path)
 
 	dir, err := os.ReadDir(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -378,6 +386,7 @@ func (a *API) handleGETSystemDir(c jape.Context) {
 	}
 
 	resp := SystemDirResponse{
+		Path:       path,
 		FreeBytes:  free,
 		TotalBytes: total,
 	}

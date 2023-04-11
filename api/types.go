@@ -83,6 +83,7 @@ type (
 
 	// SystemDirResponse is the response body for the [GET] /system/dir endpoint.
 	SystemDirResponse struct {
+		Path        string   `json:"path"`
 		TotalBytes  uint64   `json:"totalBytes"`
 		FreeBytes   uint64   `json:"freeBytes"`
 		Directories []string `json:"directories"`
