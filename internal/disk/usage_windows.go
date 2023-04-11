@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Usage returns the free and totreal bytes on the filesystem containing the
+// Usage returns the free and total bytes on the filesystem containing the
 // specified path.
 func Usage(p string) (free, total uint64, err error) {
 	if _, err = os.Stat(p); err != nil {
