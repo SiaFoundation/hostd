@@ -41,6 +41,7 @@ func (a *API) handleGETState(c jape.Context) {
 		WalletAddress: a.wallet.Address(),
 
 		ChainIndex: a.chain.TipState().Index,
+		Synced:     a.chain.Synced(),
 
 		StoredSectors: used,
 		TotalSectors:  total,

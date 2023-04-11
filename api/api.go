@@ -77,6 +77,7 @@ type (
 
 	// A ChainManager retrieves the current blockchain state
 	ChainManager interface {
+		Synced() bool
 		TipState() consensus.State
 	}
 
