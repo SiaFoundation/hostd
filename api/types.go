@@ -23,8 +23,9 @@ type (
 		WalletAddress types.Address   `json:"walletAddress"`
 
 		// consensus
-		Synced     bool             `json:"synced"`
-		ChainIndex types.ChainIndex `json:"index"`
+		Synced      bool          `json:"synced"`
+		BlockID     types.BlockID `json:"blockID"`
+		BlockHeight uint64        `json:"blockHeight"`
 	}
 
 	// ContractIntegrityResponse is the response body for the [POST] /contracts/:id/check endpoint.
