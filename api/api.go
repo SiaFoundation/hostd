@@ -58,7 +58,7 @@ type (
 
 	// A ContractManager manages the host's contracts
 	ContractManager interface {
-		Contracts(filter contracts.ContractFilter) ([]contracts.Contract, error)
+		Contracts(filter contracts.ContractFilter) ([]contracts.Contract, int, error)
 		Contract(id types.FileContractID) (contracts.Contract, error)
 
 		// CheckIntegrity checks the integrity of a contract's sector roots on

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 )
 
 type (
@@ -48,6 +49,12 @@ type (
 	// ResizeVolumeRequest is the request body for the [PUT] /volume/:id/resize endpoint.
 	ResizeVolumeRequest struct {
 		MaxSectors uint64 `json:"maxSectors"`
+	}
+
+	// ContractsResponse is the response body for the [POST] /contracts endpoint.
+	ContractsResponse struct {
+		Count     int                  `json:"count"`
+		Contracts []contracts.Contract `json:"contracts"`
 	}
 
 	// WalletResponse is the response body for the [GET] /wallet endpoint.

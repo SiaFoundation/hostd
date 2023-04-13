@@ -134,9 +134,9 @@ func (cm *ContractManager) Unlock(id types.FileContractID) {
 	lock.c <- struct{}{}
 }
 
-// Contracts returns a paginated list of contracts sorted by expiration
-// ascending.
-func (cm *ContractManager) Contracts(filter ContractFilter) ([]Contract, error) {
+// Contracts returns a paginated list of contracts matching the filter and the
+// total number of contracts matching the filter.
+func (cm *ContractManager) Contracts(filter ContractFilter) ([]Contract, int, error) {
 	return cm.store.Contracts(filter)
 }
 

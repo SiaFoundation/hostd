@@ -44,7 +44,7 @@ type (
 		LastContractChange() (id modules.ConsensusChangeID, err error)
 		// Contracts returns a paginated list of contracts sorted by expiration
 		// asc.
-		Contracts(ContractFilter) ([]Contract, error)
+		Contracts(ContractFilter) ([]Contract, int, error)
 		// Contract returns the contract with the given ID.
 		Contract(types.FileContractID) (Contract, error)
 		// ContractFormationSet returns the formation transaction set for the

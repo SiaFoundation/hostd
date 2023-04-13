@@ -231,40 +231,51 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 }
 
 // Contracts returns a paginated list of contracts.
-func (s *Store) Contracts(filter contracts.ContractFilter) ([]contracts.Contract, error) {
+func (s *Store) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, count int, err error) {
 	if filter.Limit <= 0 || filter.Limit > 100 {
 		filter.Limit = 100
 	}
 
 	whereClause, whereParams, err := buildContractFilter(filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build where clause: %w", err)
+		return nil, 0, fmt.Errorf("failed to build where clause: %w", err)
 	}
 
-	s.log.Debug("querying contracts", zap.String("clause", whereClause), zap.Any("params", append(whereParams, filter.Limit, filter.Offset)))
-
-	query := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
 	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 INNER JOIN contract_renters r ON (c.renter_id=r.id)
 LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
 LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s %s LIMIT ? OFFSET ?`, whereClause, buildOrderBy(filter))
-	rows, err := s.query(query, append(whereParams, filter.Limit, filter.Offset)...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query contracts: %w", err)
-	}
-	defer rows.Close()
 
-	var results []contracts.Contract
-	for rows.Next() {
-		contract, err := scanContract(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM contracts c
+INNER JOIN contract_renters r ON (c.renter_id=r.id)
+LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
+LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s`, whereClause)
+
+	err = s.transaction(func(tx txn) error {
+		if err := tx.QueryRow(countQuery, whereParams...).Scan(&count); err != nil {
+			return fmt.Errorf("failed to query contract count: %w", err)
 		}
-		results = append(results, contract)
-	}
-	return results, nil
+
+		rows, err := tx.Query(contractQuery, append(whereParams, filter.Limit, filter.Offset)...)
+		if err != nil {
+			return fmt.Errorf("failed to query contracts: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			contract, err := scanContract(rows)
+			if err != nil {
+				return fmt.Errorf("failed to scan contract: %w", err)
+			}
+			contracts = append(contracts, contract)
+		}
+
+		return nil
+	})
+	return
 }
 
 // Contract returns the contract with the given ID.

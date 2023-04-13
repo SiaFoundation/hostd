@@ -154,3 +154,80 @@ func TestUpdateContractRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestContracts(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	contractUnlockConditions := types.UnlockConditions{
+		PublicKeys: []types.UnlockKey{
+			renterKey.PublicKey().UnlockKey(),
+			hostKey.PublicKey().UnlockKey(),
+		},
+		SignaturesRequired: 2,
+	}
+
+	c, count, err := db.Contracts(contracts.ContractFilter{})
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 0 {
+		t.Fatal("expected no contracts")
+	} else if count != 0 {
+		t.Fatal("expected no contracts")
+	}
+
+	// add a contract to the database
+	contract := contracts.SignedRevision{
+		Revision: types.FileContractRevision{
+			ParentID:         frand.Entropy256(),
+			UnlockConditions: contractUnlockConditions,
+			FileContract: types.FileContract{
+				UnlockHash:     types.Hash256(contractUnlockConditions.UnlockHash()),
+				RevisionNumber: 1,
+				WindowStart:    100,
+				WindowEnd:      200,
+			},
+		},
+	}
+
+	if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		t.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	c, count, err = db.Contracts(contracts.ContractFilter{})
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 1 {
+		t.Fatal("expected one contract")
+	} else if count != 1 {
+		t.Fatal("expected one contract")
+	}
+
+	filter := contracts.ContractFilter{
+		Statuses: []contracts.ContractStatus{contracts.ContractStatusActive},
+	}
+	c, count, err = db.Contracts(filter)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 0 {
+		t.Fatal("expected no contracts")
+	} else if count != 0 {
+		t.Fatal("expected no contracts")
+	}
+}

@@ -169,11 +169,14 @@ func (a *API) handlePostContracts(c jape.Context) {
 		filter.Limit = 500
 	}
 
-	contracts, err := a.contracts.Contracts(filter)
+	contracts, count, err := a.contracts.Contracts(filter)
 	if !a.checkServerError(c, "failed to get contracts", err) {
 		return
 	}
-	c.Encode(contracts)
+	c.Encode(ContractsResponse{
+		Contracts: contracts,
+		Count:     count,
+	})
 }
 
 func (a *API) handleGETContract(c jape.Context) {
