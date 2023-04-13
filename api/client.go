@@ -2,10 +2,13 @@ package api
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/financials"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/wallet"
@@ -63,16 +66,30 @@ func (c *Client) UpdateSettings(patch UpdateSettingsRequest) (settings settings.
 	return
 }
 
-// Financials returns the financial metrics of the host for the specified period
-func (c *Client) Financials(period string) (periods []financials.Revenue, err error) {
-	err = c.c.GET(fmt.Sprintf("/financials/%s", period), &periods)
+// Metrics returns the metrics of the host at the specified time.
+func (c *Client) Metrics(at time.Time) (metrics metrics.Metrics, err error) {
+	v := url.Values{
+		"timestamp": []string{at.Format(time.RFC3339)},
+	}
+	err = c.c.GET("/metrics?"+v.Encode(), &metrics)
 	return
 }
 
-// Contracts returns the contracts of the host.
-func (c *Client) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, err error) {
-	err = c.c.POST("/contracts", filter, &contracts)
+// PeriodMetrics returns the metrics of the host for the specified period
+func (c *Client) PeriodMetrics(start, end time.Time, interval metrics.Interval) (periods []metrics.Metrics, err error) {
+	v := url.Values{
+		"start": []string{start.Format(time.RFC3339)},
+		"end":   []string{end.Format(time.RFC3339)},
+	}
+	err = c.c.GET("/metrics/"+interval.String()+"?"+v.Encode(), &periods)
 	return
+}
+
+// Contracts returns the contracts of the host matching the filter.
+func (c *Client) Contracts(filter contracts.ContractFilter) ([]contracts.Contract, int, error) {
+	var resp ContractsResponse
+	err := c.c.POST("/contracts", filter, &resp)
+	return resp.Contracts, resp.Count, err
 }
 
 // Contract returns the contract with the specified ID.
@@ -170,6 +187,13 @@ func (c *Client) SendSiacoins(address types.Address, amount types.Currency) erro
 		Amount:  amount,
 	}
 	return c.c.POST("/wallet/send", req, nil)
+}
+
+// LocalDir returns the contents of the specified directory on the host.
+func (c *Client) LocalDir(path string) (resp SystemDirResponse, err error) {
+	path = strings.TrimLeft(path, "/")
+	err = c.c.GET("/system/dir/"+path, &resp)
+	return
 }
 
 // NewClient creates a new hostd API client.
