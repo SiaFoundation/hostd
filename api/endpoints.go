@@ -31,14 +31,12 @@ func (a *API) checkServerError(c jape.Context, context string, err error) bool {
 }
 
 func (a *API) handleGETState(c jape.Context) {
-	state := a.chain.TipState()
 	c.Encode(StateResponse{
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
 
-		Synced:      a.chain.Synced(),
-		BlockID:     state.Index.ID,
-		BlockHeight: state.Index.Height,
+		Synced:     a.chain.Synced(),
+		ChainIndex: a.chain.TipState().Index,
 	})
 }
 
