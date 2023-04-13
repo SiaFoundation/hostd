@@ -76,7 +76,7 @@ func (cm *ContractManager) processActions() {
 }
 
 // handleContractAction performs a lifecycle action on a contract.
-func (cm *ContractManager) handleContractAction(id types.FileContractID, action string) {
+func (cm *ContractManager) handleContractAction(id types.FileContractID, height uint64, action string) {
 	log := cm.log.Named("lifecycle")
 	contract, err := cm.store.Contract(id)
 	if err != nil {
@@ -90,6 +90,10 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 
 	switch action {
 	case ActionBroadcastFormation:
+		if (height-contract.NegotiationHeight)%3 != 0 {
+			// debounce formation broadcasts to prevent spamming
+			return
+		}
 		formationSet, err := cm.store.ContractFormationSet(id)
 		if err != nil {
 			log.Error("failed to get formation set", zap.String("contract", id.String()), zap.Error(err))
@@ -100,6 +104,10 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		}
 		log.Info("broadcast formation transaction", zap.String("contract", id.String()), zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
 	case ActionBroadcastFinalRevision:
+		if (contract.Revision.WindowStart-height)%3 != 0 {
+			// debounce final revision broadcasts to prevent spamming
+			return
+		}
 		revisionTxn := types.Transaction{
 			FileContractRevisions: []types.FileContractRevision{contract.Revision},
 			Signatures: []types.TransactionSignature{
@@ -134,6 +142,10 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, action 
 		}
 		log.Info("broadcast revision transaction", zap.String("contract", id.String()), zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.String("transactionID", revisionTxn.ID().String()))
 	case ActionBroadcastResolution:
+		if (height-contract.Revision.WindowStart)%3 != 0 {
+			// debounce resolution broadcasts to prevent spamming
+			return
+		}
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
 		if missedPayout.Cmp(validPayout) >= 0 {
 			log.Info("skipping storage proof, no benefit to host", zap.String("contract", id.String()), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))

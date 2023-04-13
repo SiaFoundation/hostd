@@ -303,14 +303,15 @@ func TestContractLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second) // sync time
+	proofHeight := rev.Revision.WindowStart
 
 	contract, err = c.Contract(rev.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if contract.Status != contracts.ContractStatusSuccessful {
 		t.Fatal("expected contract to be successful")
-	} else if !contract.ResolutionConfirmed {
-		t.Fatal("expected resolution to be confirmed")
+	} else if contract.ResolutionHeight != proofHeight {
+		t.Fatalf("expected resolution height %v, got %v", proofHeight, contract.ResolutionHeight)
 	} else if m, err := node.Store().Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if m.Contracts.Active != 0 {

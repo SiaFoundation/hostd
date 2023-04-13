@@ -182,11 +182,11 @@ func (u *updateContractsTxn) ConfirmRevision(revision types.FileContractRevision
 	return u.tx.QueryRow(query, sqlUint64(revision.RevisionNumber), sqlHash256(revision.ParentID)).Scan(&dbID)
 }
 
-// ConfirmResolution sets the resolution_confirmed flag to true.
-func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID) error {
-	const query = `UPDATE contracts SET resolution_confirmed=true WHERE contract_id=$1 RETURNING id;`
+// ConfirmResolution sets the resolution height.
+func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID, height uint64) error {
+	const query = `UPDATE contracts SET resolution_height=$1 WHERE contract_id=$2 RETURNING id;`
 	var dbID int64
-	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
+	if err := u.tx.QueryRow(query, height, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to confirm resolution: %w", err)
 	}
 	return nil
@@ -209,9 +209,9 @@ func (u *updateContractsTxn) RevertRevision(id types.FileContractID) error {
 	return u.tx.QueryRow(query, sqlUint64(0), sqlHash256(id)).Scan(&dbID)
 }
 
-// RevertResolution sets the resolution_confirmed flag to false.
+// RevertResolution sets the resolution height to null
 func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
-	const query = `UPDATE contracts SET resolution_confirmed=false WHERE contract_id=$1 RETURNING id;`
+	const query = `UPDATE contracts SET resolution_height=NULL WHERE contract_id=$1 RETURNING id;`
 	var dbID int64
 	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to revert resolution: %w", err)
@@ -244,7 +244,7 @@ func (s *Store) Contracts(filter contracts.ContractFilter) ([]contracts.Contract
 	s.log.Debug("querying contracts", zap.String("clause", whereClause), zap.Any("params", append(whereParams, filter.Limit, filter.Offset)))
 
 	query := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
-	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
+	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 INNER JOIN contract_renters r ON (c.renter_id=r.id)
@@ -270,7 +270,7 @@ LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s %s LIMIT ? OFFSET ?`, whereC
 // Contract returns the contract with the given ID.
 func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
 	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
-	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_confirmed, c.locked_collateral, c.rpc_revenue,
+	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 LEFT JOIN contracts rt ON (c.renewed_to = rt.id)
@@ -386,14 +386,14 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 
 // ContractAction calls contractFn on every contract in the store that
 // needs a lifecycle action performed.
-func (s *Store) ContractAction(height uint64, contractFn func(types.FileContractID, string)) error {
+func (s *Store) ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error {
 	actions, err := contractsForAction(&dbTxn{s}, height)
 	if err != nil {
 		return fmt.Errorf("failed to get contracts for action: %w", err)
 	}
 
 	for _, action := range actions {
-		contractFn(action.ID, action.Action)
+		contractFn(action.ID, height, action.Action)
 	}
 	return nil
 }
@@ -504,7 +504,7 @@ UNION
 SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN $2 AND $3
 UNION
 -- formation confirmed, resolution not confirmed, status active, in proof window (broadcast storage proof)
-SELECT contract_id, 'resolve' AS action FROM contracts WHERE formation_confirmed=true AND resolution_confirmed=false AND window_start <= $4 AND window_end > $4 AND contract_status=$5
+SELECT contract_id, 'resolve' AS action FROM contracts WHERE formation_confirmed=true AND resolution_height IS NULL AND window_start <= $4 AND window_end > $4 AND contract_status=$5
 UNION
 -- formation confirmed, status active, outside proof window (mark as failed)
 SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
@@ -546,8 +546,8 @@ func renterDBID(tx txn, renterKey types.PublicKey) (int64, error) {
 func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
 egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
-raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, resolution_confirmed, contract_status) VALUES
- ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) RETURNING id;`
+raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, contract_status) VALUES
+ ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id;`
 	renterID, err := renterDBID(tx, revision.RenterKey())
 	if err != nil {
 		return 0, fmt.Errorf("failed to get renter id: %w", err)
@@ -572,7 +572,6 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirm
 		sqlHash512(revision.RenterSignature),
 		sqlUint64(0), // confirmed_revision_number
 		false,        // formation_confirmed
-		false,        // resolution_confirmed
 		contracts.ContractStatusPending,
 	).Scan(&dbID)
 	if err != nil {
@@ -705,6 +704,7 @@ func buildOrderBy(filter contracts.ContractFilter) string {
 func scanContract(row scanner) (c contracts.Contract, err error) {
 	var revisionBuf []byte
 	var contractID types.FileContractID
+	var resolutionHeight sql.NullInt64
 	err = row.Scan((*sqlHash256)(&contractID),
 		nullable((*sqlHash256)(&c.RenewedTo)),
 		nullable((*sqlHash256)(&c.RenewedFrom)),
@@ -712,7 +712,7 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		&c.NegotiationHeight,
 		&c.FormationConfirmed,
 		&c.RevisionConfirmed,
-		&c.ResolutionConfirmed,
+		&resolutionHeight,
 		(*sqlCurrency)(&c.LockedCollateral),
 		(*sqlCurrency)(&c.Usage.RPCRevenue),
 		(*sqlCurrency)(&c.Usage.StorageRevenue),
@@ -730,6 +730,8 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		return contracts.Contract{}, fmt.Errorf("failed to decode revision: %w", err)
 	} else if c.Revision.ParentID != contractID {
 		panic("contract id mismatch")
+	} else if resolutionHeight.Valid {
+		c.ResolutionHeight = uint64(resolutionHeight.Int64)
 	}
 	return
 }

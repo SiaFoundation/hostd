@@ -31,7 +31,7 @@ type (
 		SetStatus(types.FileContractID, ContractStatus) error
 		ConfirmFormation(types.FileContractID) error
 		ConfirmRevision(types.FileContractRevision) error
-		ConfirmResolution(types.FileContractID) error
+		ConfirmResolution(id types.FileContractID, height uint64) error
 
 		RevertFormation(types.FileContractID) error
 		RevertRevision(types.FileContractID) error
@@ -62,7 +62,7 @@ type (
 		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
 		// ContractAction calls contractFn on every contract in the store that
 		// needs a lifecycle action performed.
-		ContractAction(height uint64, contractFn func(types.FileContractID, string)) error
+		ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error
 		// UpdateContract atomically updates a contract and its sector roots.
 		UpdateContract(types.FileContractID, func(UpdateContractTransaction) error) error
 		// UpdateContractState atomically updates the contract manager's state.

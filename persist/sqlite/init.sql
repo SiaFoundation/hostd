@@ -87,7 +87,7 @@ CREATE TABLE contracts (
 	renter_sig BLOB NOT NULL,
 	raw_revision BLOB NOT NULL, -- binary serialized contract revision
 	formation_confirmed BOOLEAN NOT NULL, -- true if the contract has been confirmed on the blockchain
-	resolution_confirmed BOOLEAN NOT NULL, -- true if the storage proof/resolution has been confirmed on the blockchain
+	resolution_height INTEGER, -- null if the storage proof/resolution has not been confirmed on the blockchain, otherwise the height of the block containing the storage proof/resolution
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	window_start INTEGER NOT NULL,
 	window_end INTEGER NOT NULL,
@@ -100,8 +100,8 @@ CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
 CREATE INDEX contracts_negotiation_height ON contracts(negotiation_height);
 CREATE INDEX contracts_window_start ON contracts(window_start);
 CREATE INDEX contracts_contract_status ON contracts(contract_status);
-CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_start ON contracts(formation_confirmed, resolution_confirmed, window_start);
-CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_end ON contracts(formation_confirmed, resolution_confirmed, window_end);
+CREATE INDEX contracts_formation_confirmed_resolution_height_window_start ON contracts(formation_confirmed, resolution_height, window_start);
+CREATE INDEX contracts_formation_confirmed_resolution_height_window_end ON contracts(formation_confirmed, resolution_height, window_end);
 CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
 CREATE INDEX contracts_formation_confirmed_negotation_height ON contracts(formation_confirmed, negotiation_height);
 

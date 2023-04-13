@@ -99,9 +99,10 @@ type (
 		// RevisionConfirmed is true if the contract revision transaction has
 		// been confirmed on the blockchain.
 		RevisionConfirmed bool `json:"revisionConfirmed"`
-		// ResolutionConfirmed is true if the contract's resolution has been
-		// confirmed on the blockchain.
-		ResolutionConfirmed bool `json:"resolutionConfirmed"`
+		// ResolutionHeight is the height the storage proof was confirmed
+		// at. If the contract has not been resolved, the field is the zero
+		// value.
+		ResolutionHeight uint64 `json:"resolutionHeight"`
 		// RenewedTo is the ID of the contract that renewed this contract. If
 		// this contract was not renewed, this field is the zero value.
 		RenewedTo types.FileContractID `json:"renewedTo"`

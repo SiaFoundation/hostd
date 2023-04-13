@@ -217,8 +217,14 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		}
 	}
 
-	var appliedFormations, appliedResolutions []types.FileContractID
+	var appliedFormations []types.FileContractID
+	var appliedResolutions []struct {
+		id     types.FileContractID
+		height uint64
+	}
 	appliedRevisions := make(map[types.FileContractID]types.FileContractRevision)
+	// calculate the block height of the first applied diff
+	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks))
 	for _, applied := range cc.AppliedBlocks {
 		for _, transaction := range applied.Transactions {
 			for i := range transaction.FileContracts {
@@ -235,9 +241,13 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 			for _, proof := range transaction.StorageProofs {
 				contractID := types.FileContractID(proof.ParentID)
-				appliedResolutions = append(appliedResolutions, contractID)
+				appliedResolutions = append(appliedResolutions, struct {
+					id     types.FileContractID
+					height uint64
+				}{contractID, blockHeight})
 			}
 		}
+		blockHeight++
 	}
 
 	err = cm.store.UpdateContractState(cc.ID, uint64(cc.BlockHeight), func(tx UpdateStateTransaction) error {
@@ -303,16 +313,16 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		}
 
 		for _, applied := range appliedResolutions {
-			if relevant, err := tx.ContractRelevant(applied); err != nil {
+			if relevant, err := tx.ContractRelevant(applied.id); err != nil {
 				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied, err)
 			} else if !relevant {
 				continue
-			} else if err := tx.ConfirmResolution(applied); err != nil {
+			} else if err := tx.ConfirmResolution(applied.id, applied.height); err != nil {
 				return fmt.Errorf("failed to apply proof: %w", err)
-			} else if err := tx.SetStatus(applied, ContractStatusSuccessful); err != nil {
+			} else if err := tx.SetStatus(applied.id, ContractStatusSuccessful); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
-			log.Debug("contract resolution applied", zap.String("contract", applied.String()))
+			log.Debug("contract resolution applied", zap.String("contract", applied.id.String()), zap.Uint64("height", applied.height))
 		}
 
 		return nil
