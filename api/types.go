@@ -23,6 +23,7 @@ type (
 		WalletAddress types.Address   `json:"walletAddress"`
 
 		// consensus
+		Network    string           `json:"network"`
 		Synced     bool             `json:"synced"`
 		ChainIndex types.ChainIndex `json:"chainIndex"`
 	}

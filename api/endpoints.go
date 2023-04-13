@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
@@ -35,6 +36,7 @@ func (a *API) handleGETState(c jape.Context) {
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
 
+		Network:    build.Network(),
 		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
 	})
