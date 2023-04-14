@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"database/sql"
 	"errors"
+	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
@@ -54,15 +56,38 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 	EXCLUDED.max_account_age, EXCLUDED.max_contract_duration, EXCLUDED.window_size, 
 	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit);`
 
-	_, err := s.exec(query, settings.AcceptingContracts,
-		settings.NetAddress, sqlCurrency(settings.ContractPrice),
-		sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),
-		sqlCurrency(settings.Collateral), sqlCurrency(settings.MaxCollateral),
-		sqlCurrency(settings.MinStoragePrice), sqlCurrency(settings.MinEgressPrice),
-		sqlCurrency(settings.MinIngressPrice), sqlCurrency(settings.MaxAccountBalance),
-		settings.AccountExpiry, settings.MaxContractDuration, settings.WindowSize,
-		settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries)
-	return err
+	return s.transaction(func(tx txn) error {
+		_, err := tx.Exec(query, settings.AcceptingContracts,
+			settings.NetAddress, sqlCurrency(settings.ContractPrice),
+			sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),
+			sqlCurrency(settings.Collateral), sqlCurrency(settings.MaxCollateral),
+			sqlCurrency(settings.MinStoragePrice), sqlCurrency(settings.MinEgressPrice),
+			sqlCurrency(settings.MinIngressPrice), sqlCurrency(settings.MaxAccountBalance),
+			settings.AccountExpiry, settings.MaxContractDuration, settings.WindowSize,
+			settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries)
+		if err != nil {
+			return fmt.Errorf("failed to update settings: %w", err)
+		}
+
+		// update the currency stats
+		timestamp := time.Now()
+		if err := setCurrencyStat(tx, metricContractPrice, settings.ContractPrice, timestamp); err != nil {
+			return fmt.Errorf("failed to update contract price stat: %w", err)
+		} else if err := setCurrencyStat(tx, metricBaseRPCPrice, settings.BaseRPCPrice, timestamp); err != nil {
+			return fmt.Errorf("failed to update base RPC price stat: %w", err)
+		} else if err := setCurrencyStat(tx, metricSectorAccessPrice, settings.SectorAccessPrice, timestamp); err != nil {
+			return fmt.Errorf("failed to update sector access price stat: %w", err)
+		} else if err := setCurrencyStat(tx, metricCollateral, settings.Collateral, timestamp); err != nil {
+			return fmt.Errorf("failed to update collateral stat: %w", err)
+		} else if err := setCurrencyStat(tx, metricStoragePrice, settings.MinStoragePrice, timestamp); err != nil {
+			return fmt.Errorf("failed to update storage price stat: %w", err)
+		} else if err := setCurrencyStat(tx, metricEgressPrice, settings.MinEgressPrice, timestamp); err != nil {
+			return fmt.Errorf("failed to update egress price stat: %w", err)
+		} else if err := setCurrencyStat(tx, metricIngressPrice, settings.MinIngressPrice, timestamp); err != nil {
+			return fmt.Errorf("failed to update ingress price stat: %w", err)
+		}
+		return nil
+	})
 }
 
 // HostKey returns the host's private key.

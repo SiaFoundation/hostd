@@ -19,8 +19,8 @@ const (
 )
 
 type (
-	// RevenueMetrics is a collection of metrics related to revenue.
-	RevenueMetrics struct {
+	// Revenue is a collection of metrics related to revenue.
+	Revenue struct {
 		RPC           types.Currency `json:"rpc"`
 		Storage       types.Currency `json:"storage"`
 		Ingress       types.Currency `json:"ingress"`
@@ -29,16 +29,16 @@ type (
 		RegistryWrite types.Currency `json:"registryWrite"`
 	}
 
-	// DataMetrics is a collection of metrics related to data usage.
-	DataMetrics struct {
+	// Data is a collection of metrics related to data usage.
+	Data struct {
 		// Ingress returns the number of bytes received by the host.
 		Ingress uint64 `json:"ingress"`
 		// Egress returns the number of bytes sent by the host.
 		Egress uint64 `json:"egress"`
 	}
 
-	// ContractMetrics is a collection of metrics related to contracts.
-	ContractMetrics struct {
+	// Contracts is a collection of metrics related to contracts.
+	Contracts struct {
 		Pending    uint64 `json:"pending"`
 		Active     uint64 `json:"active"`
 		Rejected   uint64 `json:"rejected"`
@@ -46,8 +46,19 @@ type (
 		Successful uint64 `json:"successful"`
 	}
 
-	// StorageMetrics is a collection of metrics related to storage.
-	StorageMetrics struct {
+	// Pricing is a collection of metrics related to the host's pricing settings.
+	Pricing struct {
+		ContractPrice     types.Currency `json:"contractPrice"`
+		IngressPrice      types.Currency `json:"ingressPrice"`
+		EgressPrice       types.Currency `json:"egressPrice"`
+		BaseRPCPrice      types.Currency `json:"baseRPCPrice"`
+		SectorAccessPrice types.Currency `json:"sectorAccessPrice"`
+		StoragePrice      types.Currency `json:"storagePrice"`
+		Collateral        types.Currency `json:"collateral"`
+	}
+
+	// Storage is a collection of metrics related to storage.
+	Storage struct {
 		TotalSectors    uint64 `json:"totalSectors"`
 		PhysicalSectors uint64 `json:"physicalSectors"`
 		ContractSectors uint64 `json:"contractSectors"`
@@ -55,16 +66,27 @@ type (
 		RegistryEntries uint64 `json:"registryEntries"`
 	}
 
+	// RevenueMetrics is a collection of metrics related to revenue.
+	RevenueMetrics struct {
+		Potential Revenue `json:"potential"`
+		Earned    Revenue `json:"earned"`
+	}
+
+	// DataMetrics is a collection of metrics related to data usage.
+	DataMetrics struct {
+		RHP2 Data `json:"rhp2"`
+		RHP3 Data `json:"rhp3"`
+	}
+
 	// Metrics is a collection of metrics for the host.
 	Metrics struct {
-		PotentialRevenue RevenueMetrics  `json:"potentialRevenue"`
-		EarnedRevenue    RevenueMetrics  `json:"earnedRevenue"`
-		Contracts        ContractMetrics `json:"contracts"`
-		Storage          StorageMetrics  `json:"storage"`
-		RHP2Data         DataMetrics     `json:"rhp2Data"`
-		RHP3Data         DataMetrics     `json:"rhp3Data"`
-		Balance          types.Currency  `json:"balance"`
-		Timestamp        time.Time       `json:"timestamp"`
+		Revenue   RevenueMetrics `json:"revenue"`
+		Pricing   Pricing        `json:"pricing"`
+		Contracts Contracts      `json:"contracts"`
+		Storage   Storage        `json:"storage"`
+		Data      DataMetrics    `json:"data"`
+		Balance   types.Currency `json:"balance"`
+		Timestamp time.Time      `json:"timestamp"`
 	}
 
 	// Interval is the interval at which metrics should be aggregated.

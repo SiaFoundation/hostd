@@ -31,6 +31,15 @@ const (
 	metricRHP3Ingress = "rhp3Ingress"
 	metricRHP3Egress  = "rhp3Egress"
 
+	// pricing
+	metricContractPrice     = "contractPrice"
+	metricIngressPrice      = "ingressPrice"
+	metricEgressPrice       = "egressPrice"
+	metricBaseRPCPrice      = "baseRPCPrice"
+	metricSectorAccessPrice = "sectorAccessPrice"
+	metricStoragePrice      = "storagePrice"
+	metricCollateral        = "collateral"
+
 	// wallet
 	metricWalletBalance = "walletBalance"
 
@@ -168,6 +177,20 @@ SELECT stat, stat_value FROM summary WHERE rank=1;`
 		}
 
 		switch stat {
+		case metricContractPrice:
+			m.Pricing.ContractPrice = mustScanCurrency(value)
+		case metricIngressPrice:
+			m.Pricing.IngressPrice = mustScanCurrency(value)
+		case metricEgressPrice:
+			m.Pricing.EgressPrice = mustScanCurrency(value)
+		case metricBaseRPCPrice:
+			m.Pricing.BaseRPCPrice = mustScanCurrency(value)
+		case metricSectorAccessPrice:
+			m.Pricing.SectorAccessPrice = mustScanCurrency(value)
+		case metricStoragePrice:
+			m.Pricing.StoragePrice = mustScanCurrency(value)
+		case metricCollateral:
+			m.Pricing.Collateral = mustScanCurrency(value)
 		case metricPendingContracts:
 			m.Contracts.Pending = mustScanUint64(value)
 		case metricActiveContracts:
@@ -189,13 +212,13 @@ SELECT stat, stat_value FROM summary WHERE rank=1;`
 		case metricRegistryEntries:
 			m.Storage.RegistryEntries = mustScanUint64(value)
 		case metricRHP2Ingress:
-			m.RHP2Data.Ingress = mustScanUint64(value)
+			m.Data.RHP2.Ingress = mustScanUint64(value)
 		case metricRHP2Egress:
-			m.RHP2Data.Egress = mustScanUint64(value)
+			m.Data.RHP2.Egress = mustScanUint64(value)
 		case metricRHP3Ingress:
-			m.RHP3Data.Ingress = mustScanUint64(value)
+			m.Data.RHP3.Ingress = mustScanUint64(value)
 		case metricRHP3Egress:
-			m.RHP3Data.Egress = mustScanUint64(value)
+			m.Data.RHP3.Egress = mustScanUint64(value)
 		case metricWalletBalance:
 			m.Balance = mustScanCurrency(value)
 		}
@@ -244,6 +267,22 @@ func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative b
 		value = value.Sub(delta)
 	} else {
 		value = value.Add(delta)
+	}
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlCurrency(value), sqlTime(timestamp))
+	if err != nil {
+		return fmt.Errorf("failed to insert stat: %w", err)
+	}
+	return nil
+}
+
+func setCurrencyStat(tx txn, stat string, value types.Currency, timestamp time.Time) error {
+	timestamp = timestamp.Truncate(statInterval)
+	var current types.Currency
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlCurrency)(&current))
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to query existing value: %w", err)
+	} else if value.Equals(current) {
+		return nil
 	}
 	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlCurrency(value), sqlTime(timestamp))
 	if err != nil {
