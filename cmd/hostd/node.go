@@ -102,10 +102,14 @@ func (tp txpool) Subscribe(s modules.TransactionPoolSubscriber) {
 	tp.tp.TransactionPoolSubscribe(s)
 }
 
+func (tp txpool) Close() error {
+	return tp.tp.Close()
+}
+
 type node struct {
 	g     modules.Gateway
 	cm    *chain.Manager
-	tp    modules.TransactionPool
+	tp    *txpool
 	w     *wallet.SingleAddressWallet
 	store *sqlite.Store
 
@@ -185,10 +189,11 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err := os.MkdirAll(tpoolDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create tpool dir: %w", err)
 	}
-	tp, err := transactionpool.New(cs, g, tpoolDir)
+	stp, err := transactionpool.New(cs, g, tpoolDir)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create tpool: %w", err)
 	}
+	tp := &txpool{stp}
 
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), logger.Named("sqlite"))
 	if err != nil {
@@ -203,7 +208,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create chain manager: %w", err)
 	}
 
-	w, err := wallet.NewSingleAddressWallet(walletKey, cm, txpool{tp}, db, logger.Named("wallet"))
+	w, err := wallet.NewSingleAddressWallet(walletKey, cm, tp, db, logger.Named("wallet"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create wallet: %w", err)
 	}
@@ -225,7 +230,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	sr, err := settings.NewConfigManager(hostKey, discoveredAddr, db, cm, txpool{tp}, w, logger.Named("settings"))
+	sr, err := settings.NewConfigManager(hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -237,20 +242,20 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 
-	contractManager, err := contracts.NewManager(db, sm, cm, txpool{tp}, w, logger.Named("contracts"))
+	contractManager, err := contracts.NewManager(db, sm, cm, tp, w, logger.Named("contracts"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create contract manager: %w", err)
 	}
 	registryManager := registry.NewManager(hostKey, db)
 
 	rhp2Monitor := rhp.NewDataRecorder(&rhp2MonitorStore{db}, logger.Named("rhp2Monitor"))
-	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, txpool{tp}, w, contractManager, sr, sm, rhp2Monitor, logger.Named("rhpv2"))
+	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, tp, w, contractManager, sr, sm, rhp2Monitor, logger.Named("rhpv2"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
 	rhp3Monitor := rhp.NewDataRecorder(&rhp3MonitorStore{db}, logger.Named("rhp3Monitor"))
-	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, txpool{tp}, w, accountManager, contractManager, registryManager, sr, sm, rhp3Monitor, logger.Named("rhpv3"))
+	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, tp, w, accountManager, contractManager, registryManager, sr, sm, rhp3Monitor, logger.Named("rhpv3"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}

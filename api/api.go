@@ -81,6 +81,12 @@ type (
 		TipState() consensus.State
 	}
 
+	// A TPool manages the transaction pool
+	TPool interface {
+		RecommendedFee() (fee types.Currency)
+		AcceptTransactionSet(txns []types.Transaction) error
+	}
+
 	// An API provides an HTTP API for the host
 	API struct {
 		hostKey types.PublicKey
@@ -89,6 +95,7 @@ type (
 
 		syncer    Syncer
 		chain     ChainManager
+		tpool     TPool
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
@@ -100,12 +107,13 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm ContractManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	a := &API{
 		hostKey: hostKey,
 
 		syncer:    g,
 		chain:     chain,
+		tpool:     tp,
 		contracts: cm,
 		volumes:   vm,
 		metrics:   m,

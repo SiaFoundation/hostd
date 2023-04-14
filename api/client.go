@@ -181,12 +181,13 @@ func (c *Client) PendingTransactions() (transactions []wallet.Transaction, err e
 }
 
 // SendSiacoins sends siacoins to the specified address.
-func (c *Client) SendSiacoins(address types.Address, amount types.Currency) error {
+func (c *Client) SendSiacoins(address types.Address, amount types.Currency) (id types.TransactionID, err error) {
 	req := WalletSendSiacoinsRequest{
 		Address: address,
 		Amount:  amount,
 	}
-	return c.c.POST("/wallet/send", req, nil)
+	err = c.c.POST("/wallet/send", req, &id)
+	return
 }
 
 // LocalDir returns the contents of the specified directory on the host.

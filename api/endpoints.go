@@ -21,6 +21,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const stdTxnSize = 1200
+
 // checkServerError conditionally writes an error to the response if err is not
 // nil.
 func (a *API) checkServerError(c jape.Context, context string, err error) bool {
@@ -350,9 +352,37 @@ func (a *API) handlePOSTWalletSend(c jape.Context) {
 	if err := c.Decode(&req); err != nil {
 		c.Error(fmt.Errorf("failed to parse send siacoins request: %w", err), http.StatusBadRequest)
 		return
+	} else if req.Address == types.VoidAddress {
+		c.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
+		return
 	}
 
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	// estimate miner fee
+	feePerByte := a.tpool.RecommendedFee()
+	minerFee := feePerByte.Mul64(stdTxnSize)
+	// build transaction
+	txn := types.Transaction{
+		MinerFees: []types.Currency{minerFee},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: req.Address, Value: req.Amount},
+		},
+	}
+	// fund and sign transaction
+	toSign, release, err := a.wallet.FundTransaction(&txn, req.Amount.Add(minerFee))
+	if !a.checkServerError(c, "failed to fund transaction", err) {
+		return
+	}
+	defer release()
+	err = a.wallet.SignTransaction(a.chain.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
+	if !a.checkServerError(c, "failed to sign transaction", err) {
+		return
+	}
+	// broadcast transaction
+	err = a.tpool.AcceptTransactionSet([]types.Transaction{txn})
+	if !a.checkServerError(c, "failed to broadcast transaction", err) {
+		return
+	}
+	c.Encode(txn.ID())
 }
 
 func (a *API) handleGETSystemDir(c jape.Context) {
