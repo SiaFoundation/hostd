@@ -53,7 +53,7 @@ type (
 	// A Transaction is an on-chain transaction relevant to a particular wallet,
 	// paired with useful metadata.
 	Transaction struct {
-		ID          types.TransactionID `json:"id"`
+		ID          types.TransactionID `json:"ID"`
 		Index       types.ChainIndex    `json:"index"`
 		Transaction types.Transaction   `json:"transaction"`
 		Inflow      types.Currency      `json:"inflow"`

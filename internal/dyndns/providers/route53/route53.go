@@ -15,7 +15,7 @@ import (
 type (
 	// Options is the set of configuration options for the Route53 provider.
 	Options struct {
-		ID       string `json:"id"`
+		ID       string `json:"ID"`
 		Secret   string `json:"secret"`
 		ZoneID   string `json:"zoneID"`
 		Hostname string `json:"hostname"`

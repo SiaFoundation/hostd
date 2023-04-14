@@ -31,7 +31,7 @@ type (
 
 	// A Volume stores and retrieves sector data
 	Volume struct {
-		ID           int    `json:"id"`
+		ID           int    `json:"ID"`
 		LocalPath    string `json:"localPath"`
 		UsedSectors  uint64 `json:"usedSectors"`
 		TotalSectors uint64 `json:"totalSectors"`
