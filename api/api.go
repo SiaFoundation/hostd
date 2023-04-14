@@ -87,8 +87,8 @@ type (
 		AcceptTransactionSet(txns []types.Transaction) error
 	}
 
-	// An API provides an HTTP API for the host
-	API struct {
+	// An api provides an HTTP API for the host
+	api struct {
 		hostKey types.PublicKey
 
 		log *zap.Logger
@@ -108,7 +108,7 @@ type (
 
 // NewServer initializes the API
 func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
-	a := &API{
+	a := &api{
 		hostKey: hostKey,
 
 		syncer:    g,
