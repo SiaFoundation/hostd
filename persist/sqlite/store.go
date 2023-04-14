@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -110,7 +111,14 @@ func (s *Store) Close() error {
 }
 
 func sqliteFilepath(fp string) string {
-	return fmt.Sprintf("file:%v?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=true&_secure_delete=false&_txlock=exclusive", fp)
+	params := []string{
+		"_busy_timeout=5000",
+		"_foreign_keys=true",
+		"_journal_mode=WAL",
+		"_secure_delete=false",
+		"_txlock=exclusive",
+	}
+	return "file:" + fp + "?" + strings.Join(params, "&")
 }
 
 // OpenDatabase creates a new SQLite store and initializes the database. If the
