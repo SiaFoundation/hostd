@@ -129,6 +129,11 @@ func (a *api) handlePOSTSettings(c jape.Context) {
 	c.Encode(settings)
 }
 
+func (a *api) handlePOSTDynDNSUpdate(c jape.Context) {
+	err := a.settings.UpdateDynDNS()
+	a.checkServerError(c, "failed to update dynamic DNS", err)
+}
+
 func (a *api) handleGETMetrics(c jape.Context) {
 	var timestamp time.Time
 	c.DecodeForm("timestamp", &timestamp)

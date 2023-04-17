@@ -2,13 +2,18 @@ package settings
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/internal/dyndns/providers/duckdns"
+	"go.sia.tech/hostd/internal/dyndns/providers/noip"
+	"go.sia.tech/hostd/internal/dyndns/providers/route53"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -20,6 +25,8 @@ const (
 
 	// defaultBurstSize allow for large reads and writes on the limiter
 	defaultBurstSize = 256 * (1 << 20) // 256 MiB
+
+	dnsUpdateFrequency = 30 * time.Second
 )
 
 type (
@@ -52,16 +59,19 @@ type (
 		MinEgressPrice  types.Currency `json:"minEgressPrice"`
 		MinIngressPrice types.Currency `json:"minIngressPrice"`
 
-		// Bandwidth limiter settings
-		IngressLimit uint64 `json:"ingressLimit"`
-		EgressLimit  uint64 `json:"egressLimit"`
-
 		// Registry settings
 		MaxRegistryEntries uint64 `json:"maxRegistryEntries"`
 
 		// RHP3 settings
 		AccountExpiry     time.Duration  `json:"accountExpiry"`
 		MaxAccountBalance types.Currency `json:"maxAccountBalance"`
+
+		// Bandwidth limiter settings
+		IngressLimit uint64 `json:"ingressLimit"`
+		EgressLimit  uint64 `json:"egressLimit"`
+
+		// DNS settings
+		DynDNS DNSSettings `json:"dynDNS"`
 
 		Revision uint64 `json:"revision"`
 	}
@@ -95,10 +105,15 @@ type (
 		tp     TransactionPool
 		wallet Wallet
 
-		mu           sync.Mutex // guards the following fields
-		settings     Settings   // in-memory cache of the host's settings
+		mu       sync.Mutex // guards the following fields
+		settings Settings   // in-memory cache of the host's settings
+
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
+
+		dyndnsUpdateTimer *time.Timer
+		lastIPv4          net.IP
+		lastIPv6          net.IP
 	}
 )
 
@@ -196,9 +211,15 @@ func (m *ConfigManager) Announce() error {
 
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
+	// validate DNS settings
+	if err := validateDNSSettings(s.DynDNS); err != nil {
+		return fmt.Errorf("failed to validate DNS settings: %w", err)
+	}
+
 	m.mu.Lock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
+	m.resetDynDNS()
 	m.mu.Unlock()
 	return m.store.UpdateSettings(s)
 }
@@ -218,6 +239,40 @@ func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 // DiscoveredRHP2Address returns the rhp2 address that was discovered by the gateway
 func (m *ConfigManager) DiscoveredRHP2Address() string {
 	return m.discoveredRHPAddr
+}
+
+func validateDNSSettings(s DNSSettings) error {
+	if len(s.Provider) == 0 {
+		return nil
+	} else if !s.IPv4 && !s.IPv6 {
+		return errors.New("at least one of IPv4 or IPv6 must be enabled")
+	}
+
+	buf, err := json.Marshal(s.Options)
+	if err != nil {
+		return fmt.Errorf("failed to marshal dns settings: %w", err)
+	}
+
+	switch s.Provider {
+	case "route53":
+		var r53 route53.Options
+		if err = json.Unmarshal(buf, &r53); err != nil {
+			return fmt.Errorf("failed to unmarshal route53 settings: %w", err)
+		}
+	case "noip":
+		var noip noip.Options
+		if err = json.Unmarshal(buf, &noip); err != nil {
+			return fmt.Errorf("failed to unmarshal noip settings: %w", err)
+		}
+	case "duckdns":
+		var duck duckdns.Options
+		if err = json.Unmarshal(buf, &duck); err != nil {
+			return fmt.Errorf("failed to unmarshal duckdns settings: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown dns provider: %s", s.Provider)
+	}
+	return nil
 }
 
 func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
@@ -272,5 +327,7 @@ func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm
 	m.settings = settings
 	// update the global rate limiters from settings
 	m.setRateLimit(settings.IngressLimit, settings.EgressLimit)
+	// initialize the dyndns update timer
+	m.resetDynDNS()
 	return m, nil
 }

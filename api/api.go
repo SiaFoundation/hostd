@@ -32,8 +32,11 @@ type (
 	// Settings updates and retrieves the host's settings
 	Settings interface {
 		Announce() error
+
 		UpdateSettings(s settings.Settings) error
 		Settings() settings.Settings
+
+		UpdateDynDNS() error
 	}
 
 	// Metrics retrieves metrics related to the host
@@ -130,6 +133,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		"GET /settings":                   a.handleGETSettings,
 		"POST /settings":                  a.handlePOSTSettings,
 		"POST /settings/announce":         a.handlePOSTAnnounce,
+		"POST /settings/dyndns/update":    a.handlePOSTDynDNSUpdate,
 		"GET /metrics":                    a.handleGETMetrics,
 		"GET /metrics/:period":            a.handleGETPeriodMetrics,
 		"POST /contracts":                 a.handlePostContracts,

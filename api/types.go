@@ -178,12 +178,15 @@ func patchSettings(a, b map[string]any) (map[string]any, error) {
 		va, ok := a[k]
 		if !ok {
 			return nil, errors.New("unknown setting " + k)
-		} else if reflect.TypeOf(va) != reflect.TypeOf(vb) {
-			return nil, errors.New("invalid value for setting " + k)
+		} else if va != nil && vb != nil && reflect.TypeOf(va) != reflect.TypeOf(vb) {
+			return nil, fmt.Errorf("invalid type for setting %s: expected %T, got %T", k, va, vb)
 		}
 
 		switch vb := vb.(type) {
 		case map[string]any:
+			if a[k] == nil {
+				a[k] = vb
+			}
 			var err error
 			a[k], err = patchSettings(a[k].(map[string]any), vb)
 			if err != nil {

@@ -24,7 +24,7 @@ type (
 	}
 )
 
-func (sn *sqlNullable[T]) Scan(src interface{}) error {
+func (sn *sqlNullable[T]) Scan(src any) error {
 	if src == nil {
 		sn.Valid = false
 		return nil
@@ -35,7 +35,7 @@ func (sn *sqlNullable[T]) Scan(src interface{}) error {
 	return nil
 }
 
-func (sh *sqlHash256) Scan(src interface{}) error {
+func (sh *sqlHash256) Scan(src any) error {
 	switch src := src.(type) {
 	case string:
 		hex.Decode(sh[:], []byte(src))
@@ -51,7 +51,7 @@ func (sh sqlHash256) Value() (driver.Value, error) {
 	return sh[:], nil
 }
 
-func (sh *sqlHash512) Scan(src interface{}) error {
+func (sh *sqlHash512) Scan(src any) error {
 	switch src := src.(type) {
 	case string:
 		hex.Decode(sh[:], []byte(src))
@@ -67,7 +67,7 @@ func (sh sqlHash512) Value() (driver.Value, error) {
 	return sh[:], nil
 }
 
-func (su *sqlUint64) Scan(src interface{}) error {
+func (su *sqlUint64) Scan(src any) error {
 	switch src := src.(type) {
 	case []byte:
 		*su = sqlUint64(binary.LittleEndian.Uint64(src))
@@ -84,7 +84,7 @@ func (su sqlUint64) Value() (driver.Value, error) {
 }
 
 // Scan implements the sql.Scanner interface.
-func (sc *sqlCurrency) Scan(src interface{}) error {
+func (sc *sqlCurrency) Scan(src any) error {
 	buf, ok := src.([]byte)
 	if !ok {
 		return fmt.Errorf("cannot scan %T to Currency", src)
@@ -105,7 +105,7 @@ func (sc sqlCurrency) Value() (driver.Value, error) {
 	return buf, nil
 }
 
-func (st *sqlTime) Scan(src interface{}) error {
+func (st *sqlTime) Scan(src any) error {
 	switch src := src.(type) {
 	case int64:
 		*st = sqlTime(time.Unix(src, 0))

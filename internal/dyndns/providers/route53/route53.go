@@ -3,7 +3,7 @@ package route53
 import (
 	"errors"
 	"fmt"
-	"sync"
+	"net"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -46,15 +46,11 @@ func (p *Provider) buildChange(ip, recordType string) *route53.Change {
 	}
 }
 
-// Update updates the DNS provider using the specified update mode.
-// UpdateModeDefault will detect both the IPv4 and IPv6 external IP
-// addresses and update the provider with both; an error should only be
-// returned if IPv4 and IPv6 updates fail.
-// UpdateModeIPv4 will detect the external IPv4 address and update the
-// provider's A record.
-// UpdateModeIPv6 will detect the external IPv6 address and update the
-// provider's AAAA record.
-func (p *Provider) Update(mode dyndns.UpdateMode) error {
+// Update implements the dyndns.Provider interface for AWS Route 53.
+func (p *Provider) Update(ipv4, ipv6 net.IP) error {
+	if ipv4 == nil && ipv6 == nil {
+		return errors.New("no ip addresses provided")
+	}
 	creds := credentials.NewStaticCredentials(p.options.ID, p.options.Secret, "")
 	sess, err := session.NewSession(&aws.Config{
 		Credentials: creds,
@@ -65,65 +61,11 @@ func (p *Provider) Update(mode dyndns.UpdateMode) error {
 	svc := route53.New(sess)
 
 	var changes []*route53.Change
-
-	updateV4 := func() error {
-		ip, err := dyndns.GetIP(dyndns.NetworkModeTCP4)
-		if err != nil {
-			return fmt.Errorf("unable to get ipv4 address: %w", err)
-		}
-		changes = append(changes, p.buildChange(ip, "A"))
-
-		return nil
+	if ipv4 != nil {
+		changes = append(changes, p.buildChange(ipv4.String(), "A"))
 	}
-
-	updateV6 := func() error {
-		ip, err := dyndns.GetIP(dyndns.NetworkModeTCP6)
-		if err != nil {
-			return fmt.Errorf("unable to get ipv6 address: %w", err)
-		}
-		changes = append(changes, p.buildChange(ip, "AAAA"))
-
-		return nil
-	}
-
-	switch mode {
-	case dyndns.UpdateModeIPv4:
-		if err := updateV4(); err != nil {
-			return err
-		}
-	case dyndns.UpdateModeIPv6:
-		if err := updateV6(); err != nil {
-			return err
-		}
-	case dyndns.UpdateModeDefault:
-		var v4Err, v6Err error
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-
-			ip, err := dyndns.GetIP(dyndns.NetworkModeTCP4)
-			if err != nil {
-				v4Err = fmt.Errorf("unable to get ipv4 address: %w", err)
-				return
-			}
-			changes = append(changes, p.buildChange(ip, "A"))
-		}()
-		go func() {
-			defer wg.Done()
-
-			ip, err := dyndns.GetIP(dyndns.NetworkModeTCP6)
-			if err != nil {
-				v6Err = fmt.Errorf("unable to get ipv6 address: %w", err)
-				return
-			}
-			changes = append(changes, p.buildChange(ip, "AAAA"))
-		}()
-		if v4Err != nil && v6Err != nil {
-			return fmt.Errorf("unable to get ipv4: %w or ipv6: %s", v4Err, v6Err)
-		}
-	default:
-		return fmt.Errorf("unable to update mode %v: %w", mode, dyndns.ErrUnsupported)
+	if ipv6 != nil {
+		changes = append(changes, p.buildChange(ipv6.String(), "AAAA"))
 	}
 
 	_, err = svc.ChangeResourceRecordSets(&route53.ChangeResourceRecordSetsInput{
