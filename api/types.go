@@ -17,14 +17,23 @@ type (
 		Address string `json:"address"`
 	}
 
-	// A StateResponse is the response body for the [GET] /state endpoint.
-	StateResponse struct {
-		// meta
+	// BuildState contains static information about the build.
+	BuildState struct {
+		Network   string    `json:"network"`
+		Version   string    `json:"version"`
+		Commit    string    `json:"commit"`
+		BuildTime time.Time `json:"buildTime"`
+	}
+
+	// HostState is the response body for the [GET] /state/host endpoint.
+	HostState struct {
 		PublicKey     types.PublicKey `json:"publicKey"`
 		WalletAddress types.Address   `json:"walletAddress"`
+		BuildState
+	}
 
-		// consensus
-		Network    string           `json:"network"`
+	// ConsensusState is the response body for the [GET] /consensus endpoint.
+	ConsensusState struct {
 		Synced     bool             `json:"synced"`
 		ChainIndex types.ChainIndex `json:"chainIndex"`
 	}

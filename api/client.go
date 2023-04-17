@@ -20,9 +20,15 @@ type Client struct {
 	c jape.Client
 }
 
-// State returns the current state of the host
-func (c *Client) State() (resp StateResponse, err error) {
-	err = c.c.GET("/state", &resp)
+// Host returns the current state of the host
+func (c *Client) Host() (resp HostState, err error) {
+	err = c.c.GET("/state/host", &resp)
+	return
+}
+
+// Consensus returns the current consensus state.
+func (c *Client) Consensus() (resp ConsensusState, err error) {
+	err = c.c.GET("/state/consensus", &resp)
 	return
 }
 
@@ -64,6 +70,11 @@ func (c *Client) Settings() (settings settings.Settings, err error) {
 func (c *Client) UpdateSettings(patch UpdateSettingsRequest) (settings settings.Settings, err error) {
 	err = c.c.POST("/settings", patch, &settings)
 	return
+}
+
+// TestDynDNS tests the dynamic DNS settings of the host.
+func (c *Client) TestDynDNS() error {
+	return c.c.PUT("/settings/dyndns/update", nil)
 }
 
 // Metrics returns the metrics of the host at the specified time.

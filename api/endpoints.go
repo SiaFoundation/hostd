@@ -33,12 +33,20 @@ func (a *api) checkServerError(c jape.Context, context string, err error) bool {
 	return err == nil
 }
 
-func (a *api) handleGETState(c jape.Context) {
-	c.Encode(StateResponse{
+func (a *api) handleGETHostState(c jape.Context) {
+	c.Encode(HostState{
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
-
-		Network:    build.Network(),
+		BuildState: BuildState{
+			Network:   build.Network(),
+			Version:   build.Version(),
+			Commit:    build.Commit(),
+			BuildTime: build.BuildTime(),
+		},
+	})
+}
+func (a *api) handleGETConsensusState(c jape.Context) {
+	c.Encode(ConsensusState{
 		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
 	})
@@ -129,7 +137,7 @@ func (a *api) handlePOSTSettings(c jape.Context) {
 	c.Encode(settings)
 }
 
-func (a *api) handlePOSTDynDNSUpdate(c jape.Context) {
+func (a *api) handlePUTDynDNSUpdate(c jape.Context) {
 	err := a.settings.UpdateDynDNS()
 	a.checkServerError(c, "failed to update dynamic DNS", err)
 }
