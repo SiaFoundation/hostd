@@ -138,6 +138,7 @@ func main() {
 		log.Fatalln("ERROR: failed to create logger:", err)
 	}
 	defer logger.Sync()
+	zap.RedirectStdLog(logger.Named("stdlog"))
 
 	apiPassword := getAPIPassword()
 	walletKey := getWalletKey()
@@ -174,6 +175,7 @@ func main() {
 		Handler:     node.rhp3.WebSocketHandler(),
 		ReadTimeout: 30 * time.Second,
 		TLSConfig:   node.settings.RHP3TLSConfig(),
+		ErrorLog:    nil,
 	}
 	defer rhpv3WS.Close()
 
