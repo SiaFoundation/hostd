@@ -8,7 +8,7 @@ require (
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
 	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
-	go.sia.tech/core v0.1.11-0.20230413214505-f2a1d22b1135
+	go.sia.tech/core v0.1.11-0.20230418153732-30a93d82d193
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
@@ -18,6 +18,7 @@ require (
 	golang.org/x/term v0.5.0
 	golang.org/x/time v0.3.0
 	lukechampine.com/frand v1.4.2
+	nhooyr.io/websocket v1.8.7
 )
 
 require (
@@ -32,9 +33,13 @@ require (
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.7.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
+	github.com/klauspost/compress v1.10.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/klauspost/reedsolomon v1.11.7 // indirect
+	github.com/mattn/go-isatty v0.0.17 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	gitlab.com/NebulousLabs/bolt v1.4.4 // indirect
 	gitlab.com/NebulousLabs/demotemutex v0.0.0-20151003192217-235395f71c40 // indirect
@@ -66,4 +71,5 @@ require (
 	google.golang.org/genproto v0.0.0-20221118155620-16455021b5e6 // indirect
 	google.golang.org/grpc v1.52.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
