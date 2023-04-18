@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -121,5 +122,39 @@ func (m *ConfigManager) UpdateDynDNS() error {
 	m.lastIPv4, m.lastIPv6 = ipv4, ipv6
 	m.mu.Unlock()
 	m.log.Named("dyndns").Debug("updated dyndns", zap.String("ipv4", ipv4.String()), zap.String("ipv6", ipv6.String()), zap.String("provider", settings.Provider))
+	return nil
+}
+
+func validateDNSSettings(s DNSSettings) error {
+	if len(s.Provider) == 0 {
+		return nil
+	} else if !s.IPv4 && !s.IPv6 {
+		return errors.New("at least one of IPv4 or IPv6 must be enabled")
+	}
+
+	buf, err := json.Marshal(s.Options)
+	if err != nil {
+		return fmt.Errorf("failed to marshal dns settings: %w", err)
+	}
+
+	switch s.Provider {
+	case "route53":
+		var r53 route53.Options
+		if err = json.Unmarshal(buf, &r53); err != nil {
+			return fmt.Errorf("failed to unmarshal route53 settings: %w", err)
+		}
+	case "noip":
+		var noip noip.Options
+		if err = json.Unmarshal(buf, &noip); err != nil {
+			return fmt.Errorf("failed to unmarshal noip settings: %w", err)
+		}
+	case "duckdns":
+		var duck duckdns.Options
+		if err = json.Unmarshal(buf, &duck); err != nil {
+			return fmt.Errorf("failed to unmarshal duckdns settings: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown dns provider: %s", s.Provider)
+	}
 	return nil
 }

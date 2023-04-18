@@ -2,7 +2,7 @@ package settings
 
 import (
 	"bytes"
-	"encoding/json"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -11,9 +11,6 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/internal/dyndns/providers/duckdns"
-	"go.sia.tech/hostd/internal/dyndns/providers/noip"
-	"go.sia.tech/hostd/internal/dyndns/providers/route53"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -95,6 +92,7 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
+		dir               string
 		hostKey           types.PrivateKey
 		discoveredRHPAddr string
 
@@ -114,6 +112,8 @@ type (
 		dyndnsUpdateTimer *time.Timer
 		lastIPv4          net.IP
 		lastIPv6          net.IP
+
+		rhp3WSTLS *tls.Config
 	}
 )
 
@@ -241,40 +241,6 @@ func (m *ConfigManager) DiscoveredRHP2Address() string {
 	return m.discoveredRHPAddr
 }
 
-func validateDNSSettings(s DNSSettings) error {
-	if len(s.Provider) == 0 {
-		return nil
-	} else if !s.IPv4 && !s.IPv6 {
-		return errors.New("at least one of IPv4 or IPv6 must be enabled")
-	}
-
-	buf, err := json.Marshal(s.Options)
-	if err != nil {
-		return fmt.Errorf("failed to marshal dns settings: %w", err)
-	}
-
-	switch s.Provider {
-	case "route53":
-		var r53 route53.Options
-		if err = json.Unmarshal(buf, &r53); err != nil {
-			return fmt.Errorf("failed to unmarshal route53 settings: %w", err)
-		}
-	case "noip":
-		var noip noip.Options
-		if err = json.Unmarshal(buf, &noip); err != nil {
-			return fmt.Errorf("failed to unmarshal noip settings: %w", err)
-		}
-	case "duckdns":
-		var duck duckdns.Options
-		if err = json.Unmarshal(buf, &duck); err != nil {
-			return fmt.Errorf("failed to unmarshal duckdns settings: %w", err)
-		}
-	default:
-		return fmt.Errorf("unknown dns provider: %s", s.Provider)
-	}
-	return nil
-}
-
 func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 	// encode the announcement
 	var buf bytes.Buffer
@@ -298,8 +264,9 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
+func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
 	m := &ConfigManager{
+		dir:               dir,
 		hostKey:           hostKey,
 		discoveredRHPAddr: rhp2Addr,
 
@@ -312,6 +279,13 @@ func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
 		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
+
+		// rhp3 WebSocket TLS
+		rhp3WSTLS: &tls.Config{},
+	}
+
+	if err := m.reloadCertificates(); err != nil {
+		return nil, fmt.Errorf("failed to load rhp3 WebSocket certificates: %w", err)
 	}
 
 	settings, err := m.store.Settings()
