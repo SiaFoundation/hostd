@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"path/filepath"
 	"time"
 
@@ -46,8 +47,9 @@ type Host struct {
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
 
-	rhpv2 *rhpv2.SessionHandler
-	rhpv3 *rhpv3.SessionHandler
+	rhpv2   *rhpv2.SessionHandler
+	rhpv3   *rhpv3.SessionHandler
+	rhpv3WS net.Listener
 }
 
 // DefaultSettings returns the default settings for the test host
@@ -73,6 +75,7 @@ var DefaultSettings = settings.Settings{
 
 // Close shutsdown the host
 func (h *Host) Close() error {
+	h.rhpv3WS.Close()
 	h.rhpv2.Close()
 	h.rhpv3.Close()
 	h.settings.Close()
@@ -93,6 +96,11 @@ func (h *Host) RHPv2Addr() string {
 // RHPv3Addr returns the address of the RHPv3 listener
 func (h *Host) RHPv3Addr() string {
 	return h.rhpv3.LocalAddr()
+}
+
+// RHPv3WSAddr returns the address of the RHPv3 WebSocket listener
+func (h *Host) RHPv3WSAddr() string {
+	return h.rhpv3WS.Addr().String()
 }
 
 // AddVolume adds a new volume to the host
@@ -168,7 +176,7 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
 	}
 
-	settings, err := settings.NewConfigManager(privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, log.Named("settings"))
+	settings, err := settings.NewConfigManager(dir, privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -193,6 +201,22 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 	}
 	go rhpv3.Serve()
 
+	rhpv3WSListener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp3 websocket listener: %w", err)
+	}
+
+	go func() {
+		rhpv3WS := http.Server{
+			Handler:     rhpv3.WebSocketHandler(),
+			ReadTimeout: 30 * time.Second,
+		}
+
+		if err := rhpv3WS.Serve(rhpv3WSListener); err != nil {
+			return
+		}
+	}()
+
 	return &Host{
 		Node:      node,
 		privKey:   privKey,
@@ -205,7 +229,8 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		accounts:  accounts,
 		contracts: contracts,
 
-		rhpv2: rhpv2,
-		rhpv3: rhpv3,
+		rhpv2:   rhpv2,
+		rhpv3:   rhpv3,
+		rhpv3WS: rhpv3WSListener,
 	}, nil
 }

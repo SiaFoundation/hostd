@@ -38,7 +38,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
 		BuildState: BuildState{
-			Network:   build.Network(),
+			Network:   build.NetworkName(),
 			Version:   build.Version(),
 			Commit:    build.Commit(),
 			BuildTime: build.BuildTime(),

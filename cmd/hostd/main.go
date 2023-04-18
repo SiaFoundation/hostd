@@ -25,7 +25,8 @@ import (
 var (
 	gatewayAddr string
 	rhp2Addr    string
-	rhp3Addr    string
+	rhp3TCPAddr string
+	rhp3WSAddr  string
 	apiAddr     string
 	dir         string
 	bootstrap   bool
@@ -84,7 +85,8 @@ func getWalletKey() types.PrivateKey {
 func main() {
 	flag.StringVar(&gatewayAddr, "rpc", defaultGatewayAddr, "address to listen on for peer connections")
 	flag.StringVar(&rhp2Addr, "rhp2", defaultRHPv2Addr, "address to listen on for RHP2 connections")
-	flag.StringVar(&rhp3Addr, "rhp3", defaultRHPv3Addr, "address to listen on for RHP3 connections")
+	flag.StringVar(&rhp3TCPAddr, "rhp3.tcp", defaultRHPv3TCPAddr, "address to listen on for TCP RHP3 connections")
+	flag.StringVar(&rhp3WSAddr, "rhp3.ws", defaultRHPv3WSAddr, "address to listen on for WebSocket RHP3 connections")
 	flag.StringVar(&apiAddr, "http", defaultAPIAddr, "address to serve API on")
 	flag.StringVar(&dir, "dir", ".", "directory to store hostd metadata")
 	flag.BoolVar(&bootstrap, "bootstrap", true, "bootstrap the gateway and consensus modules")
@@ -94,7 +96,7 @@ func main() {
 	flag.Parse()
 
 	log.Println("hostd", build.Version())
-	log.Println("Network", build.Network())
+	log.Println("Network", build.NetworkName())
 	switch flag.Arg(0) {
 	case "version":
 		log.Println("Commit:", build.Commit())
@@ -146,7 +148,13 @@ func main() {
 	}
 	defer apiListener.Close()
 
-	node, hostKey, err := newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir, bootstrap, walletKey, logger)
+	rhpv3WSListener, err := net.Listen("tcp", rhp3WSAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rhpv3WSListener.Close()
+
+	node, hostKey, err := newNode(gatewayAddr, rhp2Addr, rhp3TCPAddr, dir, bootstrap, walletKey, logger)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -160,6 +168,25 @@ func main() {
 		},
 		ReadTimeout: 30 * time.Second,
 	}
+	defer web.Close()
+
+	rhpv3WS := http.Server{
+		Handler:     node.rhp3.WebSocketHandler(),
+		ReadTimeout: 30 * time.Second,
+		TLSConfig:   node.settings.RHP3TLSConfig(),
+	}
+	defer rhpv3WS.Close()
+
+	go func() {
+		err := rhpv3WS.ServeTLS(rhpv3WSListener, "", "")
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if logStdout {
+				logger.Error("failed to serve rhpv3 websocket", zap.Error(err))
+				return
+			}
+			log.Println("ERROR: failed to serve rhpv3 websocket:", err)
+		}
+	}()
 
 	if logStdout {
 		logger.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
@@ -167,7 +194,8 @@ func main() {
 		log.Println("api listening on:", apiListener.Addr().String())
 		log.Println("p2p listening on:", node.g.Address())
 		log.Println("rhp2 listening on:", node.rhp2.LocalAddr())
-		log.Println("rhp3 listening on:", node.rhp3.LocalAddr())
+		log.Println("rhp3 TCP listening on:", node.rhp3.LocalAddr())
+		log.Println("rhp3 WebSocket listening on:", rhpv3WSListener.Addr().String())
 		log.Println("host public key:", hostKey.PublicKey())
 	}
 
@@ -181,7 +209,6 @@ func main() {
 			log.Println("ERROR: failed to serve web:", err)
 		}
 	}()
-	defer web.Close()
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)

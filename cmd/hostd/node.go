@@ -230,7 +230,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	sr, err := settings.NewConfigManager(hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
+	sr, err := settings.NewConfigManager(dir, hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
 	}
