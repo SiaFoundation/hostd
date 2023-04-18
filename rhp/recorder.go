@@ -65,7 +65,6 @@ func (dr *DataRecorder) persistUsage() {
 		dr.log.Error("failed to persist data usage", zap.Error(err))
 		return
 	}
-	dr.log.Debug("persisted data usage", zap.Uint64("read", deltaRead), zap.Uint64("write", deltaWrite))
 }
 
 // Close persists any remaining usage and returns nil
