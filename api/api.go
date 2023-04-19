@@ -36,7 +36,7 @@ type (
 		UpdateSettings(s settings.Settings) error
 		Settings() settings.Settings
 
-		UpdateDynDNS() error
+		UpdateDynDNS(force bool) error
 	}
 
 	// Metrics retrieves metrics related to the host

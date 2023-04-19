@@ -25,7 +25,7 @@ type (
 )
 
 func (m *ConfigManager) triggerDNSUpdate() {
-	if err := m.UpdateDynDNS(); err != nil {
+	if err := m.UpdateDynDNS(false); err != nil {
 		m.log.Named("dyndns").Error("failed to update dyndns", zap.Error(err))
 		return
 	}
@@ -53,11 +53,15 @@ func (m *ConfigManager) resetDynDNS() {
 }
 
 // UpdateDynDNS triggers an update of the host's dynamic DNS records.
-func (m *ConfigManager) UpdateDynDNS() error {
+func (m *ConfigManager) UpdateDynDNS(force bool) error {
 	m.mu.Lock()
 	settings := m.settings.DynDNS
 	lastIPv4, lastIPv6 := m.lastIPv4, m.lastIPv6
 	m.mu.Unlock()
+
+	if force {
+		lastIPv4, lastIPv6 = nil, nil
+	}
 
 	var err error
 	var ipv4 net.IP
