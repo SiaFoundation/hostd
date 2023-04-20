@@ -56,24 +56,43 @@ func (s *Store) PeriodMetrics(start, end time.Time, interval metrics.Interval) (
 	switch interval {
 	case metrics.Interval15Minutes:
 		current = current.Truncate(15 * time.Minute)
+		end = end.Add(15 * time.Minute).Truncate(15 * time.Minute)
 	case metrics.IntervalHourly:
 		current = current.Truncate(time.Hour)
+		end = end.Add(time.Hour).Truncate(time.Hour)
 	case metrics.IntervalDaily:
 		y, m, d := current.Date()
 		current = time.Date(y, m, d, 0, 0, 0, 0, current.Location())
+		// set end to the last second of the day
+		y, m, d = end.Date()
+		end = time.Date(y, m, d, 23, 59, 59, 999, current.Location())
+	case metrics.IntervalWeekly:
+		y, m, d := current.Date()
+		d -= int(current.Weekday())
+		current = time.Date(y, m, d, 0, 0, 0, 0, current.Location())
+		// set end to the last second of the following Sunday
+		y, m, d = end.Date()
+		d += 7 - int(end.Weekday())
+		end = time.Date(y, m, d, 23, 59, 59, 999, current.Location())
 	case metrics.IntervalMonthly:
 		y, m, _ := current.Date()
 		current = time.Date(y, m, 1, 0, 0, 0, 0, current.Location())
+		// set end to the last second of the last day of the month
+		y, m, _ = end.Date()
+		end = time.Date(y, m+1, 0, 23, 59, 59, 999, current.Location())
 	case metrics.IntervalYearly:
 		y, _, _ := current.Date()
 		current = time.Date(y, 1, 1, 0, 0, 0, 0, current.Location())
+		// set end to the last second of the last day of the year
+		y, _, _ = end.Date()
+		end = time.Date(y, 12, 31, 23, 59, 59, 999, current.Location())
 	default:
 		return nil, fmt.Errorf("invalid interval: %v", interval)
 	}
 
 	err = s.transaction(func(tx txn) error {
 		// TODO: this would be more performant in a single query, then parsing
-		// the results, but this is quicker and performant enough short-term.
+		// the results, but this is simple and performant enough short-term.
 		for current.Before(end) {
 			m, err := aggregateMetrics(tx, current)
 			if err != nil {
@@ -88,6 +107,8 @@ func (s *Store) PeriodMetrics(start, end time.Time, interval metrics.Interval) (
 				current = current.Add(time.Hour)
 			case metrics.IntervalDaily:
 				current = current.AddDate(0, 0, 1)
+			case metrics.IntervalWeekly:
+				current = current.AddDate(0, 0, 7)
 			case metrics.IntervalMonthly:
 				current = current.AddDate(0, 1, 0)
 			case metrics.IntervalYearly:

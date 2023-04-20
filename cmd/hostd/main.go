@@ -90,7 +90,7 @@ func main() {
 	flag.StringVar(&apiAddr, "http", defaultAPIAddr, "address to serve API on")
 	flag.StringVar(&dir, "dir", ".", "directory to store hostd metadata")
 	flag.BoolVar(&bootstrap, "bootstrap", true, "bootstrap the gateway and consensus modules")
-	flag.StringVar(&logLevel, "log.level", "warn", "log level (debug, info, warn, error)")
+	flag.StringVar(&logLevel, "log.level", "info", "log level (debug, info, warn, error)")
 	flag.BoolVar(&logStdout, "log.stdout", false, "log to stdout (default false)")
 	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
 	flag.Parse()
@@ -138,7 +138,9 @@ func main() {
 		log.Fatalln("ERROR: failed to create logger:", err)
 	}
 	defer logger.Sync()
-	zap.RedirectStdLog(logger.Named("stdlog"))
+	if logStdout {
+		zap.RedirectStdLog(logger.Named("stdlog"))
+	}
 
 	apiPassword := getAPIPassword()
 	walletKey := getWalletKey()

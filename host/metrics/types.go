@@ -1,8 +1,7 @@
 package metrics
 
 import (
-	"errors"
-	"strings"
+	"fmt"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -99,7 +98,7 @@ func (i Interval) String() string {
 	case Interval15Minutes:
 		return "15m"
 	case IntervalHourly:
-		return "1h"
+		return "hourly"
 	case IntervalDaily:
 		return "daily"
 	case IntervalWeekly:
@@ -114,25 +113,18 @@ func (i Interval) String() string {
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (i *Interval) UnmarshalText(buf []byte) error {
-	switch strings.ToLower(string(buf)) {
-	case "15m":
-		*i = Interval15Minutes
-		return nil
-	case "1h":
-		*i = IntervalHourly
-		return nil
-	case "daily":
-		*i = IntervalDaily
-		return nil
-	case "weekly":
-		*i = IntervalWeekly
-		return nil
-	case "monthly":
-		*i = IntervalMonthly
-		return nil
-	case "yearly":
-		*i = IntervalYearly
-		return nil
+	values := map[string]Interval{
+		Interval15Minutes.String(): Interval15Minutes,
+		IntervalHourly.String():    IntervalHourly,
+		IntervalDaily.String():     IntervalDaily,
+		IntervalWeekly.String():    IntervalWeekly,
+		IntervalMonthly.String():   IntervalMonthly,
+		IntervalYearly.String():    IntervalYearly,
 	}
-	return errors.New("invalid interval")
+	val, ok := values[string(buf)]
+	if !ok {
+		return fmt.Errorf("invalid interval: %v", string(buf))
+	}
+	*i = val
+	return nil
 }
