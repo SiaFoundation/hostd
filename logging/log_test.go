@@ -17,6 +17,8 @@ func TestLogSyncer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
+
 	core := zapcore.NewTee(logging.Core(db, zapcore.DebugLevel), log.Core())
 	l := zap.New(core).With(zap.String("foo", "bar")).Named("test")
 	l.Info("hello world")
