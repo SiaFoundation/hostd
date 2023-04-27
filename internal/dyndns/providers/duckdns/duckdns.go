@@ -15,8 +15,8 @@ import (
 type (
 	// Options is the set of options for the DuckDNS provider.
 	Options struct {
-		Token    string
-		Hostname string
+		Token    string `json:"token"`
+		Hostname string `json:"hostname"`
 	}
 
 	// Provider implements the DNS provider interface for DuckDNS.

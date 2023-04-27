@@ -21,9 +21,9 @@ import (
 type (
 	// Options is the set of options for the No-IP provider.
 	Options struct {
-		Email    string
-		Password string
-		Hostname string
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Hostname string `json:"hostname"`
 	}
 	// Provider implements the DNS provider interface for No-IP.
 	Provider struct {
