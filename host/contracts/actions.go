@@ -45,7 +45,6 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint
 // processActions performs lifecycle actions on contracts. Triggerd by a
 // consensus change, changes are processed in the order they were received.
 func (cm *ContractManager) processActions() {
-	log := cm.log.Named("lifecycle")
 	for {
 		var height uint64
 		select {
@@ -53,7 +52,6 @@ func (cm *ContractManager) processActions() {
 		case <-cm.tg.Done():
 			return
 		}
-		log.Debug("processing actions", zap.Uint64("height", height))
 		err := func() error {
 			done, err := cm.tg.Add()
 			if err != nil {
@@ -91,6 +89,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 	case ActionBroadcastFormation:
 		if (height-contract.NegotiationHeight)%3 != 0 {
 			// debounce formation broadcasts to prevent spamming
+			log.Debug("skipping rebroadcast", zap.Uint64("negotiationHeight", contract.NegotiationHeight))
 			return
 		}
 		formationSet, err := cm.store.ContractFormationSet(id)
@@ -105,6 +104,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 	case ActionBroadcastFinalRevision:
 		if (contract.Revision.WindowStart-height)%3 != 0 {
 			// debounce final revision broadcasts to prevent spamming
+			log.Debug("skipping revision", zap.Uint64("windowStart", contract.Revision.WindowStart))
 			return
 		}
 		revisionTxn := types.Transaction{
@@ -143,6 +143,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 	case ActionBroadcastResolution:
 		if (height-contract.Revision.WindowStart)%3 != 0 {
 			// debounce resolution broadcasts to prevent spamming
+			log.Debug("skipping resolution", zap.Uint64("windowStart", contract.Revision.WindowStart))
 			return
 		}
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
