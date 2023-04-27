@@ -398,11 +398,39 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 // ContractAction calls contractFn on every contract in the store that
 // needs a lifecycle action performed.
 func (s *Store) ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error {
-	actions, err := contractsForAction(&dbTxn{s}, height)
+	tx := &dbTxn{s}
+	actions, err := rebroadcastContractActions(tx, height)
 	if err != nil {
-		return fmt.Errorf("failed to get contracts for action: %w", err)
+		return fmt.Errorf("failed to get rebroadcast actions: %w", err)
 	}
-
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = rejectContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get reject actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = revisionContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get revision actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = resolveContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get resolve actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = expireContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get expire actions: %w", err)
+	}
 	for _, action := range actions {
 		contractFn(action.ID, height, action.Action)
 	}
@@ -503,39 +531,118 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 	}
 }
 
-func contractsForAction(tx txn, height uint64) (actions []contractAction, _ error) {
-	const query = `
--- formation not confirmed, within rebroadcast window (rebroadcast)
-SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
-UNION
--- formation not confirmed, not rejected, outside rebroadcast window (reject)
-SELECT contract_id, 'reject' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height < $1 AND contract_status != $6
-UNION
--- formation confirmed, revision not confirmed, just outside proof window (broadcast revision)
-SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN $2 AND $3
-UNION
--- formation confirmed, resolution not confirmed, status active, in proof window (broadcast storage proof)
-SELECT contract_id, 'resolve' AS action FROM contracts WHERE formation_confirmed=true AND resolution_height IS NULL AND window_start <= $4 AND window_end > $4 AND contract_status=$5
-UNION
--- formation confirmed, status active, outside proof window (mark as failed)
-SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=true AND window_end < $4 AND contract_status=$5;`
+func rebroadcastContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
+	// formation not confirmed, within rebroadcast window
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1`
 
 	var maxRebroadcastHeight uint64
 	if height >= contracts.RebroadcastBuffer {
 		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
 	}
-	minRevisionHeight := height + contracts.RevisionSubmissionBuffer
 
-	rows, err := tx.Query(query, maxRebroadcastHeight, height, minRevisionHeight, height, contracts.ContractStatusActive, contracts.ContractStatusRejected)
+	rows, err := tx.Query(query, maxRebroadcastHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var action contractAction
-		if err := rows.Scan((*sqlHash256)(&action.ID), &action.Action); err != nil {
-			return nil, fmt.Errorf("failed to scan contract action: %w", err)
+		action := contractAction{
+			Action: contracts.ActionBroadcastFormation,
+		}
+		if err := rows.Scan((*sqlHash256)(&action.ID)); err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+		actions = append(actions, action)
+	}
+	return
+}
+
+func rejectContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
+	// formation not confirmed, not rejected, outside rebroadcast window
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height < $1`
+
+	var maxRebroadcastHeight uint64
+	if height >= contracts.RebroadcastBuffer {
+		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
+	}
+
+	rows, err := tx.Query(query, maxRebroadcastHeight)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		action := contractAction{
+			Action: contracts.ActionReject,
+		}
+		if err := rows.Scan((*sqlHash256)(&action.ID)); err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+		actions = append(actions, action)
+	}
+	return
+}
+
+func revisionContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
+	// formation confirmed, revision not confirmed, just outside proof window
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN $1 AND $2`
+	minRevisionHeight := height + contracts.RevisionSubmissionBuffer
+	rows, err := tx.Query(query, height, minRevisionHeight)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		action := contractAction{
+			Action: contracts.ActionBroadcastFinalRevision,
+		}
+		if err := rows.Scan((*sqlHash256)(&action.ID)); err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+		actions = append(actions, action)
+	}
+	return
+}
+
+func resolveContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
+	// formation confirmed, resolution not confirmed, status active, in proof window
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=true AND resolution_height IS NULL AND window_start <= $1 AND window_end > $1 AND contract_status=$2`
+	rows, err := tx.Query(query, height, contracts.ContractStatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		action := contractAction{
+			Action: contracts.ActionBroadcastResolution,
+		}
+		if err := rows.Scan((*sqlHash256)(&action.ID)); err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+		actions = append(actions, action)
+	}
+	return
+}
+
+func expireContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
+	// formation confirmed, status active, outside proof window
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=true AND window_end < $1 AND contract_status=$2;`
+	rows, err := tx.Query(query, height, contracts.ContractStatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		action := contractAction{
+			Action: contracts.ActionExpire,
+		}
+		if err := rows.Scan((*sqlHash256)(&action.ID)); err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
 		}
 		actions = append(actions, action)
 	}
