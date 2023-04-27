@@ -508,8 +508,8 @@ func contractsForAction(tx txn, height uint64) (actions []contractAction, _ erro
 -- formation not confirmed, within rebroadcast window (rebroadcast)
 SELECT contract_id, 'formation' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1
 UNION
--- formation not confirmed, outside rebroadcast window (reject)
-SELECT contract_id, 'reject' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height < $1
+-- formation not confirmed, not rejected, outside rebroadcast window (reject)
+SELECT contract_id, 'reject' AS action FROM contracts WHERE formation_confirmed=false AND negotiation_height < $1 AND contract_status != $6
 UNION
 -- formation confirmed, revision not confirmed, just outside proof window (broadcast revision)
 SELECT contract_id, 'revision' AS action FROM contracts WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN $2 AND $3
@@ -526,7 +526,7 @@ SELECT contract_id, 'expire' AS action FROM contracts WHERE formation_confirmed=
 	}
 	minRevisionHeight := height + contracts.RevisionSubmissionBuffer
 
-	rows, err := tx.Query(query, maxRebroadcastHeight, height, minRevisionHeight, height, contracts.ContractStatusActive)
+	rows, err := tx.Query(query, maxRebroadcastHeight, height, minRevisionHeight, height, contracts.ContractStatusActive, contracts.ContractStatusRejected)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
