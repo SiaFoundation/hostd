@@ -105,6 +105,11 @@ func (s *Store) transaction(fn func(txn) error) error {
 	return nil
 }
 
+// SetLogger sets the logger used by the store.
+func (s *Store) SetLogger(log *zap.Logger) {
+	s.log = log
+}
+
 // Close closes the underlying database.
 func (s *Store) Close() error {
 	return s.db.Close()

@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/logging"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
@@ -84,6 +85,12 @@ type (
 		TipState() consensus.State
 	}
 
+	// A LogStore retrieves host logs
+	LogStore interface {
+		LogEntries(logging.Filter) ([]logging.Entry, error)
+		Prune(time.Time) error
+	}
+
 	// A TPool manages the transaction pool
 	TPool interface {
 		RecommendedFee() (fee types.Currency)
@@ -102,6 +109,7 @@ type (
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
+		logs      LogStore
 		metrics   Metrics
 		settings  Settings
 
@@ -110,7 +118,7 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, ls LogStore, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	a := &api{
 		hostKey: hostKey,
 
@@ -119,6 +127,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		tpool:     tp,
 		contracts: cm,
 		volumes:   vm,
+		logs:      ls,
 		metrics:   m,
 		settings:  s,
 		wallet:    w,
@@ -154,6 +163,9 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		"GET /wallet/pending":             a.handleGETWalletPending,
 		"POST /wallet/send":               a.handlePOSTWalletSend,
 		"GET /system/dir/*path":           a.handleGETSystemDir,
+
+		"POST /log/entries": a.handlePOSTLogEntries,
+		"DELETE /log/prune": a.handleDELETELogPrune,
 	})
 	return r
 }

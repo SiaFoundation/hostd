@@ -207,6 +207,21 @@ CREATE TABLE host_settings (
 	registry_limit INTEGER NOT NULL
 );
 
+CREATE TABLE log_lines (
+	date_created INTEGER NOT NULL,
+	log_level INTEGER NOT NULL,
+	log_name TEXT NOT NULL,
+	log_caller TEXT NOT NULL,
+	log_message TEXT NOT NULL,
+	log_fields BLOB NOT NULL
+);
+CREATE INDEX log_lines_date_created ON log_lines(date_created DESC);
+CREATE INDEX log_lines_log_level ON log_lines(log_level);
+CREATE INDEX log_lines_log_name ON log_lines(log_name);
+CREATE INDEX log_lines_log_caller ON log_lines(log_caller);
+CREATE INDEX log_lines_log_message ON log_lines(log_message);
+
+
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations

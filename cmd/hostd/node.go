@@ -17,6 +17,7 @@ import (
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/logging"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/rhp"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
@@ -28,6 +29,7 @@ import (
 	"go.sia.tech/siad/modules/transactionpool"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func convertToSiad(core types.EncoderTo, siad encoding.SiaUnmarshaler) {
@@ -159,7 +161,7 @@ func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhpv3.ChainManager, 
 	return rhp3, nil
 }
 
-func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey, logger *zap.Logger) (*node, types.PrivateKey, error) {
+func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey, logger *zap.Logger, logLevel zapcore.Level) (*node, types.PrivateKey, error) {
 	gatewayDir := filepath.Join(dir, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway dir: %w", err)
@@ -199,6 +201,13 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create sqlite store: %w", err)
 	}
+
+	// create a new zap core by combining the current logger and a custom logging core
+	core := zapcore.NewTee(logger.Core(), logging.Core(db, logLevel))
+	// reinstantiate the logger with the new core
+	logger = zap.New(core)
+	// reset the logger so queries are logged to the database
+	db.SetLogger(logger.Named("sqlite"))
 
 	// load the host identity
 	hostKey := db.HostKey()

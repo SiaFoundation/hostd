@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/logging"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
 )
@@ -206,6 +207,17 @@ func (c *Client) LocalDir(path string) (resp SystemDirResponse, err error) {
 	path = strings.TrimLeft(path, "/")
 	err = c.c.GET("/system/dir/"+path, &resp)
 	return
+}
+
+// LogEntries returns log entries matching the filter.
+func (c *Client) LogEntries(filter logging.Filter) (entries []logging.Entry, err error) {
+	err = c.c.POST("/logs/entries", filter, &entries)
+	return
+}
+
+// LogPrune deletes log entries before the specified time.
+func (c *Client) LogPrune(before time.Time) error {
+	return c.c.DELETE(fmt.Sprintf("/logs/entries?before=%s", before.Format(time.RFC3339)))
 }
 
 // NewClient creates a new hostd API client.
