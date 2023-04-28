@@ -133,7 +133,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		wallet:    w,
 		log:       log,
 	}
-	r := jape.Mux(map[string]jape.Handler{
+	return jape.Mux(map[string]jape.Handler{
 		"GET /state/host":                 a.handleGETHostState,
 		"GET /state/consensus":            a.handleGETConsensusState,
 		"GET /syncer/address":             a.handleGETSyncerAddr,
@@ -167,5 +167,4 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		"POST /log/entries": a.handlePOSTLogEntries,
 		"DELETE /log/prune": a.handleDELETELogPrune,
 	})
-	return r
 }
