@@ -112,9 +112,11 @@ func (zc *zapCore) Write(ze zapcore.Entry, zf []zapcore.Field) error {
 		Timestamp: ze.Time,
 		Level:     ze.Level,
 		Name:      ze.LoggerName,
-		Caller:    ze.Caller.String(),
 		Message:   ze.Message,
 		Fields:    make(map[string]any),
+	}
+	if ze.Caller.Defined {
+		entry.Caller = ze.Caller.String()
 	}
 	if err := json.Unmarshal(buf.Bytes(), &entry.Fields); err != nil {
 		return fmt.Errorf("failed to parse log entry: %w", err)
