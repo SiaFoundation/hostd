@@ -277,6 +277,9 @@ components:
         accountExpiry:
           type: integer
           format: int64
+        priceTableValidity:
+          type: integer
+          format: int64
     UpdateSettingsRequest:
       type: object
       properties:
@@ -326,6 +329,9 @@ components:
           type: integer
           nullable: true
         accountExpiry:
+          type: integer
+          nullable: true
+        priceTableValidity:
           type: integer
           nullable: true
       additionalProperties: false

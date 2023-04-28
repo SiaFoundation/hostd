@@ -162,6 +162,11 @@ func (ur UpdateSettingsRequest) WithAccountExpiry(value time.Duration) {
 	ur["accountExpiry"] = strconv.FormatInt(int64(value), 10)
 }
 
+// WithPriceTableValidity sets the PriceTableValidity field of the request
+func (ur UpdateSettingsRequest) WithPriceTableValidity(value time.Duration) {
+	ur["priceTableValidity"] = strconv.FormatInt(int64(value), 10)
+}
+
 // patchSettings merges two settings maps. returns an error if the two maps are
 // not compatible.
 func patchSettings(a, b map[string]any) (map[string]any, error) {
