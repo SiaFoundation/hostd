@@ -23,7 +23,7 @@ const (
 	defaultBatchSize = 20 * (1 << 20) // 20 MiB
 
 	// Version is the current version of the RHP2 protocol.
-	Version = "2.0.0"
+	Version = "1.6.0"
 )
 
 type (
