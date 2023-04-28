@@ -32,6 +32,7 @@ func randomSettings() settings.Settings {
 		EgressLimit:         uint64(frand.Intn(math.MaxInt)),
 		MaxRegistryEntries:  uint64(frand.Intn(math.MaxInt)),
 		AccountExpiry:       time.Duration(frand.Intn(math.MaxInt)),
+		PriceTableValidity:  time.Duration(frand.Intn(math.MaxInt)),
 		MaxAccountBalance:   types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
 	}
 }

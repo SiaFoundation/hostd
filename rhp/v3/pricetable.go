@@ -12,10 +12,6 @@ import (
 	"lukechampine.com/frand"
 )
 
-const (
-	defaultPriceTableExpiration = 10 * time.Minute
-)
-
 type (
 	// expiringPriceTable pairs a price table UID with an expiration timestamp.
 	expiringPriceTable struct {
@@ -122,7 +118,7 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 	return rhpv3.HostPriceTable{
 		UID:             frand.Entropy128(),
 		HostBlockHeight: currentHeight,
-		Validity:        defaultPriceTableExpiration,
+		Validity:        settings.PriceTableValidity,
 
 		// ephemeral account costs
 		AccountBalanceCost:   oneHasting,

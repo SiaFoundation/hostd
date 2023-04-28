@@ -196,6 +196,7 @@ CREATE TABLE host_settings (
 	min_ingress_price BLOB NOT NULL,
 	max_account_balance BLOB NOT NULL,
 	max_account_age INTEGER NOT NULL,
+	price_table_validity INTEGER NOT NULL,
 	max_contract_duration INTEGER NOT NULL,
 	window_size INTEGER NOT NULL,
 	ingress_limit INTEGER NOT NULL,
