@@ -122,7 +122,7 @@ var (
 		MinEgressPrice:  types.Siacoins(250).Div64(1 << 40),                      // 250 SC / TB
 		MinIngressPrice: types.Siacoins(10).Div64(1 << 40),                       // 10 SC / TB
 
-		PriceTableValidity: 10 * time.Minute,
+		PriceTableValidity: 30 * time.Minute,
 
 		AccountExpiry:     30 * 24 * time.Hour, // 30 days
 		MaxAccountBalance: types.Siacoins(10),  // 10SC
