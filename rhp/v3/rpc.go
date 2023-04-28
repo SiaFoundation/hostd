@@ -462,7 +462,8 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	instructions := executeReq.Program
 
 	// pay for the execution
-	if err := budget.Spend(pt.InitBaseCost); err != nil {
+	executeCost, _ := pt.BaseCost().Total()
+	if err := budget.Spend(executeCost); err != nil {
 		err = fmt.Errorf("failed to pay program init cost: %w", err)
 		s.WriteResponseErr(err)
 		return err

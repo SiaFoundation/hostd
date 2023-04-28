@@ -206,8 +206,10 @@ func TestAppendSector(t *testing.T) {
 	// upload a sector
 	accountSession := contractSession.WithAccountPayment(account, renter.PrivateKey())
 	// calculate the cost of the upload
-	usage := pt.AppendSectorCost(revision.Revision.WindowStart - renter.TipState().Index.Height)
-	cost, _ := usage.Total()
+	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowStart - renter.TipState().Index.Height)).Total()
+	if cost.IsZero() {
+		t.Fatal("cost is zero")
+	}
 	var sector [rhpv2.SectorSize]byte
 	frand.Read(sector[:256])
 	root := rhpv2.SectorRoot(&sector)
@@ -217,8 +219,7 @@ func TestAppendSector(t *testing.T) {
 	}
 
 	// download the sector
-	usage = pt.ReadSectorCost(rhpv2.SectorSize)
-	cost, _ = usage.Total()
+	cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(rhpv2.SectorSize)).Total()
 	downloaded, err := accountSession.ReadSector(root, 0, rhpv2.SectorSize, cost)
 	if err != nil {
 		t.Fatal(err)
