@@ -22,7 +22,9 @@ func TestLogSyncer(t *testing.T) {
 	core := zapcore.NewTee(logging.Core(db, zapcore.DebugLevel), log.Core())
 	l := zap.New(core).With(zap.String("foo", "bar")).Named("test")
 	l.Info("hello world")
-	l.Sync() // force the log to be written to the database
+	if err := l.Sync(); err != nil { // force the log to be written to the database
+		t.Fatal(err)
+	}
 
 	// check that the log entry was written to the database
 	entries, err := db.LogEntries(logging.Filter{})

@@ -42,9 +42,8 @@ type (
 	logBuffer struct {
 		store LogStore
 
-		mu       sync.Mutex
-		lastSync time.Time
-		entries  []Entry
+		mu      sync.Mutex
+		entries []Entry
 	}
 
 	// A zapCore wraps a LogStore in a zapcore.Core.
@@ -62,6 +61,9 @@ func (lb *logBuffer) flush() error {
 	entries := lb.entries
 	lb.entries = nil
 	lb.mu.Unlock()
+	if len(entries) == 0 {
+		return nil
+	}
 	return lb.store.AddEntries(entries)
 }
 
@@ -71,10 +73,6 @@ func (lb *logBuffer) append(entry Entry) error {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 	lb.entries = append(lb.entries, entry)
-	if time.Since(lb.lastSync) >= flushInterval {
-		go lb.flush()
-		lb.lastSync = time.Now()
-	}
 	return nil
 }
 
@@ -132,7 +130,7 @@ func (zc *zapCore) Sync() error {
 
 // Core returns a new zapcore.Core that writes to the given LogStore.
 func Core(s LogStore, level zapcore.LevelEnabler) zapcore.Core {
-	return &zapCore{
+	zc := &zapCore{
 		LevelEnabler: level,
 		encoder: zapcore.NewJSONEncoder(zapcore.EncoderConfig{
 			// setting the encoder keys to empty strings prevents the entry
@@ -149,4 +147,11 @@ func Core(s LogStore, level zapcore.LevelEnabler) zapcore.Core {
 			store: s,
 		},
 	}
+	// start a timer that periodically flushes the buffer
+	var t *time.Timer
+	t = time.AfterFunc(flushInterval, func() {
+		zc.buffer.flush()
+		t.Reset(flushInterval)
+	})
+	return zc
 }
