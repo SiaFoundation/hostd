@@ -5,20 +5,28 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/financials"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/internal/disk"
+	"go.sia.tech/hostd/logging"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
+const stdTxnSize = 1200
+
 // checkServerError conditionally writes an error to the response if err is not
 // nil.
-func (a *API) checkServerError(c jape.Context, context string, err error) bool {
+func (a *api) checkServerError(c jape.Context, context string, err error) bool {
 	if err != nil {
 		c.Error(err, http.StatusInternalServerError)
 		a.log.Warn(context, zap.Error(err))
@@ -26,28 +34,30 @@ func (a *API) checkServerError(c jape.Context, context string, err error) bool {
 	return err == nil
 }
 
-func (a *API) handleGETState(c jape.Context) {
-	used, total, err := a.volumes.Usage()
-	if !a.checkServerError(c, "failed to get volume usage", err) {
-		return
-	}
-
-	c.Encode(StateResponse{
+func (a *api) handleGETHostState(c jape.Context) {
+	c.Encode(HostState{
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
-
+		BuildState: BuildState{
+			Network:   build.NetworkName(),
+			Version:   build.Version(),
+			Commit:    build.Commit(),
+			BuildTime: build.BuildTime(),
+		},
+	})
+}
+func (a *api) handleGETConsensusState(c jape.Context) {
+	c.Encode(ConsensusState{
+		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
-
-		StoredSectors: used,
-		TotalSectors:  total,
 	})
 }
 
-func (a *API) handleGETSyncerAddr(c jape.Context) {
+func (a *api) handleGETSyncerAddr(c jape.Context) {
 	c.Encode(string(a.syncer.Address()))
 }
 
-func (a *API) handleGETSyncerPeers(c jape.Context) {
+func (a *api) handleGETSyncerPeers(c jape.Context) {
 	p := a.syncer.Peers()
 	peers := make([]Peer, len(p))
 	for i, peer := range p {
@@ -59,7 +69,7 @@ func (a *API) handleGETSyncerPeers(c jape.Context) {
 	c.Encode(peers)
 }
 
-func (a *API) handlePUTSyncerPeer(c jape.Context) {
+func (a *api) handlePUTSyncerPeer(c jape.Context) {
 	var req SyncerConnectRequest
 	if err := c.Decode(&req); err != nil {
 		c.Error(fmt.Errorf("failed to parse peer address: %w", err), http.StatusBadRequest)
@@ -69,7 +79,7 @@ func (a *API) handlePUTSyncerPeer(c jape.Context) {
 	a.checkServerError(c, "failed to connect to peer", err)
 }
 
-func (a *API) handleDeleteSyncerPeer(c jape.Context) {
+func (a *api) handleDeleteSyncerPeer(c jape.Context) {
 	var addr modules.NetAddress
 	if err := c.DecodeParam("address", &addr); err != nil {
 		c.Error(fmt.Errorf("failed to parse peer address: %w", err), http.StatusBadRequest)
@@ -79,16 +89,16 @@ func (a *API) handleDeleteSyncerPeer(c jape.Context) {
 	a.checkServerError(c, "failed to disconnect from peer", err)
 }
 
-func (a *API) handlePOSTAnnounce(c jape.Context) {
+func (a *api) handlePOSTAnnounce(c jape.Context) {
 	err := a.settings.Announce()
 	a.checkServerError(c, "failed to announce", err)
 }
 
-func (a *API) handleGETSettings(c jape.Context) {
+func (a *api) handleGETSettings(c jape.Context) {
 	c.Encode(a.settings.Settings())
 }
 
-func (a *API) handlePOSTSettings(c jape.Context) {
+func (a *api) handlePOSTSettings(c jape.Context) {
 	buf, err := json.Marshal(a.settings.Settings())
 	if !a.checkServerError(c, "failed to marshal existing settings", err) {
 		return
@@ -128,14 +138,50 @@ func (a *API) handlePOSTSettings(c jape.Context) {
 	c.Encode(settings)
 }
 
-func (a *API) handleGETFinancials(c jape.Context) {
-	if err := c.Error(errors.New("not implemented"), http.StatusInternalServerError); err != nil {
-		return
-	}
-	c.Encode([]financials.Revenue{})
+func (a *api) handlePUTDynDNSUpdate(c jape.Context) {
+	err := a.settings.UpdateDynDNS(true)
+	a.checkServerError(c, "failed to update dynamic DNS", err)
 }
 
-func (a *API) handlePostContracts(c jape.Context) {
+func (a *api) handleGETMetrics(c jape.Context) {
+	var timestamp time.Time
+	c.DecodeForm("timestamp", &timestamp)
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	metrics, err := a.metrics.Metrics(timestamp)
+	if !a.checkServerError(c, "failed to get metrics", err) {
+		return
+	}
+	c.Encode(metrics)
+}
+
+func (a *api) handleGETPeriodMetrics(c jape.Context) {
+	var interval metrics.Interval
+	if err := c.DecodeParam("period", &interval); err != nil {
+		c.Error(fmt.Errorf("failed to parse period: %w", err), http.StatusBadRequest)
+	}
+	var start, end time.Time
+	if len(c.Request.FormValue("start")) == 0 || len(c.Request.FormValue("end")) == 0 {
+		c.Error(fmt.Errorf("start and end time must be specified"), http.StatusBadRequest)
+		return
+	} else if err := c.DecodeForm("start", &start); err != nil {
+		c.Error(fmt.Errorf("failed to parse start time: %w", err), http.StatusBadRequest)
+		return
+	} else if err := c.DecodeForm("end", &end); err != nil {
+		c.Error(fmt.Errorf("failed to parse end time: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	period, err := a.metrics.PeriodMetrics(start, end, interval)
+	if !a.checkServerError(c, "failed to get metrics", err) {
+		return
+	}
+	c.Encode(period)
+}
+
+func (a *api) handlePostContracts(c jape.Context) {
 	var filter contracts.ContractFilter
 	if err := c.Decode(&filter); err != nil {
 		c.Error(fmt.Errorf("failed to parse filter: %w", err), http.StatusBadRequest)
@@ -146,14 +192,17 @@ func (a *API) handlePostContracts(c jape.Context) {
 		filter.Limit = 500
 	}
 
-	contracts, err := a.contracts.Contracts(filter)
+	contracts, count, err := a.contracts.Contracts(filter)
 	if !a.checkServerError(c, "failed to get contracts", err) {
 		return
 	}
-	c.Encode(contracts)
+	c.Encode(ContractsResponse{
+		Contracts: contracts,
+		Count:     count,
+	})
 }
 
-func (a *API) handleGETContract(c jape.Context) {
+func (a *api) handleGETContract(c jape.Context) {
 	var id types.FileContractID
 	if err := c.DecodeParam("id", &id); err != nil {
 		c.Error(fmt.Errorf("failed to parse contract ID: %w", err), http.StatusBadRequest)
@@ -169,7 +218,7 @@ func (a *API) handleGETContract(c jape.Context) {
 	c.Encode(contract)
 }
 
-func (a *API) handleGETVolume(c jape.Context) {
+func (a *api) handleGETVolume(c jape.Context) {
 	var id int
 	if err := c.DecodeParam("id", &id); err != nil {
 		c.Error(fmt.Errorf("failed to parse volume id: %w", err), http.StatusBadRequest)
@@ -189,7 +238,7 @@ func (a *API) handleGETVolume(c jape.Context) {
 	c.Encode(volume)
 }
 
-func (a *API) handlePUTVolume(c jape.Context) {
+func (a *api) handlePUTVolume(c jape.Context) {
 	var id int
 	if err := c.DecodeParam("id", &id); err != nil {
 		c.Error(fmt.Errorf("failed to parse volume id: %w", err), http.StatusBadRequest)
@@ -213,7 +262,7 @@ func (a *API) handlePUTVolume(c jape.Context) {
 	a.checkServerError(c, "failed to update volume", err)
 }
 
-func (a *API) handleDeleteSector(c jape.Context) {
+func (a *api) handleDeleteSector(c jape.Context) {
 	var root types.Hash256
 	if err := c.DecodeParam("root", &root); err != nil {
 		c.Error(fmt.Errorf("failed to parse sector root: %w", err), http.StatusBadRequest)
@@ -222,7 +271,7 @@ func (a *API) handleDeleteSector(c jape.Context) {
 	a.checkServerError(c, "failed to remove sector", err)
 }
 
-func (a *API) handleGETVolumes(c jape.Context) {
+func (a *api) handleGETVolumes(c jape.Context) {
 	volumes, err := a.volumes.Volumes()
 	if !a.checkServerError(c, "failed to get volumes", err) {
 		return
@@ -230,7 +279,7 @@ func (a *API) handleGETVolumes(c jape.Context) {
 	c.Encode(volumes)
 }
 
-func (a *API) handlePOSTVolume(c jape.Context) {
+func (a *api) handlePOSTVolume(c jape.Context) {
 	var req AddVolumeRequest
 	if err := c.Decode(&req); err != nil {
 		c.Error(fmt.Errorf("failed to parse add volume request: %w", err), http.StatusBadRequest)
@@ -250,7 +299,7 @@ func (a *API) handlePOSTVolume(c jape.Context) {
 	c.Encode(volume)
 }
 
-func (a *API) handleDeleteVolume(c jape.Context) {
+func (a *api) handleDeleteVolume(c jape.Context) {
 	var id int
 	var force bool
 	if err := c.DecodeParam("id", &id); err != nil {
@@ -267,7 +316,7 @@ func (a *API) handleDeleteVolume(c jape.Context) {
 	a.checkServerError(c, "failed to remove volume", err)
 }
 
-func (a *API) handlePUTVolumeResize(c jape.Context) {
+func (a *api) handlePUTVolumeResize(c jape.Context) {
 	var id int
 	if err := c.DecodeParam("id", &id); err != nil {
 		c.Error(fmt.Errorf("failed to parse volume id: %w", err), http.StatusBadRequest)
@@ -287,7 +336,7 @@ func (a *API) handlePUTVolumeResize(c jape.Context) {
 	a.checkServerError(c, "failed to resize volume", err)
 }
 
-func (a *API) handleGETWallet(c jape.Context) {
+func (a *api) handleGETWallet(c jape.Context) {
 	spendable, confirmed, unconfirmed, err := a.wallet.Balance()
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
@@ -301,7 +350,7 @@ func (a *API) handleGETWallet(c jape.Context) {
 	})
 }
 
-func (a *API) handleGETWalletTransactions(c jape.Context) {
+func (a *api) handleGETWalletTransactions(c jape.Context) {
 	limit, offset := parseLimitParams(c, 100, 500)
 
 	transactions, err := a.wallet.Transactions(limit, offset)
@@ -311,7 +360,7 @@ func (a *API) handleGETWalletTransactions(c jape.Context) {
 	c.Encode(transactions)
 }
 
-func (a *API) handleGETWalletPending(c jape.Context) {
+func (a *api) handleGETWalletPending(c jape.Context) {
 	pending, err := a.wallet.UnconfirmedTransactions()
 	if !a.checkServerError(c, "failed to get wallet pending", err) {
 		return
@@ -319,14 +368,104 @@ func (a *API) handleGETWalletPending(c jape.Context) {
 	c.Encode(pending)
 }
 
-func (a *API) handlePOSTWalletSend(c jape.Context) {
+func (a *api) handlePOSTWalletSend(c jape.Context) {
 	var req WalletSendSiacoinsRequest
 	if err := c.Decode(&req); err != nil {
 		c.Error(fmt.Errorf("failed to parse send siacoins request: %w", err), http.StatusBadRequest)
 		return
+	} else if req.Address == types.VoidAddress {
+		c.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
+		return
 	}
 
-	c.Error(errors.New("not implemented"), http.StatusInternalServerError)
+	// estimate miner fee
+	feePerByte := a.tpool.RecommendedFee()
+	minerFee := feePerByte.Mul64(stdTxnSize)
+	// build transaction
+	txn := types.Transaction{
+		MinerFees: []types.Currency{minerFee},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: req.Address, Value: req.Amount},
+		},
+	}
+	// fund and sign transaction
+	toSign, release, err := a.wallet.FundTransaction(&txn, req.Amount.Add(minerFee))
+	if !a.checkServerError(c, "failed to fund transaction", err) {
+		return
+	}
+	defer release()
+	err = a.wallet.SignTransaction(a.chain.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
+	if !a.checkServerError(c, "failed to sign transaction", err) {
+		return
+	}
+	// broadcast transaction
+	err = a.tpool.AcceptTransactionSet([]types.Transaction{txn})
+	if !a.checkServerError(c, "failed to broadcast transaction", err) {
+		return
+	}
+	c.Encode(txn.ID())
+}
+
+func (a *api) handleGETSystemDir(c jape.Context) {
+	var path string
+	if err := c.DecodeParam("path", &path); err != nil {
+		c.Error(fmt.Errorf("failed to parse path: %w", err), http.StatusBadRequest)
+	} else if path == "/~" { // handle user home directory.
+		path, _ = os.UserHomeDir()
+	} else if len(path) == 0 { // handle empty path for root directory.
+		path = "/"
+	}
+	path, _ = filepath.Abs(path)
+	dir, err := os.ReadDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		c.Error(fmt.Errorf("path does not exist: %w", err), http.StatusBadRequest)
+		return
+	} else if !a.checkServerError(c, "failed to read dir", err) {
+		return
+	}
+
+	// get disk usage
+	free, total, err := disk.Usage(path)
+	if !a.checkServerError(c, "failed to get disk usage", err) {
+		return
+	}
+
+	resp := SystemDirResponse{
+		Path:       path,
+		FreeBytes:  free,
+		TotalBytes: total,
+	}
+
+	for _, entry := range dir {
+		if entry.IsDir() {
+			resp.Directories = append(resp.Directories, entry.Name())
+		}
+	}
+	c.Encode(resp)
+}
+
+func (a *api) handlePOSTLogEntries(c jape.Context) {
+	var filter logging.Filter
+	if err := c.Decode(&filter); err != nil {
+		c.Error(fmt.Errorf("failed to parse log filter: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	entries, err := a.logs.LogEntries(filter)
+	if !a.checkServerError(c, "failed to get log entries", err) {
+		return
+	}
+	c.Encode(entries)
+}
+
+func (a *api) handleDELETELogPrune(c jape.Context) {
+	var timestamp time.Time
+	if err := c.DecodeForm("before", &timestamp); err != nil {
+		c.Error(fmt.Errorf("failed to parse log filter: %w", err), http.StatusBadRequest)
+		return
+	}
+	err := a.logs.Prune(timestamp)
+	a.checkServerError(c, "failed to prune logs", err)
 }
 
 func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset int) {

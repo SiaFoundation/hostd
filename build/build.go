@@ -2,6 +2,15 @@ package build
 
 //go:generate go run gen.go
 
-// Network returns the name of the network that the hostd binary is configured
-// to run on.
-func Network() string { return network }
+// NetworkName returns the human-readable name of the current network.
+func NetworkName() string {
+	n, _ := Network()
+	switch n.Name {
+	case "mainnet":
+		return "Mainnet"
+	case "zen":
+		return "Zen Testnet"
+	default:
+		return n.Name
+	}
+}

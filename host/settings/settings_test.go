@@ -29,7 +29,7 @@ func TestSettings(t *testing.T) {
 	}
 	defer db.Close()
 
-	manager, err := settings.NewConfigManager(hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, log.Named("settings"))
+	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, log.Named("settings"))
 	if err != nil {
 		t.Fatal(err)
 	}

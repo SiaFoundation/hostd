@@ -15,7 +15,7 @@ import (
 func (s *Store) StorageUsage() (usedSectors, totalSectors uint64, err error) {
 	// nulls are not included in COUNT() -- counting sector roots is equivalent
 	// to counting used sectors.
-	const query = `SELECT SUM(total_sectors) AS total_sectors, SUM(used_sectors) AS used_sectors FROM storage_volumes`
+	const query = `SELECT COALESCE(SUM(total_sectors), 0) AS total_sectors, COALESCE(SUM(used_sectors), 0) AS used_sectors FROM storage_volumes`
 	err = s.queryRow(query).Scan(&totalSectors, &usedSectors)
 	return
 }
@@ -120,6 +120,8 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors+1 WHERE id=$1`, location.Volume)
 		if err != nil {
 			return fmt.Errorf("failed to update volume usage: %w", err)
+		} else if err := incrementNumericStat(tx, metricPhysicalSectors, 1, time.Now()); err != nil {
+			return fmt.Errorf("failed to update metric: %w", err)
 		}
 		return nil
 	})
@@ -284,6 +286,8 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 			_, err = tx.Exec(updateMetaQuery, len(locations), id)
 			if err != nil {
 				return fmt.Errorf("failed to update volume metadata: %w", err)
+			} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locations), time.Now()); err != nil {
+				return fmt.Errorf("failed to update total sector metric: %w", err)
 			}
 			return nil
 		})
@@ -304,7 +308,7 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 	}
 	return s.transaction(func(tx txn) error {
 		var nextIndex uint64
-		err := tx.QueryRow(`SELECT COALESCE(MAX(volume_index)+1, 0) AS next_index FROM volume_sectors WHERE volume_id=?;`, id).Scan(&nextIndex)
+		err := tx.QueryRow(`SELECT total_sectors FROM storage_volumes WHERE id=?;`, id).Scan(&nextIndex)
 		if err != nil {
 			return fmt.Errorf("failed to get last volume index: %w", err)
 		}
@@ -327,6 +331,8 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 
 		if _, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id); err != nil {
 			return fmt.Errorf("failed to update volume metadata: %w", err)
+		} else if err := incrementNumericStat(tx, metricTotalSectors, int(maxSectors-nextIndex), time.Now()); err != nil {
+			return fmt.Errorf("failed to update total sectors metric: %w", err)
 		}
 		return nil
 	})
@@ -340,20 +346,33 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 	}
 	return s.transaction(func(tx txn) error {
 		// check if there are any used sectors in the shrink range
-		var count uint64
-		err := tx.QueryRow(`SELECT COUNT(sector_id) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_id IS NOT NULL;`, id, maxSectors).Scan(&count)
+		var usedSectors uint64
+		err := tx.QueryRow(`SELECT COUNT(sector_id) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_id IS NOT NULL;`, id, maxSectors).Scan(&usedSectors)
 		if err != nil {
 			return fmt.Errorf("failed to get used sectors: %w", err)
-		} else if count != 0 {
-			return fmt.Errorf("cannot shrink volume to %d sectors, %d sectors are in use: %w", maxSectors, count, storage.ErrVolumeNotEmpty)
+		} else if usedSectors != 0 {
+			return fmt.Errorf("cannot shrink volume to %d sectors, %d sectors are in use: %w", maxSectors, usedSectors, storage.ErrVolumeNotEmpty)
 		}
+
+		// get the current volume size
+		var totalSectors uint64
+		err = tx.QueryRow(`SELECT total_sectors FROM storage_volumes WHERE id=$1;`, id).Scan(&totalSectors)
+		if err != nil {
+			return fmt.Errorf("failed to get volume size: %w", err)
+		} else if maxSectors > totalSectors {
+			panic(fmt.Errorf("maxSectors must be less than totalSectors: %v < %v", maxSectors, totalSectors))
+		}
+		// delete the empty sectors
 		_, err = tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2;`, id, maxSectors)
 		if err != nil {
 			return fmt.Errorf("failed to shrink volume: %w", err)
 		}
+		// update the volume metadata
 		_, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id)
 		if err != nil {
 			return fmt.Errorf("failed to update volume metadata: %w", err)
+		} else if err := incrementNumericStat(tx, metricTotalSectors, -int(totalSectors-maxSectors), time.Now()); err != nil {
+			return fmt.Errorf("failed to update total sectors metric: %w", err)
 		}
 		return nil
 	})

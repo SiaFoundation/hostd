@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -439,7 +440,7 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 		FileContractRevisions: []types.FileContractRevision{clearingRevision},
 		FileContracts:         []types.FileContract{renewal},
 	}
-	renterCost := rhpv2.ContractRenewalCost(state, renewal, pt.RenewContractCost, txnFee, baseCost)
+	renterCost := rhpv2.ContractRenewalCost(state, renewal, pt.ContractPrice, txnFee, baseCost)
 	toSign, release, err := s.w.FundTransaction(&renewTxn, renterCost)
 	if err != nil {
 		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to fund transaction: %w", err)
@@ -474,10 +475,17 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 
 	renewRevision := initialRevision(&renewTxn, s.hostKey.UnlockKey(), renterKey.PublicKey().UnlockKey())
 	renewSigHash := hashRevision(renewRevision)
-
+	renterSig := renterKey.SignHash(renewSigHash)
 	renterSigsResp := &rhpv3.RPCRenewSignatures{
 		TransactionSignatures: renewTxn.Signatures,
-		RevisionSignature:     renterKey.SignHash(renewSigHash),
+		RevisionSignature: types.TransactionSignature{
+			ParentID:       types.Hash256(renewRevision.ParentID),
+			PublicKeyIndex: 0,
+			CoveredFields: types.CoveredFields{
+				FileContractRevisions: []uint64{0},
+			},
+			Signature: renterSig[:],
+		},
 	}
 	if err := stream.WriteResponse(renterSigsResp); err != nil {
 		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to write renter signatures: %w", err)
@@ -486,29 +494,14 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 	var hostSigsResp rhpv3.RPCRenewSignatures
 	if err := stream.ReadResponse(&hostSigsResp, 4096); err != nil {
 		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to read host signatures: %w", err)
-	} else if !s.hostKey.VerifyHash(renewSigHash, hostSigsResp.RevisionSignature) {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("host revision signature invalid")
+	} else if err := validateHostRevisionSignature(hostSigsResp.RevisionSignature, renewRevision.ParentID, renewSigHash, s.hostKey); err != nil {
+		return rhpv2.ContractRevision{}, nil, fmt.Errorf("invalid host revision signature: %w", err)
 	}
-	renewID := types.Hash256(renewTxn.FileContractID(0))
 	return rhpv2.ContractRevision{
 		Revision: renewRevision,
 		Signatures: [2]types.TransactionSignature{
-			{
-				ParentID:       renewID,
-				PublicKeyIndex: 0,
-				CoveredFields: types.CoveredFields{
-					FileContractRevisions: []uint64{0},
-				},
-				Signature: renterSigsResp.RevisionSignature[:],
-			},
-			{
-				ParentID:       renewID,
-				PublicKeyIndex: 1,
-				CoveredFields: types.CoveredFields{
-					FileContractRevisions: []uint64{0},
-				},
-				Signature: hostSigsResp.RevisionSignature[:],
-			},
+			renterSigsResp.RevisionSignature,
+			hostSigsResp.RevisionSignature,
 		},
 	}, append(renewalParents, renewTxn), nil
 }
@@ -588,6 +581,42 @@ func hashRevision(rev types.FileContractRevision) types.Hash256 {
 	return h.Sum()
 }
 
+func validateHostRevisionSignature(sig types.TransactionSignature, fcID types.FileContractID, sigHash types.Hash256, hostKey types.PublicKey) error {
+	switch {
+	case sig.ParentID != types.Hash256(fcID):
+		return errors.New("revision signature has invalid parent ID")
+	case sig.PublicKeyIndex != 1:
+		return errors.New("revision signature has invalid public key index")
+	case len(sig.Signature) != ed25519.SignatureSize:
+		return errors.New("revision signature has invalid length")
+	case len(sig.CoveredFields.SiacoinInputs) != 0:
+		return errors.New("signature should not cover siacoin inputs")
+	case len(sig.CoveredFields.SiacoinOutputs) != 0:
+		return errors.New("signature should not cover siacoin outputs")
+	case len(sig.CoveredFields.FileContracts) != 0:
+		return errors.New("signature should not cover file contract")
+	case len(sig.CoveredFields.StorageProofs) != 0:
+		return errors.New("signature should not cover storage proofs")
+	case len(sig.CoveredFields.SiafundInputs) != 0:
+		return errors.New("signature should not cover siafund inputs")
+	case len(sig.CoveredFields.SiafundOutputs) != 0:
+		return errors.New("signature should not cover siafund outputs")
+	case len(sig.CoveredFields.MinerFees) != 0:
+		return errors.New("signature should not cover miner fees")
+	case len(sig.CoveredFields.ArbitraryData) != 0:
+		return errors.New("signature should not cover arbitrary data")
+	case len(sig.CoveredFields.Signatures) != 0:
+		return errors.New("signature should not cover signatures")
+	case len(sig.CoveredFields.FileContractRevisions) != 1:
+		return errors.New("signature should cover one file contract revision")
+	case sig.CoveredFields.FileContractRevisions[0] != 0:
+		return errors.New("signature should cover the first file contract revision")
+	case !hostKey.VerifyHash(sigHash, *(*types.Signature)(sig.Signature)):
+		return errors.New("revision signature is invalid")
+	}
+	return nil
+}
+
 // InitialRevision returns the first revision of a file contract formation
 // transaction.
 func initialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey types.UnlockKey) types.FileContractRevision {
@@ -625,17 +654,17 @@ func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency
 	// impossible until they change their settings.
 
 	// calculate base price and collateral
-	var basePrice, baseCollateral types.Currency
-
 	// if the contract height did not increase both prices are zero
+	basePrice := pt.RenewContractCost
+	var baseCollateral types.Currency
 	if contractEnd := uint64(endHeight + pt.WindowSize); contractEnd > fc.WindowEnd {
 		timeExtension := uint64(contractEnd - fc.WindowEnd)
-		basePrice = pt.WriteStoreCost.Mul64(fc.Filesize).Mul64(timeExtension)
+		basePrice = basePrice.Add(pt.WriteStoreCost.Mul64(fc.Filesize).Mul64(timeExtension))
 		baseCollateral = pt.CollateralCost.Mul64(fc.Filesize).Mul64(timeExtension)
 	}
 
 	// calculate payouts
-	hostValidPayout := pt.RenewContractCost.Add(basePrice).Add(baseCollateral).Add(newCollateral)
+	hostValidPayout := pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
 	voidMissedPayout := basePrice.Add(baseCollateral)
 	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
 		// TODO: detect this elsewhere

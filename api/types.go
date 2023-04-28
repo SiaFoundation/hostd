@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 )
 
 type (
@@ -16,22 +17,25 @@ type (
 		Address string `json:"address"`
 	}
 
-	// A StateResponse is the response body for the [GET] /state endpoint.
-	StateResponse struct {
-		// meta
+	// BuildState contains static information about the build.
+	BuildState struct {
+		Network   string    `json:"network"`
+		Version   string    `json:"version"`
+		Commit    string    `json:"commit"`
+		BuildTime time.Time `json:"buildTime"`
+	}
+
+	// HostState is the response body for the [GET] /state/host endpoint.
+	HostState struct {
 		PublicKey     types.PublicKey `json:"publicKey"`
 		WalletAddress types.Address   `json:"walletAddress"`
+		BuildState
+	}
 
-		// consensus
-		ChainIndex types.ChainIndex `json:"index"`
-
-		// contracts
-		ActiveContracts uint64 `json:"activeContracts"`
-
-		// storage
-		StoredSectors   uint64 `json:"storedSectors"`
-		PhysicalSectors uint64 `json:"physicalSectors"`
-		TotalSectors    uint64 `json:"totalSectors"`
+	// ConsensusState is the response body for the [GET] /consensus endpoint.
+	ConsensusState struct {
+		Synced     bool             `json:"synced"`
+		ChainIndex types.ChainIndex `json:"chainIndex"`
 	}
 
 	// ContractIntegrityResponse is the response body for the [POST] /contracts/:id/check endpoint.
@@ -54,6 +58,12 @@ type (
 	// ResizeVolumeRequest is the request body for the [PUT] /volume/:id/resize endpoint.
 	ResizeVolumeRequest struct {
 		MaxSectors uint64 `json:"maxSectors"`
+	}
+
+	// ContractsResponse is the response body for the [POST] /contracts endpoint.
+	ContractsResponse struct {
+		Count     int                  `json:"count"`
+		Contracts []contracts.Contract `json:"contracts"`
 	}
 
 	// WalletResponse is the response body for the [GET] /wallet endpoint.
@@ -80,6 +90,14 @@ type (
 	// UpdateSettingsRequest is the request body for the [PUT] /settings
 	// endpoint. It will be merged with the current settings.
 	UpdateSettingsRequest map[string]any
+
+	// SystemDirResponse is the response body for the [GET] /system/dir endpoint.
+	SystemDirResponse struct {
+		Path        string   `json:"path"`
+		TotalBytes  uint64   `json:"totalBytes"`
+		FreeBytes   uint64   `json:"freeBytes"`
+		Directories []string `json:"directories"`
+	}
 )
 
 // WithAcceptingContracts sets the AcceptingContracts field of the request
@@ -174,12 +192,15 @@ func patchSettings(a, b map[string]any) (map[string]any, error) {
 		va, ok := a[k]
 		if !ok {
 			return nil, errors.New("unknown setting " + k)
-		} else if reflect.TypeOf(va) != reflect.TypeOf(vb) {
-			return nil, errors.New("invalid value for setting " + k)
+		} else if va != nil && vb != nil && reflect.TypeOf(va) != reflect.TypeOf(vb) {
+			return nil, fmt.Errorf("invalid type for setting %s: expected %T, got %T", k, va, vb)
 		}
 
 		switch vb := vb.(type) {
 		case map[string]any:
+			if a[k] == nil {
+				a[k] = vb
+			}
 			var err error
 			a[k], err = patchSettings(a[k].(map[string]any), vb)
 			if err != nil {

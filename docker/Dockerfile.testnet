@@ -1,14 +1,17 @@
-# Helper image to build hostd.
 FROM docker.io/library/golang:1.20 AS builder
 
 WORKDIR /hostd
 
-# Copy and build binary.
+# upgrade git.
+RUN echo 'deb http://deb.debian.org/debian bullseye-backports main' >> /etc/apt/sources.list && \
+	apt update && \
+	apt install git/bullseye-backports -y
+
 COPY . .
+# build
 RUN go generate ./...
 RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata testnet' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/hostd
 
-# Build image that will be used to run hostd.
 FROM docker.io/library/alpine:3
 LABEL maintainer="The Sia Foundation <info@sia.tech>" \
       org.opencontainers.image.description.vendor="The Sia Foundation" \
@@ -22,7 +25,6 @@ ENV PGID=0
 ENV HOSTD_ZEN_API_PASSWORD=
 ENV HOSTD_ZEN_WALLET_SEED=
 
-# Copy binary and prepare data dir.
 COPY --from=builder /hostd/bin/* /usr/bin/
 VOLUME [ "/data" ]
 
@@ -32,9 +34,11 @@ EXPOSE 9880/tcp
 EXPOSE 9881/tcp
 # RHP2 port
 EXPOSE 9882/tcp
-# RHP3 port
+# RHP3 TCP port
 EXPOSE 9883/tcp
+# RHP3 WebSocket port
+EXPOSE 9884/tcp
 
 USER ${PUID}:${PGID}
 
-ENTRYPOINT [ "hostd", "--docker", "--dir", "/data", "--http", ":9880" ]
+ENTRYPOINT [ "hostd", "--log.stdout", "--env", "--dir", "/data", "--http", ":9880" ]

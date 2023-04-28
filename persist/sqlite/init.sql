@@ -87,7 +87,7 @@ CREATE TABLE contracts (
 	renter_sig BLOB NOT NULL,
 	raw_revision BLOB NOT NULL, -- binary serialized contract revision
 	formation_confirmed BOOLEAN NOT NULL, -- true if the contract has been confirmed on the blockchain
-	resolution_confirmed BOOLEAN NOT NULL, -- true if the storage proof/resolution has been confirmed on the blockchain
+	resolution_height INTEGER, -- null if the storage proof/resolution has not been confirmed on the blockchain, otherwise the height of the block containing the storage proof/resolution
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	window_start INTEGER NOT NULL,
 	window_end INTEGER NOT NULL,
@@ -100,8 +100,8 @@ CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
 CREATE INDEX contracts_negotiation_height ON contracts(negotiation_height);
 CREATE INDEX contracts_window_start ON contracts(window_start);
 CREATE INDEX contracts_contract_status ON contracts(contract_status);
-CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_start ON contracts(formation_confirmed, resolution_confirmed, window_start);
-CREATE INDEX contracts_formation_confirmed_resolution_confirmed_window_end ON contracts(formation_confirmed, resolution_confirmed, window_end);
+CREATE INDEX contracts_formation_confirmed_resolution_height_window_start ON contracts(formation_confirmed, resolution_height, window_start);
+CREATE INDEX contracts_formation_confirmed_resolution_height_window_end ON contracts(formation_confirmed, resolution_height, window_end);
 CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
 CREATE INDEX contracts_formation_confirmed_negotation_height ON contracts(formation_confirmed, negotiation_height);
 
@@ -174,37 +174,12 @@ CREATE TABLE contract_account_funding ( -- tracks the funding of accounts from c
 );
 
 CREATE TABLE host_stats (
-	date_created INTEGER PRIMARY KEY,
-	potential_rpc_revenue BLOB NOT NULL,
-	potential_storage_revenue BLOB NOT NULL,
-	potential_ingress_revenue BLOB NOT NULL,
-	potential_egress_revenue BLOB NOT NULL,
-	potential_registry_read_revenue BLOB NOT NULL,
-	potential_registry_write_revenue BLOB NOT NULL,
-	rpc_revenue BLOB NOT NULL,
-	storage_revenue BLOB NOT NULL,
-	ingress_revenue BLOB NOT NULL,
-	egress_revenue BLOB NOT NULL,
-	registry_read_revenue BLOB NOT NULL,
-	registry_write_revenue BLOB NOT NULL,
-	locked_collateral BLOB NOT NULL,
-	risked_collateral BLOB NOT NULL,
-	burnt_collateral BLOB NOT NULL,
-	wallet_balance BLOB NOT NULL,
-	pending_contracts INTEGER NOT NULL,
-	active_contracts INTEGER NOT NULL,
-	rejected_contracts INTEGER NOT NULL,
-	successful_contracts INTEGER NOT NULL,
-	failed_contracts INTEGER NOT NULL,
-	rhp2_ingress_data INTEGER NOT NULL,
-	rhp2_egress_data INTEGER NOT NULL,
-	rhp3_ingress_data INTEGER NOT NULL,
-	rhp3_egress_data INTEGER NOT NULL,
-	storage_usage INTEGER NOT NULL,
-	contract_sectors INTEGER NOT NULL,
-	temporary_sectors INTEGER NOT NULL,
-	registry_entries INTEGER NOT NULL
+	date_created INTEGER NOT NULL,
+	stat TEXT NOT NULL,
+	stat_value BLOB NOT NULL,
+	PRIMARY KEY(date_created, stat)
 );
+CREATE INDEX host_stats_stat_date_created ON host_stats(stat, date_created DESC);
 
 CREATE TABLE host_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
@@ -225,8 +200,27 @@ CREATE TABLE host_settings (
 	window_size INTEGER NOT NULL,
 	ingress_limit INTEGER NOT NULL,
 	egress_limit INTEGER NOT NULL,
+	dyn_dns_provider TEXT NOT NULL,
+	dns_update_v4 BOOLEAN NOT NULL,
+	dns_update_v6 BOOLEAN NOT NULL,
+	dyn_dns_opts BLOB,
 	registry_limit INTEGER NOT NULL
 );
+
+CREATE TABLE log_lines (
+	date_created INTEGER NOT NULL,
+	log_level INTEGER NOT NULL,
+	log_name TEXT NOT NULL,
+	log_caller TEXT NOT NULL,
+	log_message TEXT NOT NULL,
+	log_fields BLOB NOT NULL
+);
+CREATE INDEX log_lines_date_created ON log_lines(date_created DESC);
+CREATE INDEX log_lines_log_level ON log_lines(log_level);
+CREATE INDEX log_lines_log_name ON log_lines(log_name);
+CREATE INDEX log_lines_log_caller ON log_lines(log_caller);
+CREATE INDEX log_lines_log_message ON log_lines(log_message);
+
 
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row

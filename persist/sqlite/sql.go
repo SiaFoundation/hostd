@@ -18,7 +18,7 @@ const (
 type (
 	// A scanner is an interface that wraps the Scan method of sql.Rows and sql.Row
 	scanner interface {
-		Scan(dest ...interface{}) error
+		Scan(dest ...any) error
 	}
 
 	// A txn is an interface for executing queries within a transaction.
@@ -78,7 +78,7 @@ func (lr *loggedRows) Next() bool {
 	return next
 }
 
-func (lr *loggedRows) Scan(dest ...interface{}) error {
+func (lr *loggedRows) Scan(dest ...any) error {
 	start := time.Now()
 	err := lr.Rows.Scan(dest...)
 	if dur := time.Since(start); dur > longQueryDuration {
@@ -87,7 +87,7 @@ func (lr *loggedRows) Scan(dest ...interface{}) error {
 	return err
 }
 
-func (lr *loggedRow) Scan(dest ...interface{}) error {
+func (lr *loggedRow) Scan(dest ...any) error {
 	start := time.Now()
 	err := lr.Row.Scan(dest...)
 	if dur := time.Since(start); dur > longQueryDuration {

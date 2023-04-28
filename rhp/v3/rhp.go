@@ -126,6 +126,7 @@ type (
 		privateKey types.PrivateKey
 
 		listener net.Listener
+		monitor  rhp.DataMonitor
 		tg       *threadgroup.ThreadGroup
 
 		accounts  AccountManager
@@ -241,7 +242,7 @@ func (sh *SessionHandler) Serve() error {
 		go func() {
 			defer conn.Close()
 			ingress, egress := sh.settings.BandwidthLimiters()
-			t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, ingress, egress), sh.privateKey)
+			t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, sh.monitor, ingress, egress), sh.privateKey)
 			if err != nil {
 				sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
 				return
@@ -266,11 +267,12 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
 		listener: l,
+		monitor:  monitor,
 		tg:       threadgroup.New(),
 
 		chain:  chain,

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
@@ -246,6 +247,10 @@ func TestGrowVolume(t *testing.T) {
 		t.Fatalf("expected 0 used sectors, got %v", volumes[0].UsedSectors)
 	} else if volumes[0].TotalSectors != initialSectors {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors, volumes[0].TotalSectors)
+	} else if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != initialSectors {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors, m.Storage.TotalSectors)
 	}
 
 	// double the number of sectors in the volume
@@ -263,6 +268,10 @@ func TestGrowVolume(t *testing.T) {
 		t.Fatalf("expected 0 used sectors, got %v", volumes[0].UsedSectors)
 	} else if volumes[0].TotalSectors != initialSectors*2 {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors*2, volumes[0].TotalSectors)
+	} else if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != initialSectors*2 {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors*2, m.Storage.TotalSectors)
 	}
 
 	// add a second volume
@@ -292,6 +301,10 @@ func TestGrowVolume(t *testing.T) {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors*2, volumes[0].TotalSectors)
 	} else if volumes[1].TotalSectors != initialSectors/2 {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors/2, volumes[1].TotalSectors)
+	} else if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if n := uint64((initialSectors * 2) + (initialSectors / 2)); m.Storage.TotalSectors != n {
+		t.Fatalf("expected %v total sectors, got %v", n, m.Storage.TotalSectors)
 	}
 }
 
@@ -307,11 +320,19 @@ func TestShrinkVolume(t *testing.T) {
 	volume, err := addVolume(db, "test", initialSectors)
 	if err != nil {
 		t.Fatal(err)
+	} else if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != initialSectors {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors, m.Storage.TotalSectors)
 	}
 
 	// shrink the volume by half
 	if err := db.ShrinkVolume(volume.ID, initialSectors/2); err != nil {
 		t.Fatal(err)
+	} else if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != initialSectors/2 {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors/2, m.Storage.TotalSectors)
 	}
 
 	// add a few sectors
@@ -341,6 +362,10 @@ func TestShrinkVolume(t *testing.T) {
 	// check that the volume can be shrunk to the used sectors
 	if err := db.ShrinkVolume(volume.ID, 5); err != nil {
 		t.Fatal(err)
+	} else if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != 5 {
+		t.Fatalf("expected %v total sectors, got %v", 5, m.Storage.TotalSectors)
 	}
 }
 

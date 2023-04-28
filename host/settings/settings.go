@@ -2,8 +2,10 @@ package settings
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -20,6 +22,8 @@ const (
 
 	// defaultBurstSize allow for large reads and writes on the limiter
 	defaultBurstSize = 256 * (1 << 20) // 256 MiB
+
+	dnsUpdateFrequency = 30 * time.Second
 )
 
 type (
@@ -54,16 +58,19 @@ type (
 
 		PriceTableValidity time.Duration `json:"priceTableValidity"`
 
-		// Bandwidth limiter settings
-		IngressLimit uint64 `json:"ingressLimit"`
-		EgressLimit  uint64 `json:"egressLimit"`
-
 		// Registry settings
 		MaxRegistryEntries uint64 `json:"maxRegistryEntries"`
 
 		// RHP3 settings
 		AccountExpiry     time.Duration  `json:"accountExpiry"`
 		MaxAccountBalance types.Currency `json:"maxAccountBalance"`
+
+		// Bandwidth limiter settings
+		IngressLimit uint64 `json:"ingressLimit"`
+		EgressLimit  uint64 `json:"egressLimit"`
+
+		// DNS settings
+		DynDNS DNSSettings `json:"dynDNS"`
 
 		Revision uint64 `json:"revision"`
 	}
@@ -87,6 +94,7 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
+		dir               string
 		hostKey           types.PrivateKey
 		discoveredRHPAddr string
 
@@ -97,10 +105,17 @@ type (
 		tp     TransactionPool
 		wallet Wallet
 
-		mu           sync.Mutex // guards the following fields
-		settings     Settings   // in-memory cache of the host's settings
+		mu       sync.Mutex // guards the following fields
+		settings Settings   // in-memory cache of the host's settings
+
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
+
+		dyndnsUpdateTimer *time.Timer
+		lastIPv4          net.IP
+		lastIPv6          net.IP
+
+		rhp3WSTLS *tls.Config
 	}
 )
 
@@ -111,9 +126,9 @@ var (
 		NetAddress:          "",
 		MaxContractDuration: 6 * blocksPerMonth, // 6 months
 
-		ContractPrice:     types.Siacoins(1).Div64(5),
-		BaseRPCPrice:      types.NewCurrency64(100),
-		SectorAccessPrice: types.NewCurrency64(100),
+		ContractPrice:     types.Siacoins(1).Div64(5),   // 200 ms / contract
+		BaseRPCPrice:      types.Siacoins(1).Div64(1e7), // 100ms / million RPCs
+		SectorAccessPrice: types.Siacoins(1).Div64(1e7), // 100ms / million sectors
 
 		Collateral:    types.Siacoins(100).Div64(1 << 40).Div64(blocksPerMonth), // 100 SC / TB / month
 		MaxCollateral: types.Siacoins(1000),
@@ -200,9 +215,15 @@ func (m *ConfigManager) Announce() error {
 
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
+	// validate DNS settings
+	if err := validateDNSSettings(s.DynDNS); err != nil {
+		return fmt.Errorf("failed to validate DNS settings: %w", err)
+	}
+
 	m.mu.Lock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
+	m.resetDynDNS()
 	m.mu.Unlock()
 	return m.store.UpdateSettings(s)
 }
@@ -217,6 +238,11 @@ func (m *ConfigManager) Settings() Settings {
 // BandwidthLimiters returns the rate limiters for all traffic
 func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
+}
+
+// DiscoveredRHP2Address returns the rhp2 address that was discovered by the gateway
+func (m *ConfigManager) DiscoveredRHP2Address() string {
+	return m.discoveredRHPAddr
 }
 
 func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
@@ -242,8 +268,9 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
+func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
 	m := &ConfigManager{
+		dir:               dir,
 		hostKey:           hostKey,
 		discoveredRHPAddr: rhp2Addr,
 
@@ -256,6 +283,13 @@ func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
 		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
+
+		// rhp3 WebSocket TLS
+		rhp3WSTLS: &tls.Config{},
+	}
+
+	if err := m.reloadCertificates(); err != nil {
+		return nil, fmt.Errorf("failed to load rhp3 WebSocket certificates: %w", err)
 	}
 
 	settings, err := m.store.Settings()
@@ -271,5 +305,7 @@ func NewConfigManager(hostKey types.PrivateKey, rhp2Addr string, store Store, cm
 	m.settings = settings
 	// update the global rate limiters from settings
 	m.setRateLimit(settings.IngressLimit, settings.EgressLimit)
+	// initialize the dyndns update timer
+	m.resetDynDNS()
 	return m, nil
 }

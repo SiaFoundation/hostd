@@ -2,12 +2,16 @@ package api
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/financials"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/logging"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
 )
@@ -17,9 +21,15 @@ type Client struct {
 	c jape.Client
 }
 
-// State returns the current state of the host
-func (c *Client) State() (resp StateResponse, err error) {
-	err = c.c.GET("/state", &resp)
+// Host returns the current state of the host
+func (c *Client) Host() (resp HostState, err error) {
+	err = c.c.GET("/state/host", &resp)
+	return
+}
+
+// Consensus returns the current consensus state.
+func (c *Client) Consensus() (resp ConsensusState, err error) {
+	err = c.c.GET("/state/consensus", &resp)
 	return
 }
 
@@ -63,16 +73,35 @@ func (c *Client) UpdateSettings(patch UpdateSettingsRequest) (settings settings.
 	return
 }
 
-// Financials returns the financial metrics of the host for the specified period
-func (c *Client) Financials(period string) (periods []financials.Revenue, err error) {
-	err = c.c.GET(fmt.Sprintf("/financials/%s", period), &periods)
+// TestDynDNS tests the dynamic DNS settings of the host.
+func (c *Client) TestDynDNS() error {
+	return c.c.PUT("/settings/dyndns/update", nil)
+}
+
+// Metrics returns the metrics of the host at the specified time.
+func (c *Client) Metrics(at time.Time) (metrics metrics.Metrics, err error) {
+	v := url.Values{
+		"timestamp": []string{at.Format(time.RFC3339)},
+	}
+	err = c.c.GET("/metrics?"+v.Encode(), &metrics)
 	return
 }
 
-// Contracts returns the contracts of the host.
-func (c *Client) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, err error) {
-	err = c.c.POST("/contracts", filter, &contracts)
+// PeriodMetrics returns the metrics of the host for the specified period
+func (c *Client) PeriodMetrics(start, end time.Time, interval metrics.Interval) (periods []metrics.Metrics, err error) {
+	v := url.Values{
+		"start": []string{start.Format(time.RFC3339)},
+		"end":   []string{end.Format(time.RFC3339)},
+	}
+	err = c.c.GET("/metrics/"+interval.String()+"?"+v.Encode(), &periods)
 	return
+}
+
+// Contracts returns the contracts of the host matching the filter.
+func (c *Client) Contracts(filter contracts.ContractFilter) ([]contracts.Contract, int, error) {
+	var resp ContractsResponse
+	err := c.c.POST("/contracts", filter, &resp)
+	return resp.Contracts, resp.Count, err
 }
 
 // Contract returns the contract with the specified ID.
@@ -164,12 +193,31 @@ func (c *Client) PendingTransactions() (transactions []wallet.Transaction, err e
 }
 
 // SendSiacoins sends siacoins to the specified address.
-func (c *Client) SendSiacoins(address types.Address, amount types.Currency) error {
+func (c *Client) SendSiacoins(address types.Address, amount types.Currency) (id types.TransactionID, err error) {
 	req := WalletSendSiacoinsRequest{
 		Address: address,
 		Amount:  amount,
 	}
-	return c.c.POST("/wallet/send", req, nil)
+	err = c.c.POST("/wallet/send", req, &id)
+	return
+}
+
+// LocalDir returns the contents of the specified directory on the host.
+func (c *Client) LocalDir(path string) (resp SystemDirResponse, err error) {
+	path = strings.TrimLeft(path, "/")
+	err = c.c.GET("/system/dir/"+path, &resp)
+	return
+}
+
+// LogEntries returns log entries matching the filter.
+func (c *Client) LogEntries(filter logging.Filter) (entries []logging.Entry, err error) {
+	err = c.c.POST("/logs/entries", filter, &entries)
+	return
+}
+
+// LogPrune deletes log entries before the specified time.
+func (c *Client) LogPrune(before time.Time) error {
+	return c.c.DELETE(fmt.Sprintf("/logs/entries?before=%s", before.Format(time.RFC3339)))
 }
 
 // NewClient creates a new hostd API client.

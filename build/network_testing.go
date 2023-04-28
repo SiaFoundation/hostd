@@ -1,6 +1,6 @@
 //go:build testing
 
-package chain
+package build
 
 import (
 	"time"
@@ -9,9 +9,10 @@ import (
 	"go.sia.tech/core/types"
 )
 
-// network returns the Sia network consts and genesis block for the current build.
-func network() (*consensus.Network, types.Block) {
+// Network returns the Sia network consts and genesis block for the current build.
+func Network() (*consensus.Network, types.Block) {
 	n := &consensus.Network{
+		Name:            "testing",
 		InitialCoinbase: types.Siacoins(300000),
 		MinimumCoinbase: types.Siacoins(299990),
 		InitialTarget:   types.BlockID{4: 32},

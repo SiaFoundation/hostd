@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"path/filepath"
 	"time"
 
@@ -27,6 +28,11 @@ type stubMetricReporter struct{}
 
 func (stubMetricReporter) Report(any) (_ error) { return }
 
+type stubDataMonitor struct{}
+
+func (stubDataMonitor) ReadBytes(n int)  {}
+func (stubDataMonitor) WriteBytes(n int) {}
+
 // A Host is an ephemeral host that can be used for testing.
 type Host struct {
 	*Node
@@ -41,8 +47,9 @@ type Host struct {
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
 
-	rhpv2 *rhpv2.SessionHandler
-	rhpv3 *rhpv3.SessionHandler
+	rhpv2   *rhpv2.SessionHandler
+	rhpv3   *rhpv3.SessionHandler
+	rhpv3WS net.Listener
 }
 
 // DefaultSettings returns the default settings for the test host
@@ -70,6 +77,7 @@ var DefaultSettings = settings.Settings{
 
 // Close shutsdown the host
 func (h *Host) Close() error {
+	h.rhpv3WS.Close()
 	h.rhpv2.Close()
 	h.rhpv3.Close()
 	h.settings.Close()
@@ -90,6 +98,11 @@ func (h *Host) RHPv2Addr() string {
 // RHPv3Addr returns the address of the RHPv3 listener
 func (h *Host) RHPv3Addr() string {
 	return h.rhpv3.LocalAddr()
+}
+
+// RHPv3WSAddr returns the address of the RHPv3 WebSocket listener
+func (h *Host) RHPv3WSAddr() string {
+	return h.rhpv3WS.Addr().String()
 }
 
 // AddVolume adds a new volume to the host
@@ -165,27 +178,46 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
 	}
 
-	settings, err := settings.NewConfigManager(privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, log.Named("settings"))
+	settings, err := settings.NewConfigManager(dir, privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
-	} else if err := settings.UpdateSettings(DefaultSettings); err != nil {
+	}
+	s := DefaultSettings
+	s.NetAddress = rhp2Listener.Addr().String()
+	if err := settings.UpdateSettings(s); err != nil {
 		return nil, fmt.Errorf("failed to update host settings: %w", err)
 	}
 
 	registry := registry.NewManager(privKey, db)
 	accounts := accounts.NewManager(db, settings)
 
-	rhpv2, err := rhpv2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubMetricReporter{}, log.Named("rhpv2"))
+	rhpv2, err := rhpv2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubDataMonitor{}, stubMetricReporter{}, log.Named("rhpv2"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
 	}
 	go rhpv2.Serve()
 
-	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubMetricReporter{}, log.Named("rhpv3"))
+	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, stubMetricReporter{}, log.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
 	go rhpv3.Serve()
+
+	rhpv3WSListener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp3 websocket listener: %w", err)
+	}
+
+	go func() {
+		rhpv3WS := http.Server{
+			Handler:     rhpv3.WebSocketHandler(),
+			ReadTimeout: 30 * time.Second,
+		}
+
+		if err := rhpv3WS.Serve(rhpv3WSListener); err != nil {
+			return
+		}
+	}()
 
 	return &Host{
 		Node:      node,
@@ -199,7 +231,8 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		accounts:  accounts,
 		contracts: contracts,
 
-		rhpv2: rhpv2,
-		rhpv3: rhpv3,
+		rhpv2:   rhpv2,
+		rhpv3:   rhpv3,
+		rhpv3WS: rhpv3WSListener,
 	}, nil
 }

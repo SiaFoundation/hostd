@@ -9,6 +9,7 @@ import (
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/build"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
 )
@@ -58,6 +59,18 @@ func (m *Manager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			ID:     types.BlockID(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].ID()),
 			Height: uint64(cc.BlockHeight),
 		},
+	}
+}
+
+// Network returns the network name.
+func (m *Manager) Network() string {
+	switch m.network.Name {
+	case "zen":
+		return "Zen Testnet"
+	case "mainnet":
+		return "Mainnet"
+	default:
+		return m.network.Name
 	}
 }
 
@@ -123,7 +136,7 @@ func NewManager(cs modules.ConsensusSet) (*Manager, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to get block at height %d", height)
 	}
-	n, _ := network()
+	n, _ := build.Network()
 	m := &Manager{
 		cs:      cs,
 		network: n,

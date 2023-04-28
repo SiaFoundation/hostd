@@ -1,6 +1,8 @@
 package wallet
 
 import (
+	"time"
+
 	"go.sia.tech/core/types"
 	"go.sia.tech/siad/modules"
 )
@@ -12,6 +14,9 @@ type (
 		RemoveSiacoinElement(types.SiacoinOutputID) error
 		AddTransaction(Transaction) error
 		RevertBlock(types.BlockID) error
+
+		AddWalletDelta(value types.Currency, timestamp time.Time) error
+		SubWalletDelta(value types.Currency, timestamp time.Time) error
 	}
 
 	// A SingleAddressStore stores the state of a single-address wallet.

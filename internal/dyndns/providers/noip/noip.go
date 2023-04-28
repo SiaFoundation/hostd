@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"go.sia.tech/hostd/build"
@@ -21,9 +21,9 @@ import (
 type (
 	// Options is the set of options for the No-IP provider.
 	Options struct {
-		Email    string
-		Password string
-		Hostname string
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Hostname string `json:"hostname"`
 	}
 	// Provider implements the DNS provider interface for No-IP.
 	Provider struct {
@@ -51,13 +51,26 @@ var (
 	ErrUnknown = errors.New("unknown error")
 )
 
-func (p *Provider) updateIPs(ips []string) error {
+// Update implements the dyndns.Provider interface for No-IP.
+func (p *Provider) Update(ipv4, ipv6 net.IP) error {
+	if ipv4 == nil && ipv6 == nil {
+		return errors.New("no ip addresses provided")
+	}
+
+	var ips []string
+	if ipv4 != nil {
+		ips = append(ips, ipv4.String())
+	}
+	if ipv6 != nil {
+		ips = append(ips, ipv6.String())
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
 	u, err := url.Parse("https://dynupdate.no-ip.com/nic/update")
 	if err != nil {
-		return fmt.Errorf("failed to parse update url: %w", err)
+		panic(fmt.Errorf("failed to parse update url: %w", err))
 	}
 
 	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(p.options.Email+":"+p.options.Password))
@@ -101,70 +114,6 @@ func (p *Provider) updateIPs(ips []string) error {
 	default:
 		return fmt.Errorf("received unknown status \"%s\": %w", status, ErrUnknown)
 	}
-}
-
-// Update updates the DNS provider using the specified update mode.
-// UpdateModeDefault will detect both the IPv4 and IPv6 external IP
-// addresses and update the provider with both; an error should only be
-// returned if IPv4 and IPv6 updates fail.
-// UpdateModeIPv4 will detect the external IPv4 address and update the
-// provider's A record.
-// UpdateModeIPv6 will detect the external IPv6 address and update the
-// provider's AAAA record.
-func (p *Provider) Update(mode dyndns.UpdateMode) error {
-	var ips []string
-	updateV4 := func() error {
-		ip, err := dyndns.GetIP(dyndns.NetworkModeTCP4)
-		if err != nil {
-			return fmt.Errorf("unable to get ipv4: %w", err)
-		}
-		ips = append(ips, ip)
-
-		return nil
-	}
-
-	updateV6 := func() error {
-		ip, err := dyndns.GetIP(dyndns.NetworkModeTCP6)
-		if err != nil {
-			return fmt.Errorf("unable to get ipv6: %w", err)
-		}
-		ips = append(ips, ip)
-
-		return nil
-	}
-
-	switch mode {
-	case dyndns.UpdateModeIPv4:
-		if err := updateV4(); err != nil {
-			return err
-		}
-	case dyndns.UpdateModeIPv6:
-		if err := updateV6(); err != nil {
-			return err
-		}
-	case dyndns.UpdateModeDefault:
-		var v4Err, v6Err error
-		var wg sync.WaitGroup
-		wg.Add(2)
-
-		go func() {
-			v4Err = updateV4()
-			wg.Done()
-		}()
-
-		go func() {
-			v6Err = updateV6()
-			wg.Done()
-		}()
-
-		if v4Err != nil && v6Err != nil {
-			return fmt.Errorf("unable to get ipv4: %w or ipv6: %s", v4Err, v6Err)
-		}
-	default:
-		return fmt.Errorf("unable to update mode %v: %w", mode, dyndns.ErrUnsupported)
-	}
-
-	return p.updateIPs(ips)
 }
 
 // New creates a new No-IP provider.

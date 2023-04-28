@@ -3,12 +3,15 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/logging"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
@@ -30,8 +33,19 @@ type (
 	// Settings updates and retrieves the host's settings
 	Settings interface {
 		Announce() error
+
 		UpdateSettings(s settings.Settings) error
 		Settings() settings.Settings
+
+		UpdateDynDNS(force bool) error
+	}
+
+	// Metrics retrieves metrics related to the host
+	Metrics interface {
+		// PeriodMetrics returns aggregated metrics for the period between start and end.
+		PeriodMetrics(start, end time.Time, interval metrics.Interval) (period []metrics.Metrics, err error)
+		// Metrics returns aggregated metrics for the host as of the timestamp.
+		Metrics(time.Time) (m metrics.Metrics, err error)
 	}
 
 	// A VolumeManager manages the host's storage volumes
@@ -48,7 +62,7 @@ type (
 
 	// A ContractManager manages the host's contracts
 	ContractManager interface {
-		Contracts(filter contracts.ContractFilter) ([]contracts.Contract, error)
+		Contracts(filter contracts.ContractFilter) ([]contracts.Contract, int, error)
 		Contract(id types.FileContractID) (contracts.Contract, error)
 
 		// CheckIntegrity checks the integrity of a contract's sector roots on
@@ -67,20 +81,36 @@ type (
 
 	// A ChainManager retrieves the current blockchain state
 	ChainManager interface {
+		Synced() bool
 		TipState() consensus.State
 	}
 
-	// An API provides an HTTP API for the host
-	API struct {
+	// A LogStore retrieves host logs
+	LogStore interface {
+		LogEntries(logging.Filter) ([]logging.Entry, error)
+		Prune(time.Time) error
+	}
+
+	// A TPool manages the transaction pool
+	TPool interface {
+		RecommendedFee() (fee types.Currency)
+		AcceptTransactionSet(txns []types.Transaction) error
+	}
+
+	// An api provides an HTTP API for the host
+	api struct {
 		hostKey types.PublicKey
 
 		log *zap.Logger
 
 		syncer    Syncer
 		chain     ChainManager
+		tpool     TPool
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
+		logs      LogStore
+		metrics   Metrics
 		settings  Settings
 
 		checks integrityCheckJobs
@@ -88,20 +118,24 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm ContractManager, vm VolumeManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
-	a := &API{
+func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, ls LogStore, s Settings, w Wallet, log *zap.Logger) http.Handler {
+	a := &api{
 		hostKey: hostKey,
 
 		syncer:    g,
 		chain:     chain,
+		tpool:     tp,
 		contracts: cm,
 		volumes:   vm,
+		logs:      ls,
+		metrics:   m,
 		settings:  s,
 		wallet:    w,
 		log:       log,
 	}
 	r := jape.Mux(map[string]jape.Handler{
-		"GET /state":                      a.handleGETState,
+		"GET /state/host":                 a.handleGETHostState,
+		"GET /state/consensus":            a.handleGETConsensusState,
 		"GET /syncer/address":             a.handleGETSyncerAddr,
 		"GET /syncer/peers":               a.handleGETSyncerPeers,
 		"PUT /syncer/peers":               a.handlePUTSyncerPeer,
@@ -109,7 +143,9 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm Contrac
 		"GET /settings":                   a.handleGETSettings,
 		"POST /settings":                  a.handlePOSTSettings,
 		"POST /settings/announce":         a.handlePOSTAnnounce,
-		"GET /financials/:period":         a.handleGETFinancials,
+		"PUT /settings/dyndns/update":     a.handlePUTDynDNSUpdate,
+		"GET /metrics":                    a.handleGETMetrics,
+		"GET /metrics/:period":            a.handleGETPeriodMetrics,
 		"POST /contracts":                 a.handlePostContracts,
 		"GET /contracts/:id":              a.handleGETContract,
 		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
@@ -126,6 +162,10 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, cm Contrac
 		"GET /wallet/transactions":        a.handleGETWalletTransactions,
 		"GET /wallet/pending":             a.handleGETWalletPending,
 		"POST /wallet/send":               a.handlePOSTWalletSend,
+		"GET /system/dir/*path":           a.handleGETSystemDir,
+
+		"POST /log/entries": a.handlePOSTLogEntries,
+		"DELETE /log/prune": a.handleDELETELogPrune,
 	})
 	return r
 }

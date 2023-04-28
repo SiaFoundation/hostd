@@ -12,45 +12,28 @@ import (
 )
 
 type (
-	// NetworkMode is the network mode to use when getting the IP address.
-	NetworkMode string
-
-	// UpdateMode determines how the provider should update the IP address.
-	UpdateMode uint8
-
 	// Provider is an interface for dynamically updating the IP address on
 	// a DNS provider.
 	Provider interface {
 		// Update updates the DNS provider using the specified update mode.
-		// UpdateModeDefault will detect both the IPv4 and IPv6 external IP
-		// addresses and update the provider with both; an error should only be
-		// returned if IPv4 and IPv6 updates fail.
-		// UpdateModeIPv4 will detect the external IPv4 address and update the
-		// provider's A record.
-		// UpdateModeIPv6 will detect the external IPv6 address and update the
-		// provider's AAAA record.
-		Update(mode UpdateMode) error
+		// One or both of ipv4 or ipv6 may be included. If both are included,
+		// both the 'A' and 'AAAA' records will be updated. If only one is
+		// included, only the corresponding record will be updated. If neither
+		// are included, the function should return an error.
+		Update(ipv4, ipv6 net.IP) error
 	}
 )
 
 const (
-	// UpdateModeDefault will detect whether the host has a public IPv4 or
-	// IPv6 address and update the DNS provider accordingly.
-	UpdateModeDefault = iota
-	// UpdateModeIPv4 will force the DNS provider to update using only IPv4.
-	UpdateModeIPv4
-	// UpdateModeIPv6 will force the DNS provider to update using only IPv6.
-	UpdateModeIPv6
-
 	// NetworkModeTCP4 will get the IP address using TCP4.
-	NetworkModeTCP4 = "tcp4"
+	networkModeTCP4 = "tcp4"
 	// NetworkModeTCP6 will get the IP address using TCP6.
-	NetworkModeTCP6 = "tcp6"
+	networkModeTCP6 = "tcp6"
 )
 
 var (
-	tcp4Client = fixedHTTPClient(NetworkModeTCP4)
-	tcp6Client = fixedHTTPClient(NetworkModeTCP6)
+	tcp4Client = fixedHTTPClient(networkModeTCP4)
+	tcp6Client = fixedHTTPClient(networkModeTCP6)
 
 	// ErrEmptyResponse is returned when the ip service returns an empty
 	// response.
@@ -88,50 +71,42 @@ func fixedHTTPClient(forcedNetwork string) *http.Client {
 	}
 }
 
-func getClient(network NetworkMode) (*http.Client, error) {
-	switch network {
-	case NetworkModeTCP4:
-		return tcp4Client, nil
-	case NetworkModeTCP6:
-		return tcp6Client, nil
-	default:
-		return nil, fmt.Errorf("unknown network mode: %v", network)
-	}
-}
-
-// GetIP returns the IP address using the specified network mode.
-func GetIP(network NetworkMode) (string, error) {
-	client, err := getClient(network)
-	if err != nil {
-		return "", fmt.Errorf("failed to get client: %w", err)
-	}
-
-	// TODO: add fallbacks
+func getIP(client *http.Client) (net.IP, error) {
 	resp, err := client.Get("https://icanhazip.com")
 	if err != nil {
-		return "", fmt.Errorf("failed to get address: %w", err)
+		return nil, fmt.Errorf("failed to get address: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("received status code: %d: %w", resp.StatusCode, ErrUnexpectedResponse)
+		return nil, fmt.Errorf("received status code: %d: %w", resp.StatusCode, ErrUnexpectedResponse)
 	}
 
 	lr := io.LimitReader(resp.Body, 64)
 	buf, err := io.ReadAll(lr)
 	if err != nil {
-		return "", fmt.Errorf("failed to read ip address: %w", err)
+		return nil, fmt.Errorf("failed to read ip address: %w", err)
 	}
 	str := strings.TrimSpace(string(buf))
 
 	if len(str) == 0 {
-		return "", ErrEmptyResponse
+		return nil, ErrEmptyResponse
 	}
 
 	ip := net.ParseIP(str)
 	if ip == nil {
-		return "", ErrInvalidIP
+		return nil, ErrInvalidIP
 	}
 
-	return ip.String(), nil
+	return ip, nil
+}
+
+// GetIPv4 returns the IPv4 address of the current machine.
+func GetIPv4() (net.IP, error) {
+	return getIP(tcp4Client)
+}
+
+// GetIPv6 returns the IPv6 address of the current machine.
+func GetIPv6() (net.IP, error) {
+	return getIP(tcp6Client)
 }

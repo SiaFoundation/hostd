@@ -177,20 +177,14 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 		return fmt.Errorf("failed to write host additions: %w", err)
 	}
 
-	// read the renter's signatures
+	// read and validate the renter's signatures
 	var renterSignaturesResp rhpv2.RPCFormContractSignatures
 	if err := s.readResponse(&renterSignaturesResp, 10*minMessageSize, 30*time.Second); err != nil {
 		return fmt.Errorf("failed to read renter signatures: %w", err)
-	}
-	// validate the renter's initial revision signature
-	if len(renterSignaturesResp.RevisionSignature.Signature) != 64 {
-		s.t.WriteResponseErr(ErrInvalidRenterSignature)
-		return ErrInvalidRenterSignature
-	}
-	renterSig := *(*types.Signature)(renterSignaturesResp.RevisionSignature.Signature)
-	if !renterPub.VerifyHash(sigHash, renterSig) {
-		s.t.WriteResponseErr(ErrInvalidRenterSignature)
-		return ErrInvalidRenterSignature
+	} else if err := validateRenterRevisionSignature(renterSignaturesResp.RevisionSignature, initialRevision.ParentID, sigHash, renterPub); err != nil {
+		err := fmt.Errorf("contract rejected: validation failed: %w", err)
+		s.t.WriteResponseErr(err)
+		return err
 	}
 	// add the renter's signatures to the transaction and contract revision
 	renterTxnSigs := len(renterSignaturesResp.ContractSignatures)
@@ -210,7 +204,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 
 	signedRevision := contracts.SignedRevision{
 		Revision:        initialRevision,
-		RenterSignature: renterSig,
+		RenterSignature: *(*types.Signature)(renterSignaturesResp.RevisionSignature.Signature),
 		HostSignature:   hostSig,
 	}
 	usage := contracts.Usage{
@@ -854,4 +848,40 @@ func convertToPublicKey(uc types.UnlockKey) (types.PublicKey, error) {
 		return types.PublicKey{}, errors.New("invalid public key length")
 	}
 	return *(*types.PublicKey)(uc.Key), nil
+}
+
+func validateRenterRevisionSignature(sig types.TransactionSignature, fcID types.FileContractID, sigHash types.Hash256, renterKey types.PublicKey) error {
+	switch {
+	case sig.ParentID != types.Hash256(fcID):
+		return errors.New("revision signature has invalid parent ID")
+	case sig.PublicKeyIndex != 0:
+		return errors.New("revision signature has invalid public key index")
+	case len(sig.Signature) != ed25519.SignatureSize:
+		return errors.New("revision signature has invalid length")
+	case len(sig.CoveredFields.SiacoinInputs) != 0:
+		return errors.New("signature should not cover siacoin inputs")
+	case len(sig.CoveredFields.SiacoinOutputs) != 0:
+		return errors.New("signature should not cover siacoin outputs")
+	case len(sig.CoveredFields.FileContracts) != 0:
+		return errors.New("signature should not cover file contract")
+	case len(sig.CoveredFields.StorageProofs) != 0:
+		return errors.New("signature should not cover storage proofs")
+	case len(sig.CoveredFields.SiafundInputs) != 0:
+		return errors.New("signature should not cover siafund inputs")
+	case len(sig.CoveredFields.SiafundOutputs) != 0:
+		return errors.New("signature should not cover siafund outputs")
+	case len(sig.CoveredFields.MinerFees) != 0:
+		return errors.New("signature should not cover miner fees")
+	case len(sig.CoveredFields.ArbitraryData) != 0:
+		return errors.New("signature should not cover arbitrary data")
+	case len(sig.CoveredFields.Signatures) != 0:
+		return errors.New("signature should not cover signatures")
+	case len(sig.CoveredFields.FileContractRevisions) != 1:
+		return errors.New("signature should cover one file contract revision")
+	case sig.CoveredFields.FileContractRevisions[0] != 0:
+		return errors.New("signature should cover the first file contract revision")
+	case !renterKey.VerifyHash(sigHash, *(*types.Signature)(sig.Signature)):
+		return errors.New("revision signature is invalid")
+	}
+	return nil
 }

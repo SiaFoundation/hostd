@@ -19,59 +19,65 @@ func hashFinalRevision(clearing types.FileContractRevision, renewal types.FileCo
 // validateContractRenewal verifies that the renewed contract is valid given the
 // old contract. A renewal is valid if the contract fields match and the
 // revision number is 0.
-func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, walletAddress types.Address, baseHostRevenue, baseRiskedCollateral types.Currency, pt rhpv3.HostPriceTable) (storageRevenue, riskedCollateral, lockedCollateral types.Currency, err error) {
+func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, walletAddress types.Address, baseStorageRevenue, baseRiskedCollateral types.Currency, pt rhpv3.HostPriceTable) (riskedCollateral, lockedCollateral types.Currency, err error) {
 	switch {
 	case renewal.RevisionNumber != 0:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("revision number must be zero")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("revision number must be zero")
 	case renewal.Filesize != existing.Filesize:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("filesize must not change")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("filesize must not change")
 	case renewal.FileMerkleRoot != existing.FileMerkleRoot:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("file Merkle root must not change")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("file Merkle root must not change")
 	case renewal.WindowEnd < existing.WindowEnd:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("renewal window must not end before current window")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("renewal window must not end before current window")
 	case renewal.WindowStart < pt.HostBlockHeight+pt.WindowSize:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("contract ends too soon to safely submit the contract transaction")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("contract ends too soon to safely submit the contract transaction")
 	case renewal.WindowStart > pt.HostBlockHeight+pt.MaxDuration:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("contract duration is too long")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("contract duration is too long")
 	case renewal.WindowEnd < renewal.WindowStart+pt.WindowSize:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("proof window is too small")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("proof window is too small")
 	case len(renewal.ValidProofOutputs) != 2:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of valid proof outputs")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of valid proof outputs")
 	case len(renewal.MissedProofOutputs) != 3:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of missed proof outputs")
-	case renewal.ValidProofOutputs[1].Address != walletAddress:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for valid host output")
-	case renewal.MissedProofOutputs[1].Address != walletAddress:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for missed host output")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of missed proof outputs")
+	case renewal.ValidHostOutput().Address != walletAddress:
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for valid host output")
+	case renewal.MissedHostOutput().Address != walletAddress:
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for missed host output")
 	case renewal.MissedProofOutputs[2].Address != types.VoidAddress:
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")
 	}
 
-	expectedBurn := baseHostRevenue.Sub(pt.RenewContractCost).Add(baseRiskedCollateral)
+	expectedBurn := baseStorageRevenue.Add(baseRiskedCollateral)
 	hostBurn, underflow := renewal.ValidHostPayout().SubWithUnderflow(renewal.MissedHostPayout())
 	if underflow {
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("host valid payout must be greater than host missed payout")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("host valid payout must be greater than host missed payout")
 	} else if hostBurn.Cmp(expectedBurn) > 0 {
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("excessive host burn: expected at most %d got %d", baseRiskedCollateral, riskedCollateral)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("excessive host burn: expected at most %d got %d", expectedBurn, hostBurn)
 	} else if !renewal.MissedProofOutputs[2].Value.Equals(hostBurn) {
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("risked collateral must be sent to void output")
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("risked collateral must be sent to void output")
 	}
 
 	// calculate the host's risked collateral as the difference between the burn
 	// and base revenue
-	riskedCollateral, underflow = hostBurn.SubWithUnderflow(baseHostRevenue.Sub(pt.RenewContractCost))
+	riskedCollateral, underflow = hostBurn.SubWithUnderflow(baseStorageRevenue)
 	if underflow {
 		riskedCollateral = types.ZeroCurrency
 	}
 
 	// calculate the locked collateral as the difference between the valid host
 	// payout and the base revenue
-	lockedCollateral, underflow = renewal.ValidHostPayout().SubWithUnderflow(baseHostRevenue)
+	minValidPayout := pt.ContractPrice.Add(baseStorageRevenue)
+	lockedCollateral, underflow = renewal.ValidHostPayout().SubWithUnderflow(minValidPayout)
 	if underflow {
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("valid host output must be more than base storage cost")
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("insufficient host valid payout: expected at least %d got %d", minValidPayout, renewal.ValidHostPayout())
 	} else if lockedCollateral.Cmp(pt.MaxCollateral) > 0 {
-		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("collateral exceeds maximum: expected at most %d got %d", pt.MaxCollateral, lockedCollateral)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("collateral exceeds maximum: expected at most %d got %d", pt.MaxCollateral, lockedCollateral)
 	}
-
-	return baseHostRevenue, riskedCollateral, lockedCollateral, nil
+	// validate that the host's missed payout returns at least the locked
+	// collateral and contract price
+	minMissedPayout := pt.ContractPrice.Add(lockedCollateral).Sub(riskedCollateral)
+	if renewal.MissedHostPayout().Cmp(minMissedPayout) < 0 {
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("insufficient host missed payout: expected at least %d got %d", minMissedPayout, renewal.MissedHostPayout())
+	}
+	return riskedCollateral, lockedCollateral, nil
 }

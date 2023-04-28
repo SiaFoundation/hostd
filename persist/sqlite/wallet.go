@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/wallet"
@@ -48,6 +49,26 @@ func (tx *updateWalletTxn) AddSiacoinElement(utxo wallet.SiacoinElement) error {
 func (tx *updateWalletTxn) RemoveSiacoinElement(id types.SiacoinOutputID) error {
 	err := tx.tx.QueryRow(`DELETE FROM wallet_utxos WHERE id=? RETURNING id`, sqlHash256(id)).Scan((*sqlHash256)(&id))
 	return err
+}
+
+// AddWalletDelta adds the delta to the wallet balance metric.
+func (tx updateWalletTxn) AddWalletDelta(value types.Currency, timestamp time.Time) error {
+	if err := incrementCurrencyStat(tx.tx, metricWalletBalance, value, false, timestamp); err != nil {
+		return fmt.Errorf("failed to increment wallet balance: %w", err)
+	} else if err := reflowCurrencyStat(tx.tx, metricWalletBalance, timestamp, value, false); err != nil {
+		return fmt.Errorf("failed to reflow wallet balance: %w", err)
+	}
+	return nil
+}
+
+// SubWalletDelta subtracts the delta from the wallet balance metric.
+func (tx updateWalletTxn) SubWalletDelta(value types.Currency, timestamp time.Time) error {
+	if err := incrementCurrencyStat(tx.tx, metricWalletBalance, value, true, timestamp); err != nil {
+		return fmt.Errorf("failed to increment wallet balance: %w", err)
+	} else if err := reflowCurrencyStat(tx.tx, metricWalletBalance, timestamp, value, true); err != nil {
+		return fmt.Errorf("failed to reflow wallet balance: %w", err)
+	}
+	return nil
 }
 
 // AddTransaction adds a transaction to the wallet.

@@ -1,7 +1,7 @@
 package main
 
-type discordMetricReporter struct{}
+type discardMetricReporter struct{}
 
-func (mr discordMetricReporter) Report(metric any) error {
+func (mr discardMetricReporter) Report(metric any) error {
 	return nil
 }

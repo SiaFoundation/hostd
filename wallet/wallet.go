@@ -53,7 +53,7 @@ type (
 	// A Transaction is an on-chain transaction relevant to a particular wallet,
 	// paired with useful metadata.
 	Transaction struct {
-		ID          types.TransactionID `json:"id"`
+		ID          types.TransactionID `json:"ID"`
 		Index       types.ChainIndex    `json:"index"`
 		Transaction types.Transaction   `json:"transaction"`
 		Inflow      types.Currency      `json:"inflow"`
@@ -562,6 +562,54 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			blockID := types.BlockID(reverted.ID())
 			if err := tx.RevertBlock(blockID); err != nil {
 				return fmt.Errorf("failed to revert block %v: %w", blockID, err)
+			}
+		}
+
+		for i, diff := range cc.RevertedDiffs {
+			blockTimestamp := time.Unix(int64(cc.RevertedBlocks[i].Timestamp), 0)
+			for _, sco := range diff.SiacoinOutputDiffs {
+				var addr types.Address
+				copy(addr[:], sco.SiacoinOutput.UnlockHash[:])
+				if addr != sw.addr {
+					continue
+				}
+
+				var value types.Currency
+				convertToCore(sco.SiacoinOutput.Value, &value)
+				switch sco.Direction {
+				case modules.DiffApply:
+					if err := tx.AddWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to add wallet delta: %w", err)
+					}
+				case modules.DiffRevert:
+					if err := tx.SubWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to sub wallet delta: %w", err)
+					}
+				}
+			}
+		}
+
+		for i, diff := range cc.AppliedDiffs {
+			blockTimestamp := time.Unix(int64(cc.AppliedBlocks[i].Timestamp), 0)
+			for _, sco := range diff.SiacoinOutputDiffs {
+				var addr types.Address
+				copy(addr[:], sco.SiacoinOutput.UnlockHash[:])
+				if addr != sw.addr {
+					continue
+				}
+
+				var value types.Currency
+				convertToCore(sco.SiacoinOutput.Value, &value)
+				switch sco.Direction {
+				case modules.DiffApply:
+					if err := tx.AddWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to add wallet delta: %w", err)
+					}
+				case modules.DiffRevert:
+					if err := tx.SubWalletDelta(value, blockTimestamp); err != nil {
+						return fmt.Errorf("failed to sub wallet delta: %w", err)
+					}
+				}
 			}
 		}
 

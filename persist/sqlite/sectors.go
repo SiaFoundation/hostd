@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
@@ -78,6 +79,9 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 				return fmt.Errorf("failed to add temp sector root: %w", err)
 			}
 		}
+		if err := incrementNumericStat(tx, metricTempSectors, len(sectors), time.Now()); err != nil {
+			return fmt.Errorf("failed to update metric: %w", err)
+		}
 		return nil
 	})
 }
@@ -102,6 +106,8 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 			query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
 			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
 				return fmt.Errorf("failed to delete sectors: %w", err)
+			} else if err := incrementNumericStat(tx, metricTempSectors, -len(sectorIDs), time.Now()); err != nil {
+				return fmt.Errorf("failed to update metric: %w", err)
 			}
 			return nil
 		})
@@ -161,6 +167,10 @@ func (s *Store) PruneSectors() error {
 				} else if _, err := metaUpdateStmt.Exec(volumeID); err != nil {
 					return fmt.Errorf("failed to update volume metadata: %w", err)
 				}
+			}
+
+			if err := incrementNumericStat(tx, metricPhysicalSectors, -len(sectorIDs), time.Now()); err != nil {
+				return fmt.Errorf("failed to update metric: %w", err)
 			}
 			return nil
 		})
