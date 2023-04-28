@@ -22,11 +22,6 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const (
-	// Version is the current version of the RHP3 protocol.
-	Version = "1.6.0"
-)
-
 type (
 	// An AccountManager manages deposits and withdrawals for accounts.
 	AccountManager interface {
