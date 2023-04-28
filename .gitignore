@@ -1,4 +1,3 @@
 bin/
 .DS_Store
 .vscode
-build/meta.go
