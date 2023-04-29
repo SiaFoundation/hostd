@@ -515,36 +515,26 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 			}
 
 			start := time.Now()
-			var logLabel string
 			// execute the instruction
 			switch instr := instruction.(type) {
 			case *rhpv3.InstrAppendSector:
 				output, proof, err = pe.executeAppendSector(instr)
-				logLabel = "append sector"
 			case *rhpv3.InstrAppendSectorRoot:
 				output, proof, err = pe.executeAppendSectorRoot(instr)
-				logLabel = "append sector root"
 			case *rhpv3.InstrDropSectors:
 				output, proof, err = pe.executeDropSectors(instr)
-				logLabel = "drop sectors"
 			case *rhpv3.InstrHasSector:
 				output, proof, err = pe.executeHasSector(instr)
-				logLabel = "has sector"
 			case *rhpv3.InstrReadOffset:
 				output, proof, err = pe.executeReadOffset(instr)
-				logLabel = "read offset"
 			case *rhpv3.InstrReadSector:
 				output, proof, err = pe.executeReadSector(instr)
-				logLabel = "read sector"
 			case *rhpv3.InstrSwapSector:
 				output, proof, err = pe.executeSwapSector(instr)
-				logLabel = "swap sector"
 			case *rhpv3.InstrUpdateSector:
 				output, proof, err = pe.executeUpdateSector(instr)
-				logLabel = "update sector"
 			case *rhpv3.InstrStoreSector:
 				output, err = pe.executeStoreSector(instr)
-				logLabel = "store sector"
 			case *rhpv3.InstrRevision:
 				output, err = pe.executeRevision(instr)
 			case *rhpv3.InstrReadRegistry:
@@ -556,12 +546,16 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 				output, err = pe.executeUpdateRegistry(instr)
 			case *rhpv3.InstrUpdateRegistryNoType:
 				output, err = pe.executeUpdateRegistry(&instr.InstrUpdateRegistry)
+			default:
+				// immediately return an error if the instruction is unknown
+				outputs <- pe.instructionOutput(nil, nil, fmt.Errorf("unknown instruction: %T", instr))
+				return
 			}
 			if err != nil {
-				err = fmt.Errorf("failed to execute instruction %v: %w", logLabel, err)
-			} else {
-				pe.log.Debug("executed instruction", zap.String("instruction", logLabel), zap.Duration("elapsed", time.Since(start)))
+				outputs <- pe.instructionOutput(nil, nil, fmt.Errorf("failed to execute instruction %q: %w", instrLabel(instruction), err))
+				return
 			}
+			pe.log.Debug("executed instruction", zap.String("instruction", instrLabel(instruction)), zap.Duration("elapsed", time.Since(start)))
 			outputs <- pe.instructionOutput(output, proof, err)
 		}
 	}()
@@ -805,4 +799,35 @@ func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []b
 		ex.updater = updater
 	}
 	return ex, nil
+}
+
+func instrLabel(instr rhpv3.Instruction) string {
+	switch instr.(type) {
+	case *rhpv3.InstrAppendSector:
+		return "AppendSector"
+	case *rhpv3.InstrAppendSectorRoot:
+		return "AppendSectorRoot"
+	case *rhpv3.InstrDropSectors:
+		return "DropSectors"
+	case *rhpv3.InstrHasSector:
+		return "HasSector"
+	case *rhpv3.InstrReadOffset:
+		return "ReadOffset"
+	case *rhpv3.InstrReadSector:
+		return "ReadSector"
+	case *rhpv3.InstrSwapSector:
+		return "SwapSector"
+	case *rhpv3.InstrUpdateSector:
+		return "UpdateSector"
+	case *rhpv3.InstrStoreSector:
+		return "StoreSector"
+	case *rhpv3.InstrRevision:
+		return "Revision"
+	case *rhpv3.InstrReadRegistry, *rhpv3.InstrReadRegistryNoVersion:
+		return "ReadRegistry"
+	case *rhpv3.InstrUpdateRegistry, *rhpv3.InstrUpdateRegistryNoType:
+		return "UpdateRegistry"
+	default:
+		panic(fmt.Sprintf("unknown instruction type %T", instr))
+	}
 }
