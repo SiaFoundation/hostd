@@ -46,7 +46,7 @@ const (
 	statInterval = 5 * time.Minute
 )
 
-// PeriodMetrics returns aggregated metrics for the period between start and end.
+// PeriodMetrics returns aggregate metrics for n periods starting at start
 func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval) ([]metrics.Metrics, error) {
 	if n <= 0 {
 		return nil, errors.New("n periods must be greater than 0")
@@ -82,6 +82,12 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 		return nil, fmt.Errorf("invalid interval: %v", interval)
 	}
 
+	// get metrics as of the start time to backfill any missing periods
+	initial, err := s.Metrics(start)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get initial metrics: %w", err)
+	}
+
 	const query = `SELECT stat, stat_value, date_created FROM host_stats WHERE date_created BETWEEN $1 AND $2 ORDER BY date_created ASC`
 	rows, err := s.db.Query(query, sqlTime(start), sqlTime(end))
 	if err != nil {
@@ -89,7 +95,10 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 	}
 	defer rows.Close()
 
-	var stats []metrics.Metrics
+	stats := []metrics.Metrics{
+		// add the initial metric so that the first period is not empty
+		initial,
+	}
 	for rows.Next() {
 		var stat string
 		var value []byte
@@ -120,28 +129,32 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 			timestamp = time.Date(timestamp.Year(), 1, 1, 0, 0, 0, 0, timestamp.Location())
 		}
 
-		if len(stats) == 0 || stats[len(stats)-1].Timestamp != timestamp {
-			stats = append(stats, metrics.Metrics{
-				Timestamp: timestamp,
-			})
+		// if the timestamp is not the same as the last period, add a new period
+		if stats[len(stats)-1].Timestamp != timestamp {
+			m := stats[len(stats)-1]
+			m.Timestamp = timestamp
+			stats = append(stats, m)
 		}
+		// overwrite the metric value for the current period
 		mustParseMetricValue(stat, value, &stats[len(stats)-1])
 	}
 
 	// fill in any missing periods
-	var periods []metrics.Metrics
+	periods := []metrics.Metrics{}
 	current := start
 	for i := 0; i < n; i++ {
-		if len(stats) > 0 && stats[0].Timestamp.Equal(current) {
+		// stats will always be non-empty because of the initial values
+		if stats[0].Timestamp.Equal(current) {
 			periods = append(periods, stats[0])
 			stats = stats[1:]
-		} else if len(periods) > 0 {
-			periods = append(periods, periods[len(periods)-1])
 		} else {
-			periods = append(periods, metrics.Metrics{})
+			// if there is not a metric for the current period, copy previous
+			// period and overwrite the timestamp
+			periods = append(periods, periods[len(periods)-1])
+			periods[len(periods)-1].Timestamp = current
 		}
-		periods[len(periods)-1].Timestamp = current
 
+		// increment the current time by the interval
 		switch interval {
 		case metrics.Interval15Minutes:
 			current = current.Add(15 * time.Minute)
@@ -157,7 +170,6 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 			current = current.AddDate(1, 0, 0)
 		}
 	}
-
 	return periods, nil
 }
 
