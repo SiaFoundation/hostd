@@ -162,19 +162,23 @@ func (a *api) handleGETPeriodMetrics(c jape.Context) {
 	if err := c.DecodeParam("period", &interval); err != nil {
 		c.Error(fmt.Errorf("failed to parse period: %w", err), http.StatusBadRequest)
 	}
-	var start, end time.Time
-	if len(c.Request.FormValue("start")) == 0 || len(c.Request.FormValue("end")) == 0 {
-		c.Error(fmt.Errorf("start and end time must be specified"), http.StatusBadRequest)
-		return
-	} else if err := c.DecodeForm("start", &start); err != nil {
+	var start time.Time
+	var periods int
+	if err := c.DecodeForm("start", &start); err != nil {
 		c.Error(fmt.Errorf("failed to parse start time: %w", err), http.StatusBadRequest)
 		return
-	} else if err := c.DecodeForm("end", &end); err != nil {
+	} else if err := c.DecodeForm("periods", &periods); err != nil {
 		c.Error(fmt.Errorf("failed to parse end time: %w", err), http.StatusBadRequest)
+		return
+	} else if start.IsZero() {
+		c.Error(errors.New("start time cannot be zero"), http.StatusBadRequest)
+		return
+	} else if periods <= 0 {
+		c.Error(errors.New("periods must be greater than zero"), http.StatusBadRequest)
 		return
 	}
 
-	period, err := a.metrics.PeriodMetrics(start, end, interval)
+	period, err := a.metrics.PeriodMetrics(start, periods, interval)
 	if !a.checkServerError(c, "failed to get metrics", err) {
 		return
 	}

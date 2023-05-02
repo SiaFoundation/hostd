@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -87,11 +88,11 @@ func (c *Client) Metrics(at time.Time) (metrics metrics.Metrics, err error) {
 	return
 }
 
-// PeriodMetrics returns the metrics of the host for the specified period
-func (c *Client) PeriodMetrics(start, end time.Time, interval metrics.Interval) (periods []metrics.Metrics, err error) {
+// PeriodMetrics returns the metrics of the host for n periods starting at start.
+func (c *Client) PeriodMetrics(start time.Time, n int, interval metrics.Interval) (periods []metrics.Metrics, err error) {
 	v := url.Values{
-		"start": []string{start.Format(time.RFC3339)},
-		"end":   []string{end.Format(time.RFC3339)},
+		"start":   []string{start.Format(time.RFC3339)},
+		"periods": []string{strconv.Itoa(n)},
 	}
 	err = c.c.GET("/metrics/"+interval.String()+"?"+v.Encode(), &periods)
 	return
