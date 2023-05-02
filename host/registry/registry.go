@@ -7,6 +7,8 @@ import (
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/internal/threadgroup"
+	"go.uber.org/zap"
 )
 
 var (
@@ -33,12 +35,17 @@ type (
 		// RegistryEntries returns the current number of entries as well as the
 		// maximum number of entries the registry can hold.
 		RegistryEntries() (count uint64, total uint64, err error)
+
+		IncrementRegistryAccess(read, write uint64) error
 	}
 
 	// A Manager manages registry entries stored in a RegistryStore.
 	Manager struct {
 		hostID types.Hash256
-		store  Store
+
+		store    Store
+		tg       *threadgroup.ThreadGroup
+		recorder *registryAccessRecorder
 
 		// registry entries must be locked while they are being modified
 		mu sync.Mutex
@@ -47,6 +54,9 @@ type (
 
 // Close closes the registry store.
 func (r *Manager) Close() error {
+	r.tg.Stop()
+	// flush any metrics
+	r.recorder.Flush()
 	return nil
 }
 
@@ -57,10 +67,14 @@ func (r *Manager) Entries() (count uint64, total uint64, err error) {
 }
 
 // Get returns the registry value for the provided key.
-func (r *Manager) Get(key rhpv3.RegistryKey) (rhpv3.RegistryValue, error) {
+func (r *Manager) Get(key rhpv3.RegistryKey) (value rhpv3.RegistryValue, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.store.GetRegistryValue(key)
+	value, err = r.store.GetRegistryValue(key)
+	if err == nil {
+		r.recorder.AddRead()
+	}
+	return
 }
 
 // Put creates or updates the registry value for the provided key. If err is nil
@@ -94,13 +108,20 @@ func (r *Manager) Put(entry rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3
 	} else if err = r.store.SetRegistryValue(entry, expirationHeight); err != nil {
 		return old, fmt.Errorf("failed to update registry key: %w", err)
 	}
+	r.recorder.AddWrite()
 	return entry.RegistryValue, nil
 }
 
 // NewManager returns a new registry manager.
-func NewManager(privkey types.PrivateKey, store Store) *Manager {
-	return &Manager{
+func NewManager(privkey types.PrivateKey, store Store, log *zap.Logger) *Manager {
+	m := &Manager{
 		hostID: rhpv3.RegistryHostID(privkey.PublicKey()),
+		tg:     threadgroup.New(),
 		store:  store,
+		recorder: &registryAccessRecorder{
+			log: log.Named("recorder"),
+		},
 	}
+	go m.recorder.Run(m.tg.Done())
+	return m
 }

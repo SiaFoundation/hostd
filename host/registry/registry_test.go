@@ -36,7 +36,7 @@ func testRegistry(t *testing.T, privKey types.PrivateKey, limit uint64) *registr
 	if err := db.UpdateSettings(settings.Settings{MaxRegistryEntries: limit}); err != nil {
 		t.Fatal(err)
 	}
-	return registry.NewManager(privKey, db)
+	return registry.NewManager(privKey, db, log.Named("registry"))
 }
 
 func TestRegistryPut(t *testing.T) {
