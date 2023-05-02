@@ -22,9 +22,8 @@ type (
 		log   *zap.Logger
 		t     *time.Timer
 
-		mu     sync.Mutex // guards the following fields
-		lr, lw uint64
-		r, w   uint64
+		mu   sync.Mutex // guards the following fields
+		r, w uint64
 	}
 )
 
@@ -51,17 +50,16 @@ func (dr *DataRecorder) Usage() (read, written uint64) {
 
 func (dr *DataRecorder) persistUsage() {
 	dr.mu.Lock()
-	deltaRead, deltaWrite := dr.r-dr.lr, dr.w-dr.lw
-	dr.lr = dr.r
-	dr.lw = dr.w
+	r, w := dr.r, dr.w
+	dr.r, dr.w = 0, 0
 	dr.mu.Unlock()
 
 	// no need to persist if there is no change
-	if deltaRead == 0 && deltaWrite == 0 {
+	if r == 0 && w == 0 {
 		return
 	}
 
-	if err := dr.store.IncrementDataUsage(deltaRead, deltaWrite); err != nil {
+	if err := dr.store.IncrementDataUsage(r, w); err != nil {
 		dr.log.Error("failed to persist data usage", zap.Error(err))
 		return
 	}
