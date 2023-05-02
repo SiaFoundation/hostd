@@ -255,7 +255,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create contract manager: %w", err)
 	}
-	registryManager := registry.NewManager(hostKey, db)
+	registryManager := registry.NewManager(hostKey, db, logger.Named("registry"))
 
 	rhp2Monitor := rhp.NewDataRecorder(&rhp2MonitorStore{db}, logger.Named("rhp2Monitor"))
 	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, tp, w, contractManager, sr, sm, rhp2Monitor, logger.Named("rhpv2"))

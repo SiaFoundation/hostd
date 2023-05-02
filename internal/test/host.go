@@ -188,7 +188,7 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to update host settings: %w", err)
 	}
 
-	registry := registry.NewManager(privKey, db)
+	registry := registry.NewManager(privKey, db, log.Named("registry"))
 	accounts := accounts.NewManager(db, settings)
 
 	rhpv2, err := rhpv2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubDataMonitor{}, stubMetricReporter{}, log.Named("rhpv2"))
