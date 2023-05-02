@@ -47,82 +47,146 @@ const (
 )
 
 // PeriodMetrics returns aggregated metrics for the period between start and end.
-func (s *Store) PeriodMetrics(start, end time.Time, interval metrics.Interval) (period []metrics.Metrics, err error) {
-	if start.After(end) {
-		return nil, errors.New("start time must be before end time")
+func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval) ([]metrics.Metrics, error) {
+	if n <= 0 {
+		return nil, errors.New("n periods must be greater than 0")
 	}
 
-	current := start
+	var end time.Time
 	switch interval {
 	case metrics.Interval15Minutes:
-		current = current.Truncate(15 * time.Minute)
-		end = end.Add(15 * time.Minute).Truncate(15 * time.Minute)
+		start = start.Truncate(15 * time.Minute)
+		end = start.Add(15 * time.Minute * time.Duration(n))
 	case metrics.IntervalHourly:
-		current = current.Truncate(time.Hour)
-		end = end.Add(time.Hour).Truncate(time.Hour)
+		start = start.Truncate(time.Hour)
+		end = start.Add(time.Hour * time.Duration(n))
 	case metrics.IntervalDaily:
-		y, m, d := current.Date()
-		current = time.Date(y, m, d, 0, 0, 0, 0, current.Location())
-		// set end to the last second of the day
-		y, m, d = end.Date()
-		end = time.Date(y, m, d, 23, 59, 59, 999, current.Location())
+		y, m, d := start.Date()
+		start = time.Date(y, m, d, 0, 0, 0, 0, start.Location())
+		end = start.AddDate(0, 0, n)
 	case metrics.IntervalWeekly:
-		y, m, d := current.Date()
-		d -= int(current.Weekday())
-		current = time.Date(y, m, d, 0, 0, 0, 0, current.Location())
-		// set end to the last second of the following Sunday
-		y, m, d = end.Date()
-		d += 7 - int(end.Weekday())
-		end = time.Date(y, m, d, 23, 59, 59, 999, current.Location())
+		y, m, d := start.Date()
+		d -= int(start.Weekday())
+		// set start to the first day of the week
+		start = time.Date(y, m, d, 0, 0, 0, 0, start.Location())
+		end = start.AddDate(0, 0, 7*n) // add n weeks
 	case metrics.IntervalMonthly:
-		y, m, _ := current.Date()
-		current = time.Date(y, m, 1, 0, 0, 0, 0, current.Location())
-		// set end to the last second of the last day of the month
-		y, m, _ = end.Date()
-		end = time.Date(y, m+1, 0, 23, 59, 59, 999, current.Location())
+		y, m, _ := start.Date()
+		// set start to the first day of the month
+		start = time.Date(y, m, 1, 0, 0, 0, 0, start.Location())
+		end = start.AddDate(0, n, 0) // add n months
 	case metrics.IntervalYearly:
-		y, _, _ := current.Date()
-		current = time.Date(y, 1, 1, 0, 0, 0, 0, current.Location())
-		// set end to the last second of the last day of the year
-		y, _, _ = end.Date()
-		end = time.Date(y, 12, 31, 23, 59, 59, 999, current.Location())
+		start = time.Date(start.Year(), 1, 1, 0, 0, 0, 0, start.Location())
+		end = start.AddDate(n, 0, 0) // add n years
 	default:
 		return nil, fmt.Errorf("invalid interval: %v", interval)
 	}
 
-	err = s.transaction(func(tx txn) error {
-		// TODO: this would be more performant in a single query, then parsing
-		// the results, but this is simple and performant enough short-term.
-		for current.Before(end) {
-			m, err := aggregateMetrics(tx, current)
-			if err != nil {
-				return fmt.Errorf("failed to get metrics: %w", err)
-			}
-			period = append(period, m)
+	const query = `SELECT stat, stat_value, date_created FROM host_stats WHERE date_created BETWEEN $1 AND $2 ORDER BY date_created ASC`
+	rows, err := s.db.Query(query, sqlTime(start), sqlTime(end))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics: %w", err)
+	}
+	defer rows.Close()
 
-			switch interval {
-			case metrics.Interval15Minutes:
-				current = current.Add(15 * time.Minute)
-			case metrics.IntervalHourly:
-				current = current.Add(time.Hour)
-			case metrics.IntervalDaily:
-				current = current.AddDate(0, 0, 1)
-			case metrics.IntervalWeekly:
-				current = current.AddDate(0, 0, 7)
-			case metrics.IntervalMonthly:
-				current = current.AddDate(0, 1, 0)
-			case metrics.IntervalYearly:
-				current = current.AddDate(1, 0, 0)
-			}
+	var stats []metrics.Metrics
+	for rows.Next() {
+		var stat string
+		var value []byte
+		var timestamp time.Time
+
+		if err := rows.Scan(&stat, &value, (*sqlTime)(&timestamp)); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		return nil
-	})
-	return
+
+		// normalize the stored timestamp to the locale and interval
+		timestamp = timestamp.In(start.Location())
+		switch interval {
+		case metrics.Interval15Minutes:
+			timestamp = timestamp.Truncate(15 * time.Minute)
+		case metrics.IntervalHourly:
+			timestamp = timestamp.Truncate(time.Hour)
+		case metrics.IntervalDaily:
+			y, m, d := timestamp.Date()
+			timestamp = time.Date(y, m, d, 0, 0, 0, 0, timestamp.Location())
+		case metrics.IntervalWeekly:
+			y, m, d := timestamp.Date()
+			d -= int(timestamp.Weekday())
+			timestamp = time.Date(y, m, d, 0, 0, 0, 0, timestamp.Location())
+		case metrics.IntervalMonthly:
+			y, m, _ := timestamp.Date()
+			timestamp = time.Date(y, m, 1, 0, 0, 0, 0, timestamp.Location())
+		case metrics.IntervalYearly:
+			timestamp = time.Date(timestamp.Year(), 1, 1, 0, 0, 0, 0, timestamp.Location())
+		}
+
+		if len(stats) == 0 || stats[len(stats)-1].Timestamp != timestamp {
+			stats = append(stats, metrics.Metrics{
+				Timestamp: timestamp,
+			})
+		}
+		mustParseMetricValue(stat, value, &stats[len(stats)-1])
+	}
+
+	// fill in any missing periods
+	var periods []metrics.Metrics
+	current := start
+	for i := 0; i < n; i++ {
+		if len(stats) > 0 && stats[0].Timestamp.Equal(current) {
+			periods = append(periods, stats[0])
+			stats = stats[1:]
+		} else if len(periods) > 0 {
+			periods = append(periods, periods[len(periods)-1])
+		} else {
+			periods = append(periods, metrics.Metrics{})
+		}
+		periods[len(periods)-1].Timestamp = current
+
+		switch interval {
+		case metrics.Interval15Minutes:
+			current = current.Add(15 * time.Minute)
+		case metrics.IntervalHourly:
+			current = current.Add(time.Hour)
+		case metrics.IntervalDaily:
+			current = current.AddDate(0, 0, 1)
+		case metrics.IntervalWeekly:
+			current = current.AddDate(0, 0, 7)
+		case metrics.IntervalMonthly:
+			current = current.AddDate(0, 1, 0)
+		case metrics.IntervalYearly:
+			current = current.AddDate(1, 0, 0)
+		}
+	}
+
+	return periods, nil
 }
 
 // Metrics returns aggregate metrics for the host as of the timestamp.
 func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
-	return aggregateMetrics(&dbTxn{s}, timestamp)
+	const query = `WITH summary AS (
+		SELECT 
+		stat, stat_value, 
+		ROW_NUMBER() OVER (PARTITION BY stat ORDER BY date_created DESC) AS rank 
+		FROM host_stats s
+		WHERE s.date_created<=$1)
+		SELECT stat, stat_value FROM summary WHERE rank=1;`
+	rows, err := s.query(query, sqlTime(timestamp))
+	if err != nil {
+		return metrics.Metrics{}, fmt.Errorf("failed to query metrics: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stat string
+		var value []byte
+
+		if err := rows.Scan(&stat, &value); err != nil {
+			return metrics.Metrics{}, fmt.Errorf("failed to scan row: %w", err)
+		}
+		mustParseMetricValue(stat, value, &m)
+	}
+	m.Timestamp = timestamp
+	return
 }
 
 // IncrementRHP2DataUsage increments the RHP2 ingress and egress metrics.
@@ -175,77 +239,57 @@ func mustScanUint64(b []byte) uint64 {
 	return uint64(u)
 }
 
-func aggregateMetrics(tx txn, timestamp time.Time) (m metrics.Metrics, err error) {
-	const query = `WITH summary AS (
-SELECT 
-stat, stat_value, 
-ROW_NUMBER() OVER (PARTITION BY stat ORDER BY date_created DESC) AS rank 
-FROM host_stats s
-WHERE s.date_created<=$1)
-SELECT stat, stat_value FROM summary WHERE rank=1;`
-	rows, err := tx.Query(query, sqlTime(timestamp))
-	if err != nil {
-		return metrics.Metrics{}, fmt.Errorf("failed to query metrics: %w", err)
+// mustParseMetricValue parses the value of a metric from the database.
+// If the metric fails to parse, it will panic.
+func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
+	switch stat {
+	case metricContractPrice:
+		m.Pricing.ContractPrice = mustScanCurrency(buf)
+	case metricIngressPrice:
+		m.Pricing.IngressPrice = mustScanCurrency(buf)
+	case metricEgressPrice:
+		m.Pricing.EgressPrice = mustScanCurrency(buf)
+	case metricBaseRPCPrice:
+		m.Pricing.BaseRPCPrice = mustScanCurrency(buf)
+	case metricSectorAccessPrice:
+		m.Pricing.SectorAccessPrice = mustScanCurrency(buf)
+	case metricStoragePrice:
+		m.Pricing.StoragePrice = mustScanCurrency(buf)
+	case metricCollateral:
+		m.Pricing.Collateral = mustScanCurrency(buf)
+	case metricPendingContracts:
+		m.Contracts.Pending = mustScanUint64(buf)
+	case metricActiveContracts:
+		m.Contracts.Active = mustScanUint64(buf)
+	case metricRejectedContracts:
+		m.Contracts.Rejected = mustScanUint64(buf)
+	case metricSuccessfulContracts:
+		m.Contracts.Successful = mustScanUint64(buf)
+	case metricFailedContracts:
+		m.Contracts.Failed = mustScanUint64(buf)
+	case metricTotalSectors:
+		m.Storage.TotalSectors = mustScanUint64(buf)
+	case metricPhysicalSectors:
+		m.Storage.PhysicalSectors = mustScanUint64(buf)
+	case metricContractSectors:
+		m.Storage.ContractSectors = mustScanUint64(buf)
+	case metricTempSectors:
+		m.Storage.TempSectors = mustScanUint64(buf)
+	case metricRegistryEntries:
+		m.Storage.RegistryEntries = mustScanUint64(buf)
+	case metricRHP2Ingress:
+		m.Data.RHP2.Ingress = mustScanUint64(buf)
+	case metricRHP2Egress:
+		m.Data.RHP2.Egress = mustScanUint64(buf)
+	case metricRHP3Ingress:
+		m.Data.RHP3.Ingress = mustScanUint64(buf)
+	case metricRHP3Egress:
+		m.Data.RHP3.Egress = mustScanUint64(buf)
+	case metricWalletBalance:
+		m.Balance = mustScanCurrency(buf)
+	default:
+		panic(fmt.Sprintf("unknown metric: %v", stat))
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var stat string
-		var value []byte
-
-		if err := rows.Scan(&stat, &value); err != nil {
-			return metrics.Metrics{}, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		switch stat {
-		case metricContractPrice:
-			m.Pricing.ContractPrice = mustScanCurrency(value)
-		case metricIngressPrice:
-			m.Pricing.IngressPrice = mustScanCurrency(value)
-		case metricEgressPrice:
-			m.Pricing.EgressPrice = mustScanCurrency(value)
-		case metricBaseRPCPrice:
-			m.Pricing.BaseRPCPrice = mustScanCurrency(value)
-		case metricSectorAccessPrice:
-			m.Pricing.SectorAccessPrice = mustScanCurrency(value)
-		case metricStoragePrice:
-			m.Pricing.StoragePrice = mustScanCurrency(value)
-		case metricCollateral:
-			m.Pricing.Collateral = mustScanCurrency(value)
-		case metricPendingContracts:
-			m.Contracts.Pending = mustScanUint64(value)
-		case metricActiveContracts:
-			m.Contracts.Active = mustScanUint64(value)
-		case metricRejectedContracts:
-			m.Contracts.Rejected = mustScanUint64(value)
-		case metricSuccessfulContracts:
-			m.Contracts.Successful = mustScanUint64(value)
-		case metricFailedContracts:
-			m.Contracts.Failed = mustScanUint64(value)
-		case metricTotalSectors:
-			m.Storage.TotalSectors = mustScanUint64(value)
-		case metricPhysicalSectors:
-			m.Storage.PhysicalSectors = mustScanUint64(value)
-		case metricContractSectors:
-			m.Storage.ContractSectors = mustScanUint64(value)
-		case metricTempSectors:
-			m.Storage.TempSectors = mustScanUint64(value)
-		case metricRegistryEntries:
-			m.Storage.RegistryEntries = mustScanUint64(value)
-		case metricRHP2Ingress:
-			m.Data.RHP2.Ingress = mustScanUint64(value)
-		case metricRHP2Egress:
-			m.Data.RHP2.Egress = mustScanUint64(value)
-		case metricRHP3Ingress:
-			m.Data.RHP3.Ingress = mustScanUint64(value)
-		case metricRHP3Egress:
-			m.Data.RHP3.Egress = mustScanUint64(value)
-		case metricWalletBalance:
-			m.Balance = mustScanCurrency(value)
-		}
-	}
-	m.Timestamp = timestamp
-	return
 }
 
 // incrementNumericStat tracks a numeric stat, incrementing the current value by

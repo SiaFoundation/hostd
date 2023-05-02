@@ -7,8 +7,8 @@ import (
 type (
 	// A Store retrieves metrics
 	Store interface {
-		// PeriodMetrics returns aggregated metrics for the period between start and end.
-		PeriodMetrics(start, end time.Time, interval Interval) (period []Metrics, err error)
+		// PeriodMetrics returns metrics for n periods starting at start.
+		PeriodMetrics(start time.Time, n int, interval Interval) (period []Metrics, err error)
 		// Metrics returns aggregated metrics for the host as of the timestamp.
 		Metrics(time.Time) (m Metrics, err error)
 	}
@@ -19,9 +19,9 @@ type (
 	}
 )
 
-// PeriodMetrics returns aggregated PeriodMetrics for the period between start and end.
-func (mm *MetricManager) PeriodMetrics(start, end time.Time, interval Interval) (period []Metrics, err error) {
-	return mm.store.PeriodMetrics(start, end, interval)
+// PeriodMetrics returns metrics for n periods starting at start.
+func (mm *MetricManager) PeriodMetrics(start time.Time, periods int, interval Interval) ([]Metrics, error) {
+	return mm.store.PeriodMetrics(start, periods, interval)
 }
 
 // Metrics returns the current metrics for the host.

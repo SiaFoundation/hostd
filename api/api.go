@@ -42,8 +42,8 @@ type (
 
 	// Metrics retrieves metrics related to the host
 	Metrics interface {
-		// PeriodMetrics returns aggregated metrics for the period between start and end.
-		PeriodMetrics(start, end time.Time, interval metrics.Interval) (period []metrics.Metrics, err error)
+		// PeriodMetrics returns metrics for n periods starting at start.
+		PeriodMetrics(start time.Time, periods int, interval metrics.Interval) (period []metrics.Metrics, err error)
 		// Metrics returns aggregated metrics for the host as of the timestamp.
 		Metrics(time.Time) (m metrics.Metrics, err error)
 	}
