@@ -250,6 +250,10 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		DownloadBandwidthPrice: settings.MinEgressPrice,
 		UploadBandwidthPrice:   settings.MinIngressPrice,
 
+		// ea settings
+		MaxEphemeralAccountBalance: settings.MaxAccountBalance,
+		EphemeralAccountExpiry:     settings.AccountExpiry,
+
 		RevisionNumber: settings.Revision,
 	}, nil
 }
