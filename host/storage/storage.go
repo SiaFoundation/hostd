@@ -45,9 +45,10 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
-		vs  VolumeStore
-		cm  ChainManager
-		log *zap.Logger
+		vs       VolumeStore
+		cm       ChainManager
+		log      *zap.Logger
+		recorder *sectorAccessRecorder
 
 		tg         *threadgroup.ThreadGroup
 		cleanTimer *time.Timer
@@ -273,6 +274,8 @@ func (vm *VolumeManager) Close() error {
 
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
+	// flush any pending metrics
+	vm.recorder.Flush()
 	// sync and close all open volumes
 	for id, vol := range vm.volumes {
 		if err := vol.Sync(); err != nil {
@@ -590,7 +593,12 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 		return nil, fmt.Errorf("volume %v not found", loc.Volume)
 	}
 	vm.mu.Unlock()
-	return v.ReadSector(loc.Index)
+	sector, err := v.ReadSector(loc.Index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sector %v: %w", root, err)
+	}
+	vm.recorder.AddRead()
+	return sector, nil
 }
 
 // Sync syncs the data files of changed volumes.
@@ -623,13 +631,13 @@ func (vm *VolumeManager) Sync() error {
 
 // Write writes a sector to a volume. release should only be called after the
 // contract roots have been committed to prevent the sector from being deleted.
-func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (release func() error, _ error) {
+func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (func() error, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
 	}
 	defer done()
-	return vm.vs.StoreSector(root, func(loc SectorLocation, exists bool) error {
+	release, err := vm.vs.StoreSector(root, func(loc SectorLocation, exists bool) error {
 		if exists {
 			return nil
 		}
@@ -643,6 +651,10 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		return nil
 	})
+	if err == nil {
+		vm.recorder.AddWrite()
+	}
+	return release, err
 }
 
 // AddTemporarySectors adds sectors to the temporary store. The sectors are not
@@ -683,6 +695,10 @@ func NewVolumeManager(vs VolumeStore, cm ChainManager, log *zap.Logger) (*Volume
 		vs:  vs,
 		cm:  cm,
 		log: log,
+		recorder: &sectorAccessRecorder{
+			store: vs,
+			log:   log.Named("recorder"),
+		},
 
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
@@ -692,6 +708,7 @@ func NewVolumeManager(vs VolumeStore, cm ChainManager, log *zap.Logger) (*Volume
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
 	}
+	go vm.recorder.Run(vm.tg.Done())
 	vm.cleanTimer = time.AfterFunc(cleanupInterval, vm.cleanup)
 	return vm, nil
 }
