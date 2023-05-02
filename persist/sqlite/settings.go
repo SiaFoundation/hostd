@@ -100,6 +100,8 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			return fmt.Errorf("failed to update egress price stat: %w", err)
 		} else if err := setCurrencyStat(tx, metricIngressPrice, settings.MinIngressPrice, timestamp); err != nil {
 			return fmt.Errorf("failed to update ingress price stat: %w", err)
+		} else if err := setNumericStat(tx, metricMaxRegistryEntries, settings.MaxRegistryEntries, timestamp); err != nil {
+			return fmt.Errorf("failed to update max registry entries stat: %w", err)
 		}
 		return nil
 	})

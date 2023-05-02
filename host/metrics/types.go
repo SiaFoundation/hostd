@@ -56,13 +56,24 @@ type (
 		Collateral        types.Currency `json:"collateral"`
 	}
 
+	// Registry is a collection of metrics related to the host's registry.
+	Registry struct {
+		Entries    uint64 `json:"entries"`
+		MaxEntries uint64 `json:"maxEntries"`
+
+		Reads  uint64 `json:"reads"`
+		Writes uint64 `json:"writes"`
+	}
+
 	// Storage is a collection of metrics related to storage.
 	Storage struct {
 		TotalSectors    uint64 `json:"totalSectors"`
 		PhysicalSectors uint64 `json:"physicalSectors"`
 		ContractSectors uint64 `json:"contractSectors"`
 		TempSectors     uint64 `json:"tempSectors"`
-		RegistryEntries uint64 `json:"registryEntries"`
+
+		Reads  uint64 `json:"reads"`
+		Writes uint64 `json:"writes"`
 	}
 
 	// RevenueMetrics is a collection of metrics related to revenue.
@@ -83,6 +94,7 @@ type (
 		Pricing   Pricing        `json:"pricing"`
 		Contracts Contracts      `json:"contracts"`
 		Storage   Storage        `json:"storage"`
+		Registry  Registry       `json:"registry"`
 		Data      DataMetrics    `json:"data"`
 		Balance   types.Currency `json:"balance"`
 		Timestamp time.Time      `json:"timestamp"`

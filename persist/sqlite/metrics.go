@@ -23,7 +23,14 @@ const (
 	metricPhysicalSectors = "physicalSectors"
 	metricContractSectors = "contractSectors"
 	metricTempSectors     = "tempSectors"
-	metricRegistryEntries = "registryEntries"
+	metricSectorReads     = "sectorReads"
+	metricSectorWrites    = "sectorWrites"
+
+	// registry
+	metricMaxRegistryEntries = "maxRegistryEntries"
+	metricRegistryEntries    = "registryEntries"
+	metricRegistryReads      = "registryReads"
+	metricRegistryWrites     = "registryWrites"
 
 	// bandwidth
 	metricRHP2Ingress = "rhp2Ingress"
@@ -235,6 +242,40 @@ func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
 	})
 }
 
+// IncrementSectorAccess increments the sector read and write metrics.
+func (s *Store) IncrementSectorAccess(reads, writes uint64) error {
+	return s.transaction(func(tx txn) error {
+		if reads > 0 {
+			if err := incrementNumericStat(tx, metricSectorReads, int(reads), time.Now()); err != nil {
+				return fmt.Errorf("failed to track reads: %w", err)
+			}
+		}
+		if writes > 0 {
+			if err := incrementNumericStat(tx, metricSectorWrites, int(writes), time.Now()); err != nil {
+				return fmt.Errorf("failed to track writes: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// IncrementRegistryAccess increments the registry read and write metrics.
+func (s *Store) IncrementRegistryAccess(read, write uint64) error {
+	return s.transaction(func(tx txn) error {
+		if read > 0 {
+			if err := incrementNumericStat(tx, metricRegistryReads, int(read), time.Now()); err != nil {
+				return fmt.Errorf("failed to track reads: %w", err)
+			}
+		}
+		if write > 0 {
+			if err := incrementNumericStat(tx, metricRegistryWrites, int(write), time.Now()); err != nil {
+				return fmt.Errorf("failed to track writes: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 func mustScanCurrency(b []byte) types.Currency {
 	var c sqlCurrency
 	if err := c.Scan(b); err != nil {
@@ -255,6 +296,7 @@ func mustScanUint64(b []byte) uint64 {
 // If the metric fails to parse, it will panic.
 func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 	switch stat {
+	// pricing
 	case metricContractPrice:
 		m.Pricing.ContractPrice = mustScanCurrency(buf)
 	case metricIngressPrice:
@@ -269,6 +311,7 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Pricing.StoragePrice = mustScanCurrency(buf)
 	case metricCollateral:
 		m.Pricing.Collateral = mustScanCurrency(buf)
+	// contracts
 	case metricPendingContracts:
 		m.Contracts.Pending = mustScanUint64(buf)
 	case metricActiveContracts:
@@ -279,6 +322,7 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Contracts.Successful = mustScanUint64(buf)
 	case metricFailedContracts:
 		m.Contracts.Failed = mustScanUint64(buf)
+	// storage
 	case metricTotalSectors:
 		m.Storage.TotalSectors = mustScanUint64(buf)
 	case metricPhysicalSectors:
@@ -287,8 +331,20 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Storage.ContractSectors = mustScanUint64(buf)
 	case metricTempSectors:
 		m.Storage.TempSectors = mustScanUint64(buf)
+	case metricSectorReads:
+		m.Storage.Reads = mustScanUint64(buf)
+	case metricSectorWrites:
+		m.Storage.Writes = mustScanUint64(buf)
+	// registry
 	case metricRegistryEntries:
-		m.Storage.RegistryEntries = mustScanUint64(buf)
+		m.Registry.Entries = mustScanUint64(buf)
+	case metricMaxRegistryEntries:
+		m.Registry.MaxEntries = mustScanUint64(buf)
+	case metricRegistryReads:
+		m.Registry.Reads = mustScanUint64(buf)
+	case metricRegistryWrites:
+		m.Registry.Writes = mustScanUint64(buf)
+	// bandwidth
 	case metricRHP2Ingress:
 		m.Data.RHP2.Ingress = mustScanUint64(buf)
 	case metricRHP2Egress:
@@ -297,6 +353,7 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Data.RHP3.Ingress = mustScanUint64(buf)
 	case metricRHP3Egress:
 		m.Data.RHP3.Egress = mustScanUint64(buf)
+	// wallet
 	case metricWalletBalance:
 		m.Balance = mustScanCurrency(buf)
 	default:
@@ -362,6 +419,22 @@ func setCurrencyStat(tx txn, stat string, value types.Currency, timestamp time.T
 		return nil
 	}
 	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlCurrency(value), sqlTime(timestamp))
+	if err != nil {
+		return fmt.Errorf("failed to insert stat: %w", err)
+	}
+	return nil
+}
+
+func setNumericStat(tx txn, stat string, value uint64, timestamp time.Time) error {
+	timestamp = timestamp.Truncate(statInterval)
+	var current uint64
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to query existing value: %w", err)
+	} else if value == current {
+		return nil
+	}
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlUint64(value), sqlTime(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
 	}
