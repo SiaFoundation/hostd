@@ -214,7 +214,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		if err := cm.store.SetContractStatus(id, ContractStatusRejected); err != nil {
 			log.Error("failed to set contract status", zap.Error(err))
 		}
-		log.Info("contract rejected", zap.String("contractID", id.String()))
+		log.Info("contract rejected", zap.Uint64("negotiationHeight", contract.NegotiationHeight))
 	case ActionExpire:
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
 		if validPayout.Cmp(missedPayout) > 0 {
