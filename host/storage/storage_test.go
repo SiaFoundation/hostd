@@ -267,6 +267,96 @@ func TestRemoveVolume(t *testing.T) {
 	}
 }
 
+func TestRemoveCorrupt(t *testing.T) {
+	const expectedSectors = 1024
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+	defer cm.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	volume, err := vm.AddVolume(volumePath, expectedSectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 10; i++ {
+		var sector [rhpv2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		root := rhpv2.SectorRoot(&sector)
+
+		// write the sector
+		release, err := vm.Write(root, &sector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+	}
+
+	// attempt to remove the volume. Should return ErrNotEnoughStorage since
+	// there is only one volume.
+	if err := vm.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
+	}
+
+	f, err := os.OpenFile(volumePath, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	// corrupt a sector in the volume
+	n := rhpv2.SectorSize * frand.Intn(10)
+	f.WriteAt(frand.Bytes(1), int64(n))
+	if err := f.Sync(); err != nil {
+		t.Fatal(err)
+	} else if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// remove the volume
+	if err := vm.RemoveVolume(volume.ID, false); err == nil {
+		t.Fatal("expected error when removing corrupt volume")
+	} else if err := vm.RemoveVolume(volume.ID, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRemoveMissing(t *testing.T) {
 	const expectedSectors = 1024
 	dir := t.TempDir()
@@ -313,18 +403,20 @@ func TestRemoveMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var sector [rhpv2.SectorSize]byte
-	if _, err := frand.Read(sector[:256]); err != nil {
-		t.Fatal(err)
-	}
-	root := rhpv2.SectorRoot(&sector)
+	for i := 0; i < 10; i++ {
+		var sector [rhpv2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		root := rhpv2.SectorRoot(&sector)
 
-	// write the sector
-	release, err := vm.Write(root, &sector)
-	if err != nil {
-		t.Fatal(err)
+		// write the sector
+		release, err := vm.Write(root, &sector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
 	}
-	defer release()
 
 	// attempt to remove the volume. Should return ErrNotEnoughStorage since
 	// there is only one volume.

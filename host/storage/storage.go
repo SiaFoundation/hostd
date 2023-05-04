@@ -183,14 +183,30 @@ func (vm *VolumeManager) loadVolumes() error {
 // migrateSector migrates sectors to new locations. The sectors are read from
 // their current locations and written to their new locations. Changed volumes
 // are synced after all sectors have been written.
-func (vm *VolumeManager) migrateSectors(locations []SectorLocation) error {
+func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, log *zap.Logger) error {
 	for _, loc := range locations {
-		// read the sector from the old location
-		sector, err := vm.Read(loc.Root)
+		err := func() error {
+			// read the sector from the old location
+			sector, err := vm.Read(loc.Root)
+			if err != nil {
+				return fmt.Errorf("failed to read sector: %w", err)
+			}
+			// calculate the returned root
+			root := rhpv2.SectorRoot(sector)
+			if root != loc.Root {
+				return fmt.Errorf("sector corrupt: root does not match %v != %v", loc.Root, root)
+			}
+			if err := vm.writeSector(sector, loc); err != nil { // write the sector to the new location
+				return fmt.Errorf("failed to write sector: %w", err)
+			}
+			return nil
+		}()
 		if err != nil {
-			return fmt.Errorf("failed to read sector %v: %w", loc.Root, err)
-		} else if err := vm.writeSector(sector, loc); err != nil { // write the sector to the new location
-			return fmt.Errorf("failed to write sector %v to %v:%v: %w", loc.Root, loc.Volume, loc.Index, err)
+			log.Error("failed to migrate sector", zap.Error(err), zap.Stringer("root", loc.Root), zap.Int("newVolumeID", loc.Volume), zap.Uint64("newIndex", loc.Index))
+			if force {
+				continue
+			}
+			return fmt.Errorf("failed to migrate sector %v: %w", loc.Root, err)
 		}
 	}
 	return vm.Sync()
@@ -233,6 +249,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 
 // shrinkVolume shrinks a volume by removing sectors from the end of the volume.
 func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
+	log := vm.log.Named("shrinkVolume").With(zap.Int("volumeID", id), zap.Uint64("oldMaxSectors", oldMaxSectors), zap.Uint64("newMaxSectors", newMaxSectors))
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
 	}
@@ -244,7 +261,15 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 
 	// migrate any sectors outside of the target range. migrateSectors will be
 	// called on chunks of 256 sectors
-	err = vm.vs.MigrateSectors(id, newMaxSectors, vm.migrateSectors)
+	err = vm.vs.MigrateSectors(id, newMaxSectors, func(newLocations []SectorLocation) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		return vm.migrateSectors(newLocations, false, log.Named("migrateSectors"))
+	})
 	if err != nil {
 		return fmt.Errorf("failed to migrate sectors: %w", err)
 	}
@@ -456,6 +481,7 @@ func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
 
 // RemoveVolume removes a volume from the manager.
 func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
+	log := vm.log.Named("removeVolume").With(zap.Int("volumeID", id))
 	ctx, cancel, err := vm.tg.AddContext(context.Background())
 	if err != nil {
 		return err
@@ -488,7 +514,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 			return ctx.Err()
 		default:
 		}
-		return vm.migrateSectors(locations)
+		return vm.migrateSectors(locations, force, log.Named("migrateSectors"))
 	})
 	if err != nil && !force {
 		return fmt.Errorf("failed to migrate sector data: %w", err)
