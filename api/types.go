@@ -116,7 +116,7 @@ type (
 // MarshalJSON implements json.Marshaler
 func (je JSONErrors) MarshalJSON() ([]byte, error) {
 	if len(je) == 0 {
-		return nil, nil
+		return []byte("null"), nil
 	}
 
 	var errs []string
