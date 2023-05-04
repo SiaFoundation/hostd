@@ -92,10 +92,15 @@ func (vm *VolumeManager) lockVolume(id int) (func(), error) {
 	} else if v.busy {
 		return nil, fmt.Errorf("volume %v is busy", id)
 	}
+	var once sync.Once
 	return func() {
-		vm.mu.Lock()
-		vm.volumes[id].busy = false
-		vm.mu.Unlock()
+		once.Do(func() {
+			vm.mu.Lock()
+			if vm.volumes[id] != nil {
+				vm.volumes[id].busy = false
+			}
+			vm.mu.Unlock()
+		})
 	}, nil
 }
 
@@ -444,19 +449,10 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
-	oldReadonly := vol.ReadOnly
-
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
-
-	defer func() {
-		// restore the volume to its original read-only status
-		if err := vm.vs.SetReadOnly(id, oldReadonly); err != nil {
-			vm.log.Named("remove").Error("failed to restore volume read-only status", zap.Error(err), zap.Int("volumeID", id))
-		}
-	}()
 
 	// migrate sectors to other volumes
 	err = vm.vs.MigrateSectors(id, 0, func(locations []SectorLocation) error {
@@ -469,8 +465,20 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to migrate sector data: %w", err)
+	} else if err := vm.vs.RemoveVolume(id, force); err != nil {
+		return fmt.Errorf("failed to remove volume: %w", err)
 	}
-	return vm.vs.RemoveVolume(id, force)
+	vm.mu.Lock()
+	// close the volume
+	vm.volumes[id].Close()
+	// delete the volume from memory
+	delete(vm.volumes, id)
+	vm.mu.Unlock()
+	// remove the volume file
+	if err := os.Remove(vol.LocalPath); err != nil {
+		return fmt.Errorf("failed to remove volume file: %w", err)
+	}
+	return nil
 }
 
 // ResizeVolume resizes a volume to the specified size.

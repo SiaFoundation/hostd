@@ -227,7 +227,8 @@ func TestRemoveVolume(t *testing.T) {
 	}
 	defer vm.Close()
 
-	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
+	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	volume, err := vm.AddVolume(volumePath, expectedSectors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,6 +260,8 @@ func TestRemoveVolume(t *testing.T) {
 	// remove the volume
 	if err := vm.RemoveVolume(volume.ID, false); err != nil {
 		t.Fatal(err)
+	} else if _, err := os.Stat(volumePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("volume file still exists", err)
 	}
 }
 
