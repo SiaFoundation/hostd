@@ -61,6 +61,9 @@ type (
 	}
 )
 
+// ErrVolumeNotAvailable is returned when a volume is not available
+var ErrVolumeNotAvailable = errors.New("volume not available")
+
 func (v *volume) appendError(err error) {
 	v.stats.Errors = append(v.stats.Errors, err)
 	if len(v.stats.Errors) > 100 {
@@ -85,6 +88,9 @@ func (v *volume) OpenVolume(localPath string, reload bool) error {
 
 // ReadSector reads the sector at index from the volume
 func (v *volume) ReadSector(index uint64) (*[rhpv2.SectorSize]byte, error) {
+	if v.data == nil {
+		return nil, ErrVolumeNotAvailable
+	}
 	var sector [rhpv2.SectorSize]byte
 	_, err := v.data.ReadAt(sector[:], int64(index*rhpv2.SectorSize))
 	v.mu.Lock()
@@ -100,6 +106,9 @@ func (v *volume) ReadSector(index uint64) (*[rhpv2.SectorSize]byte, error) {
 
 // WriteSector writes a sector to the volume at index
 func (v *volume) WriteSector(data *[rhpv2.SectorSize]byte, index uint64) error {
+	if v.data == nil {
+		panic("volume not open") // developer error
+	}
 	_, err := v.data.WriteAt(data[:], int64(index*rhpv2.SectorSize))
 	v.mu.Lock()
 	if err != nil {
@@ -142,7 +151,7 @@ func (v *volume) Resize(sectors uint64) error {
 	defer v.mu.Unlock()
 
 	if v.data == nil {
-		return errors.New("volume not open")
+		return ErrVolumeNotAvailable
 	}
 	return v.data.Truncate(int64(sectors * rhpv2.SectorSize))
 }
