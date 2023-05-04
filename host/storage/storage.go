@@ -387,6 +387,10 @@ func (vm *VolumeManager) Volume(id int) (VolumeMeta, error) {
 
 // AddVolume adds a new volume to the storage manager
 func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume, error) {
+	if maxSectors == 0 {
+		return Volume{}, errors.New("max sectors must be greater than 0")
+	}
+
 	ctx, cancel, err := vm.tg.AddContext(context.Background())
 	if err != nil {
 		return Volume{}, err
