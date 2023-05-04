@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -9,6 +10,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/storage"
 )
 
 type (
@@ -48,6 +50,17 @@ type (
 	AddVolumeRequest struct {
 		LocalPath  string `json:"localPath"`
 		MaxSectors uint64 `json:"maxSectors"`
+	}
+
+	// JSONErrors is a slice of errors that can be marshaled to and unmarshaled
+	// from JSON.
+	JSONErrors []error
+
+	// VolumeMeta is a volume with its metadata. It overrides the marshalling
+	// of the storage.VolumeMeta type to handle error messages.
+	VolumeMeta struct {
+		storage.VolumeMeta
+		Errors JSONErrors `json:"errors"`
 	}
 
 	// UpdateVolumeRequest is the request body for the [PUT] /volume/:id endpoint.
@@ -99,6 +112,37 @@ type (
 		Directories []string `json:"directories"`
 	}
 )
+
+// MarshalJSON implements json.Marshaler
+func (je JSONErrors) MarshalJSON() ([]byte, error) {
+	if len(je) == 0 {
+		return nil, nil
+	}
+
+	var errs []string
+	for _, e := range je {
+		if e != nil {
+			errs = append(errs, e.Error())
+		}
+	}
+	return json.Marshal(errs)
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (je *JSONErrors) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
+	var errs []string
+	if err := json.Unmarshal(b, &errs); err != nil {
+		return err
+	}
+
+	for _, e := range errs {
+		*je = append(*je, errors.New(e))
+	}
+	return nil
+}
 
 // WithAcceptingContracts sets the AcceptingContracts field of the request
 func (ur UpdateSettingsRequest) WithAcceptingContracts(value bool) {

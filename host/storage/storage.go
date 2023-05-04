@@ -67,12 +67,6 @@ type (
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
 	}
-
-	// VolumeMeta contains the metadata of a volume.
-	VolumeMeta struct {
-		Volume
-		VolumeStats
-	}
 )
 
 // getVolume returns the volume with the given ID, or an error if the volume does

@@ -136,13 +136,13 @@ func (c *Client) DeleteSector(root types.Hash256) error {
 }
 
 // Volumes returns the volumes of the host.
-func (c *Client) Volumes() (volumes []storage.VolumeMeta, err error) {
+func (c *Client) Volumes() (volumes []VolumeMeta, err error) {
 	err = c.c.GET("/volumes", &volumes)
 	return
 }
 
 // Volume returns the volume with the specified ID.
-func (c *Client) Volume(id int) (volume storage.VolumeMeta, err error) {
+func (c *Client) Volume(id int) (volume VolumeMeta, err error) {
 	err = c.c.GET(fmt.Sprintf("/volumes/%d", id), &volume)
 	return
 }

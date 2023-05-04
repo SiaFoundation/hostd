@@ -22,6 +22,18 @@ type (
 		Close() error
 	}
 
+	// A volume stores and retrieves sector data
+	volume struct {
+		// data is a flatfile that stores the volume's sector data
+		data volumeData
+
+		mu    sync.Mutex // protects the fields below
+		stats VolumeStats
+		// busy must be set to true when the volume is being resized to prevent
+		// conflicting operations.
+		busy bool
+	}
+
 	// VolumeStats contains statistics about a volume
 	VolumeStats struct {
 		FailedReads      uint64  `json:"failedReads"`
@@ -42,16 +54,10 @@ type (
 		Available    bool   `json:"available"`
 	}
 
-	// A volume stores and retrieves sector data
-	volume struct {
-		// data is a flatfile that stores the volume's sector data
-		data volumeData
-
-		mu    sync.Mutex // protects the fields below
-		stats VolumeStats
-		// busy must be set to true when the volume is being resized to prevent
-		// conflicting operations.
-		busy bool
+	// VolumeMeta contains the metadata of a volume.
+	VolumeMeta struct {
+		Volume
+		VolumeStats
 	}
 )
 
