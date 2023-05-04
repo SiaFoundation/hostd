@@ -21,6 +21,7 @@ const (
 	cleanupInterval = 10 * time.Minute
 )
 
+// VolumeStatus is the status of a volume.
 const (
 	VolumeStatusUnavailable = "unavailable"
 	VolumeStatusCreating    = "creating"
@@ -283,6 +284,27 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 	return nil
 }
 
+func (vm *VolumeManager) volumeStats(id int) (vs VolumeStats) {
+	v, ok := vm.volumes[id]
+	if !ok {
+		vs.Status = "unavailable"
+	} else {
+		vs = v.stats
+	}
+	return
+}
+
+func (vm *VolumeManager) setVolumeStatus(id int, status string) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
+	v, ok := vm.volumes[id]
+	if !ok {
+		return
+	}
+	v.stats.Status = status
+}
+
 // Close gracefully shutsdown the volume manager.
 func (vm *VolumeManager) Close() error {
 	// wait for all operations to stop
@@ -312,16 +334,6 @@ func (vm *VolumeManager) Usage() (usedSectors uint64, totalSectors uint64, err e
 	}
 	defer done()
 	return vm.vs.StorageUsage()
-}
-
-func (vm *VolumeManager) volumeStats(id int) (vs VolumeStats) {
-	v, ok := vm.volumes[id]
-	if !ok {
-		vs.Status = "unavailable"
-	} else {
-		vs = v.stats
-	}
-	return
 }
 
 // Volumes returns a list of all volumes in the storage manager.
@@ -371,17 +383,6 @@ func (vm *VolumeManager) Volume(id int) (VolumeMeta, error) {
 		Volume:      vol,
 		VolumeStats: vm.volumeStats(vol.ID),
 	}, nil
-}
-
-func (vm *VolumeManager) setVolumeStatus(id int, status string) {
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-
-	v, ok := vm.volumes[id]
-	if !ok {
-		return
-	}
-	v.stats.Status = status
 }
 
 // AddVolume adds a new volume to the storage manager
