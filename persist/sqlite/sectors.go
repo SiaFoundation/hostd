@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const pruneBatchSize = (10 << 30) / (1 << 22) // 10GiB
+const pruneBatchSize = (1 << 30) / (1 << 22) // 1 GiB
 
 // unlockLocationFn returns a function that unlocks a sector when called.
 func (s *Store) unlockLocationFn(id int64) func() error {
