@@ -143,22 +143,24 @@ func validateDNSSettings(s DNSSettings) error {
 
 	switch s.Provider {
 	case "route53":
-		var r53 route53.Options
-		if err = json.Unmarshal(buf, &r53); err != nil {
+		var opts route53.Options
+		if err = json.Unmarshal(buf, &opts); err != nil {
 			return fmt.Errorf("failed to unmarshal route53 settings: %w", err)
 		}
+		return route53.ValidateOptions(opts)
 	case "noip":
-		var noip noip.Options
-		if err = json.Unmarshal(buf, &noip); err != nil {
+		var opts noip.Options
+		if err = json.Unmarshal(buf, &opts); err != nil {
 			return fmt.Errorf("failed to unmarshal noip settings: %w", err)
 		}
+		return noip.ValidateOptions(opts)
 	case "duckdns":
-		var duck duckdns.Options
-		if err = json.Unmarshal(buf, &duck); err != nil {
+		var opts duckdns.Options
+		if err = json.Unmarshal(buf, &opts); err != nil {
 			return fmt.Errorf("failed to unmarshal duckdns settings: %w", err)
 		}
+		return duckdns.ValidateOptions(opts)
 	default:
 		return fmt.Errorf("unknown dns provider: %s", s.Provider)
 	}
-	return nil
 }

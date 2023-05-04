@@ -116,6 +116,19 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	}
 }
 
+// ValidateOptions validates the options for the No-IP provider.
+func ValidateOptions(opts Options) error {
+	switch {
+	case len(opts.Email) == 0:
+		return errors.New("email is required")
+	case len(opts.Password) == 0:
+		return errors.New("password is required")
+	case len(opts.Hostname) == 0:
+		return errors.New("hostname is required")
+	}
+	return nil
+}
+
 // New creates a new No-IP provider.
 func New(opts Options) dyndns.Provider {
 	return &Provider{

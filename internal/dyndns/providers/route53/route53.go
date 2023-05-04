@@ -81,6 +81,21 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	return nil
 }
 
+// ValidateOptions validates the options for the Route53 provider.
+func ValidateOptions(opts Options) error {
+	switch {
+	case len(opts.ID) == 0:
+		return errors.New("ID is required")
+	case len(opts.Secret) == 0:
+		return errors.New("secret is required")
+	case len(opts.ZoneID) == 0:
+		return errors.New("zone ID is required")
+	case len(opts.Hostname) == 0:
+		return errors.New("hostname is required")
+	}
+	return nil
+}
+
 // New creates a new Route53 provider.
 func New(opts Options) dyndns.Provider {
 	return &Provider{

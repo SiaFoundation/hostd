@@ -76,6 +76,17 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	return fmt.Errorf("failed to update host: %w", ErrUnknown)
 }
 
+// ValidateOptions validates the options for the DuckDNS provider.
+func ValidateOptions(opts Options) error {
+	switch {
+	case len(opts.Token) == 0:
+		return errors.New("token is required")
+	case len(opts.Hostname) == 0:
+		return errors.New("hostname is required")
+	}
+	return nil
+}
+
 // New creates a new DuckDNS provider.
 func New(opts Options) dyndns.Provider {
 	return &Provider{
