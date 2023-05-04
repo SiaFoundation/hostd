@@ -77,7 +77,7 @@ func (v *volume) OpenVolume(localPath string, reload bool) error {
 	}
 	f, err := os.OpenFile(localPath, os.O_RDWR, 0700)
 	if err != nil {
-		return fmt.Errorf("failed to open volume at %v: %w", localPath, err)
+		return err
 	}
 	v.data = f
 	return nil
