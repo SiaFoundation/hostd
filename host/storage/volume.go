@@ -26,6 +26,7 @@ type (
 		FailedWrites     uint64  `json:"failedWrites"`
 		SuccessfulReads  uint64  `json:"successfulReads"`
 		SuccessfulWrites uint64  `json:"successfulWrites"`
+		Status           string  `json:"status"`
 		Errors           []error `json:"errors"`
 	}
 
@@ -85,6 +86,13 @@ func (v *volume) WriteSector(data *[rhpv2.SectorSize]byte, index uint64) error {
 	}
 	v.mu.Unlock()
 	return err
+}
+
+// SetStatus sets the status message of the volume
+func (v *volume) SetStatus(status string) {
+	v.mu.Lock()
+	v.stats.Status = status
+	v.mu.Unlock()
 }
 
 // Sync syncs the volume

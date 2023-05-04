@@ -21,6 +21,14 @@ const (
 	cleanupInterval = 10 * time.Minute
 )
 
+const (
+	VolumeStatusUnavailable = "unavailable"
+	VolumeStatusCreating    = "creating"
+	VolumeStatusResizing    = "resizing"
+	VolumeStatusRemoving    = "removing"
+	VolumeStatusReady       = "ready"
+)
+
 type (
 	// A ChainManager is used to get the current consensus state.
 	ChainManager interface {
@@ -166,6 +174,9 @@ func (vm *VolumeManager) loadVolumes() error {
 		// add the volume to the memory map
 		vm.volumes[vol.ID] = &volume{
 			data: f,
+			stats: VolumeStats{
+				Status: VolumeStatusReady,
+			},
 		}
 		// mark the volume as available
 		if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
@@ -303,6 +314,16 @@ func (vm *VolumeManager) Usage() (usedSectors uint64, totalSectors uint64, err e
 	return vm.vs.StorageUsage()
 }
 
+func (vm *VolumeManager) volumeStats(id int) (vs VolumeStats) {
+	v, ok := vm.volumes[id]
+	if !ok {
+		vs.Status = "unavailable"
+	} else {
+		vs = v.stats
+	}
+	return
+}
+
 // Volumes returns a list of all volumes in the storage manager.
 func (vm *VolumeManager) Volumes() ([]VolumeMeta, error) {
 	done, err := vm.tg.Add()
@@ -321,11 +342,8 @@ func (vm *VolumeManager) Volumes() ([]VolumeMeta, error) {
 	var results []VolumeMeta
 	for _, vol := range volumes {
 		meta := VolumeMeta{
-			Volume: vol,
-		}
-		vs, ok := vm.volumes[vol.ID]
-		if ok {
-			meta.VolumeStats = vs.stats
+			Volume:      vol,
+			VolumeStats: vm.volumeStats(vol.ID),
 		}
 		results = append(results, meta)
 	}
@@ -349,15 +367,21 @@ func (vm *VolumeManager) Volume(id int) (VolumeMeta, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
-	meta := VolumeMeta{
-		Volume: vol,
-	}
+	return VolumeMeta{
+		Volume:      vol,
+		VolumeStats: vm.volumeStats(vol.ID),
+	}, nil
+}
 
-	vs, ok := vm.volumes[id]
-	if ok {
-		meta.VolumeStats = vs.stats
+func (vm *VolumeManager) setVolumeStatus(id int, status string) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
+	v, ok := vm.volumes[id]
+	if !ok {
+		return
 	}
-	return meta, nil
+	v.stats.Status = status
 }
 
 // AddVolume adds a new volume to the storage manager
@@ -390,8 +414,12 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 	vm.mu.Lock()
 	vm.volumes[volumeID] = &volume{
 		data: f,
+		stats: VolumeStats{
+			Status: VolumeStatusCreating,
+		},
 	}
 	vm.mu.Unlock()
+	defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
 
 	// lock the volume during grow operation
 	release, err := vm.lockVolume(volumeID)
@@ -453,6 +481,8 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
+	vm.setVolumeStatus(id, VolumeStatusRemoving)
+	defer vm.setVolumeStatus(id, VolumeStatusUnavailable)
 
 	// migrate sectors to other volumes
 	err = vm.vs.MigrateSectors(id, 0, func(locations []SectorLocation) error {
@@ -469,11 +499,11 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 		return fmt.Errorf("failed to remove volume: %w", err)
 	}
 	vm.mu.Lock()
+	defer vm.mu.Unlock()
 	// close the volume
 	vm.volumes[id].Close()
 	// delete the volume from memory
 	delete(vm.volumes, id)
-	vm.mu.Unlock()
 	// remove the volume file
 	if err := os.Remove(vol.LocalPath); err != nil {
 		return fmt.Errorf("failed to remove volume file: %w", err)
@@ -500,8 +530,10 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
-	oldReadonly := vol.ReadOnly
+	vm.setVolumeStatus(id, VolumeStatusResizing)
+	defer vm.setVolumeStatus(id, VolumeStatusReady)
 
+	oldReadonly := vol.ReadOnly
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
