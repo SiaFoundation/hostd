@@ -190,7 +190,7 @@ func TestAddVolume(t *testing.T) {
 }
 
 func TestRemoveVolume(t *testing.T) {
-	const expectedSectors = 1024
+	const expectedSectors = 50
 	dir := t.TempDir()
 
 	// create the database
@@ -268,7 +268,7 @@ func TestRemoveVolume(t *testing.T) {
 }
 
 func TestRemoveCorrupt(t *testing.T) {
-	const expectedSectors = 1024
+	const expectedSectors = 50
 	dir := t.TempDir()
 
 	// create the database
@@ -332,6 +332,12 @@ func TestRemoveCorrupt(t *testing.T) {
 	// there is only one volume.
 	if err := vm.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
+	}
+
+	// add a second volume to the manager
+	_, err = vm.AddVolume(filepath.Join(t.TempDir(), "vol2.dat"), expectedSectors)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	f, err := os.OpenFile(volumePath, os.O_RDWR, 0)
@@ -350,15 +356,17 @@ func TestRemoveCorrupt(t *testing.T) {
 	}
 
 	// remove the volume
-	if err := vm.RemoveVolume(volume.ID, false); err == nil {
-		t.Fatal("expected error when removing corrupt volume")
+	if err := vm.RemoveVolume(volume.ID, false); err == nil || errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatal("expected error when removing missing volume", err)
+	} else if err != nil {
+		t.Log("got", err)
 	} else if err := vm.RemoveVolume(volume.ID, true); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestRemoveMissing(t *testing.T) {
-	const expectedSectors = 1024
+	const expectedSectors = 50
 	dir := t.TempDir()
 
 	// create the database
@@ -422,6 +430,12 @@ func TestRemoveMissing(t *testing.T) {
 	// there is only one volume.
 	if err := vm.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
+	}
+
+	// add a second volume to the manager
+	_, err = vm.AddVolume(filepath.Join(t.TempDir(), "vol2.dat"), expectedSectors)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// close the volume manager
@@ -449,8 +463,10 @@ func TestRemoveMissing(t *testing.T) {
 	}
 
 	// remove the volume
-	if err := vm.RemoveVolume(volume.ID, false); err == nil {
-		t.Fatal("expected error when removing missing volume")
+	if err := vm.RemoveVolume(volume.ID, false); err == nil || errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatal("expected error when removing missing volume", err)
+	} else if err != nil {
+		t.Log("got", err)
 	} else if err := vm.RemoveVolume(volume.ID, true); err != nil {
 		t.Fatal(err)
 	}

@@ -183,7 +183,7 @@ func (vm *VolumeManager) loadVolumes() error {
 // migrateSector migrates sectors to new locations. The sectors are read from
 // their current locations and written to their new locations. Changed volumes
 // are synced after all sectors have been written.
-func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, log *zap.Logger) error {
+func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, log *zap.Logger) (migrated int, _ error) {
 	for _, loc := range locations {
 		err := func() error {
 			// read the sector from the old location
@@ -194,7 +194,7 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, 
 			// calculate the returned root
 			root := rhpv2.SectorRoot(sector)
 			if root != loc.Root {
-				return fmt.Errorf("sector corrupt: root does not match %v != %v", loc.Root, root)
+				return fmt.Errorf("sector corrupt: %v != %v", loc.Root, root)
 			}
 			if err := vm.writeSector(sector, loc); err != nil { // write the sector to the new location
 				return fmt.Errorf("failed to write sector: %w", err)
@@ -206,10 +206,11 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, 
 			if force {
 				continue
 			}
-			return fmt.Errorf("failed to migrate sector %v: %w", loc.Root, err)
+			return migrated, fmt.Errorf("failed to migrate sector %v: %w", loc.Root, err)
 		}
+		migrated++
 	}
-	return vm.Sync()
+	return migrated, vm.Sync()
 }
 
 // growVolume grows a volume by adding sectors to the end of the volume.
@@ -261,6 +262,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 
 	// migrate any sectors outside of the target range. migrateSectors will be
 	// called on chunks of 256 sectors
+	var migrated int
 	err = vm.vs.MigrateSectors(id, newMaxSectors, func(newLocations []SectorLocation) error {
 		select {
 		case <-ctx.Done():
@@ -268,8 +270,14 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		default:
 		}
 
-		return vm.migrateSectors(newLocations, false, log.Named("migrateSectors"))
+		n, err := vm.migrateSectors(newLocations, false, log.Named("migrateSectors"))
+		migrated += n
+		if err != nil {
+			return fmt.Errorf("failed to migrate sectors: %w", err)
+		}
+		return nil
 	})
+	log.Info("migrated sectors", zap.Int("count", migrated))
 	if err != nil {
 		return fmt.Errorf("failed to migrate sectors: %w", err)
 	}
@@ -508,14 +516,21 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 	defer vm.setVolumeStatus(id, VolumeStatusUnavailable)
 
 	// migrate sectors to other volumes
+	var migrated int
 	err = vm.vs.MigrateSectors(id, 0, func(locations []SectorLocation) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		return vm.migrateSectors(locations, force, log.Named("migrateSectors"))
+		n, err := vm.migrateSectors(locations, force, log.Named("migrateSectors"))
+		migrated += n
+		if err != nil {
+			return fmt.Errorf("failed to migrate sectors: %w", err)
+		}
+		return nil
 	})
+	log.Debug("migrated sectors", zap.Int("count", migrated))
 	if err != nil && !force {
 		return fmt.Errorf("failed to migrate sector data: %w", err)
 	} else if err := vm.vs.RemoveVolume(id, force); err != nil {
