@@ -12,6 +12,8 @@ runs:
       run: go generate ./...
     - name: Lint
       uses: golangci/golangci-lint-action@v3
+      with:
+        skip-cache: true
     - name: Test
       uses: n8maninger/action-golang-test@v1
       with:
