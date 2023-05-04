@@ -98,7 +98,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 		return fmt.Errorf("failed to read response status: %w", err)
 	}
 
-	switch status := string(body); status {
+	switch status := strings.ToLower(strings.TrimSpace(string(body))); status {
 	case "good", "nochg":
 		return nil
 	case "nohost":
