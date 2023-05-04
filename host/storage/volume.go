@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -53,6 +55,28 @@ type (
 	}
 )
 
+func (v *volume) appendError(err error) {
+	v.stats.Errors = append(v.stats.Errors, err)
+	if len(v.stats.Errors) > 100 {
+		v.stats.Errors = v.stats.Errors[len(v.stats.Errors)-100:]
+	}
+}
+
+// OpenVolume opens the volume at localPath
+func (v *volume) OpenVolume(localPath string, reload bool) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.data != nil && !reload {
+		return nil
+	}
+	f, err := os.OpenFile(localPath, os.O_RDWR, 0700)
+	if err != nil {
+		return fmt.Errorf("failed to open volume at %v: %w", localPath, err)
+	}
+	v.data = f
+	return nil
+}
+
 // ReadSector reads the sector at index from the volume
 func (v *volume) ReadSector(index uint64) (*[rhpv2.SectorSize]byte, error) {
 	var sector [rhpv2.SectorSize]byte
@@ -60,10 +84,7 @@ func (v *volume) ReadSector(index uint64) (*[rhpv2.SectorSize]byte, error) {
 	v.mu.Lock()
 	if err != nil {
 		v.stats.FailedReads++
-		v.stats.Errors = append(v.stats.Errors, fmt.Errorf("failed to read sector at index %v: %w", index, err))
-		if len(v.stats.Errors) > 100 {
-			v.stats.Errors = v.stats.Errors[len(v.stats.Errors)-100:]
-		}
+		v.appendError(fmt.Errorf("failed to read sector at index %v: %w", index, err))
 	} else {
 		v.stats.SuccessfulReads++
 	}
@@ -77,10 +98,7 @@ func (v *volume) WriteSector(data *[rhpv2.SectorSize]byte, index uint64) error {
 	v.mu.Lock()
 	if err != nil {
 		v.stats.FailedWrites++
-		v.stats.Errors = append(v.stats.Errors, fmt.Errorf("failed to write sector to index %v: %w", index, err))
-		if len(v.stats.Errors) > 100 {
-			v.stats.Errors = v.stats.Errors[len(v.stats.Errors)-100:]
-		}
+		v.appendError(fmt.Errorf("failed to write sector to index %v: %w", index, err))
 	} else {
 		v.stats.SuccessfulWrites++
 	}
@@ -97,23 +115,42 @@ func (v *volume) SetStatus(status string) {
 
 // Sync syncs the volume
 func (v *volume) Sync() (err error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.data == nil {
+		return nil
+	}
 	err = v.data.Sync()
 	if err != nil {
-		v.mu.Lock()
 		v.stats.Errors = append(v.stats.Errors, fmt.Errorf("failed to sync volume: %w", err))
 		if len(v.stats.Errors) > 100 {
 			v.stats.Errors = v.stats.Errors[len(v.stats.Errors)-100:]
 		}
-		v.mu.Unlock()
 	}
 	return
 }
 
 func (v *volume) Resize(sectors uint64) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.data == nil {
+		return errors.New("volume not open")
+	}
 	return v.data.Truncate(int64(sectors * rhpv2.SectorSize))
 }
 
 // Close closes the volume
 func (v *volume) Close() error {
-	return v.data.Close()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.data == nil {
+		return nil
+	} else if err := v.data.Close(); err != nil {
+		return fmt.Errorf("failed to close volume: %w", err)
+	}
+	v.data = nil
+	v.stats.Status = VolumeStatusUnavailable
+	return nil
 }

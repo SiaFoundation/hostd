@@ -156,33 +156,31 @@ func (vm *VolumeManager) loadVolumes() error {
 	defer vm.mu.Unlock()
 	// load the volumes into memory
 	for _, vol := range volumes {
-		// skip volumes that are already loaded
-		if vm.volumes[vol.ID] != nil {
-			continue
+		// if the volume has not been loaded yet, create a new volume
+		v := vm.volumes[vol.ID]
+		if v == nil {
+			v = &volume{
+				stats: VolumeStats{
+					Status: VolumeStatusUnavailable,
+				},
+			}
+			vm.volumes[vol.ID] = v
 		}
 
-		// open the volume file
-		f, err := os.OpenFile(vol.LocalPath, os.O_RDWR, 0700)
-		if err != nil {
+		if err := v.OpenVolume(vol.LocalPath, false); err != nil {
+			v.appendError(fmt.Errorf("failed to open volume: %w", err))
 			vm.log.Error("unable to open volume", zap.Error(err), zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
 			// mark the volume as unavailable
 			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
-				f.Close()
 				return fmt.Errorf("failed to mark volume '%v' as unavailable: %w", vol.LocalPath, err)
 			}
 			continue
-		}
-		// add the volume to the memory map
-		vm.volumes[vol.ID] = &volume{
-			data: f,
-			stats: VolumeStats{
-				Status: VolumeStatusReady,
-			},
 		}
 		// mark the volume as available
 		if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
 			return fmt.Errorf("failed to mark volume '%v' as available: %w", vol.LocalPath, err)
 		}
+		v.SetStatus(VolumeStatusReady)
 		vm.log.Debug("loaded volume", zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
 	}
 	return nil
@@ -498,7 +496,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 		}
 		return vm.migrateSectors(locations)
 	})
-	if err != nil {
+	if err != nil && !force {
 		return fmt.Errorf("failed to migrate sector data: %w", err)
 	} else if err := vm.vs.RemoveVolume(id, force); err != nil {
 		return fmt.Errorf("failed to remove volume: %w", err)
@@ -509,8 +507,8 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 	vm.volumes[id].Close()
 	// delete the volume from memory
 	delete(vm.volumes, id)
-	// remove the volume file
-	if err := os.Remove(vol.LocalPath); err != nil {
+	// remove the volume file, ignore error if the file does not exist
+	if err := os.Remove(vol.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to remove volume file: %w", err)
 	}
 	return nil
