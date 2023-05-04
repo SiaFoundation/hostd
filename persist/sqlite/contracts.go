@@ -560,14 +560,14 @@ func rebroadcastContractActions(tx txn, height uint64) (actions []contractAction
 
 func rejectContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
 	// formation not confirmed, not rejected, outside rebroadcast window
-	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height < $1`
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height < $1 AND contract_status != $2`
 
 	var maxRebroadcastHeight uint64
 	if height >= contracts.RebroadcastBuffer {
 		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
 	}
 
-	rows, err := tx.Query(query, maxRebroadcastHeight)
+	rows, err := tx.Query(query, maxRebroadcastHeight, contracts.ContractStatusRejected)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
