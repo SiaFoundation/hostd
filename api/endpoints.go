@@ -239,7 +239,7 @@ func (a *api) handleGETVolume(c jape.Context) {
 	} else if !a.checkServerError(c, "failed to get volume", err) {
 		return
 	}
-	c.Encode(volume)
+	c.Encode(toJSONVolume(volume))
 }
 
 func (a *api) handlePUTVolume(c jape.Context) {
@@ -280,7 +280,11 @@ func (a *api) handleGETVolumes(c jape.Context) {
 	if !a.checkServerError(c, "failed to get volumes", err) {
 		return
 	}
-	c.Encode(volumes)
+	var jsonVolumes []VolumeMeta
+	for _, volume := range volumes {
+		jsonVolumes = append(jsonVolumes, toJSONVolume(volume))
+	}
+	c.Encode(jsonVolumes)
 }
 
 func (a *api) handlePOSTVolume(c jape.Context) {
@@ -485,4 +489,14 @@ func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset
 		offset = 0
 	}
 	return
+}
+
+func toJSONVolume(vol storage.VolumeMeta) VolumeMeta {
+	jvm := VolumeMeta{
+		VolumeMeta: vol,
+	}
+	for _, err := range vol.Errors {
+		jvm.Errors = append(jvm.Errors, err)
+	}
+	return jvm
 }
