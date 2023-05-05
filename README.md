@@ -1,4 +1,4 @@
-# [![Sia](https://sia.tech/banners/sia-banner-hostd.png)](http://sia.tech)
+# [![Sia](https://sia.tech/banners/sia-banner-expanded-hostd.png)](http://sia.tech)
 
 [![GoDoc](https://godoc.org/go.sia.tech/hostd?status.svg)](https://godoc.org/go.sia.tech/hostd)
 
