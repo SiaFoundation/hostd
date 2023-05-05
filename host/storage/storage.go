@@ -272,10 +272,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 
 		n, err := vm.migrateSectors(newLocations, false, log.Named("migrateSectors"))
 		migrated += n
-		if err != nil {
-			return fmt.Errorf("failed to migrate sectors: %w", err)
-		}
-		return nil
+		return err
 	})
 	log.Info("migrated sectors", zap.Int("count", migrated))
 	if err != nil {
@@ -525,10 +522,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
 		}
 		n, err := vm.migrateSectors(locations, force, log.Named("migrateSectors"))
 		migrated += n
-		if err != nil {
-			return fmt.Errorf("failed to migrate sectors: %w", err)
-		}
-		return nil
+		return err
 	})
 	log.Debug("migrated sectors", zap.Int("count", migrated))
 	if err != nil && !force {

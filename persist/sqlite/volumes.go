@@ -184,7 +184,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		// call migrateFn with the new locations, data should be copied to the
 		// new locations and synced to disk
 		if err := migrateFn(newLocations); err != nil {
-			return fmt.Errorf("failed to migrate sectors: %w", err)
+			return fmt.Errorf("failed to migrate data: %w", err)
 		}
 
 		// update the sector locations in a separate transaction
