@@ -26,7 +26,7 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	contract, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to lock contract: %w", err)
+		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
 	defer sh.contracts.Unlock(req.ContractID)
 
@@ -178,7 +178,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	contract, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to lock contract: %w", err)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
 	defer sh.contracts.Unlock(req.ContractID)
 

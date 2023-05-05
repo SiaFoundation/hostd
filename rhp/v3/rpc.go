@@ -282,7 +282,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 
 	existing, err := sh.contracts.Lock(ctx, clearingRevision.ParentID)
 	if err != nil {
-		err := fmt.Errorf("failed to lock contract: %w", err)
+		err := fmt.Errorf("failed to lock contract %v: %w", clearingRevision.ParentID, err)
 		s.WriteResponseErr(err)
 		return err
 	}
@@ -485,7 +485,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 
 		contract, err := sh.contracts.Lock(ctx, executeReq.FileContractID)
 		if err != nil {
-			err = fmt.Errorf("failed to lock contract: %w", err)
+			err = fmt.Errorf("failed to lock contract %v: %w", executeReq.FileContractID, err)
 			s.WriteResponseErr(err)
 			return err
 		}
