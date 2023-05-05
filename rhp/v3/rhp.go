@@ -33,6 +33,9 @@ type (
 	// A ContractManager manages the set of contracts that the host is currently
 	// storing data for
 	ContractManager interface {
+		// Contract returns the last revision of the contract with the given ID.
+		Contract(id types.FileContractID) (contracts.Contract, error)
+
 		// Lock locks the contract with the given ID. Will wait for the given
 		// duration before giving up. Unlock must be called to unlock the
 		// contract.

@@ -188,16 +188,12 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 		return fmt.Errorf("failed to read latest revision request: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	contract, err := sh.contracts.Lock(ctx, req.ContractID)
+	contract, err := sh.contracts.Contract(req.ContractID)
 	if err != nil {
-		err := fmt.Errorf("failed to lock contract: %w", err)
+		err := fmt.Errorf("failed to get contract: %w", err)
 		s.WriteResponseErr(err)
 		return err
 	}
-	sh.contracts.Unlock(contract.Revision.ParentID)
 
 	resp := &rhpv3.RPCLatestRevisionResponse{
 		Revision: contract.Revision,

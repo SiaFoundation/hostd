@@ -94,11 +94,17 @@ func InitialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey t
 
 // Revise updates the contract revision with the provided values.
 func Revise(revision types.FileContractRevision, revisionNumber uint64, validOutputs, missedOutputs []types.Currency) (types.FileContractRevision, error) {
-	if len(validOutputs) != len(revision.ValidProofOutputs) || len(missedOutputs) != len(revision.MissedProofOutputs) {
-		return types.FileContractRevision{}, errors.New("incorrect number of outputs")
-	} else if revisionNumber <= revision.RevisionNumber {
+	switch {
+	case revision.RevisionNumber == math.MaxUint64:
+		return types.FileContractRevision{}, errors.New("contract is locked")
+	case revisionNumber <= revision.RevisionNumber:
 		return types.FileContractRevision{}, fmt.Errorf("revision number must be greater than %v", revision.RevisionNumber)
+	case len(validOutputs) != len(revision.ValidProofOutputs):
+		return types.FileContractRevision{}, errors.New("incorrect number of valid outputs")
+	case len(missedOutputs) != len(revision.MissedProofOutputs):
+		return types.FileContractRevision{}, errors.New("incorrect number of missed outputs")
 	}
+
 	revision.RevisionNumber = revisionNumber
 	oldValid, oldMissed := revision.ValidProofOutputs, revision.MissedProofOutputs
 	revision.ValidProofOutputs = make([]types.SiacoinOutput, len(validOutputs))
