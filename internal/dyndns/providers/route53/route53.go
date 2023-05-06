@@ -26,10 +26,6 @@ type (
 	}
 )
 
-// ErrUnsupported is returned if the provider does not support the update
-// mode.
-var ErrUnsupported = errors.New("unsupported")
-
 func (p *Provider) buildChange(ip, recordType string) *route53.Change {
 	return &route53.Change{
 		Action: aws.String(route53.ChangeActionUpsert),
