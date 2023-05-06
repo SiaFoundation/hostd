@@ -132,7 +132,7 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 	m.mu.Lock()
 	m.lastIPv4, m.lastIPv6 = ipv4, ipv6
 	m.mu.Unlock()
-	m.log.Named("dyndns").Debug("updated dyndns", zap.String("ipv4", ipv4.String()), zap.String("ipv6", ipv6.String()), zap.String("provider", settings.Provider))
+	m.log.Named("dyndns").Info("updated dyndns", zap.String("ipv4", ipv4.String()), zap.String("ipv6", ipv6.String()), zap.String("provider", settings.Provider))
 	return nil
 }
 
