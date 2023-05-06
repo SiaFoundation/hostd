@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/hostd/internal/dyndns"
+	"go.sia.tech/hostd/internal/dyndns/providers/cloudflare"
 	"go.sia.tech/hostd/internal/dyndns/providers/duckdns"
 	"go.sia.tech/hostd/internal/dyndns/providers/noip"
 	"go.sia.tech/hostd/internal/dyndns/providers/route53"
@@ -96,6 +97,12 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 
 	var provider dyndns.Provider
 	switch settings.Provider {
+	case "cloudflare":
+		var options cloudflare.Options
+		if err := json.Unmarshal(optsBuf, &options); err != nil {
+			return fmt.Errorf("failed to parse cloudflare options: %w", err)
+		}
+		provider = cloudflare.New(options)
 	case "duckdns":
 		var options duckdns.Options
 		if err := json.Unmarshal(optsBuf, &options); err != nil {
@@ -142,6 +149,12 @@ func validateDNSSettings(s DNSSettings) error {
 	}
 
 	switch s.Provider {
+	case "cloudflare":
+		var opts cloudflare.Options
+		if err = json.Unmarshal(buf, &opts); err != nil {
+			return fmt.Errorf("failed to unmarshal cloudflare settings: %w", err)
+		}
+		return cloudflare.ValidateOptions(opts)
 	case "route53":
 		var opts route53.Options
 		if err = json.Unmarshal(buf, &opts); err != nil {
