@@ -223,7 +223,6 @@ CREATE INDEX log_lines_log_name ON log_lines(log_name);
 CREATE INDEX log_lines_log_caller ON log_lines(log_caller);
 CREATE INDEX log_lines_log_message ON log_lines(log_message);
 
-
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
