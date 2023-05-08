@@ -65,9 +65,13 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 	EXCLUDED.max_account_age, EXCLUDED.price_table_validity, EXCLUDED.max_contract_duration, EXCLUDED.window_size, 
 	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.dyn_dns_provider, 
 	EXCLUDED.dns_update_v4, EXCLUDED.dns_update_v6, EXCLUDED.dyn_dns_opts);`
-	dnsOptsBuf, err := json.Marshal(settings.DynDNS.Options)
-	if err != nil {
-		return fmt.Errorf("failed to marshal DNS options: %w", err)
+	var dnsOptsBuf []byte
+	if len(settings.DynDNS.Provider) > 0 {
+		var err error
+		dnsOptsBuf, err = json.Marshal(settings.DynDNS.Options)
+		if err != nil {
+			return fmt.Errorf("failed to marshal DNS options: %w", err)
+		}
 	}
 
 	return s.transaction(func(tx txn) error {

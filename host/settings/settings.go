@@ -220,6 +220,10 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 		return fmt.Errorf("failed to validate DNS settings: %w", err)
 	}
 
+	if len(s.DynDNS.Provider) == 0 {
+		s.DynDNS.Options = nil
+	}
+
 	m.mu.Lock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
