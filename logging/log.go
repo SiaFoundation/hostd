@@ -19,6 +19,9 @@ type (
 		Levels  []zapcore.Level `json:"levels"`
 		Before  time.Time       `json:"before"`
 		After   time.Time       `json:"after"`
+
+		Limit  int `json:"limit"`
+		Offset int `json:"offset"`
 	}
 
 	// An Entry is a log entry.
@@ -34,7 +37,7 @@ type (
 	// A LogStore stores log entries.
 	LogStore interface {
 		AddEntries(entries []Entry) error
-		LogEntries(filter Filter) ([]Entry, error)
+		LogEntries(filter Filter) ([]Entry, int, error)
 	}
 
 	// A logBuffer buffers log entries and periodically flushes them to the

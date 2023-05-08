@@ -209,6 +209,7 @@ CREATE TABLE host_settings (
 );
 
 CREATE TABLE log_lines (
+	id INTEGER PRIMARY KEY,
 	date_created INTEGER NOT NULL,
 	log_level INTEGER NOT NULL,
 	log_name TEXT NOT NULL,

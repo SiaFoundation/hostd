@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/logging"
 )
 
 type (
@@ -110,6 +111,12 @@ type (
 		TotalBytes  uint64   `json:"totalBytes"`
 		FreeBytes   uint64   `json:"freeBytes"`
 		Directories []string `json:"directories"`
+	}
+
+	// LogResponse is the response body for the [GET] /log/entries endpoint.
+	LogResponse struct {
+		Count   int             `json:"count"`
+		Entries []logging.Entry `json:"entries"`
 	}
 )
 

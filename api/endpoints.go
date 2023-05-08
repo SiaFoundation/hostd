@@ -459,11 +459,19 @@ func (a *api) handlePOSTLogEntries(c jape.Context) {
 		return
 	}
 
-	entries, err := a.logs.LogEntries(filter)
+	// set default limit
+	if filter.Limit == 0 {
+		filter.Limit = 1000
+	}
+
+	entries, count, err := a.logs.LogEntries(filter)
 	if !a.checkServerError(c, "failed to get log entries", err) {
 		return
 	}
-	c.Encode(entries)
+	c.Encode(LogResponse{
+		Entries: entries,
+		Count:   count,
+	})
 }
 
 func (a *api) handleDELETELogPrune(c jape.Context) {

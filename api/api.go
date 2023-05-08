@@ -87,7 +87,7 @@ type (
 
 	// A LogStore retrieves host logs
 	LogStore interface {
-		LogEntries(logging.Filter) ([]logging.Entry, error)
+		LogEntries(logging.Filter) ([]logging.Entry, int, error)
 		Prune(time.Time) error
 	}
 

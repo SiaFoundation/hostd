@@ -27,21 +27,46 @@ func TestLogSyncer(t *testing.T) {
 	}
 
 	// check that the log entry was written to the database
-	entries, err := db.LogEntries(logging.Filter{})
+	entries, count, err := db.LogEntries(logging.Filter{
+		Limit:  10,
+		Offset: 0,
+	})
 	if err != nil {
 		t.Fatal(err)
 	} else if len(entries) != 1 {
 		t.Fatal("expected 1 log entry, got", len(entries))
+	} else if count != 1 {
+		t.Fatalf("expected count to be 1, got %v", count)
 	} else if entries[0].Message != "hello world" {
 		t.Fatal("unexpected message:", entries[0].Message)
 	} else if entries[0].Fields["foo"] != "bar" {
 		t.Fatal("unexpected field:", entries[0].Fields["foo"])
 	}
 
-	entries, err = db.LogEntries(logging.Filter{Names: []string{"none"}})
+	// check that pagination works as expected
+	entries, count, err = db.LogEntries(logging.Filter{
+		Limit:  10,
+		Offset: 10,
+	})
 	if err != nil {
 		t.Fatal(err)
 	} else if len(entries) != 0 {
 		t.Fatal("expected 0 log entries, got", len(entries))
+	} else if count != 1 {
+		t.Fatalf("expected count to be 1, got %v", count)
+	}
+
+	// check that filtering works as expected
+	entries, count, err = db.LogEntries(logging.Filter{
+		Names:  []string{"none"},
+		Limit:  10,
+		Offset: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	} else if len(entries) != 0 {
+		t.Fatal("expected 0 log entries, got", len(entries))
+	} else if count != 0 {
+		t.Fatalf("expected count to be 0, got %v", count)
 	}
 }

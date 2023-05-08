@@ -40,31 +40,41 @@ func (s *Store) Prune(min time.Time) error {
 }
 
 // LogEntries returns all log entries matching the given filter.
-func (s *Store) LogEntries(filter logging.Filter) (entries []logging.Entry, _ error) {
+func (s *Store) LogEntries(filter logging.Filter) (entries []logging.Entry, count int, err error) {
 	whereClause, queryParams, err := buildLogFilter(filter)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	query := fmt.Sprintf(`SELECT date_created, log_level, log_name, log_caller, log_message, log_fields FROM log_lines %s ORDER BY date_created DESC`, whereClause)
-	rows, err := s.db.Query(query, queryParams...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query log lines: %w", err)
-	}
-	defer rows.Close()
+	err = s.transaction(func(tx txn) error {
+		// count the total number of entries matching the filter
+		countQuery := fmt.Sprintf(`SELECT COUNT(id) FROM log_lines %s`, whereClause)
+		if err := tx.QueryRow(countQuery, queryParams...).Scan(&count); err != nil {
+			return fmt.Errorf("failed to count log lines: %w", err)
+		}
 
-	for rows.Next() {
-		entry := logging.Entry{
-			Fields: make(map[string]any),
+		// get the paginated log entries
+		selectQuery := fmt.Sprintf(`SELECT date_created, log_level, log_name, log_caller, log_message, log_fields FROM log_lines %s ORDER BY date_created DESC LIMIT ? OFFSET ?`, whereClause)
+		rows, err := s.db.Query(selectQuery, append(queryParams, filter.Limit, filter.Offset)...)
+		if err != nil {
+			return fmt.Errorf("failed to query log lines: %w", err)
 		}
-		var buf []byte
-		if err := rows.Scan((*sqlTime)(&entry.Timestamp), &entry.Level, &entry.Name, &entry.Caller, &entry.Message, &buf); err != nil {
-			return nil, fmt.Errorf("failed to scan log line: %w", err)
-		} else if err := json.Unmarshal(buf, &entry.Fields); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal log fields: %w", err)
+		defer rows.Close()
+
+		for rows.Next() {
+			entry := logging.Entry{
+				Fields: make(map[string]any),
+			}
+			var buf []byte
+			if err := rows.Scan((*sqlTime)(&entry.Timestamp), &entry.Level, &entry.Name, &entry.Caller, &entry.Message, &buf); err != nil {
+				return fmt.Errorf("failed to scan log line: %w", err)
+			} else if err := json.Unmarshal(buf, &entry.Fields); err != nil {
+				return fmt.Errorf("failed to unmarshal log fields: %w", err)
+			}
+			entries = append(entries, entry)
 		}
-		entries = append(entries, entry)
-	}
+		return nil
+	})
 	return
 }
 
