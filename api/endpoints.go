@@ -452,6 +452,10 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 	c.Encode(resp)
 }
 
+func (a *api) handleGETTPoolFee(c jape.Context) {
+	c.Encode(a.tpool.RecommendedFee())
+}
+
 func (a *api) handlePOSTLogEntries(c jape.Context) {
 	var filter logging.Filter
 	if err := c.Decode(&filter); err != nil {
