@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
@@ -62,7 +64,9 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) 
 	// process the payment, catch connection closed errors since the renter
 	// likely did not intend to pay
 	budget, err := sh.processPayment(s, &pt)
-	if err != nil {
+	if isNonPaymentErr(err) {
+		return nil
+	} else if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
 		return err
@@ -210,7 +214,9 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 	}
 
 	budget, err := sh.processPayment(s, &pt)
-	if err != nil {
+	if isNonPaymentErr(err) {
+		return nil
+	} else if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
 		return err
@@ -516,6 +522,16 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	}
 
 	return nil
+}
+
+// isNonPaymentErr is a helper function that returns true if the peer did not
+// intend to pay for the RPC. Should only be used for RPC where payment is
+// optional, like RPCUpdatePriceTable and RPCLatestRevision.
+func isNonPaymentErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, io.EOF) || strings.Contains(err.Error(), "peer closed stream gracefully") || strings.Contains(err.Error(), "peer closed underlying connection")
 }
 
 func validateRenterRevisionSignature(sig types.TransactionSignature, fcID types.FileContractID, sigHash types.Hash256, renterKey types.PublicKey) error {
