@@ -426,7 +426,7 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 	path, _ = filepath.Abs(path)
 	dir, err := os.ReadDir(path)
 	if errors.Is(err, os.ErrNotExist) {
-		c.Error(fmt.Errorf("path does not exist: %w", err), http.StatusBadRequest)
+		c.Error(fmt.Errorf("path does not exist: %w", err), http.StatusNotFound)
 		return
 	} else if !a.checkServerError(c, "failed to read dir", err) {
 		return
