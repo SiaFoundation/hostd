@@ -372,6 +372,7 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 	for _, txnset := range diff.AppliedTransactions {
 		var relevantTxns []Transaction
 
+	txnLoop:
 		for _, stxn := range txnset.Transactions {
 			var relevant bool
 			var txn types.Transaction
@@ -394,7 +395,10 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 
 				output, ok := siacoinOutputs[sci.ParentID]
 				if !ok {
-					panic(fmt.Sprintf("missing utxo %s", sci.ParentID))
+					// note: happens during deep reorgs. Possibly a race
+					// condition in siad. Log and skip.
+					sw.log.Debug("tpool transaction unknown utxo", zap.Stringer("outputID", sci.ParentID), zap.Stringer("txnID", txn.ID()))
+					continue txnLoop
 				}
 				processed.Outflow = processed.Outflow.Add(output.Value)
 			}
