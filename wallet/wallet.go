@@ -394,7 +394,7 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 
 				output, ok := siacoinOutputs[sci.ParentID]
 				if !ok {
-					panic("missing utxo")
+					panic(fmt.Sprintf("missing utxo %s", sci.ParentID))
 				}
 				processed.Outflow = processed.Outflow.Add(output.Value)
 			}
