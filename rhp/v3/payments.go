@@ -67,7 +67,11 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 
 	// credit the account with the deposit
 	if _, err := sh.accounts.Credit(req.RefundAccount, fundAmount, time.Now().Add(settings.AccountExpiry)); err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		if errors.Is(err, accounts.ErrBalanceExceeded) {
+			s.WriteResponseErr(accounts.ErrBalanceExceeded)
+		} else {
+			s.WriteResponseErr(ErrHostInternalError)
+		}
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to credit refund account: %w", err)
 	}
 
@@ -222,7 +226,11 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	// credit the account with the deposit
 	balance, err = sh.accounts.Credit(accountID, fundAmount, time.Now().Add(settings.AccountExpiry))
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		if errors.Is(err, accounts.ErrBalanceExceeded) {
+			s.WriteResponseErr(accounts.ErrBalanceExceeded)
+		} else {
+			s.WriteResponseErr(ErrHostInternalError)
+		}
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to credit refund account: %w", err)
 	}
 
