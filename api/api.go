@@ -163,7 +163,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		"GET /wallet/transactions":        a.handleGETWalletTransactions,
 		"GET /wallet/pending":             a.handleGETWalletPending,
 		"POST /wallet/send":               a.handlePOSTWalletSend,
-		"GET /system/dir/*path":           a.handleGETSystemDir,
+		"GET /system/dir":                 a.handleGETSystemDir,
 
 		"POST /log/entries": a.handlePOSTLogEntries,
 		"DELETE /log/prune": a.handleDELETELogPrune,

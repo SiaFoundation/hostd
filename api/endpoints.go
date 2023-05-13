@@ -416,14 +416,23 @@ func (a *api) handlePOSTWalletSend(c jape.Context) {
 
 func (a *api) handleGETSystemDir(c jape.Context) {
 	var path string
-	if err := c.DecodeParam("path", &path); err != nil {
+	if err := c.DecodeForm("path", &path); err != nil {
 		c.Error(fmt.Errorf("failed to parse path: %w", err), http.StatusBadRequest)
-	} else if path == "/~" { // handle user home directory.
-		path, _ = os.UserHomeDir()
-	} else if len(path) == 0 { // handle empty path for root directory.
-		path = "/"
+	} else if len(path) == 0 {
+		c.Error(errors.New("path is required"), http.StatusBadRequest)
+		return
 	}
-	path, _ = filepath.Abs(path)
+
+	switch path {
+	case "~":
+		path, _ = os.UserHomeDir()
+	case ".":
+		path, _ = os.Getwd()
+	}
+
+	if !filepath.IsAbs(filepath.Clean(path)) {
+		c.Error(errors.New("path must be absolute"), http.StatusBadRequest)
+	}
 	dir, err := os.ReadDir(path)
 	if errors.Is(err, os.ErrNotExist) {
 		c.Error(fmt.Errorf("path does not exist: %w", err), http.StatusNotFound)

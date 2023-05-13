@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -205,8 +204,10 @@ func (c *Client) SendSiacoins(address types.Address, amount types.Currency) (id 
 
 // LocalDir returns the contents of the specified directory on the host.
 func (c *Client) LocalDir(path string) (resp SystemDirResponse, err error) {
-	path = strings.TrimLeft(path, "/")
-	err = c.c.GET("/system/dir/"+path, &resp)
+	v := url.Values{
+		"path": []string{path},
+	}
+	err = c.c.GET("/system/dir?"+v.Encode(), &resp)
 	return
 }
 
