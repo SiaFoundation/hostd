@@ -418,15 +418,12 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 	var path string
 	if err := c.DecodeForm("path", &path); err != nil {
 		c.Error(fmt.Errorf("failed to parse path: %w", err), http.StatusBadRequest)
-	} else if len(path) == 0 {
-		c.Error(errors.New("path is required"), http.StatusBadRequest)
-		return
 	}
 
 	switch path {
 	case "~":
 		path, _ = os.UserHomeDir()
-	case ".":
+	case ".", "":
 		path, _ = os.Getwd()
 	}
 
