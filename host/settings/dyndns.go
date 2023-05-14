@@ -52,7 +52,6 @@ type (
 func (m *ConfigManager) triggerDNSUpdate() {
 	if err := m.UpdateDynDNS(false); err != nil {
 		m.log.Named("dyndns").Error("failed to update dyndns", zap.Error(err))
-		return
 	}
 	m.dyndnsUpdateTimer.Reset(dnsUpdateFrequency)
 }
