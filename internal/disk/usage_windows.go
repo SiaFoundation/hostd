@@ -23,3 +23,28 @@ func Usage(p string) (free, total uint64, err error) {
 	err = windows.GetDiskFreeSpaceEx(ptr, &free, &total, nil)
 	return
 }
+
+// Drives returns the paths for all Windows drives
+func Drives() ([]string, error) {
+	buf := make([]uint16, 254)
+	n, err := windows.GetLogicalDriveStrings(uint32(len(buf)), &buf[0])
+	if err != nil {
+		return nil, err
+	}
+	var drives []string
+	for _, v := range buf[:n] {
+		if v < 'A' || v > 'Z' {
+			continue
+		}
+		path := string(rune(v)) + ":"
+		pathPtr, _ := windows.UTF16PtrFromString(path)
+		driveType := windows.GetDriveType(pathPtr)
+		if driveType == 0 {
+			return nil, fmt.Errorf("failed to get drive type %q: %w", path, windows.GetLastError())
+		} else if driveType != windows.DRIVE_FIXED && driveType != windows.DRIVE_REMOTE {
+			continue // only include fixed and remote drives
+		}
+		drives = append(drives, path)
+	}
+	return drives, nil
+}

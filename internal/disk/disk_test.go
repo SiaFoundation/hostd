@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-const test = 4 * (1 << 40) / (1 << 22)
-
 func TestUsage(t *testing.T) {
 	dir, err := os.UserHomeDir()
 	if err != nil {
