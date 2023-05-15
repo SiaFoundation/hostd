@@ -207,7 +207,9 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 	}
 
 	pt, err := sh.readPriceTable(s)
-	if err != nil {
+	if isNonPaymentErr(err) {
+		return nil
+	} else if err != nil {
 		err = fmt.Errorf("failed to read price table: %w", err)
 		s.WriteResponseErr(err)
 		return err
