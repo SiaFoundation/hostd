@@ -524,6 +524,15 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	return nil
 }
 
+// isStreamClosedErr is a helper function that returns true if the stream was
+// closed gracefully by the peer.
+func isStreamClosedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "peer closed stream gracefully") || strings.Contains(err.Error(), "peer closed underlying connection")
+}
+
 // isNonPaymentErr is a helper function that returns true if the peer did not
 // intend to pay for the RPC. Should only be used for RPC where payment is
 // optional, like RPCUpdatePriceTable and RPCLatestRevision.
@@ -531,7 +540,7 @@ func isNonPaymentErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, io.EOF) || strings.Contains(err.Error(), "peer closed stream gracefully") || strings.Contains(err.Error(), "peer closed underlying connection")
+	return errors.Is(err, io.EOF) || isStreamClosedErr(err)
 }
 
 func validateRenterRevisionSignature(sig types.TransactionSignature, fcID types.FileContractID, sigHash types.Hash256, renterKey types.PublicKey) error {

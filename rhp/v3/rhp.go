@@ -250,7 +250,9 @@ func (sh *SessionHandler) Serve() error {
 			for {
 				stream, err := t.AcceptStream()
 				if err != nil {
-					sh.log.Debug("failed to accept stream", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
+					if !isStreamClosedErr(err) {
+						sh.log.Debug("failed to accept stream", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
+					}
 					return
 				}
 				go sh.handleHostStream(conn.RemoteAddr().String(), stream)
