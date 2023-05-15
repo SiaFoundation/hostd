@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -425,6 +426,19 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 		path, _ = os.UserHomeDir()
 	case ".", "":
 		path, _ = os.Getwd()
+	}
+
+	if path == "/" && runtime.GOOS == "windows" {
+		// special handling for / on Windows
+		drives, err := disk.Drives()
+		if !a.checkServerError(c, "failed to get drives", err) {
+			return
+		}
+		c.Encode(SystemDirResponse{
+			Path:        path,
+			Directories: drives,
+		})
+		return
 	}
 
 	if !filepath.IsAbs(filepath.Clean(path)) {
