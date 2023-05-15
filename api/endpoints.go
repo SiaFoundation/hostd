@@ -420,7 +420,7 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 	if err := c.DecodeForm("path", &path); err != nil {
 		c.Error(fmt.Errorf("failed to parse path: %w", err), http.StatusBadRequest)
 	}
-
+	path = filepath.Clean(path)
 	switch path {
 	case "~":
 		path, _ = os.UserHomeDir()
@@ -428,8 +428,8 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 		path, _ = os.Getwd()
 	}
 
+	// special handling for / on Windows
 	if path == "/" && runtime.GOOS == "windows" {
-		// special handling for / on Windows
 		drives, err := disk.Drives()
 		if !a.checkServerError(c, "failed to get drives", err) {
 			return
@@ -441,8 +441,9 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 		return
 	}
 
-	if !filepath.IsAbs(filepath.Clean(path)) {
+	if !filepath.IsAbs(path) {
 		c.Error(errors.New("path must be absolute"), http.StatusBadRequest)
+		return
 	}
 	dir, err := os.ReadDir(path)
 	if errors.Is(err, os.ErrNotExist) {
