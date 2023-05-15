@@ -422,7 +422,7 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 	}
 
 	// special handling for / on Windows
-	if path == "/" && runtime.GOOS == "windows" {
+	if (path == `/` || path == `\`) && runtime.GOOS == "windows" {
 		drives, err := disk.Drives()
 		if !a.checkServerError(c, "failed to get drives", err) {
 			return
