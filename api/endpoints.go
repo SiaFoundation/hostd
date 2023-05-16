@@ -43,6 +43,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 			Network:   build.NetworkName(),
 			Version:   build.Version(),
 			Commit:    build.Commit(),
+			OS:        runtime.GOOS,
 			BuildTime: build.BuildTime(),
 		},
 	})
