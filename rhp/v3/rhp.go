@@ -213,7 +213,7 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
 		return
 	}
-	log.Debug("RPC success", zap.Duration("elapsed", time.Since(start)))
+	log.Info("RPC success", zap.Duration("elapsed", time.Since(start)))
 }
 
 // HostKey returns the host's ed25519 public key

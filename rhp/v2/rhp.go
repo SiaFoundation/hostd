@@ -159,7 +159,7 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 		log.Warn("RPC error", zap.Error(err), zap.String("remote", sess.conn.RemoteAddr().String()))
 		return fmt.Errorf("RPC %q error: %w", id, err)
 	}
-	log.Debug("RPC success", zap.Duration("elapsed", time.Since(start)))
+	log.Info("RPC success", zap.Duration("elapsed", time.Since(start)))
 	return nil
 }
 
