@@ -7,8 +7,6 @@ require (
 	github.com/cloudflare/cloudflare-go v0.66.0
 	github.com/mattn/go-sqlite3 v1.14.16
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2
-	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
 	go.sia.tech/core v0.1.12-0.20230505175901-2550df586b88
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76
@@ -51,10 +49,12 @@ require (
 	gitlab.com/NebulousLabs/errors v0.0.0-20200929122200-06c536cf6975 // indirect
 	gitlab.com/NebulousLabs/fastrand v0.0.0-20181126182046-603482d69e40 // indirect
 	gitlab.com/NebulousLabs/go-upnp v0.0.0-20211002182029-11da932010b6 // indirect
+	gitlab.com/NebulousLabs/log v0.0.0-20210609172545-77f6775350e2 // indirect
 	gitlab.com/NebulousLabs/merkletree v0.0.0-20200118113624-07fbf710afc4 // indirect
 	gitlab.com/NebulousLabs/monitor v0.0.0-20191205095550-2b0fd3e1012a // indirect
 	gitlab.com/NebulousLabs/persist v0.0.0-20200605115618-007e5e23d877 // indirect
 	gitlab.com/NebulousLabs/ratelimit v0.0.0-20200811080431-99b8f0768b2e // indirect
+	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259 // indirect
 	gitlab.com/NebulousLabs/threadgroup v0.0.0-20200608151952-38921fbef213 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.39.0 // indirect
 	go.opentelemetry.io/otel v1.13.0 // indirect
