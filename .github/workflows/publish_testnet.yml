@@ -192,6 +192,7 @@ jobs:
         with:
           go-version: 'stable'
       - name: Setup
+        shell: bash
         run: |
           go generate ./...
       - name: Build amd64
@@ -205,7 +206,7 @@ jobs:
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
           cp README.md LICENSE api/openapi.yml bin/
-          7z a $ZIP_OUTPUT bin/*
+          7z a $ZIP_OUTPUT ./bin/*
       - uses: actions/upload-artifact@v3
         with:
           name: hostd-zen
