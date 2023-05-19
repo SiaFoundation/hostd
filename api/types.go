@@ -248,7 +248,7 @@ func patchSettings(a, b map[string]any) (map[string]any, error) {
 	for k, vb := range b {
 		va, ok := a[k]
 		if !ok {
-			return nil, errors.New("unknown setting " + k)
+			a[k] = vb // value doesn't exist, set it
 		} else if va != nil && vb != nil && reflect.TypeOf(va) != reflect.TypeOf(vb) {
 			return nil, fmt.Errorf("invalid type for setting %s: expected %T, got %T", k, va, vb)
 		}
