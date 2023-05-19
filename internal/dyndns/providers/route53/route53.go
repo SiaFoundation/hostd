@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/route53"
@@ -24,6 +25,15 @@ type (
 	Provider struct {
 		options Options
 	}
+)
+
+var (
+	// ErrCredentialsInvalid is returned when client credentials are invalid.
+	ErrCredentialsInvalid = errors.New("invalid credentials")
+	// ErrUnknownZone is returned when the hostname is not found.
+	ErrUnknownZone = errors.New("unknown zoneID")
+	// ErrInvalidHostname is returned when the hostname is invalid.
+	ErrInvalidHostname = errors.New("invalid hostname")
 )
 
 func (p *Provider) buildChange(ip, recordType string) *route53.Change {
@@ -70,11 +80,17 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 			Changes: changes,
 		},
 	})
-	if err != nil {
-		return fmt.Errorf("failed to update dns: %w", err)
+	if aerr, ok := err.(awserr.Error); ok {
+		switch aerr.Code() {
+		case "InvalidClientTokenId":
+			return ErrCredentialsInvalid
+		case route53.ErrCodeHostedZoneNotFound:
+			return ErrUnknownZone
+		case route53.ErrCodeInvalidDomainName:
+			return ErrInvalidHostname
+		}
 	}
-
-	return nil
+	return err
 }
 
 // ValidateOptions validates the options for the Route53 provider.

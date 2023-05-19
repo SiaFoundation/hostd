@@ -75,7 +75,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 				Comment: "managed by hostd",
 			})
 			if err != nil {
-				return fmt.Errorf("failed to create dns record: %w", err)
+				return fmt.Errorf("failed to create ipv4 record: %w", err)
 			}
 			return nil
 		}
@@ -111,7 +111,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 				Comment: "managed by hostd",
 			})
 			if err != nil {
-				return fmt.Errorf("failed to create dns record: %w", err)
+				return fmt.Errorf("failed to create ipv6 record: %w", err)
 			}
 			return nil
 		}
