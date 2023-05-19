@@ -216,12 +216,8 @@ func (m *ConfigManager) Announce() error {
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
 	// validate DNS settings
-	if err := validateDNSSettings(s.DynDNS); err != nil {
+	if err := validateDNSSettings(&s.DynDNS); err != nil {
 		return fmt.Errorf("failed to validate DNS settings: %w", err)
-	}
-
-	if len(s.DynDNS.Provider) == 0 {
-		s.DynDNS.Options = nil
 	}
 
 	m.mu.Lock()

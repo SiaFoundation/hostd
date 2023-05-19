@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	DNSProviderCloudflare = "cloudflare"
+	DNSProviderDuckDNS    = "duckdns"
+	DNSProviderNoIP       = "noip"
+	DNSProviderRoute53    = "route53"
+)
+
 type (
 	// Route53Settings contains the settings for the Route53 DNS provider.
 	Route53Settings struct {
@@ -42,10 +49,10 @@ type (
 
 	// DNSSettings contains the settings for the host's dynamic DNS.
 	DNSSettings struct {
-		Provider string         `json:"provider"`
-		IPv4     bool           `json:"ipv4"`
-		IPv6     bool           `json:"ipv6"`
-		Options  map[string]any `json:"options"`
+		Provider string          `json:"provider"`
+		IPv4     bool            `json:"ipv4"`
+		IPv6     bool            `json:"ipv6"`
+		Options  json.RawMessage `json:"options"`
 	}
 )
 
@@ -117,16 +124,11 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 		return nil
 	}
 
-	optsBuf, err := json.Marshal(settings.Options)
-	if err != nil {
-		return fmt.Errorf("failed to marshal dns settings: %w", err)
-	}
-
 	var provider dyndns.Provider
 	switch settings.Provider {
-	case "cloudflare":
+	case DNSProviderCloudflare:
 		var options CloudflareSettings
-		if err := json.Unmarshal(optsBuf, &options); err != nil {
+		if err := json.Unmarshal(settings.Options, &options); err != nil {
 			return fmt.Errorf("failed to parse cloudflare options: %w", err)
 		}
 		provider = cloudflare.New(cloudflare.Options{
@@ -134,18 +136,28 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 			ZoneID:   options.ZoneID,
 			Hostname: hostname,
 		})
-	case "duckdns":
+	case DNSProviderDuckDNS:
 		var options DuckDNSSettings
-		if err := json.Unmarshal(optsBuf, &options); err != nil {
+		if err := json.Unmarshal(settings.Options, &options); err != nil {
 			return fmt.Errorf("failed to parse duckdns options: %w", err)
 		}
 		provider = duckdns.New(duckdns.Options{
 			Token:    options.Token,
 			Hostname: hostname,
 		})
-	case "route53":
+	case DNSProviderNoIP:
+		var options NoIPSettings
+		if err := json.Unmarshal(settings.Options, &options); err != nil {
+			return fmt.Errorf("failed to parse noip options: %w", err)
+		}
+		provider = noip.New(noip.Options{
+			Email:    options.Email,
+			Password: options.Password,
+			Hostname: hostname,
+		})
+	case DNSProviderRoute53:
 		var options Route53Settings
-		if err := json.Unmarshal(optsBuf, &options); err != nil {
+		if err := json.Unmarshal(settings.Options, &options); err != nil {
 			return fmt.Errorf("failed to parse route53 options: %w", err)
 		}
 		provider = route53.New(route53.Options{
@@ -154,18 +166,8 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 			ZoneID:   options.ZoneID,
 			Hostname: hostname,
 		})
-	case "noip":
-		var options NoIPSettings
-		if err := json.Unmarshal(optsBuf, &options); err != nil {
-			return fmt.Errorf("failed to parse noip options: %w", err)
-		}
-		provider = noip.New(noip.Options{
-			Email:    options.Email,
-			Password: options.Password,
-			Hostname: hostname,
-		})
 	default:
-		return fmt.Errorf("unknown dns provider: %s", settings.Provider)
+		return fmt.Errorf("unknown dns provider: %q", settings.Provider)
 	}
 
 	// update the DNS provider
@@ -179,22 +181,24 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 	return nil
 }
 
-func validateDNSSettings(s DNSSettings) error {
+// validateDNSSettings validates the DNS settings and returns an error if they
+// are invalid. The Options field will be rewritten to ensure the JSON object
+// matches the expected schema.
+func validateDNSSettings(s *DNSSettings) error {
 	if len(s.Provider) == 0 {
+		// clear DNS settings if provider is empty
+		s.IPv4 = false
+		s.IPv6 = false
+		s.Options = nil
 		return nil
 	} else if !s.IPv4 && !s.IPv6 {
 		return errors.New("at least one of IPv4 or IPv6 must be enabled")
 	}
 
-	buf, err := json.Marshal(s.Options)
-	if err != nil {
-		return fmt.Errorf("failed to marshal dns settings: %w", err)
-	}
-
 	switch s.Provider {
-	case "cloudflare":
+	case DNSProviderCloudflare:
 		var opts CloudflareSettings
-		if err = json.Unmarshal(buf, &opts); err != nil {
+		if err := json.Unmarshal(s.Options, &opts); err != nil {
 			return fmt.Errorf("failed to unmarshal cloudflare settings: %w", err)
 		}
 		switch {
@@ -203,9 +207,30 @@ func validateDNSSettings(s DNSSettings) error {
 		case len(opts.ZoneID) == 0:
 			return errors.New("zone id must be set")
 		}
-	case "route53":
+		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
+	case DNSProviderDuckDNS:
+		var opts DuckDNSSettings
+		if err := json.Unmarshal(s.Options, &opts); err != nil {
+			return fmt.Errorf("failed to unmarshal duckdns settings: %w", err)
+		} else if len(opts.Token) == 0 {
+			return errors.New("token must be set")
+		}
+		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
+	case DNSProviderNoIP:
+		var opts NoIPSettings
+		if err := json.Unmarshal(s.Options, &opts); err != nil {
+			return fmt.Errorf("failed to unmarshal noip settings: %w", err)
+		}
+		switch {
+		case len(opts.Email) == 0:
+			return errors.New("email must be set")
+		case len(opts.Password) == 0:
+			return errors.New("password must be set")
+		}
+		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
+	case DNSProviderRoute53:
 		var opts Route53Settings
-		if err = json.Unmarshal(buf, &opts); err != nil {
+		if err := json.Unmarshal(s.Options, &opts); err != nil {
 			return fmt.Errorf("failed to unmarshal route53 settings: %w", err)
 		}
 		switch {
@@ -216,26 +241,9 @@ func validateDNSSettings(s DNSSettings) error {
 		case len(opts.ZoneID) == 0:
 			return errors.New("zone id must be set")
 		}
-	case "noip":
-		var opts NoIPSettings
-		if err = json.Unmarshal(buf, &opts); err != nil {
-			return fmt.Errorf("failed to unmarshal noip settings: %w", err)
-		}
-		switch {
-		case len(opts.Email) == 0:
-			return errors.New("email must be set")
-		case len(opts.Password) == 0:
-			return errors.New("password must be set")
-		}
-	case "duckdns":
-		var opts DuckDNSSettings
-		if err = json.Unmarshal(buf, &opts); err != nil {
-			return fmt.Errorf("failed to unmarshal duckdns settings: %w", err)
-		} else if len(opts.Token) == 0 {
-			return errors.New("token must be set")
-		}
+		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
 	default:
-		return fmt.Errorf("unknown dns provider: %s", s.Provider)
+		return fmt.Errorf("unknown dns provider: %q", s.Provider)
 	}
 	return nil
 }
