@@ -114,12 +114,12 @@ func (a *api) handlePOSTSettings(c jape.Context) {
 		return
 	}
 
-	merged, err := patchSettings(current, req)
+	err = patchSettings(current, req)
 	if !a.checkServerError(c, "failed to patch settings", err) {
 		return
 	}
 
-	buf, err = json.Marshal(merged)
+	buf, err = json.Marshal(current)
 	if !a.checkServerError(c, "failed to marshal patched settings", err) {
 		return
 	}
@@ -134,7 +134,7 @@ func (a *api) handlePOSTSettings(c jape.Context) {
 	if !a.checkServerError(c, "failed to update settings", err) {
 		return
 	}
-	c.Encode(settings)
+	c.Encode(a.settings.Settings())
 }
 
 func (a *api) handlePUTDynDNSUpdate(c jape.Context) {

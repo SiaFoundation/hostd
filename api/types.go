@@ -244,28 +244,41 @@ func (ur UpdateSettingsRequest) WithPriceTableValidity(value time.Duration) {
 
 // patchSettings merges two settings maps. returns an error if the two maps are
 // not compatible.
-func patchSettings(a, b map[string]any) (map[string]any, error) {
+func patchSettings(a, b map[string]any) error {
 	for k, vb := range b {
 		va, ok := a[k]
-		if !ok {
+		if !ok || va == nil {
 			a[k] = vb // value doesn't exist, set it
 		} else if va != nil && vb != nil && reflect.TypeOf(va) != reflect.TypeOf(vb) {
-			return nil, fmt.Errorf("invalid type for setting %s: expected %T, got %T", k, va, vb)
+			return fmt.Errorf("invalid type for setting %q: expected %T, got %T", k, va, vb)
 		}
 
 		switch vb := vb.(type) {
-		case map[string]any:
-			if a[k] == nil {
-				a[k] = vb
+		case json.RawMessage:
+			vaf, vbf := make(map[string]any), make(map[string]any)
+			if err := json.Unmarshal(vb, &vbf); err != nil {
+				return fmt.Errorf("failed to unmarshal fields %q: %w", k, err)
+			} else if err := json.Unmarshal(va.(json.RawMessage), &vaf); err != nil {
+				return fmt.Errorf("failed to unmarshal current fields %q: %w", k, err)
 			}
-			var err error
-			a[k], err = patchSettings(a[k].(map[string]any), vb)
+			if err := patchSettings(vaf, vbf); err != nil {
+				return fmt.Errorf("failed to patch fields %q: %w", k, err)
+			}
+
+			buf, err := json.Marshal(vaf)
 			if err != nil {
-				return nil, fmt.Errorf("invalid value for setting %s: %w", k, err)
+				return fmt.Errorf("failed to marshal patched fields %q: %w", k, err)
+			}
+			a[k] = json.RawMessage(buf)
+		case map[string]any:
+			var err error
+			err = patchSettings(a[k].(map[string]any), vb)
+			if err != nil {
+				return fmt.Errorf("invalid value for setting %q: %w", k, err)
 			}
 		default:
 			a[k] = vb
 		}
 	}
-	return a, nil
+	return nil
 }
