@@ -65,14 +65,16 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	lr := io.LimitReader(resp.Body, 10)
+	body, err := io.ReadAll(lr)
 	if err != nil {
 		return fmt.Errorf("failed to read response status: %w", err)
 	} else if string(body) == "OK" {
 		return nil
 	}
 
-	return fmt.Errorf("failed to update host: %s", string(body))
+	// DuckDNS returns "KO" for any error, so return a generic error.
+	return fmt.Errorf("failed to update host: %w", ErrUnknown)
 }
 
 // ValidateOptions validates the options for the DuckDNS provider.

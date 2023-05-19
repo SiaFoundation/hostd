@@ -92,8 +92,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	}
 	defer resp.Body.Close()
 
-	lr := io.LimitReader(resp.Body, 1000)
-	body, err := io.ReadAll(lr)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
 	if err != nil {
 		return fmt.Errorf("failed to read response status: %w", err)
 	}
