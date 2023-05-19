@@ -460,6 +460,14 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 	c.Encode(resp)
 }
 
+func (a *api) handlePUTSystemDir(c jape.Context) {
+	var req CreateDirRequest
+	if err := c.Decode(&req); err != nil {
+		return
+	}
+	a.checkServerError(c, "failed to create dir", os.MkdirAll(req.Path, 0775))
+}
+
 func (a *api) handleGETTPoolFee(c jape.Context) {
 	c.Encode(a.tpool.RecommendedFee())
 }

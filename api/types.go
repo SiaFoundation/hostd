@@ -114,6 +114,11 @@ type (
 		Directories []string `json:"directories"`
 	}
 
+	// A CreateDirRequest is the request body for the [POST] /system/dir endpoint.
+	CreateDirRequest struct {
+		Path string `json:"path"`
+	}
+
 	// LogResponse is the response body for the [GET] /log/entries endpoint.
 	LogResponse struct {
 		Count   int             `json:"count"`

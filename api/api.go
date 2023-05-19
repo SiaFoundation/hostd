@@ -134,37 +134,48 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		log:       log,
 	}
 	return jape.Mux(map[string]jape.Handler{
-		"GET /state/host":                 a.handleGETHostState,
-		"GET /state/consensus":            a.handleGETConsensusState,
-		"GET /syncer/address":             a.handleGETSyncerAddr,
-		"GET /syncer/peers":               a.handleGETSyncerPeers,
-		"PUT /syncer/peers":               a.handlePUTSyncerPeer,
-		"DELETE /syncer/peers/:address":   a.handleDeleteSyncerPeer,
-		"GET /settings":                   a.handleGETSettings,
-		"POST /settings":                  a.handlePOSTSettings,
-		"POST /settings/announce":         a.handlePOSTAnnounce,
-		"PUT /settings/dyndns/update":     a.handlePUTDynDNSUpdate,
-		"GET /metrics":                    a.handleGETMetrics,
-		"GET /metrics/:period":            a.handleGETPeriodMetrics,
+		// state endpoints
+		"GET /state/host":      a.handleGETHostState,
+		"GET /state/consensus": a.handleGETConsensusState,
+		// gateway endpoints
+		"GET /syncer/address":           a.handleGETSyncerAddr,
+		"GET /syncer/peers":             a.handleGETSyncerPeers,
+		"PUT /syncer/peers":             a.handlePUTSyncerPeer,
+		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
+		// settings endpoints
+		"GET /settings":               a.handleGETSettings,
+		"POST /settings":              a.handlePOSTSettings,
+		"POST /settings/announce":     a.handlePOSTAnnounce,
+		"PUT /settings/dyndns/update": a.handlePUTDynDNSUpdate,
+		// metrics endpoints
+		"GET /metrics":         a.handleGETMetrics,
+		"GET /metrics/:period": a.handleGETPeriodMetrics,
+		// contract endpoints
 		"POST /contracts":                 a.handlePostContracts,
 		"GET /contracts/:id":              a.handleGETContract,
 		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
 		"PUT /contracts/:id/integrity":    a.handlePUTContractCheck,
 		"DELETE /contracts/:id/integrity": a.handleDeleteContractCheck,
-		"DELETE /sectors/:root":           a.handleDeleteSector,
-		"GET /volumes":                    a.handleGETVolumes,
-		"POST /volumes":                   a.handlePOSTVolume,
-		"GET /volumes/:id":                a.handleGETVolume,
-		"PUT /volumes/:id":                a.handlePUTVolume,
-		"DELETE /volumes/:id":             a.handleDeleteVolume,
-		"PUT /volumes/:id/resize":         a.handlePUTVolumeResize,
-		"GET /tpool/fee":                  a.handleGETTPoolFee,
-		"GET /wallet":                     a.handleGETWallet,
-		"GET /wallet/transactions":        a.handleGETWalletTransactions,
-		"GET /wallet/pending":             a.handleGETWalletPending,
-		"POST /wallet/send":               a.handlePOSTWalletSend,
-		"GET /system/dir":                 a.handleGETSystemDir,
-
+		// sector endpoints
+		"DELETE /sectors/:root": a.handleDeleteSector,
+		// volume endpoints
+		"GET /volumes":            a.handleGETVolumes,
+		"POST /volumes":           a.handlePOSTVolume,
+		"GET /volumes/:id":        a.handleGETVolume,
+		"PUT /volumes/:id":        a.handlePUTVolume,
+		"DELETE /volumes/:id":     a.handleDeleteVolume,
+		"PUT /volumes/:id/resize": a.handlePUTVolumeResize,
+		// tpool endpoints
+		"GET /tpool/fee": a.handleGETTPoolFee,
+		// wallet endpoints
+		"GET /wallet":              a.handleGETWallet,
+		"GET /wallet/transactions": a.handleGETWalletTransactions,
+		"GET /wallet/pending":      a.handleGETWalletPending,
+		"POST /wallet/send":        a.handlePOSTWalletSend,
+		// system endpoints
+		"GET /system/dir": a.handleGETSystemDir,
+		"PUT /system/dir": a.handlePUTSystemDir,
+		// log endpoints
 		"POST /log/entries": a.handlePOSTLogEntries,
 		"DELETE /log/prune": a.handleDELETELogPrune,
 	})

@@ -211,6 +211,14 @@ func (c *Client) LocalDir(path string) (resp SystemDirResponse, err error) {
 	return
 }
 
+// MkDir creates a new directory on the host.
+func (c *Client) MkDir(path string) error {
+	req := CreateDirRequest{
+		Path: path,
+	}
+	return c.c.PUT("/system/dir", req)
+}
+
 // LogEntries returns log entries matching the filter.
 func (c *Client) LogEntries(filter logging.Filter) (entries []logging.Entry, err error) {
 	err = c.c.POST("/logs/entries", filter, &entries)
