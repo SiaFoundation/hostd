@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// defines DNS providers
 const (
 	DNSProviderCloudflare = "cloudflare"
 	DNSProviderDuckDNS    = "duckdns"
