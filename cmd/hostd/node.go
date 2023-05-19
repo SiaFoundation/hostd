@@ -166,7 +166,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway dir: %w", err)
 	}
-	g, err := gateway.New(gatewayAddr, bootstrap, gatewayDir)
+	g, err := gateway.NewCustomGateway(gatewayAddr, bootstrap, false, gatewayDir, modules.ProdDependencies)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway: %w", err)
 	}
