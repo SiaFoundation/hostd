@@ -348,7 +348,7 @@ func TestRemoveCorrupt(t *testing.T) {
 
 	// corrupt a sector in the volume
 	n := rhpv2.SectorSize * frand.Intn(10)
-	f.WriteAt(frand.Bytes(1), int64(n))
+	f.WriteAt(frand.Bytes(512), int64(n))
 	if err := f.Sync(); err != nil {
 		t.Fatal(err)
 	} else if err := f.Close(); err != nil {
@@ -357,7 +357,7 @@ func TestRemoveCorrupt(t *testing.T) {
 
 	// remove the volume
 	if err := vm.RemoveVolume(volume.ID, false); err == nil || errors.Is(err, storage.ErrNotEnoughStorage) {
-		t.Fatal("expected error when removing missing volume", err)
+		t.Fatal("expected error when removing corrupt volume", err)
 	} else if err != nil {
 		t.Log("got", err)
 	} else if err := vm.RemoveVolume(volume.ID, true); err != nil {
