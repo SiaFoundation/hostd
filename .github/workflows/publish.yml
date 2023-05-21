@@ -67,6 +67,7 @@ jobs:
           go-version: 'stable'
       - name: Setup
         run: |
+          sudo apt update
           sudo apt install -y gcc-aarch64-linux-gnu
           go generate ./...
       - name: Build amd64
