@@ -321,8 +321,8 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	// not increase, base costs are zero since the storage is already paid for.
 	baseRevenue := pt.RenewContractCost
 	var baseCollateral types.Currency
-	if renewal.WindowStart > existing.Revision.WindowStart {
-		extension := uint64(renewal.WindowStart - existing.Revision.WindowStart)
+	if renewal.WindowEnd > existing.Revision.WindowEnd {
+		extension := uint64(renewal.WindowEnd - existing.Revision.WindowEnd)
 		baseRevenue = baseRevenue.Add(pt.WriteStoreCost.Mul64(renewal.Filesize).Mul64(extension))
 		baseCollateral = pt.CollateralCost.Mul64(renewal.Filesize).Mul64(extension)
 	}

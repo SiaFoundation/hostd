@@ -311,8 +311,8 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	// not increase, base costs are zero since the storage is already paid for.
 	baseRevenue := settings.ContractPrice
 	var baseCollateral types.Currency
-	if renewedContract.WindowStart > existingRevision.WindowStart {
-		extension := uint64(renewedContract.WindowStart - existingRevision.WindowStart)
+	if renewedContract.WindowEnd > existingRevision.WindowEnd {
+		extension := uint64(renewedContract.WindowEnd - existingRevision.WindowEnd)
 		baseRevenue = baseRevenue.Add(settings.StoragePrice.Mul64(renewedContract.Filesize).Mul64(extension))
 		baseCollateral = settings.Collateral.Mul64(renewedContract.Filesize).Mul64(extension)
 	}
@@ -530,7 +530,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 		return fmt.Errorf("failed to read write request: %w", err)
 	}
 
-	remainingDuration := uint64(s.contract.Revision.WindowStart) - currentHeight
+	remainingDuration := uint64(s.contract.Revision.WindowEnd) - currentHeight
 	// validate the requested actions
 	oldSectors := s.contract.Revision.Filesize / rhpv2.SectorSize
 	costs, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)

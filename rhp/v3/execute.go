@@ -791,7 +791,7 @@ func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []b
 	}
 
 	if finalize {
-		ex.remainingDuration = revision.Revision.WindowStart - pt.HostBlockHeight
+		ex.remainingDuration = revision.Revision.WindowEnd - pt.HostBlockHeight
 		updater, err := sh.contracts.ReviseContract(revision.Revision.ParentID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create contract updater: %w", err)

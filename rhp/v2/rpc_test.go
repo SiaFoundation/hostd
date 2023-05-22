@@ -67,7 +67,7 @@ func TestUploadDownload(t *testing.T) {
 
 	// calculate the remaining duration of the contract
 	var remainingDuration uint64
-	contractExpiration := uint64(session.Revision().Revision.WindowStart)
+	contractExpiration := uint64(session.Revision().Revision.WindowEnd)
 	currentHeight := renter.TipState().Index.Height
 	if contractExpiration < currentHeight {
 		t.Fatal("contract expired")
@@ -151,7 +151,7 @@ func TestRenew(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 
-		renewHeight := origin.Revision.WindowStart + 10
+		renewHeight := origin.Revision.WindowEnd + 10
 		settings := session.Settings()
 		current := session.Revision().Revision
 		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
@@ -234,7 +234,7 @@ func TestRenew(t *testing.T) {
 
 		// calculate the remaining duration of the contract
 		var remainingDuration uint64
-		contractExpiration := uint64(session.Revision().Revision.WindowStart)
+		contractExpiration := uint64(session.Revision().Revision.WindowEnd)
 		currentHeight := renter.TipState().Index.Height
 		if contractExpiration < currentHeight {
 			t.Fatal("contract expired")
@@ -259,7 +259,7 @@ func TestRenew(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		settings := session.Settings()
-		renewHeight := origin.Revision.WindowStart + 10
+		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
 		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
 		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), renter.PrivateKey(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
@@ -348,7 +348,7 @@ func TestRenew(t *testing.T) {
 
 		// calculate the remaining duration of the contract
 		var remainingDuration uint64
-		contractExpiration := uint64(session.Revision().Revision.WindowStart)
+		contractExpiration := uint64(session.Revision().Revision.WindowEnd)
 		currentHeight := renter.TipState().Index.Height
 		if contractExpiration < currentHeight {
 			t.Fatal("contract expired")
@@ -370,7 +370,7 @@ func TestRenew(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		settings := session.Settings()
-		renewHeight := origin.Revision.WindowStart + 10
+		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
 		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
 		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), renter.PrivateKey(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
@@ -448,7 +448,7 @@ func BenchmarkUpload(b *testing.B) {
 
 	// calculate the remaining duration of the contract
 	var remainingDuration uint64
-	contractExpiration := uint64(session.Revision().Revision.WindowStart)
+	contractExpiration := uint64(session.Revision().Revision.WindowEnd)
 	currentHeight := renter.TipState().Index.Height
 	if contractExpiration < currentHeight {
 		b.Fatal("contract expired")

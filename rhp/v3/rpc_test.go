@@ -120,7 +120,7 @@ func TestAppendSector(t *testing.T) {
 	// upload a sector
 	accountSession := contractSession.WithAccountPayment(account, renter.PrivateKey())
 	// calculate the cost of the upload
-	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowStart - renter.TipState().Index.Height)).Total()
+	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
 	if cost.IsZero() {
 		t.Fatal("cost is zero")
 	}
@@ -261,7 +261,7 @@ func TestRenew(t *testing.T) {
 		}
 
 		state = renter.TipState()
-		renewHeight := origin.Revision.WindowStart + 10
+		renewHeight := origin.Revision.WindowEnd + 10
 		renterFunds := types.Siacoins(10)
 		additionalCollateral := types.Siacoins(20)
 		renewal, _, err := session.RenewContract(&origin, settings.Address, renter.PrivateKey(), renterFunds, additionalCollateral, renewHeight)
@@ -346,7 +346,7 @@ func TestRenew(t *testing.T) {
 
 		// calculate the remaining duration of the contract
 		var remainingDuration uint64
-		contractExpiration := uint64(origin.Revision.WindowStart)
+		contractExpiration := uint64(origin.Revision.WindowEnd)
 		currentHeight := renter.TipState().Index.Height
 		if contractExpiration < currentHeight {
 			t.Fatal("contract expired")
@@ -368,7 +368,7 @@ func TestRenew(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		state = renter.TipState()
-		renewHeight := origin.Revision.WindowStart + 10
+		renewHeight := origin.Revision.WindowEnd + 10
 		renterFunds := types.Siacoins(10)
 		additionalCollateral := types.Siacoins(20)
 		renewal, _, err := session.RenewContract(&origin, settings.Address, renter.PrivateKey(), renterFunds, additionalCollateral, renewHeight)
