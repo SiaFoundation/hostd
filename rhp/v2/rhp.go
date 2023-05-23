@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -127,7 +128,7 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 	defer done()
 
 	id, err := sess.t.ReadID()
-	if errors.Is(err, rhpv2.ErrRenterClosed) {
+	if errors.Is(err, rhpv2.ErrRenterClosed) || errors.Is(err, io.EOF) {
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("failed to read RPC ID: %w", err)
