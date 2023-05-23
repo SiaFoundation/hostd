@@ -36,10 +36,13 @@ type webRouter struct {
 }
 
 func (wr webRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if strings.HasPrefix(req.URL.Path, "/api") {
-		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+	switch {
+	case strings.HasPrefix(req.URL.Path, "/api"):
+		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api") // strip the prefix
 		wr.api.ServeHTTP(w, req)
-		return
+	case strings.HasPrefix(req.URL.Path, "/debug/pprof"):
+		http.DefaultServeMux.ServeHTTP(w, req)
+	default:
+		wr.ui.ServeHTTP(w, req)
 	}
-	wr.ui.ServeHTTP(w, req)
 }
