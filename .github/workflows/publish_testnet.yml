@@ -81,7 +81,7 @@ jobs:
           mkdir -p release
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
-          cp README.md LICENSE api/openapi.yml bin/
+          cp README.md LICENSE bin/
           zip -qj $ZIP_OUTPUT bin/*
       - name: Build arm64
         env:
@@ -93,7 +93,7 @@ jobs:
           mkdir -p release
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           GOOS=linux GOARCH=arm64 go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
-          cp README.md LICENSE api/openapi.yml bin/
+          cp README.md LICENSE bin/
           zip -qj $ZIP_OUTPUT bin/*
       - uses: actions/upload-artifact@v3
         with:
@@ -156,7 +156,7 @@ jobs:
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           mkdir -p release
           go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
-          cp README.md LICENSE api/openapi.yml bin/
+          cp README.md LICENSE bin/
           /usr/bin/codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
           ditto -ck bin $ZIP_OUTPUT
           xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
@@ -176,7 +176,7 @@ jobs:
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           mkdir -p release
           go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
-          cp README.md LICENSE api/openapi.yml bin/
+          cp README.md LICENSE bin/
           /usr/bin/codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/hostd
           ditto -ck bin $ZIP_OUTPUT
           xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
@@ -206,7 +206,7 @@ jobs:
           mkdir -p release
           ZIP_OUTPUT=release/hostd_zen_${GOOS}_${GOARCH}.zip
           go build -tags='testnet netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/hostd
-          cp README.md LICENSE api/openapi.yml bin/
+          cp README.md LICENSE bin/
           7z a $ZIP_OUTPUT ./bin/*
       - uses: actions/upload-artifact@v3
         with:
