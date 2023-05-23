@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const pruneBatchSize = (1 << 30) / (1 << 22) // 1 GiB
+const pruneBatchSize = 64 // 256 MiB
 
 // unlockLocationFn returns a function that unlocks a sector when called.
 func (s *Store) unlockLocationFn(id int64) func() error {
@@ -116,6 +116,7 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 		} else if done {
 			return nil
 		}
+		time.Sleep(10 * time.Millisecond) // allow other transactions to run
 	}
 }
 
@@ -177,6 +178,7 @@ func (s *Store) PruneSectors() error {
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		}
+		time.Sleep(10 * time.Millisecond) // allow other transactions to run
 	}
 }
 

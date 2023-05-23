@@ -528,6 +528,7 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		}
+		time.Sleep(10 * time.Millisecond) // allow other transactions to run
 	}
 }
 
