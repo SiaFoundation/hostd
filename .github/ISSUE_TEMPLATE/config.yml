@@ -6,6 +6,3 @@ contact_links:
   - name: Sia Community Discord
     url: https://discord.gg/sia
     about: Join the Sia community discord for more help with Sia or hostd.
-  - name: Request a Feature
-    url: https://github.com/SiaFoundation/hostd/discussions/categories/feature-requests
-    about: Request a feature for hostd
