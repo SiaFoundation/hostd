@@ -422,9 +422,24 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 
 	switch path {
 	case "~":
-		path, _ = os.UserHomeDir()
+		var err error
+		path, err = os.UserHomeDir()
+		if err != nil || len(path) == 0 {
+			a.log.Debug("failed to get home dir", zap.Error(err), zap.String("path", path))
+			// try to get the working directory instead
+			path, err = os.Getwd()
+			if err != nil {
+				c.Error(fmt.Errorf("failed to get home dir: %w", err), http.StatusInternalServerError)
+				return
+			}
+		}
 	case ".", "":
-		path, _ = os.Getwd()
+		var err error
+		path, err = os.Getwd()
+		if err != nil {
+			c.Error(fmt.Errorf("failed to get working dir: %w", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	path = filepath.Clean(path)
