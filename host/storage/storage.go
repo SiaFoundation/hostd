@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	resizeBatchSize = (1 << 30) / rhpv2.SectorSize // 1 GiB
+	resizeBatchSize = 64 // 256 MiB
 
-	cleanupInterval = 10 * time.Minute
+	cleanupInterval = 5 * time.Minute
 )
 
 // VolumeStatus is the status of a volume.
@@ -244,6 +244,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
 		}
+		time.Sleep(time.Millisecond)
 	}
 	return nil
 }
@@ -302,6 +303,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		} else if err := volume.Resize(target); err != nil {
 			return fmt.Errorf("failed to shrink volume data to %v sectors: %w", target, err)
 		}
+		time.Sleep(time.Millisecond)
 	}
 	return nil
 }
