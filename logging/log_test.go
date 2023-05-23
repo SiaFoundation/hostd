@@ -1,6 +1,7 @@
 package logging_test
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -39,8 +40,13 @@ func TestLogSyncer(t *testing.T) {
 		t.Fatalf("expected count to be 1, got %v", count)
 	} else if entries[0].Message != "hello world" {
 		t.Fatal("unexpected message:", entries[0].Message)
-	} else if entries[0].Fields["foo"] != "bar" {
-		t.Fatal("unexpected field:", entries[0].Fields["foo"])
+	}
+
+	fields := make(map[string]any)
+	if err := json.Unmarshal(entries[0].Fields, &fields); err != nil {
+		t.Fatalf("unexpected fields %q: %s", entries[0].Fields, err)
+	} else if fields["foo"] != "bar" {
+		t.Fatal("unexpected field:", fields["foo"])
 	}
 
 	// check that pagination works as expected

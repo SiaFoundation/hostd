@@ -26,12 +26,12 @@ type (
 
 	// An Entry is a log entry.
 	Entry struct {
-		Timestamp time.Time      `json:"timestamp"`
-		Level     zapcore.Level  `json:"level"`
-		Name      string         `json:"name"`
-		Caller    string         `json:"caller"`
-		Message   string         `json:"message"`
-		Fields    map[string]any `json:"fields"`
+		Timestamp time.Time       `json:"timestamp"`
+		Level     zapcore.Level   `json:"level"`
+		Name      string          `json:"name"`
+		Caller    string          `json:"caller"`
+		Message   string          `json:"message"`
+		Fields    json.RawMessage `json:"fields"`
 	}
 
 	// A LogStore stores log entries.
@@ -114,7 +114,7 @@ func (zc *zapCore) Write(ze zapcore.Entry, zf []zapcore.Field) error {
 		Level:     ze.Level,
 		Name:      ze.LoggerName,
 		Message:   ze.Message,
-		Fields:    make(map[string]any),
+		Fields:    buf.Bytes(),
 	}
 	if ze.Caller.Defined {
 		entry.Caller = ze.Caller.String()

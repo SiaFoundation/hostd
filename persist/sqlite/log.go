@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,13 +18,8 @@ func (s *Store) AddEntries(entries []logging.Entry) error {
 		}
 		defer stmt.Close()
 		for _, entry := range entries {
-			// encode the fields to JSON
-			buf, err := json.Marshal(entry.Fields)
-			if err != nil {
-				return fmt.Errorf("failed to encode log fields: %w", err)
-			}
 			// insert the entry into the database
-			if _, err := stmt.Exec(sqlTime(entry.Timestamp), int(entry.Level), entry.Name, entry.Caller, entry.Message, string(buf)); err != nil {
+			if _, err := stmt.Exec(sqlTime(entry.Timestamp), int(entry.Level), entry.Name, entry.Caller, entry.Message, entry.Fields); err != nil {
 				return fmt.Errorf("failed to insert log entry: %w", err)
 			}
 		}
@@ -62,14 +56,9 @@ func (s *Store) LogEntries(filter logging.Filter) (entries []logging.Entry, coun
 		defer rows.Close()
 
 		for rows.Next() {
-			entry := logging.Entry{
-				Fields: make(map[string]any),
-			}
-			var buf []byte
-			if err := rows.Scan((*sqlTime)(&entry.Timestamp), &entry.Level, &entry.Name, &entry.Caller, &entry.Message, &buf); err != nil {
+			var entry logging.Entry
+			if err := rows.Scan((*sqlTime)(&entry.Timestamp), &entry.Level, &entry.Name, &entry.Caller, &entry.Message, &entry.Fields); err != nil {
 				return fmt.Errorf("failed to scan log line: %w", err)
-			} else if err := json.Unmarshal(buf, &entry.Fields); err != nil {
-				return fmt.Errorf("failed to unmarshal log fields: %w", err)
 			}
 			entries = append(entries, entry)
 		}
