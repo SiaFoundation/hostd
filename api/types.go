@@ -5,13 +5,33 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strconv"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/logging"
+)
+
+// JSON keys for host setting fields
+const (
+	settingAcceptingContracts  = "acceptingContracts"
+	settingNetAddress          = "netAddress"
+	settingMaxContractDuration = "maxContractDuration"
+	settingContractPrice       = "contractPrice"
+	settingBaseRPCPrice        = "baseRPCPrice"
+	settingSectorAccessPrice   = "sectorAccessPrice"
+	settingCollateral          = "collateral"
+	settingMaxCollateral       = "maxCollateral"
+	settingMaxAccountBalance   = "maxAccountBalance"
+	settingStoragePrice        = "storagePrice"
+	settingEgressPrice         = "egressPrice"
+	settingIngressPrice        = "ingressPrice"
+	settingIngressLimit        = "ingressLimit"
+	settingEgressLimit         = "egressLimit"
+	settingMaxRegistryEntries  = "maxRegistryEntries"
+	settingAccountExpiry       = "accountExpiry"
+	settingPriceTableValidity  = "priceTableValidity"
 )
 
 type (
@@ -102,9 +122,9 @@ type (
 		Version string `json:"version"`
 	}
 
-	// UpdateSettingsRequest is the request body for the [PUT] /settings
-	// endpoint. It will be merged with the current settings.
-	UpdateSettingsRequest map[string]any
+	// A Setting updates a single setting on the host. It can be combined with
+	// other settings to update multiple settings at once.
+	Setting func(map[string]any)
 
 	// SystemDirResponse is the response body for the [GET] /system/dir endpoint.
 	SystemDirResponse struct {
@@ -157,89 +177,123 @@ func (je *JSONErrors) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// WithAcceptingContracts sets the AcceptingContracts field of the request
-func (ur UpdateSettingsRequest) WithAcceptingContracts(value bool) {
-	ur["acceptingContracts"] = value
+// SetAcceptingContracts sets the AcceptingContracts field of the request
+func SetAcceptingContracts(value bool) Setting {
+	return func(v map[string]any) {
+		v[settingAcceptingContracts] = value
+	}
 }
 
-// WithNetAddress sets the NetAddress field of the request
-func (ur UpdateSettingsRequest) WithNetAddress(value string) {
-	ur["netAddress"] = value
+// SetNetAddress sets the NetAddress field of the request
+func SetNetAddress(addr string) Setting {
+	return func(v map[string]any) {
+		v[settingNetAddress] = addr
+	}
 }
 
-// WithMaxContractDuration sets the MaxContractDuration field of the request
-func (ur UpdateSettingsRequest) WithMaxContractDuration(value uint64) {
-	ur["maxContractDuration"] = strconv.FormatUint(value, 10)
+// SetMaxContractDuration sets the MaxContractDuration field of the request
+func SetMaxContractDuration(duration uint64) Setting {
+	return func(v map[string]any) {
+		v[settingMaxContractDuration] = duration
+	}
 }
 
-// WithContractPrice sets the ContractPrice field of the request
-func (ur UpdateSettingsRequest) WithContractPrice(value types.Currency) {
-	ur["contractPrice"] = value.ExactString()
+// SetContractPrice sets the ContractPrice field of the request
+func SetContractPrice(price types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingContractPrice] = price
+	}
 }
 
-// WithBaseRPCPrice sets the BaseRPCPrice field of the request
-func (ur UpdateSettingsRequest) WithBaseRPCPrice(value types.Currency) {
-	ur["baseRPCPrice"] = value.ExactString()
+// SetBaseRPCPrice sets the BaseRPCPrice field of the request
+func SetBaseRPCPrice(price types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingBaseRPCPrice] = price
+	}
 }
 
-// WithSectorAccessPrice sets the SectorAccessPrice field of the request
-func (ur UpdateSettingsRequest) WithSectorAccessPrice(value types.Currency) {
-	ur["sectorAccessPrice"] = value.ExactString()
+// SetSectorAccessPrice sets the SectorAccessPrice field of the request
+func SetSectorAccessPrice(price types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingSectorAccessPrice] = price
+	}
 }
 
-// WithCollateral sets the Collateral field of the request
-func (ur UpdateSettingsRequest) WithCollateral(value types.Currency) {
-	ur["collateral"] = value.ExactString()
+// SetCollateral sets the Collateral field of the request
+func SetCollateral(collateral types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingCollateral] = collateral
+	}
 }
 
-// WithMaxCollateral sets the MaxCollateral field of the request
-func (ur UpdateSettingsRequest) WithMaxCollateral(value types.Currency) {
-	ur["maxCollateral"] = value.ExactString()
+// SetMaxCollateral sets the MaxCollateral
+func SetMaxCollateral(collateral types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingMaxCollateral] = collateral
+	}
 }
 
-// WithMaxAccountBalance sets the MaxAccountBalance field of the request
-func (ur UpdateSettingsRequest) WithMaxAccountBalance(value types.Currency) {
-	ur["maxAccountBalance"] = value.ExactString()
+// SetMaxAccountBalance sets the MaxAccountBalance
+func SetMaxAccountBalance(max types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingMaxAccountBalance] = max
+	}
 }
 
-// WithMinStoragePrice sets the MinStoragePrice field of the request
-func (ur UpdateSettingsRequest) WithMinStoragePrice(value types.Currency) {
-	ur["minStoragePrice"] = value.ExactString()
+// SetMinStoragePrice sets the MinStoragePrice in bytes/block
+func SetMinStoragePrice(price types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingStoragePrice] = price
+	}
 }
 
-// WithMinEgressPrice sets the MinEgressPrice field of the request
-func (ur UpdateSettingsRequest) WithMinEgressPrice(value types.Currency) {
-	ur["minEgressPrice"] = value.ExactString()
+// SetMinEgressPrice sets the MinEgressPrice in bytes
+func SetMinEgressPrice(price types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingEgressPrice] = price
+	}
 }
 
-// WithMinIngressPrice sets the MinIngressPrice field of the request
-func (ur UpdateSettingsRequest) WithMinIngressPrice(value types.Currency) {
-	ur["minIngressPrice"] = value.ExactString()
+// SetMinIngressPrice sets the MinIngressPrice in bytes
+func SetMinIngressPrice(price types.Currency) Setting {
+	return func(v map[string]any) {
+		v[settingIngressPrice] = price
+	}
 }
 
-// WithIngressLimit sets the IngressLimit field of the request
-func (ur UpdateSettingsRequest) WithIngressLimit(value uint64) {
-	ur["ingressLimit"] = strconv.FormatUint(value, 10)
+// SetIngressLimit sets the IngressLimit in bytes per second
+func SetIngressLimit(limit uint64) Setting {
+	return func(v map[string]any) {
+		v[settingIngressLimit] = limit
+	}
 }
 
-// WithEgressLimit sets the EgressLimit field of the request
-func (ur UpdateSettingsRequest) WithEgressLimit(value uint64) {
-	ur["egressLimit"] = strconv.FormatUint(value, 10)
+// SetEgressLimit sets the EgressLimit in bytes per second
+func SetEgressLimit(limit uint64) Setting {
+	return func(v map[string]any) {
+		v[settingEgressLimit] = limit
+	}
 }
 
-// WithMaxRegistryEntries sets the MaxRegistryEntries field of the request
-func (ur UpdateSettingsRequest) WithMaxRegistryEntries(value uint64) {
-	ur["maxRegistryEntries"] = strconv.FormatUint(value, 10)
+// SetMaxRegistryEntries sets the MaxRegistryEntries field of the request
+func SetMaxRegistryEntries(value uint64) Setting {
+	return func(v map[string]any) {
+		v[settingMaxRegistryEntries] = value
+	}
 }
 
-// WithAccountExpiry sets the AccountExpiry field of the request
-func (ur UpdateSettingsRequest) WithAccountExpiry(value time.Duration) {
-	ur["accountExpiry"] = strconv.FormatInt(int64(value), 10)
+// SetAccountExpiry sets the AccountExpiry field of the request
+func SetAccountExpiry(value time.Duration) Setting {
+	return func(v map[string]any) {
+		v[settingAccountExpiry] = int64(value)
+	}
 }
 
-// WithPriceTableValidity sets the PriceTableValidity field of the request
-func (ur UpdateSettingsRequest) WithPriceTableValidity(value time.Duration) {
-	ur["priceTableValidity"] = strconv.FormatInt(int64(value), 10)
+// SetPriceTableValidity sets the PriceTableValidity field of the request
+func SetPriceTableValidity(value time.Duration) Setting {
+	return func(v map[string]any) {
+		v[settingPriceTableValidity] = int64(value)
+	}
 }
 
 // patchSettings merges two settings maps. returns an error if the two maps are

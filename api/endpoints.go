@@ -109,7 +109,7 @@ func (a *api) handlePOSTSettings(c jape.Context) {
 		return
 	}
 
-	var req UpdateSettingsRequest
+	var req map[string]any
 	if err := c.Decode(&req); err != nil {
 		return
 	}

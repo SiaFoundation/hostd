@@ -68,8 +68,12 @@ func (c *Client) Settings() (settings settings.Settings, err error) {
 }
 
 // UpdateSettings updates the host's settings.
-func (c *Client) UpdateSettings(patch UpdateSettingsRequest) (settings settings.Settings, err error) {
-	err = c.c.POST("/settings", patch, &settings)
+func (c *Client) UpdateSettings(updated ...Setting) (settings settings.Settings, err error) {
+	values := make(map[string]any)
+	for _, s := range updated {
+		s(values)
+	}
+	err = c.c.POST("/settings", values, &settings)
 	return
 }
 
