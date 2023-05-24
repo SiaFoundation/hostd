@@ -78,7 +78,7 @@ func (c *Client) UpdateSettings(updated ...Setting) (settings settings.Settings,
 }
 
 // TestDynDNS tests the dynamic DNS settings of the host.
-func (c *Client) TestDynDNS() error {
+func (c *Client) TestDDNS() error {
 	return c.c.PUT("/settings/dyndns/update", nil)
 }
 
@@ -224,14 +224,17 @@ func (c *Client) MkDir(path string) error {
 }
 
 // LogEntries returns log entries matching the filter.
-func (c *Client) LogEntries(filter logging.Filter) (entries []logging.Entry, err error) {
-	err = c.c.POST("/logs/entries", filter, &entries)
-	return
+func (c *Client) LogEntries(filter logging.Filter) ([]logging.Entry, int, error) {
+	var resp LogResponse
+	if err := c.c.POST("/log/entries", filter, &resp); err != nil {
+		return nil, 0, err
+	}
+	return resp.Entries, resp.Count, nil
 }
 
 // LogPrune deletes log entries before the specified time.
 func (c *Client) LogPrune(before time.Time) error {
-	return c.c.DELETE(fmt.Sprintf("/logs/entries?before=%s", before.Format(time.RFC3339)))
+	return c.c.DELETE(fmt.Sprintf("/log/entries?before=%s", before.Format(time.RFC3339)))
 }
 
 // NewClient creates a new hostd API client.

@@ -508,7 +508,7 @@ func (a *api) handlePOSTLogEntries(c jape.Context) {
 	})
 }
 
-func (a *api) handleDELETELogPrune(c jape.Context) {
+func (a *api) handleDELETELogEntries(c jape.Context) {
 	var timestamp time.Time
 	if err := c.DecodeForm("before", &timestamp); err != nil {
 		return

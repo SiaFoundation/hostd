@@ -176,7 +176,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		"GET /system/dir": a.handleGETSystemDir,
 		"PUT /system/dir": a.handlePUTSystemDir,
 		// log endpoints
-		"POST /log/entries": a.handlePOSTLogEntries,
-		"DELETE /log/prune": a.handleDELETELogPrune,
+		"POST /log/entries":   a.handlePOSTLogEntries,
+		"DELETE /log/entries": a.handleDELETELogEntries,
 	})
 }
