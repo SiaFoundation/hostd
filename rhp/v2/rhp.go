@@ -128,9 +128,7 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 	defer done()
 
 	id, err := sess.t.ReadID()
-	if errors.Is(err, rhpv2.ErrRenterClosed) || errors.Is(err, io.EOF) {
-		return nil
-	} else if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to read RPC ID: %w", err)
 	}
 
@@ -271,6 +269,10 @@ func (sh *SessionHandler) Serve() error {
 		go func() {
 			defer conn.Close()
 			if err := sh.upgrade(conn); err != nil {
+				if errors.Is(err, rhpv2.ErrRenterClosed) || errors.Is(err, io.EOF) {
+					// skip logging graceful close and EOF errors
+					return
+				}
 				sh.log.Debug("failed to upgrade connection", zap.Error(err), zap.String("remoteAddr", conn.RemoteAddr().String()))
 			}
 		}()
