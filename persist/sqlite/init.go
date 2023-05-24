@@ -44,7 +44,7 @@ func (s *Store) init() error {
 		}
 		logger := s.log.Named("migrations")
 		logger.Debug("migrating database", zap.Int64("current", version), zap.Int64("target", targetVersion))
-		for _, fn := range migrations[version-1 : targetVersion] {
+		for _, fn := range migrations[version-1:] {
 			version++
 			start := time.Now()
 			if err := fn(tx); err != nil {
