@@ -7,11 +7,11 @@ import (
 	"net"
 	"time"
 
-	"go.sia.tech/hostd/internal/dyndns"
-	"go.sia.tech/hostd/internal/dyndns/providers/cloudflare"
-	"go.sia.tech/hostd/internal/dyndns/providers/duckdns"
-	"go.sia.tech/hostd/internal/dyndns/providers/noip"
-	"go.sia.tech/hostd/internal/dyndns/providers/route53"
+	"go.sia.tech/hostd/internal/ddns"
+	"go.sia.tech/hostd/internal/ddns/providers/cloudflare"
+	"go.sia.tech/hostd/internal/ddns/providers/duckdns"
+	"go.sia.tech/hostd/internal/ddns/providers/noip"
+	"go.sia.tech/hostd/internal/ddns/providers/route53"
 	"go.uber.org/zap"
 )
 
@@ -58,41 +58,41 @@ type (
 )
 
 func (m *ConfigManager) triggerDNSUpdate() {
-	if err := m.UpdateDynDNS(false); err != nil {
-		m.log.Named("dyndns").Error("failed to update dyndns", zap.Error(err))
+	if err := m.UpdateDDNS(false); err != nil {
+		m.log.Named("ddns").Error("failed to update ddns", zap.Error(err))
 	}
-	m.dyndnsUpdateTimer.Reset(dnsUpdateFrequency)
+	m.ddnsUpdateTimer.Reset(dnsUpdateFrequency)
 }
 
-func (m *ConfigManager) resetDynDNS() {
+func (m *ConfigManager) resetDDNS() {
 	m.lastIPv4, m.lastIPv6 = nil, nil
-	if m.dyndnsUpdateTimer != nil {
+	if m.ddnsUpdateTimer != nil {
 		// stop the timer if it's running
-		if !m.dyndnsUpdateTimer.Stop() {
+		if !m.ddnsUpdateTimer.Stop() {
 			select {
-			case <-m.dyndnsUpdateTimer.C:
+			case <-m.ddnsUpdateTimer.C:
 			default:
 			}
 		}
 	}
-	if len(m.settings.DynDNS.Provider) == 0 {
+	if len(m.settings.DDNS.Provider) == 0 {
 		return
-	} else if m.dyndnsUpdateTimer == nil {
-		m.dyndnsUpdateTimer = time.AfterFunc(0, m.triggerDNSUpdate)
+	} else if m.ddnsUpdateTimer == nil {
+		m.ddnsUpdateTimer = time.AfterFunc(0, m.triggerDNSUpdate)
 		return
 	}
-	m.dyndnsUpdateTimer.Reset(dnsUpdateFrequency)
+	m.ddnsUpdateTimer.Reset(dnsUpdateFrequency)
 }
 
-// UpdateDynDNS triggers an update of the host's dynamic DNS records.
-func (m *ConfigManager) UpdateDynDNS(force bool) error {
+// UpdateDDNS triggers an update of the host's dynamic DNS records.
+func (m *ConfigManager) UpdateDDNS(force bool) error {
 	m.mu.Lock()
 	hostname, _, err := net.SplitHostPort(m.settings.NetAddress)
 	if err != nil {
 		m.mu.Unlock()
 		return fmt.Errorf("failed to split netaddress host and port: %w", err)
 	}
-	settings := m.settings.DynDNS
+	settings := m.settings.DDNS
 	lastIPv4, lastIPv6 := m.lastIPv4, m.lastIPv6
 	m.mu.Unlock()
 
@@ -103,7 +103,7 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 	var ipv4 net.IP
 	if settings.IPv4 {
 		// get the IPv4 address
-		ipv4, err = dyndns.GetIPv4()
+		ipv4, err = ddns.GetIPv4()
 		if err != nil {
 			return fmt.Errorf("failed to get ipv4 address: %w", err)
 		} else if ipv4.Equal(lastIPv4) {
@@ -113,7 +113,7 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 	var ipv6 net.IP
 	if settings.IPv6 {
 		// get the IPv6 address
-		ipv6, err = dyndns.GetIPv6()
+		ipv6, err = ddns.GetIPv6()
 		if err != nil {
 			return fmt.Errorf("failed to get ipv6 address: %w", err)
 		} else if ipv6.Equal(lastIPv6) {
@@ -125,7 +125,7 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 		return nil
 	}
 
-	var provider dyndns.Provider
+	var provider ddns.Provider
 	switch settings.Provider {
 	case DNSProviderCloudflare:
 		var options CloudflareSettings
@@ -178,7 +178,7 @@ func (m *ConfigManager) UpdateDynDNS(force bool) error {
 	m.mu.Lock()
 	m.lastIPv4, m.lastIPv6 = ipv4, ipv6
 	m.mu.Unlock()
-	m.log.Named("dyndns").Info("updated dyndns", zap.String("hostname", hostname), zap.String("ipv4", ipv4.String()), zap.String("ipv6", ipv6.String()), zap.String("provider", settings.Provider))
+	m.log.Named("ddns").Info("provider updated", zap.String("hostname", hostname), zap.String("ipv4", ipv4.String()), zap.String("ipv6", ipv6.String()), zap.String("provider", settings.Provider))
 	return nil
 }
 

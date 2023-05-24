@@ -137,8 +137,8 @@ func (a *api) handlePOSTSettings(c jape.Context) {
 	c.Encode(a.settings.Settings())
 }
 
-func (a *api) handlePUTDynDNSUpdate(c jape.Context) {
-	err := a.settings.UpdateDynDNS(true)
+func (a *api) handlePUTDDNSUpdate(c jape.Context) {
+	err := a.settings.UpdateDDNS(true)
 	a.checkServerError(c, "failed to update dynamic DNS", err)
 }
 

@@ -3,6 +3,7 @@ package storage_test
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -843,6 +844,79 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 		} else if err := release(); err != nil {
 			b.Fatal(i, err)
 		}
+	}
+}
+
+func BenchmarkNewVolume(b *testing.B) {
+	dir := b.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(b)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		b.Fatal(err)
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer cm.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	b.ResetTimer()
+	b.ReportMetric(float64(b.N), "sectors")
+	b.SetBytes(rhpv2.SectorSize)
+
+	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
+	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
+	if err != nil {
+		b.Fatal(err)
+	}
+}
+
+func BenchmarkThingy(b *testing.B) {
+	f, err := os.Create(filepath.Join(os.TempDir(), "test.tmp"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer f.Close()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.SetBytes(1)
+
+	lr := io.LimitReader(frand.Reader, int64(b.N))
+	if _, err := io.Copy(f, lr); err != nil {
+		b.Fatal(err)
+	} else if err := f.Sync(); err != nil {
+		b.Fatal(err)
+	}
+
+	stat, err := f.Stat()
+	if err != nil {
+		b.Fatal(err)
+	} else if stat.Size() != int64(b.N) {
+		b.Fatalf("expected file size %v, got %v", b.N, stat.Size())
 	}
 }
 

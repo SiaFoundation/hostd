@@ -1,4 +1,4 @@
-package dyndns
+package ddns
 
 import (
 	"context"

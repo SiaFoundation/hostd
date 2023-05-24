@@ -70,7 +70,7 @@ type (
 		EgressLimit  uint64 `json:"egressLimit"`
 
 		// DNS settings
-		DynDNS DNSSettings `json:"dynDNS"`
+		DDNS DNSSettings `json:"ddns"`
 
 		Revision uint64 `json:"revision"`
 	}
@@ -111,9 +111,9 @@ type (
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
 
-		dyndnsUpdateTimer *time.Timer
-		lastIPv4          net.IP
-		lastIPv6          net.IP
+		ddnsUpdateTimer *time.Timer
+		lastIPv4        net.IP
+		lastIPv6        net.IP
 
 		rhp3WSTLS *tls.Config
 	}
@@ -216,14 +216,14 @@ func (m *ConfigManager) Announce() error {
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
 	// validate DNS settings
-	if err := validateDNSSettings(&s.DynDNS); err != nil {
+	if err := validateDNSSettings(&s.DDNS); err != nil {
 		return fmt.Errorf("failed to validate DNS settings: %w", err)
 	}
 
 	m.mu.Lock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
-	m.resetDynDNS()
+	m.resetDDNS()
 	m.mu.Unlock()
 	return m.store.UpdateSettings(s)
 }
@@ -305,7 +305,7 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 	m.settings = settings
 	// update the global rate limiters from settings
 	m.setRateLimit(settings.IngressLimit, settings.EgressLimit)
-	// initialize the dyndns update timer
-	m.resetDynDNS()
+	// initialize the DDNS update timer
+	m.resetDDNS()
 	return m, nil
 }

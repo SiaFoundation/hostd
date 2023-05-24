@@ -37,7 +37,7 @@ type (
 		UpdateSettings(s settings.Settings) error
 		Settings() settings.Settings
 
-		UpdateDynDNS(force bool) error
+		UpdateDDNS(force bool) error
 	}
 
 	// Metrics retrieves metrics related to the host
@@ -143,10 +143,10 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		"PUT /syncer/peers":             a.handlePUTSyncerPeer,
 		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
 		// settings endpoints
-		"GET /settings":               a.handleGETSettings,
-		"POST /settings":              a.handlePOSTSettings,
-		"POST /settings/announce":     a.handlePOSTAnnounce,
-		"PUT /settings/dyndns/update": a.handlePUTDynDNSUpdate,
+		"GET /settings":             a.handleGETSettings,
+		"POST /settings":            a.handlePOSTSettings,
+		"POST /settings/announce":   a.handlePOSTAnnounce,
+		"PUT /settings/ddns/update": a.handlePUTDDNSUpdate,
 		// metrics endpoints
 		"GET /metrics":         a.handleGETMetrics,
 		"GET /metrics/:period": a.handleGETPeriodMetrics,

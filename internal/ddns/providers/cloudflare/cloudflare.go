@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
+	"go.sia.tech/hostd/internal/ddns"
 )
 
 type (
@@ -18,7 +19,7 @@ type (
 		Hostname string `json:"hostname"`
 	}
 
-	// Provider implements the dyndns.Provider interface for Cloudflare.
+	// Provider implements the ddns.Provider interface for Cloudflare.
 	Provider struct {
 		opts Options
 	}
@@ -42,7 +43,7 @@ func getRecordID(client *cloudflare.API, zoneID *cloudflare.ResourceContainer, h
 	return records[0].ID, nil
 }
 
-// Update implements the dyndns.Provider interface for DuckDNS.
+// Update implements the ddns.Provider interface for DuckDNS.
 func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	if ipv4 == nil && ipv6 == nil {
 		return errors.New("no ip addresses provided")
@@ -146,7 +147,7 @@ func ValidateOptions(opts Options) error {
 }
 
 // New returns a new Cloudflare provider.
-func New(opts Options) *Provider {
+func New(opts Options) ddns.Provider {
 	return &Provider{
 		opts: opts,
 	}

@@ -79,7 +79,7 @@ func (c *Client) UpdateSettings(updated ...Setting) (settings settings.Settings,
 
 // TestDDNS tests the dynamic DNS settings of the host.
 func (c *Client) TestDDNS() error {
-	return c.c.PUT("/settings/dyndns/update", nil)
+	return c.c.PUT("/settings/ddns/update", nil)
 }
 
 // Metrics returns the metrics of the host at the specified time.

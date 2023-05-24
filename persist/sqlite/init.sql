@@ -201,10 +201,10 @@ CREATE TABLE host_settings (
 	window_size INTEGER NOT NULL,
 	ingress_limit INTEGER NOT NULL,
 	egress_limit INTEGER NOT NULL,
-	dyn_dns_provider TEXT NOT NULL,
-	dns_update_v4 BOOLEAN NOT NULL,
-	dns_update_v6 BOOLEAN NOT NULL,
-	dyn_dns_opts BLOB,
+	ddns_provider TEXT NOT NULL,
+	ddns_update_v4 BOOLEAN NOT NULL,
+	ddns_update_v6 BOOLEAN NOT NULL,
+	ddns_opts BLOB,
 	registry_limit INTEGER NOT NULL
 );
 

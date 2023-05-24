@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/route53"
-	"go.sia.tech/hostd/internal/dyndns"
+	"go.sia.tech/hostd/internal/ddns"
 )
 
 type (
@@ -52,7 +52,7 @@ func (p *Provider) buildChange(ip, recordType string) *route53.Change {
 	}
 }
 
-// Update implements the dyndns.Provider interface for AWS Route 53.
+// Update implements the ddns.Provider interface for AWS Route 53.
 func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	if ipv4 == nil && ipv6 == nil {
 		return errors.New("no ip addresses provided")
@@ -109,7 +109,7 @@ func ValidateOptions(opts Options) error {
 }
 
 // New creates a new Route53 provider.
-func New(opts Options) dyndns.Provider {
+func New(opts Options) ddns.Provider {
 	return &Provider{
 		options: opts,
 	}

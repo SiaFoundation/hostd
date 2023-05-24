@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"go.sia.tech/hostd/build"
-	"go.sia.tech/hostd/internal/dyndns"
+	"go.sia.tech/hostd/internal/ddns"
 )
 
 type (
@@ -51,7 +51,7 @@ var (
 	ErrUnknown = errors.New("unknown error")
 )
 
-// Update implements the dyndns.Provider interface for No-IP.
+// Update implements the ddns.Provider interface for No-IP.
 func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	if ipv4 == nil && ipv6 == nil {
 		return errors.New("no ip addresses provided")
@@ -129,7 +129,7 @@ func ValidateOptions(opts Options) error {
 }
 
 // New creates a new No-IP provider.
-func New(opts Options) dyndns.Provider {
+func New(opts Options) ddns.Provider {
 	return &Provider{
 		options: opts,
 	}

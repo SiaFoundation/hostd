@@ -20,7 +20,7 @@ func (s *Store) Settings() (config settings.Settings, err error) {
 	contract_price, base_rpc_price, sector_access_price, collateral, 
 	max_collateral, storage_price, egress_price, ingress_price, 
 	max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
-	ingress_limit, egress_limit, registry_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts
+	ingress_limit, egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts
 FROM host_settings;`
 	err = s.queryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
 		&config.NetAddress, (*sqlCurrency)(&config.ContractPrice),
@@ -30,14 +30,14 @@ FROM host_settings;`
 		(*sqlCurrency)(&config.IngressPrice), (*sqlCurrency)(&config.MaxAccountBalance),
 		&config.AccountExpiry, &config.PriceTableValidity, &config.MaxContractDuration, &config.WindowSize,
 		&config.IngressLimit, &config.EgressLimit, &config.MaxRegistryEntries,
-		&config.DynDNS.Provider, &config.DynDNS.IPv4, &config.DynDNS.IPv6, &dyndnsBuf)
+		&config.DDNS.Provider, &config.DDNS.IPv4, &config.DDNS.IPv6, &dyndnsBuf)
 	if errors.Is(err, sql.ErrNoRows) {
 		return settings.Settings{}, settings.ErrNoSettings
 	}
 	if dyndnsBuf != nil {
-		err = json.Unmarshal(dyndnsBuf, &config.DynDNS.Options)
+		err = json.Unmarshal(dyndnsBuf, &config.DDNS.Options)
 		if err != nil {
-			return settings.Settings{}, fmt.Errorf("failed to unmarshal dyndns options: %w", err)
+			return settings.Settings{}, fmt.Errorf("failed to unmarshal ddns options: %w", err)
 		}
 	}
 	return
@@ -50,27 +50,27 @@ func (s *Store) UpdateSettings(settings settings.Settings) error {
 		sector_access_price, collateral, max_collateral, storage_price, 
 		egress_price, ingress_price, max_account_balance, 
 		max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
-		egress_limit, registry_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts) 
+		egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts) 
 		VALUES (0, 0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) 
 ON CONFLICT (id) DO UPDATE SET (settings_revision, 
 	accepting_contracts, net_address, contract_price, base_rpc_price, 
 	sector_access_price, collateral, max_collateral, storage_price, 
 	egress_price, ingress_price, max_account_balance, 
 	max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
-	egress_limit, registry_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts) = (
+	egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts) = (
 	settings_revision + 1, EXCLUDED.accepting_contracts, EXCLUDED.net_address,
 	EXCLUDED.contract_price, EXCLUDED.base_rpc_price, EXCLUDED.sector_access_price,
 	EXCLUDED.collateral, EXCLUDED.max_collateral, EXCLUDED.storage_price,
 	EXCLUDED.egress_price, EXCLUDED.ingress_price, EXCLUDED.max_account_balance,
 	EXCLUDED.max_account_age, EXCLUDED.price_table_validity, EXCLUDED.max_contract_duration, EXCLUDED.window_size, 
-	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.dyn_dns_provider, 
-	EXCLUDED.dns_update_v4, EXCLUDED.dns_update_v6, EXCLUDED.dyn_dns_opts);`
+	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.ddns_provider, 
+	EXCLUDED.ddns_update_v4, EXCLUDED.ddns_update_v6, EXCLUDED.ddns_opts);`
 	var dnsOptsBuf []byte
-	if len(settings.DynDNS.Provider) > 0 {
+	if len(settings.DDNS.Provider) > 0 {
 		var err error
-		dnsOptsBuf, err = json.Marshal(settings.DynDNS.Options)
+		dnsOptsBuf, err = json.Marshal(settings.DDNS.Options)
 		if err != nil {
-			return fmt.Errorf("failed to marshal DNS options: %w", err)
+			return fmt.Errorf("failed to marshal ddns options: %w", err)
 		}
 	}
 
@@ -83,7 +83,7 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			sqlCurrency(settings.IngressPrice), sqlCurrency(settings.MaxAccountBalance),
 			settings.AccountExpiry, settings.PriceTableValidity, settings.MaxContractDuration, settings.WindowSize,
 			settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries,
-			settings.DynDNS.Provider, settings.DynDNS.IPv4, settings.DynDNS.IPv6, dnsOptsBuf)
+			settings.DDNS.Provider, settings.DDNS.IPv4, settings.DDNS.IPv6, dnsOptsBuf)
 		if err != nil {
 			return fmt.Errorf("failed to update settings: %w", err)
 		}
