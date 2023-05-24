@@ -18,7 +18,7 @@ func (s *Store) Settings() (config settings.Settings, err error) {
 	var dyndnsBuf []byte
 	const query = `SELECT settings_revision, accepting_contracts, net_address, 
 	contract_price, base_rpc_price, sector_access_price, collateral, 
-	max_collateral, min_storage_price, min_egress_price, min_ingress_price, 
+	max_collateral, storage_price, egress_price, ingress_price, 
 	max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
 	ingress_limit, egress_limit, registry_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts
 FROM host_settings;`
@@ -26,8 +26,8 @@ FROM host_settings;`
 		&config.NetAddress, (*sqlCurrency)(&config.ContractPrice),
 		(*sqlCurrency)(&config.BaseRPCPrice), (*sqlCurrency)(&config.SectorAccessPrice),
 		(*sqlCurrency)(&config.Collateral), (*sqlCurrency)(&config.MaxCollateral),
-		(*sqlCurrency)(&config.MinStoragePrice), (*sqlCurrency)(&config.MinEgressPrice),
-		(*sqlCurrency)(&config.MinIngressPrice), (*sqlCurrency)(&config.MaxAccountBalance),
+		(*sqlCurrency)(&config.StoragePrice), (*sqlCurrency)(&config.EgressPrice),
+		(*sqlCurrency)(&config.IngressPrice), (*sqlCurrency)(&config.MaxAccountBalance),
 		&config.AccountExpiry, &config.PriceTableValidity, &config.MaxContractDuration, &config.WindowSize,
 		&config.IngressLimit, &config.EgressLimit, &config.MaxRegistryEntries,
 		&config.DynDNS.Provider, &config.DynDNS.IPv4, &config.DynDNS.IPv6, &dyndnsBuf)
@@ -47,21 +47,21 @@ FROM host_settings;`
 func (s *Store) UpdateSettings(settings settings.Settings) error {
 	const query = `INSERT INTO host_settings (id, settings_revision, 
 		accepting_contracts, net_address, contract_price, base_rpc_price, 
-		sector_access_price, collateral, max_collateral, min_storage_price, 
-		min_egress_price, min_ingress_price, max_account_balance, 
+		sector_access_price, collateral, max_collateral, storage_price, 
+		egress_price, ingress_price, max_account_balance, 
 		max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
 		egress_limit, registry_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts) 
 		VALUES (0, 0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) 
 ON CONFLICT (id) DO UPDATE SET (settings_revision, 
 	accepting_contracts, net_address, contract_price, base_rpc_price, 
-	sector_access_price, collateral, max_collateral, min_storage_price, 
-	min_egress_price, min_ingress_price, max_account_balance, 
+	sector_access_price, collateral, max_collateral, storage_price, 
+	egress_price, ingress_price, max_account_balance, 
 	max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
 	egress_limit, registry_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts) = (
 	settings_revision + 1, EXCLUDED.accepting_contracts, EXCLUDED.net_address,
 	EXCLUDED.contract_price, EXCLUDED.base_rpc_price, EXCLUDED.sector_access_price,
-	EXCLUDED.collateral, EXCLUDED.max_collateral, EXCLUDED.min_storage_price,
-	EXCLUDED.min_egress_price, EXCLUDED.min_ingress_price, EXCLUDED.max_account_balance,
+	EXCLUDED.collateral, EXCLUDED.max_collateral, EXCLUDED.storage_price,
+	EXCLUDED.egress_price, EXCLUDED.ingress_price, EXCLUDED.max_account_balance,
 	EXCLUDED.max_account_age, EXCLUDED.price_table_validity, EXCLUDED.max_contract_duration, EXCLUDED.window_size, 
 	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.dyn_dns_provider, 
 	EXCLUDED.dns_update_v4, EXCLUDED.dns_update_v6, EXCLUDED.dyn_dns_opts);`
@@ -79,8 +79,8 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			settings.NetAddress, sqlCurrency(settings.ContractPrice),
 			sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),
 			sqlCurrency(settings.Collateral), sqlCurrency(settings.MaxCollateral),
-			sqlCurrency(settings.MinStoragePrice), sqlCurrency(settings.MinEgressPrice),
-			sqlCurrency(settings.MinIngressPrice), sqlCurrency(settings.MaxAccountBalance),
+			sqlCurrency(settings.StoragePrice), sqlCurrency(settings.EgressPrice),
+			sqlCurrency(settings.IngressPrice), sqlCurrency(settings.MaxAccountBalance),
 			settings.AccountExpiry, settings.PriceTableValidity, settings.MaxContractDuration, settings.WindowSize,
 			settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries,
 			settings.DynDNS.Provider, settings.DynDNS.IPv4, settings.DynDNS.IPv6, dnsOptsBuf)
@@ -98,11 +98,11 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			return fmt.Errorf("failed to update sector access price stat: %w", err)
 		} else if err := setCurrencyStat(tx, metricCollateral, settings.Collateral, timestamp); err != nil {
 			return fmt.Errorf("failed to update collateral stat: %w", err)
-		} else if err := setCurrencyStat(tx, metricStoragePrice, settings.MinStoragePrice, timestamp); err != nil {
+		} else if err := setCurrencyStat(tx, metricStoragePrice, settings.StoragePrice, timestamp); err != nil {
 			return fmt.Errorf("failed to update storage price stat: %w", err)
-		} else if err := setCurrencyStat(tx, metricEgressPrice, settings.MinEgressPrice, timestamp); err != nil {
+		} else if err := setCurrencyStat(tx, metricEgressPrice, settings.EgressPrice, timestamp); err != nil {
 			return fmt.Errorf("failed to update egress price stat: %w", err)
-		} else if err := setCurrencyStat(tx, metricIngressPrice, settings.MinIngressPrice, timestamp); err != nil {
+		} else if err := setCurrencyStat(tx, metricIngressPrice, settings.IngressPrice, timestamp); err != nil {
 			return fmt.Errorf("failed to update ingress price stat: %w", err)
 		} else if err := setNumericStat(tx, metricMaxRegistryEntries, settings.MaxRegistryEntries, timestamp); err != nil {
 			return fmt.Errorf("failed to update max registry entries stat: %w", err)

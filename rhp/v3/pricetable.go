@@ -136,18 +136,18 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 		ReadLengthCost:  oneHasting,
 		WriteBaseCost:   settings.SectorAccessPrice,
 		WriteLengthCost: oneHasting,
-		WriteStoreCost:  settings.MinStoragePrice,
+		WriteStoreCost:  settings.StoragePrice,
 		InitBaseCost:    settings.BaseRPCPrice,
 
 		// bandwidth costs
-		DownloadBandwidthCost: settings.MinEgressPrice,
-		UploadBandwidthCost:   settings.MinIngressPrice,
+		DownloadBandwidthCost: settings.EgressPrice,
+		UploadBandwidthCost:   settings.IngressPrice,
 
 		// LatestRevisionCost is set to a reasonable base + the estimated
 		// bandwidth cost of downloading a filecontract. This isn't perfect but
 		// at least scales a bit as the host updates their download bandwidth
 		// prices.
-		LatestRevisionCost: settings.BaseRPCPrice.Add(settings.MinEgressPrice.Mul64(2048)),
+		LatestRevisionCost: settings.BaseRPCPrice.Add(settings.EgressPrice.Mul64(2048)),
 
 		// Contract Formation/Renewal related fields
 		ContractPrice:     settings.ContractPrice,

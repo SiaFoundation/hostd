@@ -245,9 +245,9 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		SectorAccessPrice:      settings.SectorAccessPrice,
 		Collateral:             settings.Collateral,
 		MaxCollateral:          settings.MaxCollateral,
-		StoragePrice:           settings.MinStoragePrice,
-		DownloadBandwidthPrice: settings.MinEgressPrice,
-		UploadBandwidthPrice:   settings.MinIngressPrice,
+		StoragePrice:           settings.StoragePrice,
+		DownloadBandwidthPrice: settings.EgressPrice,
+		UploadBandwidthPrice:   settings.IngressPrice,
 
 		// ea settings
 		MaxEphemeralAccountBalance: settings.MaxAccountBalance,

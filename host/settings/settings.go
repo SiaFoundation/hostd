@@ -52,9 +52,9 @@ type (
 		Collateral    types.Currency `json:"collateral"`
 		MaxCollateral types.Currency `json:"maxCollateral"`
 
-		MinStoragePrice types.Currency `json:"minStoragePrice"`
-		MinEgressPrice  types.Currency `json:"minEgressPrice"`
-		MinIngressPrice types.Currency `json:"minIngressPrice"`
+		StoragePrice types.Currency `json:"storagePrice"`
+		EgressPrice  types.Currency `json:"egressPrice"`
+		IngressPrice types.Currency `json:"ingressPrice"`
 
 		PriceTableValidity time.Duration `json:"priceTableValidity"`
 
@@ -127,15 +127,15 @@ var (
 		MaxContractDuration: 6 * blocksPerMonth, // 6 months
 
 		ContractPrice:     types.Siacoins(1).Div64(5),   // 200 ms / contract
-		BaseRPCPrice:      types.Siacoins(1).Div64(1e7), // 100ms / million RPCs
-		SectorAccessPrice: types.Siacoins(1).Div64(1e7), // 100ms / million sectors
+		BaseRPCPrice:      types.Siacoins(1).Div64(1e7), // 1 SC / million RPCs
+		SectorAccessPrice: types.Siacoins(1).Div64(1e7), // 1 SC / million sectors
 
-		Collateral:    types.Siacoins(100).Div64(1 << 40).Div64(blocksPerMonth), // 100 SC / TB / month
+		Collateral:    types.Siacoins(300).Div64(1 << 40).Div64(blocksPerMonth), // 300 SC / TB / month
 		MaxCollateral: types.Siacoins(1000),
 
-		MinStoragePrice: types.Siacoins(50).Div64(1 << 40).Div64(blocksPerMonth), // 50 SC / TB / month
-		MinEgressPrice:  types.Siacoins(250).Div64(1 << 40),                      // 250 SC / TB
-		MinIngressPrice: types.Siacoins(10).Div64(1 << 40),                       // 10 SC / TB
+		StoragePrice: types.Siacoins(150).Div64(1 << 40).Div64(blocksPerMonth), // 150 SC / TB / month
+		EgressPrice:  types.Siacoins(500).Div64(1 << 40),                       // 500 SC / TB
+		IngressPrice: types.Siacoins(10).Div64(1 << 40),                        // 10 SC / TB
 
 		PriceTableValidity: 30 * time.Minute,
 
