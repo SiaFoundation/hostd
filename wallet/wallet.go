@@ -427,7 +427,6 @@ func (sw *SingleAddressWallet) ReceiveUpdatedUnconfirmedTransactions(diff *modul
 			sw.tpoolTxns[txnset.ID] = relevantTxns
 		}
 	}
-	sw.log.Debug("processed txpool diff", zap.Int("applied", len(diff.AppliedTransactions)), zap.Int("reverted", len(diff.RevertedTransactions)), zap.Int("relevant", len(sw.tpoolTxns)))
 }
 
 // UnconfirmedTransactions returns all unconfirmed transactions relevant to the
