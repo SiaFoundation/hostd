@@ -288,7 +288,11 @@ LEFT JOIN contracts rt ON (c.renewed_to = rt.id)
 LEFT JOIN contracts rf ON (c.renewed_from = rf.id)
 WHERE c.contract_id=$1;`
 	row := s.queryRow(query, sqlHash256(id))
-	return scanContract(row)
+	contract, err := scanContract(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = contracts.ErrNotFound
+	}
+	return contract, err
 }
 
 // AddContract adds a new contract to the database.
