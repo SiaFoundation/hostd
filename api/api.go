@@ -122,6 +122,11 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 	a := &api{
 		hostKey: hostKey,
 
+		checks: integrityCheckJobs{
+			contracts: cm,
+			checks:    make(map[types.FileContractID]IntegrityCheckResult),
+		},
+
 		syncer:    g,
 		chain:     chain,
 		tpool:     tp,
