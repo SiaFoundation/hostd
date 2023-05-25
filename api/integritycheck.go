@@ -82,6 +82,7 @@ func (ic *integrityCheckJobs) CheckContract(contractID types.FileContractID) (ui
 			if result.Error != nil {
 				check.BadSectors = append(check.BadSectors, result)
 			}
+			ic.checks[contractID] = check
 			ic.mu.Unlock()
 		}
 		ic.mu.Lock()

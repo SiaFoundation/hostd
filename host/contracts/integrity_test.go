@@ -110,26 +110,29 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 
 	// helper func to serialize integrity check
-	checkIntegrity := func() (issues, sectors uint64, err error) {
+	checkIntegrity := func() (issues, checked, sectors uint64, err error) {
 		results, sectors, err := c.CheckIntegrity(context.Background(), rev.Revision.ParentID)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to check integrity: %w", err)
+			return 0, 0, 0, fmt.Errorf("failed to check integrity: %w", err)
 		}
 
 		for result := range results {
 			if result.Error != nil {
 				issues++
 			}
+			checked++
 		}
-		return issues, sectors, nil
+		return issues, checked, sectors, nil
 	}
 
 	// check for issues, should be none
-	issues, checked, err := checkIntegrity()
+	issues, checked, sectors, err := checkIntegrity()
 	if err != nil {
 		t.Fatal(err)
 	} else if checked != uint64(len(roots)) {
-		t.Fatalf("expected %v sectors, got %v", len(roots), checked)
+		t.Fatalf("expected %v checked, got %v", len(roots), checked)
+	} else if sectors != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), sectors)
 	} else if issues != 0 {
 		t.Fatalf("expected %v issues, got %v", 0, issues)
 	}
@@ -140,11 +143,13 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 
 	// check for issues, should be one
-	issues, checked, err = checkIntegrity()
+	issues, checked, sectors, err = checkIntegrity()
 	if err != nil {
 		t.Fatal(err)
 	} else if checked != uint64(len(roots)) {
-		t.Fatalf("expected %v sectors, got %v", len(roots), checked)
+		t.Fatalf("expected %v checked, got %v", len(roots), checked)
+	} else if sectors != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), sectors)
 	} else if issues != 1 {
 		t.Fatalf("expected %v issues, got %v", 1, issues)
 	}
@@ -164,11 +169,13 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 
 	// check for issues, should be one
-	issues, checked, err = checkIntegrity()
+	issues, checked, sectors, err = checkIntegrity()
 	if err != nil {
 		t.Fatal(err)
 	} else if checked != uint64(len(roots)) {
-		t.Fatalf("expected %v sectors, got %v", len(roots), checked)
+		t.Fatalf("expected %v checked, got %v", len(roots), checked)
+	} else if sectors != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), sectors)
 	} else if issues != 2 {
 		t.Fatalf("expected %v issues, got %v", 2, issues)
 	}
