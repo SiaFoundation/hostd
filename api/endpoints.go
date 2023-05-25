@@ -98,7 +98,7 @@ func (a *api) handleGETSettings(c jape.Context) {
 	c.Encode(a.settings.Settings())
 }
 
-func (a *api) handlePOSTSettings(c jape.Context) {
+func (a *api) handlePATCHSettings(c jape.Context) {
 	buf, err := json.Marshal(a.settings.Settings())
 	if !a.checkServerError(c, "failed to marshal existing settings", err) {
 		return

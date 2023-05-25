@@ -73,7 +73,7 @@ func (c *Client) UpdateSettings(updated ...Setting) (settings settings.Settings,
 	for _, s := range updated {
 		s(values)
 	}
-	err = c.c.POST("/settings", values, &settings)
+	err = c.c.PATCH("/settings", values, &settings)
 	return
 }
 

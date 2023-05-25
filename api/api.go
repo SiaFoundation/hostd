@@ -149,7 +149,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
 		// settings endpoints
 		"GET /settings":             a.handleGETSettings,
-		"POST /settings":            a.handlePOSTSettings,
+		"PATCH /settings":           a.handlePATCHSettings,
 		"POST /settings/announce":   a.handlePOSTAnnounce,
 		"PUT /settings/ddns/update": a.handlePUTDDNSUpdate,
 		// metrics endpoints
