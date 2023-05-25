@@ -112,8 +112,9 @@ type (
 
 	// WalletSendSiacoinsRequest is the request body for the [POST] /wallet/send endpoint.
 	WalletSendSiacoinsRequest struct {
-		Address types.Address  `json:"address"`
-		Amount  types.Currency `json:"amount"`
+		Address          types.Address  `json:"address"`
+		Amount           types.Currency `json:"amount"`
+		SubtractMinerFee bool           `json:"subtractMinerFee"`
 	}
 
 	// A Peer is a peer in the network.

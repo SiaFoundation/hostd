@@ -196,11 +196,13 @@ func (c *Client) PendingTransactions() (transactions []wallet.Transaction, err e
 	return
 }
 
-// SendSiacoins sends siacoins to the specified address.
-func (c *Client) SendSiacoins(address types.Address, amount types.Currency) (id types.TransactionID, err error) {
+// SendSiacoins sends siacoins to the specified address. If subtractFee is true,
+// the miner fee is subtracted from the amount.
+func (c *Client) SendSiacoins(address types.Address, amount types.Currency, subtractFee bool) (id types.TransactionID, err error) {
 	req := WalletSendSiacoinsRequest{
-		Address: address,
-		Amount:  amount,
+		Address:          address,
+		Amount:           amount,
+		SubtractMinerFee: subtractFee,
 	}
 	err = c.c.POST("/wallet/send", req, &id)
 	return

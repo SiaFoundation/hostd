@@ -376,6 +376,15 @@ func (a *api) handlePOSTWalletSend(c jape.Context) {
 	// estimate miner fee
 	feePerByte := a.tpool.RecommendedFee()
 	minerFee := feePerByte.Mul64(stdTxnSize)
+	if req.SubtractMinerFee {
+		var underflow bool
+		req.Amount, underflow = req.Amount.SubWithUnderflow(minerFee)
+		if underflow {
+			c.Error(fmt.Errorf("amount must be greater than miner fee: %s", minerFee), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// build transaction
 	txn := types.Transaction{
 		MinerFees: []types.Currency{minerFee},
