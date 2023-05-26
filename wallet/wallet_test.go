@@ -90,8 +90,7 @@ func TestWallet(t *testing.T) {
 			Address: w.Address(),
 		}
 	}
-	splitTxn, err := w.SendSiacoins(splitOutputs)
-	if err != nil {
+	if _, err = w.SendSiacoins(splitOutputs); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,26 +128,13 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected %d balance, got %d", expectedBalance, m.Balance)
 	}
 
-	// check that the wallet has two transactions
+	// check that the wallet only has one transaction. The split transaction
+	// does not count since inflow = outflow
 	count, err = w.TransactionCount()
 	if err != nil {
 		t.Fatal(err)
-	} else if count != 2 {
-		t.Fatalf("expected 2 transactions, got %v", count)
-	}
-
-	// check that the transaction was created at the top of the transaction list
-	txns, err = w.Transactions(100, 0)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(txns) != 2 {
-		t.Fatalf("expected 2 transaction, got %v", len(txns))
-	} else if txns[0].Transaction.ID() != splitTxn.ID() {
-		t.Fatalf("expected transaction %v, got %v", splitTxn.ID(), txns[0].Transaction.ID())
-	} else if txns[0].Source != wallet.TxnSourceTransaction {
-		t.Fatalf("expected transaction source, got %v", txns[0].Source)
-	} else if txns[0].Outflow.Equals(types.ZeroCurrency) {
-		t.Fatalf("expected outflow, got %v", txns[0].Outflow)
+	} else if count != 1 {
+		t.Fatalf("expected 1 transactions, got %v", count)
 	}
 
 	// send all the outputs to the burn address individually
@@ -164,7 +150,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	time.Sleep(250 * time.Millisecond) // sleep for tpool sync
-	// check that the wallet's spendable balance and unconfiremed balance are
+	// check that the wallet's spendable balance and unconfirmed balance are
 	// correct
 	spendable, balance, unconfirmed, err = w.Balance()
 	if err != nil {
@@ -183,12 +169,12 @@ func TestWallet(t *testing.T) {
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	// check that the wallet now has 22 transactions
+	// check that the wallet now has 21 transactions, 1 + 20 void transactions
 	count, err = w.TransactionCount()
 	if err != nil {
 		t.Fatal(err)
-	} else if count != 22 {
-		t.Fatalf("expected 22 transactions, got %v", count)
+	} else if count != 21 {
+		t.Fatalf("expected 21 transactions, got %v", count)
 	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if !m.Balance.Equals(types.ZeroCurrency) {
