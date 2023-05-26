@@ -36,7 +36,7 @@ func TestCredit(t *testing.T) {
 
 	// attempt to credit the account
 	amount := types.NewCurrency64(50)
-	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute)); err != nil {
+	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute), false); err != nil {
 		t.Fatal("expected successful credit", err)
 	} else if balance, err := am.store.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
@@ -46,8 +46,13 @@ func TestCredit(t *testing.T) {
 
 	// attempt to credit the account over the max balance
 	amount = types.NewCurrency64(100)
-	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute)); err != ErrBalanceExceeded {
+	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute), false); err != ErrBalanceExceeded {
 		t.Fatalf("expected ErrBalanceExceeded, got %v", err)
+	}
+
+	// refund the account over the max balance
+	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute), true); err != nil {
+		t.Fatal("expected successful credit", err)
 	}
 }
 
@@ -64,7 +69,7 @@ func TestBudget(t *testing.T) {
 
 	// credit the account
 	amount := types.NewCurrency64(100)
-	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute)); err != nil {
+	if _, err := am.Credit(accountID, amount, time.Now().Add(time.Minute), false); err != nil {
 		t.Fatal("expected successful credit", err)
 	}
 

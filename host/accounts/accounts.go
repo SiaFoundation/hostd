@@ -83,7 +83,7 @@ func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, erro
 
 // Credit adds the specified amount to the account with the given ID. Credits
 // are synced to the underlying store immediately.
-func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (types.Currency, error) {
+func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time, refund bool) (types.Currency, error) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -93,7 +93,7 @@ func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency,
 	}
 
 	creditBalance := balance.Add(amount)
-	if creditBalance.Cmp(am.settings.Settings().MaxAccountBalance) > 0 {
+	if !refund && creditBalance.Cmp(am.settings.Settings().MaxAccountBalance) > 0 {
 		return types.ZeroCurrency, ErrBalanceExceeded
 	}
 
