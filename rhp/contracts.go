@@ -297,9 +297,9 @@ func ValidatePaymentRevision(current, revision types.FileContractRevision, payme
 		return errors.New("renter valid proof output is not reduced by the payment amount")
 	case revision.MissedRenterPayout().Cmp(current.MissedRenterPayout().Sub(payment)) != 0:
 		return errors.New("renter missed proof output is not reduced by the payment amount")
-	case revision.ValidProofOutputs[1].Value.Cmp(current.ValidProofOutputs[1].Value.Add(payment)) != 0:
+	case revision.ValidHostPayout().Cmp(current.ValidHostPayout().Add(payment)) != 0:
 		return errors.New("host valid proof output is not increased by the payment amount")
-	case revision.MissedProofOutputs[1].Value.Cmp(current.MissedProofOutputs[1].Value.Add(payment)) != 0:
+	case revision.MissedHostPayout().Cmp(current.MissedHostPayout().Add(payment)) != 0:
 		return errors.New("host missed proof output is not increased by the payment amount")
 	}
 	return nil
