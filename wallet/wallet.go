@@ -649,6 +649,12 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 					}
 				}
 
+				// ignore transactions that don't affect the wallet (e.g.
+				// "setup" transactions)
+				if inflow.Equals(outflow) {
+					continue
+				}
+
 				err := tx.AddTransaction(Transaction{
 					ID:          txn.ID(),
 					Index:       index,
