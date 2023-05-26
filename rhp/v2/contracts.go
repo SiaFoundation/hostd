@@ -237,9 +237,9 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of valid proof outputs")
 	case len(renewal.MissedProofOutputs) != 3:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong number of missed proof outputs")
-	case renewal.ValidProofOutputs[1].Address != settings.Address:
+	case renewal.ValidHostOutput().Address != settings.Address:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for valid host output")
-	case renewal.MissedProofOutputs[1].Address != settings.Address:
+	case renewal.MissedHostOutput().Address != settings.Address:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for missed host output")
 	case renewal.MissedProofOutputs[2].Address != types.VoidAddress:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")

@@ -39,12 +39,12 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	}
 
 	// calculate the funding amount
-	if current.ValidProofOutputs[0].Value.Cmp(revision.ValidProofOutputs[0].Value) < 0 {
+	fundAmount, underflow := current.ValidRenterPayout().SubWithUnderflow(revision.ValidRenterPayout())
+	if underflow {
 		err = errors.New("invalid payment revision: new revision has more funds than current revision")
 		s.WriteResponseErr(err)
 		return rhpv3.ZeroAccount, types.ZeroCurrency, err
 	}
-	fundAmount := current.ValidProofOutputs[0].Value.Sub(revision.ValidProofOutputs[0].Value)
 
 	// validate that new revision
 	if err := rhp.ValidatePaymentRevision(current, revision, fundAmount); err != nil {
@@ -195,12 +195,12 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	}
 
 	// calculate the funding amount
-	if current.ValidProofOutputs[0].Value.Cmp(revision.ValidProofOutputs[0].Value) < 0 {
+	totalAmount, underflow := current.ValidRenterPayout().SubWithUnderflow(revision.ValidRenterPayout())
+	if underflow {
 		err = errors.New("invalid payment revision: new revision has more funds than current revision")
 		s.WriteResponseErr(err)
 		return types.ZeroCurrency, types.ZeroCurrency, err
 	}
-	totalAmount := current.ValidProofOutputs[0].Value.Sub(revision.ValidProofOutputs[0].Value)
 
 	// validate that new revision
 	if err := rhp.ValidatePaymentRevision(current, revision, totalAmount); err != nil {
