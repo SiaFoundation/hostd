@@ -171,9 +171,35 @@ func (a *api) handleGETPeriodMetrics(c jape.Context) {
 	} else if start.IsZero() {
 		c.Error(errors.New("start time cannot be zero"), http.StatusBadRequest)
 		return
-	} else if periods <= 0 {
-		c.Error(errors.New("periods must be greater than zero"), http.StatusBadRequest)
-		return
+	} else if start.After(time.Now()) {
+		c.Error(errors.New("start time cannot be in the future"), http.StatusBadRequest)
+	}
+
+	if periods == 0 {
+		// if periods is 0 calculate the number of periods between start and now
+		switch interval {
+		case metrics.Interval15Minutes:
+			periods = int(time.Now().Truncate(15*time.Minute).Sub(start)/(15*time.Minute)) + 1
+		case metrics.IntervalHourly:
+			periods = int(time.Now().Truncate(time.Hour).Sub(start)/time.Hour) + 1
+		case metrics.IntervalDaily:
+			y, m, d := time.Now().Date()
+			end := time.Date(y, m, d, 0, 0, 0, 0, start.Location())
+			periods = int(end.Sub(start)/(24*time.Hour)) + 1
+		case metrics.IntervalWeekly:
+			end := time.Now()
+			y, m, d := end.Date()
+			end = time.Date(y, m, d+int(end.Weekday()), 0, 0, 0, 0, start.Location())
+			periods = int(end.Sub(start)/(7*24*time.Hour)) + 1
+		case metrics.IntervalMonthly:
+			y, m, _ := start.Date()
+			y1, m1, _ := time.Now().Date()
+			periods = int((y1-y)*12+int(m1-m)) + 1
+		case metrics.IntervalYearly:
+			y, _, _ := start.Date()
+			y1, _, _ := time.Now().Date()
+			periods = int(y1-y) + 1
+		}
 	}
 
 	period, err := a.metrics.PeriodMetrics(start, periods, interval)
