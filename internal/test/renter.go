@@ -96,7 +96,7 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey type
 		return rhpv2.ContractRevision{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 	cs := r.TipState()
-	contract := rhpv2.PrepareContractFormation(r.privKey, hostKey, renterPayout, hostCollateral, cs.Index.Height+duration, settings, r.WalletAddress())
+	contract := rhpv2.PrepareContractFormation(r.privKey.PublicKey(), hostKey, renterPayout, hostCollateral, cs.Index.Height+duration, settings, r.WalletAddress())
 	formationCost := rhpv2.ContractFormationCost(cs, contract, settings.ContractPrice)
 	feeEstimate := r.TPool().RecommendedFee().Mul64(2000)
 	formationTxn := types.Transaction{

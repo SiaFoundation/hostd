@@ -155,7 +155,7 @@ func TestRenew(t *testing.T) {
 		settings := session.Settings()
 		current := session.Revision().Revision
 		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhpv2.PrepareContractRenewal(current, renter.WalletAddress(), renter.PrivateKey(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		renewed, basePrice := rhpv2.PrepareContractRenewal(current, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
@@ -262,7 +262,7 @@ func TestRenew(t *testing.T) {
 		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
 		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), renter.PrivateKey(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
@@ -373,7 +373,7 @@ func TestRenew(t *testing.T) {
 		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
 		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), renter.PrivateKey(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
