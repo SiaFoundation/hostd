@@ -62,28 +62,16 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 	var end time.Time
 	switch interval {
 	case metrics.Interval15Minutes:
-		start = start.Truncate(15 * time.Minute)
 		end = start.Add(15 * time.Minute * time.Duration(n))
 	case metrics.IntervalHourly:
-		start = start.Truncate(time.Hour)
 		end = start.Add(time.Hour * time.Duration(n))
 	case metrics.IntervalDaily:
-		y, m, d := start.Date()
-		start = time.Date(y, m, d, 0, 0, 0, 0, start.Location())
 		end = start.AddDate(0, 0, n)
 	case metrics.IntervalWeekly:
-		y, m, d := start.Date()
-		d -= int(start.Weekday())
-		// set start to the first day of the week
-		start = time.Date(y, m, d, 0, 0, 0, 0, start.Location())
 		end = start.AddDate(0, 0, 7*n) // add n weeks
 	case metrics.IntervalMonthly:
-		y, m, _ := start.Date()
-		// set start to the first day of the month
-		start = time.Date(y, m, 1, 0, 0, 0, 0, start.Location())
 		end = start.AddDate(0, n, 0) // add n months
 	case metrics.IntervalYearly:
-		start = time.Date(start.Year(), 1, 1, 0, 0, 0, 0, start.Location())
 		end = start.AddDate(n, 0, 0) // add n years
 	default:
 		return nil, fmt.Errorf("invalid interval: %v", interval)

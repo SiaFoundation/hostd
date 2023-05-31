@@ -175,6 +175,12 @@ func (a *api) handleGETPeriodMetrics(c jape.Context) {
 		c.Error(errors.New("start time cannot be in the future"), http.StatusBadRequest)
 	}
 
+	start, err := metrics.Normalize(start, interval)
+	if err != nil {
+		c.Error(err, http.StatusBadRequest)
+		return
+	}
+
 	if periods == 0 {
 		// if periods is 0 calculate the number of periods between start and now
 		switch interval {
