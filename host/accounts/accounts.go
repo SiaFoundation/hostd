@@ -1,7 +1,6 @@
 package accounts
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -50,20 +49,10 @@ type (
 		settings Settings
 
 		mu sync.Mutex // guards the fields below
-
 		// balances is a map of account IDs to their current balance. It
 		// is used for consistency before a budget is synced to the underlying
 		// store.
 		balances map[rhpv3.Account]accountState
-
-		// ch is used to wake all blocked withdrawals.
-		//
-		// Implementing a queue may be more performant with lots of blocked
-		// goroutines, but in practice blocks are short and infrequent. Order of
-		// withdrawals is not guaranteed. However, with current implementations
-		// a single deposit should unblock all or most of an accounts pending
-		// withdrawals.
-		ch chan struct{}
 	}
 )
 
@@ -106,12 +95,15 @@ func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency,
 		state.balance = creditBalance
 		am.balances[accountID] = state
 	}
-	close(am.ch) // wake all waiting withdrawals
-	am.ch = make(chan struct{})
 	return creditBalance, nil
 }
 
-func (am *AccountManager) createBudget(accountID rhpv3.Account, amount types.Currency) (*Budget, error) {
+// Budget creates a new budget for an account limited by amount. The spent
+// amount will not be synced to the underlying store until Commit is called.
+func (am *AccountManager) Budget(accountID rhpv3.Account, amount types.Currency) (*Budget, error) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
 	// if there are currently outstanding debits, use the in-memory balance
 	state, ok := am.balances[accountID]
 	if !ok {
@@ -147,43 +139,12 @@ func (am *AccountManager) createBudget(accountID rhpv3.Account, amount types.Cur
 	}, nil
 }
 
-// Budget creates a new budget for an account limited by amount. The spent
-// amount will not be synced to the underlying store until Commit is called.
-// This function will block until the account has enough funds to cover the
-// budget or until the context is cancelled.
-func (am *AccountManager) Budget(ctx context.Context, accountID rhpv3.Account, amount types.Currency) (*Budget, error) {
-	// instead of monitoring each account, one global deposit channel wakes all
-	// waiting withdrawals. Since the account's balance may not have changed,
-	// the balance is checked in a loop.
-	for {
-		am.mu.Lock()
-		budget, err := am.createBudget(accountID, amount)
-		if errors.Is(err, ErrInsufficientFunds) {
-			// if the account does not have enough funds, wait for a deposit
-			ch := am.ch // grab the channel before releasing the lock
-			am.mu.Unlock()
-			select {
-			case <-ctx.Done():
-				return nil, ErrInsufficientFunds // return ErrInsufficientFunds instead of context deadline exceeded
-			case <-ch:
-				continue // deposit received, try again
-			}
-		} else if err != nil {
-			am.mu.Unlock()
-			return nil, fmt.Errorf("failed to create budget: %w", err)
-		}
-		am.mu.Unlock()
-		return budget, nil
-	}
-}
-
 // NewManager creates a new account manager
 func NewManager(store AccountStore, settings Settings) *AccountManager {
 	return &AccountManager{
 		store:    store,
 		settings: settings,
 
-		ch:       make(chan struct{}),
 		balances: make(map[rhpv3.Account]accountState),
 	}
 }

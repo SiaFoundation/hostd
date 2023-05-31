@@ -1,7 +1,6 @@
 package accounts
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -77,7 +76,7 @@ func TestBudget(t *testing.T) {
 
 	// initialize a new budget for half the account balance
 	budgetAmount := amount.Div64(2)
-	budget, err := am.Budget(context.Background(), accountID, budgetAmount)
+	budget, err := am.Budget(accountID, budgetAmount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +100,7 @@ func TestBudget(t *testing.T) {
 	}
 
 	// create a new budget to hold the balance in-memory
-	b2, err := am.Budget(context.Background(), accountID, types.NewCurrency64(0))
+	b2, err := am.Budget(accountID, types.NewCurrency64(0))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -156,9 +156,7 @@ func (sh *SessionHandler) processPayment(s *rhpv3.Stream, pt *rhpv3.HostPriceTab
 	}
 
 	// create a budget for the payment
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return sh.accounts.Budget(ctx, account, amount)
+	return sh.accounts.Budget(account, amount)
 }
 
 // processFundAccountPayment processes a contract payment to fund an account for
