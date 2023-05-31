@@ -59,7 +59,7 @@ func NewWallet(privKey types.PrivateKey, dir string, log *zap.Logger) (*Wallet, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "wallet.db"), log.Named("sqlite"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}

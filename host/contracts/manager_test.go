@@ -95,7 +95,7 @@ func TestContractLockUnlock(t *testing.T) {
 	}
 	defer db.Close()
 
-	node, err := test.NewWallet(hostKey, dir, log.Named("wallet"))
+	node, err := test.NewWallet(hostKey, t.TempDir(), log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}
