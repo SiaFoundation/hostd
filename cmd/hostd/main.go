@@ -118,8 +118,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	logPath := dir
+	if elp := os.Getenv(logPathEnvVariable); len(elp) != 0 {
+		logPath = elp
+	}
+
 	cfg := zap.NewProductionConfig()
-	cfg.OutputPaths = []string{filepath.Join(dir, "hostd.log")}
+	cfg.OutputPaths = []string{filepath.Join(logPath, "hostd.log")}
 	if logStdout {
 		cfg.OutputPaths = append(cfg.OutputPaths, "stdout")
 	}

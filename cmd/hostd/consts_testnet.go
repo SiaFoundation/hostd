@@ -5,6 +5,7 @@ package main
 const (
 	apiPasswordEnvVariable = "HOSTD_ZEN_API_PASSWORD"
 	walletSeedEnvVariable  = "HOSTD_ZEN_WALLET_SEED"
+	logPathEnvVariable     = "HOSTD_ZEN_LOG_PATH"
 
 	defaultAPIAddr      = "localhost:9880"
 	defaultGatewayAddr  = ":9881"
