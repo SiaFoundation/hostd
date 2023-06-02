@@ -7,6 +7,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
@@ -71,6 +72,12 @@ type (
 		CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan contracts.IntegrityResult, uint64, error)
 	}
 
+	// Alerts retrieves and dismisses notifications
+	Alerts interface {
+		Active() []alerts.Alert
+		Dismiss(...types.Hash256)
+	}
+
 	// A Syncer can connect to other peers and synchronize the blockchain.
 	Syncer interface {
 		Address() modules.NetAddress
@@ -103,6 +110,7 @@ type (
 
 		log *zap.Logger
 
+		alerts    Alerts
 		syncer    Syncer
 		chain     ChainManager
 		tpool     TPool
@@ -118,8 +126,8 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, ls LogStore, s Settings, w Wallet, log *zap.Logger) http.Handler {
-	a := &api{
+func NewServer(hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, ls LogStore, s Settings, w Wallet, log *zap.Logger) http.Handler {
+	api := &api{
 		hostKey: hostKey,
 
 		checks: integrityCheckJobs{
@@ -127,6 +135,7 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 			checks:    make(map[types.FileContractID]IntegrityCheckResult),
 		},
 
+		alerts:    a,
 		syncer:    g,
 		chain:     chain,
 		tpool:     tp,
@@ -140,48 +149,51 @@ func NewServer(hostKey types.PublicKey, g Syncer, chain ChainManager, tp TPool, 
 	}
 	return jape.Mux(map[string]jape.Handler{
 		// state endpoints
-		"GET /state/host":      a.handleGETHostState,
-		"GET /state/consensus": a.handleGETConsensusState,
+		"GET /state/host":      api.handleGETHostState,
+		"GET /state/consensus": api.handleGETConsensusState,
 		// gateway endpoints
-		"GET /syncer/address":           a.handleGETSyncerAddr,
-		"GET /syncer/peers":             a.handleGETSyncerPeers,
-		"PUT /syncer/peers":             a.handlePUTSyncerPeer,
-		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
+		"GET /syncer/address":           api.handleGETSyncerAddr,
+		"GET /syncer/peers":             api.handleGETSyncerPeers,
+		"PUT /syncer/peers":             api.handlePUTSyncerPeer,
+		"DELETE /syncer/peers/:address": api.handleDeleteSyncerPeer,
+		// alerts endpoints
+		"GET /alerts":    api.handleGETAlerts,
+		"DELETE /alerts": api.handleDELETEAlerts,
 		// settings endpoints
-		"GET /settings":             a.handleGETSettings,
-		"PATCH /settings":           a.handlePATCHSettings,
-		"POST /settings/announce":   a.handlePOSTAnnounce,
-		"PUT /settings/ddns/update": a.handlePUTDDNSUpdate,
+		"GET /settings":             api.handleGETSettings,
+		"PATCH /settings":           api.handlePATCHSettings,
+		"POST /settings/announce":   api.handlePOSTAnnounce,
+		"PUT /settings/ddns/update": api.handlePUTDDNSUpdate,
 		// metrics endpoints
-		"GET /metrics":         a.handleGETMetrics,
-		"GET /metrics/:period": a.handleGETPeriodMetrics,
+		"GET /metrics":         api.handleGETMetrics,
+		"GET /metrics/:period": api.handleGETPeriodMetrics,
 		// contract endpoints
-		"POST /contracts":                 a.handlePostContracts,
-		"GET /contracts/:id":              a.handleGETContract,
-		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
-		"PUT /contracts/:id/integrity":    a.handlePUTContractCheck,
-		"DELETE /contracts/:id/integrity": a.handleDeleteContractCheck,
+		"POST /contracts":                 api.handlePostContracts,
+		"GET /contracts/:id":              api.handleGETContract,
+		"GET /contracts/:id/integrity":    api.handleGETContractCheck,
+		"PUT /contracts/:id/integrity":    api.handlePUTContractCheck,
+		"DELETE /contracts/:id/integrity": api.handleDeleteContractCheck,
 		// sector endpoints
-		"DELETE /sectors/:root": a.handleDeleteSector,
+		"DELETE /sectors/:root": api.handleDeleteSector,
 		// volume endpoints
-		"GET /volumes":            a.handleGETVolumes,
-		"POST /volumes":           a.handlePOSTVolume,
-		"GET /volumes/:id":        a.handleGETVolume,
-		"PUT /volumes/:id":        a.handlePUTVolume,
-		"DELETE /volumes/:id":     a.handleDeleteVolume,
-		"PUT /volumes/:id/resize": a.handlePUTVolumeResize,
+		"GET /volumes":            api.handleGETVolumes,
+		"POST /volumes":           api.handlePOSTVolume,
+		"GET /volumes/:id":        api.handleGETVolume,
+		"PUT /volumes/:id":        api.handlePUTVolume,
+		"DELETE /volumes/:id":     api.handleDeleteVolume,
+		"PUT /volumes/:id/resize": api.handlePUTVolumeResize,
 		// tpool endpoints
-		"GET /tpool/fee": a.handleGETTPoolFee,
+		"GET /tpool/fee": api.handleGETTPoolFee,
 		// wallet endpoints
-		"GET /wallet":              a.handleGETWallet,
-		"GET /wallet/transactions": a.handleGETWalletTransactions,
-		"GET /wallet/pending":      a.handleGETWalletPending,
-		"POST /wallet/send":        a.handlePOSTWalletSend,
+		"GET /wallet":              api.handleGETWallet,
+		"GET /wallet/transactions": api.handleGETWalletTransactions,
+		"GET /wallet/pending":      api.handleGETWalletPending,
+		"POST /wallet/send":        api.handlePOSTWalletSend,
 		// system endpoints
-		"GET /system/dir": a.handleGETSystemDir,
-		"PUT /system/dir": a.handlePUTSystemDir,
+		"GET /system/dir": api.handleGETSystemDir,
+		"PUT /system/dir": api.handlePUTSystemDir,
 		// log endpoints
-		"POST /log/entries":   a.handlePOSTLogEntries,
-		"DELETE /log/entries": a.handleDELETELogEntries,
+		"POST /log/entries":   api.handlePOSTLogEntries,
+		"DELETE /log/entries": api.handleDELETELogEntries,
 	})
 }

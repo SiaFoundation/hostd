@@ -89,6 +89,18 @@ func (a *api) handleDeleteSyncerPeer(c jape.Context) {
 	a.checkServerError(c, "failed to disconnect from peer", err)
 }
 
+func (a *api) handleGETAlerts(c jape.Context) {
+	c.Encode(a.alerts.Active())
+}
+
+func (a *api) handleDELETEAlerts(c jape.Context) {
+	var req DismissAlertsRequest
+	if err := c.Decode(&req); err != nil {
+		return
+	}
+	a.alerts.Dismiss(req.IDs...)
+}
+
 func (a *api) handlePOSTAnnounce(c jape.Context) {
 	err := a.settings.Announce()
 	a.checkServerError(c, "failed to announce", err)

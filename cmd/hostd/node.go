@@ -111,6 +111,7 @@ func (tp txpool) Close() error {
 
 type node struct {
 	g     modules.Gateway
+	a     *alerts.Manager
 	cm    *chain.Manager
 	tp    *txpool
 	w     *wallet.SingleAddressWallet
@@ -272,6 +273,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 	return &node{
 		g:     g,
+		a:     am,
 		cm:    cm,
 		tp:    tp,
 		w:     w,
