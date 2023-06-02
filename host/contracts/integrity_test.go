@@ -55,7 +55,7 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond) // sync time
 
-	rev, err := formContract(renterKey, hostKey, c, node, node.ChainManager(), node.TPool())
+	rev, err := formContract(renterKey, hostKey, 50, 60, c, node, node.ChainManager(), node.TPool())
 	if err != nil {
 		t.Fatal(err)
 	}
