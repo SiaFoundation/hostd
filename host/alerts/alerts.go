@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"go.sia.tech/core/types"
 )
@@ -38,7 +39,8 @@ type (
 		Message string `json:"message"`
 		// Data is a map of arbitrary data that can be used to provide
 		// additional context to the alert.
-		Data map[string]any `json:"data,omitempty"`
+		Data      map[string]any `json:"data,omitempty"`
+		Timestamp time.Time      `json:"timestamp"`
 	}
 
 	// A Manager manages the host's alerts.
@@ -92,6 +94,8 @@ func (s *Severity) UnmarshalJSON(b []byte) error {
 func (m *Manager) Register(a Alert) {
 	if a.ID == (types.Hash256{}) {
 		panic("cannot register alert with empty ID") // developer error
+	} else if a.Timestamp.IsZero() {
+		a.Timestamp = time.Now() // set timestamp to now if not set
 	}
 
 	m.mu.Lock()

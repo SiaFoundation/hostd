@@ -244,6 +244,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 			"currentSectors": oldMaxSectors,
 			"targetSectors":  newMaxSectors,
 		},
+		Timestamp: time.Now(),
 	}
 	vm.a.Register(alert)
 	// dismiss the alert when the function returns. It is the caller's
@@ -304,6 +305,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 			"targetSectors":   newMaxSectors,
 			"migratedSectors": 0,
 		},
+		Timestamp: time.Now(),
 	}
 	vm.a.Register(a)
 	// dismiss the alert when the function returns. It is the caller's
@@ -420,6 +422,7 @@ func (vm *VolumeManager) migrateForRemoval(id int, localPath string, force bool,
 			"migrated": 0,
 			"force":    force,
 		},
+		Timestamp: time.Now(),
 	}
 	vm.a.Register(a)
 	// dismiss the alert when the function returns. It is the caller's
@@ -593,6 +596,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 					"error":    err.Error(),
 					"elapsed":  time.Since(start),
 				},
+				Timestamp: time.Now(),
 			})
 			log.Error("failed to initialize volume", zap.Error(err))
 			select {
@@ -610,6 +614,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 				"volumeID": volumeID,
 				"elapsed":  time.Since(start),
 			},
+			Timestamp: time.Now(),
 		})
 		log.Info("volume initialized")
 		select {
@@ -688,6 +693,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) e
 						"error":    err.Error(),
 						"elapsed":  time.Since(start),
 					},
+					Timestamp: time.Now(),
 				})
 				select {
 				case result <- err:
@@ -714,6 +720,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) e
 					"error":    err.Error(),
 					"elapsed":  time.Since(start),
 				},
+				Timestamp: time.Now(),
 			})
 			select {
 			case result <- err:
@@ -732,6 +739,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) e
 					"error":    err.Error(),
 					"elapsed":  time.Since(start),
 				},
+				Timestamp: time.Now(),
 			})
 			log.Error("failed to remove volume", zap.Error(err))
 			select {
@@ -800,6 +808,7 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 					"targetSectors":  maxSectors,
 					"currentSectors": vol.TotalSectors,
 				},
+				Timestamp: time.Now(),
 			})
 			select {
 			case result <- err:
@@ -818,6 +827,7 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 				"targetSectors":  maxSectors,
 				"currentSectors": vol.TotalSectors,
 			},
+			Timestamp: time.Now(),
 		})
 		select {
 		case result <- nil:
