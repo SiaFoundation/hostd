@@ -385,7 +385,7 @@ func (vm *VolumeManager) setVolumeStatus(id int, status string) {
 	v.stats.Status = status
 }
 
-func (vm *VolumeManager) resizeVolume(volumeID int, current, target uint64) error {
+func (vm *VolumeManager) doResize(volumeID int, current, target uint64) error {
 	ctx, cancel, err := vm.tg.AddContext(context.Background())
 	if err != nil {
 		return err
@@ -582,7 +582,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 
 		log := vm.log.Named("initialize").With(zap.Int("volumeID", volumeID), zap.Uint64("maxSectors", maxSectors))
 		start := time.Now()
-		err := vm.resizeVolume(volumeID, 0, maxSectors)
+		err := vm.doResize(volumeID, 0, maxSectors)
 		if err != nil {
 			vm.a.Register(alerts.Alert{
 				ID:       frand.Entropy256(),
@@ -787,7 +787,7 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 		defer release()
 
 		start := time.Now()
-		if err := vm.resizeVolume(id, vol.TotalSectors, maxSectors); err != nil {
+		if err := vm.doResize(id, vol.TotalSectors, maxSectors); err != nil {
 			log.Error("failed to resize volume", zap.Error(err))
 			vm.a.Register(alerts.Alert{
 				ID:       frand.Entropy256(),

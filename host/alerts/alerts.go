@@ -25,6 +25,7 @@ const (
 )
 
 type (
+	// Severity indicates the severity of an alert.
 	Severity uint8
 
 	// An Alert is a dismissible message that is displayed to the user.
@@ -107,8 +108,8 @@ func (m *Manager) Dismiss(ids ...types.Hash256) {
 	m.mu.Unlock()
 }
 
-// Alerts returns the host's current alerts.
-func (m *Manager) Alerts() []Alert {
+// Active returns the host's active alerts.
+func (m *Manager) Active() []Alert {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
