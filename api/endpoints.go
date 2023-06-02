@@ -324,7 +324,7 @@ func (a *api) handlePOSTVolume(c jape.Context) {
 		return
 	}
 
-	volume, err := a.volumes.AddVolume(req.LocalPath, req.MaxSectors)
+	volume, err := a.volumes.AddVolume(req.LocalPath, req.MaxSectors, nil)
 	if !a.checkServerError(c, "failed to add volume", err) {
 		return
 	}
@@ -342,7 +342,7 @@ func (a *api) handleDeleteVolume(c jape.Context) {
 	} else if err := c.DecodeForm("force", &force); err != nil {
 		return
 	}
-	err := a.volumes.RemoveVolume(id, force)
+	err := a.volumes.RemoveVolume(id, force, nil)
 	a.checkServerError(c, "failed to remove volume", err)
 }
 
@@ -360,7 +360,7 @@ func (a *api) handlePUTVolumeResize(c jape.Context) {
 		return
 	}
 
-	err := a.volumes.ResizeVolume(id, req.MaxSectors)
+	err := a.volumes.ResizeVolume(id, req.MaxSectors, nil)
 	a.checkServerError(c, "failed to resize volume", err)
 }
 

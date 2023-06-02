@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/accounts"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/registry"
@@ -245,8 +246,8 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 
 	accountManager := accounts.NewManager(db, sr)
-
-	sm, err := storage.NewVolumeManager(db, cm, logger.Named("volumes"))
+	am := alerts.NewManager()
+	sm, err := storage.NewVolumeManager(db, am, cm, logger.Named("volumes"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create storage manager: %w", err)
 	}

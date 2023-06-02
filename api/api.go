@@ -53,10 +53,10 @@ type (
 		Usage() (usedSectors uint64, totalSectors uint64, err error)
 		Volumes() ([]storage.VolumeMeta, error)
 		Volume(id int) (storage.VolumeMeta, error)
-		AddVolume(localPath string, maxSectors uint64) (storage.Volume, error)
+		AddVolume(localPath string, maxSectors uint64, result chan<- error) (storage.Volume, error)
+		RemoveVolume(id int, force bool, result chan<- error) error
+		ResizeVolume(id int, maxSectors uint64, result chan<- error) error
 		SetReadOnly(id int, readOnly bool) error
-		RemoveVolume(id int, force bool) error
-		ResizeVolume(id int, maxSectors uint64) error
 		RemoveSector(root types.Hash256) error
 	}
 

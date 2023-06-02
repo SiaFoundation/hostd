@@ -11,6 +11,7 @@ import (
 	crhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
@@ -107,8 +108,11 @@ func (h *Host) RHPv3WSAddr() string {
 
 // AddVolume adds a new volume to the host
 func (h *Host) AddVolume(path string, size uint64) error {
-	_, err := h.storage.AddVolume(path, size)
-	return err
+	result := make(chan error, 1)
+	if _, err := h.storage.AddVolume(path, size, result); err != nil {
+		return err
+	}
+	return <-result
 }
 
 // UpdateSettings updates the host's configuration
@@ -158,11 +162,19 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	storage, err := storage.NewVolumeManager(db, node.cm, log.Named("storage"))
+	am := alerts.NewManager()
+
+	storage, err := storage.NewVolumeManager(db, am, node.cm, log.Named("storage"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
-	storage.AddVolume(filepath.Join(dir, "storage"), 64)
+	result := make(chan error, 1)
+	if _, err := storage.AddVolume(filepath.Join(dir, "storage.dat"), 64, result); err != nil {
+		return nil, fmt.Errorf("failed to add storage volume: %w", err)
+	} else if err := <-result; err != nil {
+		return nil, fmt.Errorf("failed to add storage volume: %w", err)
+	}
+
 	contracts, err := contracts.NewManager(db, storage, node.cm, node.tp, wallet, log.Named("contracts"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create contract manager: %w", err)

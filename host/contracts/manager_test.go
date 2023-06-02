@@ -11,6 +11,7 @@ import (
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/test"
@@ -101,7 +102,8 @@ func TestContractLockUnlock(t *testing.T) {
 	}
 	defer node.Close()
 
-	s, err := storage.NewVolumeManager(db, node.ChainManager(), log.Named("storage"))
+	am := alerts.NewManager()
+	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,13 +180,17 @@ func TestContractLifecycle(t *testing.T) {
 	}
 	defer node.Close()
 
-	s, err := storage.NewVolumeManager(node.Store(), node.ChainManager(), log.Named("storage"))
+	am := alerts.NewManager()
+	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 
-	if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10); err != nil {
+	result := make(chan error, 1)
+	if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
