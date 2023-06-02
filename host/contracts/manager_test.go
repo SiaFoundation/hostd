@@ -109,7 +109,7 @@ func TestContractLockUnlock(t *testing.T) {
 	}
 	defer s.Close()
 
-	c, err := contracts.NewManager(db, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
+	c, err := contracts.NewManager(db, am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestContractLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c, err := contracts.NewManager(node.Store(), s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
+	c, err := contracts.NewManager(node.Store(), am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
 	if err != nil {
 		t.Fatal(err)
 	}

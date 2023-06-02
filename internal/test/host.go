@@ -163,7 +163,6 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 	}
 
 	am := alerts.NewManager()
-
 	storage, err := storage.NewVolumeManager(db, am, node.cm, log.Named("storage"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
@@ -175,7 +174,7 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to add storage volume: %w", err)
 	}
 
-	contracts, err := contracts.NewManager(db, storage, node.cm, node.tp, wallet, log.Named("contracts"))
+	contracts, err := contracts.NewManager(db, am, storage, node.cm, node.tp, wallet, log.Named("contracts"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create contract manager: %w", err)
 	}

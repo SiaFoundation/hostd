@@ -253,7 +253,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 
-	contractManager, err := contracts.NewManager(db, sm, cm, tp, w, logger.Named("contracts"))
+	contractManager, err := contracts.NewManager(db, am, sm, cm, tp, w, logger.Named("contracts"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create contract manager: %w", err)
 	}

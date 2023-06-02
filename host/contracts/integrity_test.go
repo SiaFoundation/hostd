@@ -44,7 +44,7 @@ func TestCheckIntegrity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c, err := contracts.NewManager(node.Store(), s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
+	c, err := contracts.NewManager(node.Store(), am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
 	if err != nil {
 		t.Fatal(err)
 	}
