@@ -97,6 +97,9 @@ func (a *api) handleDELETEAlerts(c jape.Context) {
 	var req DismissAlertsRequest
 	if err := c.Decode(&req); err != nil {
 		return
+	} else if len(req.IDs) == 0 {
+		c.Error(errors.New("no alerts to dismiss"), http.StatusBadRequest)
+		return
 	}
 	a.alerts.Dismiss(req.IDs...)
 }
