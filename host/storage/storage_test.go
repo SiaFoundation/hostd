@@ -656,7 +656,6 @@ func TestVolumeShrink(t *testing.T) {
 		t.Fatal(err)
 	} else if err := <-result; err != nil {
 		t.Fatal(err)
-
 	}
 
 	volume, err := vm.Volume(vol.ID)
