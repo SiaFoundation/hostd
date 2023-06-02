@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -95,7 +96,7 @@ func (m *Manager) Register(a Alert) {
 	if a.ID == (types.Hash256{}) {
 		panic("cannot register alert with empty ID") // developer error
 	} else if a.Timestamp.IsZero() {
-		a.Timestamp = time.Now() // set timestamp to now if not set
+		panic("cannot register alert with zero timestamp") // developer error
 	}
 
 	m.mu.Lock()
@@ -121,6 +122,9 @@ func (m *Manager) Active() []Alert {
 	for _, a := range m.alerts {
 		alerts = append(alerts, a)
 	}
+	sort.Slice(alerts, func(i, j int) bool {
+		return alerts[i].Timestamp.After(alerts[j].Timestamp)
+	})
 	return alerts
 }
 
