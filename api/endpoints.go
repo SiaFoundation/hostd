@@ -94,14 +94,14 @@ func (a *api) handleGETAlerts(c jape.Context) {
 }
 
 func (a *api) handleDELETEAlerts(c jape.Context) {
-	var req DismissAlertsRequest
-	if err := c.Decode(&req); err != nil {
+	var ids []types.Hash256
+	if err := c.Decode(&ids); err != nil {
 		return
-	} else if len(req.IDs) == 0 {
+	} else if len(ids) == 0 {
 		c.Error(errors.New("no alerts to dismiss"), http.StatusBadRequest)
 		return
 	}
-	a.alerts.Dismiss(req.IDs...)
+	a.alerts.Dismiss(ids...)
 }
 
 func (a *api) handlePOSTAnnounce(c jape.Context) {

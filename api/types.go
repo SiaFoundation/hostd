@@ -56,11 +56,6 @@ type (
 		BuildState
 	}
 
-	// A DismissAlertsRequest is the request body for the [DELETE] /alerts endpoint.
-	DismissAlertsRequest struct {
-		IDs []types.Hash256 `json:"alertIDs"`
-	}
-
 	// ConsensusState is the response body for the [GET] /consensus endpoint.
 	ConsensusState struct {
 		Synced     bool             `json:"synced"`
