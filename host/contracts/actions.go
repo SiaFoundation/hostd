@@ -21,7 +21,13 @@ const (
 	ActionExpire                 = "expire"
 )
 
-func (cm *ContractManager) buildStorageProof(id types.FileContractID, index uint64) (types.StorageProof, error) {
+func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize uint64, index uint64) (types.StorageProof, error) {
+	if filesize == 0 {
+		return types.StorageProof{
+			ParentID: id,
+		}, nil
+	}
+
 	sectorIndex := index / rhpv2.LeavesPerSector
 	segmentIndex := index % rhpv2.LeavesPerSector
 
@@ -163,9 +169,10 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 			log.Error("failed to get chain index at height", zap.Uint64("height", contract.Revision.WindowStart-1), zap.Error(err))
 			return
 		}
+
 		// get the proof leaf index
 		leafIndex := cs.StorageProofLeafIndex(contract.Revision.Filesize, windowStart, contract.Revision.ParentID)
-		sp, err := cm.buildStorageProof(contract.Revision.ParentID, leafIndex)
+		sp, err := cm.buildStorageProof(contract.Revision.ParentID, contract.Revision.Filesize, leafIndex)
 		if err != nil {
 			log.Error("failed to build storage proof", zap.Error(err))
 			return
