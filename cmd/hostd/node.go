@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/accounts"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/registry"
@@ -110,6 +111,7 @@ func (tp txpool) Close() error {
 
 type node struct {
 	g     modules.Gateway
+	a     *alerts.Manager
 	cm    *chain.Manager
 	tp    *txpool
 	w     *wallet.SingleAddressWallet
@@ -245,13 +247,13 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 
 	accountManager := accounts.NewManager(db, sr)
-
-	sm, err := storage.NewVolumeManager(db, cm, logger.Named("volumes"))
+	am := alerts.NewManager()
+	sm, err := storage.NewVolumeManager(db, am, cm, logger.Named("volumes"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 
-	contractManager, err := contracts.NewManager(db, sm, cm, tp, w, logger.Named("contracts"))
+	contractManager, err := contracts.NewManager(db, am, sm, cm, tp, w, logger.Named("contracts"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create contract manager: %w", err)
 	}
@@ -271,6 +273,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 	return &node{
 		g:     g,
+		a:     am,
 		cm:    cm,
 		tp:    tp,
 		w:     w,

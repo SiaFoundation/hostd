@@ -11,8 +11,10 @@ import (
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -31,6 +33,12 @@ const (
 )
 
 type (
+	// Alerts can be used to register alerts.
+	Alerts interface {
+		Register(alerts.Alert)
+		Dismiss(...types.Hash256)
+	}
+
 	// A ChainManager is used to get the current consensus state.
 	ChainManager interface {
 		TipState() consensus.State
@@ -54,6 +62,7 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
+		a        Alerts
 		vs       VolumeStore
 		cm       ChainManager
 		log      *zap.Logger
@@ -224,6 +233,24 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
+	// register an alert
+	alert := alerts.Alert{
+		ID:       frand.Entropy256(),
+		Message:  "Growing volume",
+		Severity: alerts.SeverityInfo,
+		Data: map[string]any{
+			"volumeID":       id,
+			"oldSectors":     oldMaxSectors,
+			"currentSectors": oldMaxSectors,
+			"targetSectors":  newMaxSectors,
+		},
+		Timestamp: time.Now(),
+	}
+	vm.a.Register(alert)
+	// dismiss the alert when the function returns. It is the caller's
+	// responsibility to register a completion alert
+	defer vm.a.Dismiss(alert.ID)
+
 	for current := oldMaxSectors; current < newMaxSectors; current += resizeBatchSize {
 		// stop early if the context is cancelled
 		select {
@@ -244,6 +271,11 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
 		}
+
+		// update the alert
+		alert.Data["currentSectors"] = target
+		vm.a.Register(alert)
+		// sleep to allow other operations to run
 		time.Sleep(time.Millisecond)
 	}
 	return nil
@@ -261,8 +293,27 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
+	// register the alert
+	a := alerts.Alert{
+		ID:       frand.Entropy256(),
+		Message:  "Shrinking volume",
+		Severity: alerts.SeverityInfo,
+		Data: map[string]any{
+			"volumeID":        id,
+			"oldSectors":      oldMaxSectors,
+			"currentSectors":  oldMaxSectors,
+			"targetSectors":   newMaxSectors,
+			"migratedSectors": 0,
+		},
+		Timestamp: time.Now(),
+	}
+	vm.a.Register(a)
+	// dismiss the alert when the function returns. It is the caller's
+	// responsibility to register a completion alert
+	defer vm.a.Dismiss(a.ID)
+
 	// migrate any sectors outside of the target range. migrateSectors will be
-	// called on chunks of 256 sectors
+	// called on chunks of 64 sectors
 	var migrated int
 	err = vm.vs.MigrateSectors(id, newMaxSectors, func(newLocations []SectorLocation) error {
 		select {
@@ -273,6 +324,9 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 
 		n, err := vm.migrateSectors(newLocations, false, log.Named("migrateSectors"))
 		migrated += n
+		// update the alert
+		a.Data["migratedSectors"] = migrated
+		vm.a.Register(a)
 		return err
 	})
 	log.Info("migrated sectors", zap.Int("count", migrated))
@@ -303,6 +357,10 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 		} else if err := volume.Resize(target); err != nil {
 			return fmt.Errorf("failed to shrink volume data to %v sectors: %w", target, err)
 		}
+		// update the alert
+		a.Data["currentSectors"] = target
+		vm.a.Register(a)
+		// sleep to allow other operations to run
 		time.Sleep(time.Millisecond)
 	}
 	return nil
@@ -327,6 +385,71 @@ func (vm *VolumeManager) setVolumeStatus(id int, status string) {
 		return
 	}
 	v.stats.Status = status
+}
+
+func (vm *VolumeManager) doResize(volumeID int, current, target uint64) error {
+	ctx, cancel, err := vm.tg.AddContext(context.Background())
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
+	switch {
+	case current > target:
+		// volume is shrinking
+		return vm.shrinkVolume(ctx, volumeID, current, target)
+	case current < target:
+		// volume is growing
+		return vm.growVolume(ctx, volumeID, current, target)
+	}
+	return nil
+}
+
+func (vm *VolumeManager) migrateForRemoval(id int, localPath string, force bool, log *zap.Logger) (int, error) {
+	ctx, cancel, err := vm.tg.AddContext(context.Background())
+	if err != nil {
+		return 0, err
+	}
+	defer cancel()
+
+	// add an alert for the migration
+	a := alerts.Alert{
+		ID:       frand.Entropy256(),
+		Message:  "Migrating sectors",
+		Severity: alerts.SeverityInfo,
+		Data: map[string]interface{}{
+			"volumeID": id,
+			"migrated": 0,
+			"force":    force,
+		},
+		Timestamp: time.Now(),
+	}
+	vm.a.Register(a)
+	// dismiss the alert when the function returns. It is the caller's
+	// responsibility to register a completion alert
+	defer vm.a.Dismiss(a.ID)
+
+	// migrate sectors to other volumes
+	var migrated int
+	err = vm.vs.MigrateSectors(id, 0, func(locations []SectorLocation) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		n, err := vm.migrateSectors(locations, force, log.Named("migrateSectors"))
+		migrated += n
+		// update the alert
+		a.Data["migrated"] = migrated
+		vm.a.Register(a)
+		return err
+	})
+	if err != nil && !force {
+		return migrated, fmt.Errorf("failed to migrate sector data: %w", err)
+	} else if err := vm.vs.RemoveVolume(id, force); err != nil {
+		return migrated, fmt.Errorf("failed to remove volume: %w", err)
+	}
+	return migrated, nil
 }
 
 // Close gracefully shutsdown the volume manager.
@@ -410,16 +533,16 @@ func (vm *VolumeManager) Volume(id int) (VolumeMeta, error) {
 }
 
 // AddVolume adds a new volume to the storage manager
-func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume, error) {
+func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result chan<- error) (Volume, error) {
 	if maxSectors == 0 {
 		return Volume{}, errors.New("max sectors must be greater than 0")
 	}
 
-	ctx, cancel, err := vm.tg.AddContext(context.Background())
+	done, err := vm.tg.Add()
 	if err != nil {
 		return Volume{}, err
 	}
-	defer cancel()
+	defer done()
 
 	// check that the volume file does not already exist
 	if _, err := os.Stat(localPath); !errors.Is(err, os.ErrNotExist) {
@@ -448,21 +571,57 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64) (Volume,
 		},
 	}
 	vm.mu.Unlock()
-	defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
 
 	// lock the volume during grow operation
 	release, err := vm.lockVolume(volumeID)
 	if err != nil {
 		return Volume{}, fmt.Errorf("failed to lock volume: %w", err)
 	}
-	defer release()
 
-	// grow the volume to the desired size
-	if err := vm.growVolume(ctx, volumeID, 0, maxSectors); err != nil {
-		return Volume{}, fmt.Errorf("failed to grow volume: %w", err)
-	} else if err := vm.vs.SetAvailable(volumeID, true); err != nil {
-		return Volume{}, fmt.Errorf("failed to set volume available: %w", err)
-	}
+	go func() {
+		defer vm.vs.SetAvailable(volumeID, true)
+		defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
+		defer release()
+
+		log := vm.log.Named("initialize").With(zap.Int("volumeID", volumeID), zap.Uint64("maxSectors", maxSectors))
+		start := time.Now()
+		err := vm.doResize(volumeID, 0, maxSectors)
+		if err != nil {
+			vm.a.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Message:  "Unable to initialize volume",
+				Severity: alerts.SeverityError,
+				Data: map[string]interface{}{
+					"volumeID": volumeID,
+					"error":    err.Error(),
+					"elapsed":  time.Since(start),
+				},
+				Timestamp: time.Now(),
+			})
+			log.Error("failed to initialize volume", zap.Error(err))
+			select {
+			case result <- err:
+			default:
+			}
+			return
+		}
+
+		vm.a.Register(alerts.Alert{
+			ID:       frand.Entropy256(),
+			Message:  "Volume initialized",
+			Severity: alerts.SeverityInfo,
+			Data: map[string]interface{}{
+				"volumeID": volumeID,
+				"elapsed":  time.Since(start),
+			},
+			Timestamp: time.Now(),
+		})
+		log.Info("volume initialized")
+		select {
+		case result <- nil:
+		default:
+		}
+	}()
 	return vm.vs.Volume(volumeID)
 }
 
@@ -487,113 +646,195 @@ func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
 }
 
 // RemoveVolume removes a volume from the manager.
-func (vm *VolumeManager) RemoveVolume(id int, force bool) error {
-	log := vm.log.Named("removeVolume").With(zap.Int("volumeID", id))
-	ctx, cancel, err := vm.tg.AddContext(context.Background())
+func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) error {
+	log := vm.log.Named("remove").With(zap.Int("volumeID", id))
+	done, err := vm.tg.Add()
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer done()
 
 	// lock the volume during removal to prevent concurrent operations
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
 	}
-	defer release()
 
 	vol, err := vm.vs.Volume(id)
 	if err != nil {
+		release()
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
+		release()
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
-	vm.setVolumeStatus(id, VolumeStatusRemoving)
-	defer vm.setVolumeStatus(id, VolumeStatusUnavailable)
 
-	// migrate sectors to other volumes
-	var migrated int
-	err = vm.vs.MigrateSectors(id, 0, func(locations []SectorLocation) error {
+	go func() {
+		vm.setVolumeStatus(id, VolumeStatusRemoving)
+		defer vm.setVolumeStatus(id, VolumeStatusUnavailable)
+		defer release()
+
+		start := time.Now()
+
+		migrated, err := vm.migrateForRemoval(id, vol.LocalPath, force, log)
+		log.Info("migrated sectors", zap.Int("count", migrated))
+		if err != nil {
+			log.Error("failed to migrate data", zap.Error(err))
+			if !force {
+				vm.a.Register(alerts.Alert{
+					ID:       frand.Entropy256(),
+					Severity: alerts.SeverityError,
+					Message:  "Removal failed, unable to migrate sectors",
+					Data: map[string]interface{}{
+						"volumeID": id,
+						"error":    err.Error(),
+						"elapsed":  time.Since(start),
+					},
+					Timestamp: time.Now(),
+				})
+				select {
+				case result <- err:
+				default:
+				}
+				return
+			}
+		}
+
+		vm.mu.Lock()
+		defer vm.mu.Unlock()
+		// close the volume
+		vm.volumes[id].Close()
+		// delete the volume from memory
+		delete(vm.volumes, id)
+		// remove the volume file, ignore error if the file does not exist
+		if err := os.Remove(vol.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			vm.a.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityError,
+				Message:  "Removal failed, unable to remove volume file",
+				Data: map[string]interface{}{
+					"volumeID": id,
+					"error":    err.Error(),
+					"elapsed":  time.Since(start),
+				},
+				Timestamp: time.Now(),
+			})
+			select {
+			case result <- err:
+			default:
+			}
+			log.Error("failed to remove volume file", zap.Error(err))
+		}
+
+		if err := vm.vs.RemoveVolume(id, force); err != nil {
+			vm.a.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityError,
+				Message:  "Removal failed, unable to remove volume",
+				Data: map[string]interface{}{
+					"volumeID": id,
+					"error":    err.Error(),
+					"elapsed":  time.Since(start),
+				},
+				Timestamp: time.Now(),
+			})
+			log.Error("failed to remove volume", zap.Error(err))
+			select {
+			case result <- err:
+			default:
+			}
+		}
+
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case result <- nil:
 		default:
 		}
-		n, err := vm.migrateSectors(locations, force, log.Named("migrateSectors"))
-		migrated += n
-		return err
-	})
-	log.Debug("migrated sectors", zap.Int("count", migrated))
-	if err != nil && !force {
-		return fmt.Errorf("failed to migrate sector data: %w", err)
-	} else if err := vm.vs.RemoveVolume(id, force); err != nil {
-		return fmt.Errorf("failed to remove volume: %w", err)
-	}
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-	// close the volume
-	vm.volumes[id].Close()
-	// delete the volume from memory
-	delete(vm.volumes, id)
-	// remove the volume file, ignore error if the file does not exist
-	if err := os.Remove(vol.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("failed to remove volume file: %w", err)
-	}
+	}()
 	return nil
 }
 
 // ResizeVolume resizes a volume to the specified size.
-func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64) error {
-	ctx, cancel, err := vm.tg.AddContext(context.Background())
+func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- error) error {
+	done, err := vm.tg.Add()
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer done()
 
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
 	}
-	defer release()
+	vm.setVolumeStatus(id, VolumeStatusResizing)
 
 	vol, err := vm.vs.Volume(id)
 	if err != nil {
+		release()
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
-
-	vm.setVolumeStatus(id, VolumeStatusResizing)
-	defer vm.setVolumeStatus(id, VolumeStatusReady)
 
 	oldReadonly := vol.ReadOnly
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
+		release()
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
 
-	defer func() {
-		// restore the volume to its original read-only status
-		if err := vm.vs.SetReadOnly(id, oldReadonly); err != nil {
-			vm.log.Named("resize").Error("failed to restore volume read-only status", zap.Error(err), zap.Int("volumeID", id))
+	go func() {
+		log := vm.log.Named("resize").With(zap.Int("volumeID", id))
+		defer func() {
+			// restore the volume to its original read-only status
+			if err := vm.vs.SetReadOnly(id, oldReadonly); err != nil {
+				log.Error("failed to restore volume read-only status", zap.Error(err))
+			}
+			vm.setVolumeStatus(id, VolumeStatusReady)
+		}()
+		defer release()
+
+		start := time.Now()
+		if err := vm.doResize(id, vol.TotalSectors, maxSectors); err != nil {
+			log.Error("failed to resize volume", zap.Error(err))
+			vm.a.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityError,
+				Message:  "Unable to resize volume",
+				Data: map[string]any{
+					"volumeID":       id,
+					"error":          err.Error(),
+					"elapsed":        time.Since(start),
+					"targetSectors":  maxSectors,
+					"currentSectors": vol.TotalSectors,
+				},
+				Timestamp: time.Now(),
+			})
+			select {
+			case result <- err:
+			default:
+			}
+			return
+		}
+
+		vm.a.Register(alerts.Alert{
+			ID:       frand.Entropy256(),
+			Severity: alerts.SeverityInfo,
+			Message:  "Volume resized",
+			Data: map[string]any{
+				"volumeID":       id,
+				"elapsed":        time.Since(start),
+				"targetSectors":  maxSectors,
+				"currentSectors": vol.TotalSectors,
+			},
+			Timestamp: time.Now(),
+		})
+		select {
+		case result <- nil:
+		default:
 		}
 	}()
 
-	if vol.TotalSectors == maxSectors {
-		// volume is the same size, nothing to do
-		return nil
-	} else if vol.TotalSectors > maxSectors {
-		// volume is shrinking
-		if err := vm.shrinkVolume(ctx, id, vol.TotalSectors, maxSectors); err != nil {
-			return fmt.Errorf("failed to shrink volume to %v sectors: %w", maxSectors, err)
-		}
-		return nil
-	}
-	// volume is growing
-	if err := vm.growVolume(ctx, id, vol.TotalSectors, maxSectors); err != nil {
-		return fmt.Errorf("failed to grow volume: %w", err)
-	}
 	return nil
 }
 
@@ -764,9 +1005,10 @@ func (vm *VolumeManager) PruneSectors() error {
 }
 
 // NewVolumeManager creates a new VolumeManager.
-func NewVolumeManager(vs VolumeStore, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
+func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
 	vm := &VolumeManager{
 		vs:  vs,
+		a:   a,
 		cm:  cm,
 		log: log,
 		recorder: &sectorAccessRecorder{

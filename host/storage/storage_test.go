@@ -3,7 +3,6 @@ package storage_test
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +10,7 @@ import (
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/chain"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/siad/modules/consensus"
@@ -61,14 +61,18 @@ func TestVolumeLoad(t *testing.T) {
 	defer cm.Close()
 	defer cm.Close()
 
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
-	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
+	result := make(chan error, 1)
+	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors, result)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,7 +92,7 @@ func TestVolumeLoad(t *testing.T) {
 	}
 
 	// reopen the volume manager
-	vm, err = storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	vm, err = storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,14 +163,18 @@ func TestAddVolume(t *testing.T) {
 	defer cm.Close()
 	defer cm.Close()
 
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
-	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors)
+	result := make(chan error, 1)
+	volume, err := vm.AddVolume(filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors, result)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
@@ -224,15 +232,19 @@ func TestRemoveVolume(t *testing.T) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
-	volume, err := vm.AddVolume(volumePath, expectedSectors)
+	volume, err := vm.AddVolume(volumePath, expectedSectors, result)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
@@ -251,7 +263,11 @@ func TestRemoveVolume(t *testing.T) {
 
 	// attempt to remove the volume. Should return ErrNotEnoughStorage since
 	// there is only one volume.
-	if err := vm.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.RemoveVolume(volume.ID, false, result); err != nil {
+		// blocking error should be nil
+		t.Fatal(err)
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
+		// async error should be ErrNotEnoughStorage
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
@@ -261,7 +277,9 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// remove the volume
-	if err := vm.RemoveVolume(volume.ID, false); err != nil {
+	if err := vm.RemoveVolume(volume.ID, false, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	} else if _, err := os.Stat(volumePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("volume file still exists", err)
@@ -302,15 +320,19 @@ func TestRemoveCorrupt(t *testing.T) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
-	volume, err := vm.AddVolume(volumePath, expectedSectors)
+	volume, err := vm.AddVolume(volumePath, expectedSectors, result)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
@@ -331,13 +353,19 @@ func TestRemoveCorrupt(t *testing.T) {
 
 	// attempt to remove the volume. Should return ErrNotEnoughStorage since
 	// there is only one volume.
-	if err := vm.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.RemoveVolume(volume.ID, false, result); err != nil {
+		// blocking error should be nil
+		t.Fatal(err)
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
+		// async error should be ErrNotEnoughStorage
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
 	// add a second volume to the manager
-	_, err = vm.AddVolume(filepath.Join(t.TempDir(), "vol2.dat"), expectedSectors)
+	_, err = vm.AddVolume(filepath.Join(t.TempDir(), "vol2.dat"), expectedSectors, result)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
@@ -357,12 +385,18 @@ func TestRemoveCorrupt(t *testing.T) {
 	}
 
 	// remove the volume
-	if err := vm.RemoveVolume(volume.ID, false); err == nil || errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.RemoveVolume(volume.ID, false, result); err != nil {
+		t.Fatal(err) // blocking error should be nil
+	} else if err := <-result; err == nil {
 		t.Fatal("expected error when removing corrupt volume", err)
-	} else if err != nil {
-		t.Log("got", err)
-	} else if err := vm.RemoveVolume(volume.ID, true); err != nil {
+	}
+	// force remove the volume
+	if err := vm.RemoveVolume(volume.ID, true, result); err != nil {
 		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	} else if _, err := os.Stat(volumePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("volume file still exists", err)
 	}
 }
 
@@ -400,15 +434,19 @@ func TestRemoveMissing(t *testing.T) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
-	volume, err := vm.AddVolume(volumePath, expectedSectors)
+	volume, err := vm.AddVolume(volumePath, expectedSectors, result)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
@@ -429,13 +467,17 @@ func TestRemoveMissing(t *testing.T) {
 
 	// attempt to remove the volume. Should return ErrNotEnoughStorage since
 	// there is only one volume.
-	if err := vm.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.RemoveVolume(volume.ID, false, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
 	// add a second volume to the manager
-	_, err = vm.AddVolume(filepath.Join(t.TempDir(), "vol2.dat"), expectedSectors)
+	_, err = vm.AddVolume(filepath.Join(t.TempDir(), "vol2.dat"), expectedSectors, result)
 	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
@@ -450,7 +492,7 @@ func TestRemoveMissing(t *testing.T) {
 	}
 
 	// reload the volume manager
-	vm, err = storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	vm, err = storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,11 +506,15 @@ func TestRemoveMissing(t *testing.T) {
 	}
 
 	// remove the volume
-	if err := vm.RemoveVolume(volume.ID, false); err == nil || errors.Is(err, storage.ErrNotEnoughStorage) {
-		t.Fatal("expected error when removing missing volume", err)
-	} else if err != nil {
-		t.Log("got", err)
-	} else if err := vm.RemoveVolume(volume.ID, true); err != nil {
+	if err := vm.RemoveVolume(volume.ID, false, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err == nil {
+		t.Fatal("expected error when removing missing volume")
+	}
+
+	if err := vm.RemoveVolume(volume.ID, true, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 }
@@ -507,17 +553,31 @@ func TestVolumeGrow(t *testing.T) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
-	volume, err := vm.AddVolume(volumeFilePath, initialSectors)
+	volume, err := vm.AddVolume(volumeFilePath, initialSectors, result)
 	if err != nil {
 		t.Fatal(err)
-	} else if err := checkFileSize(volumeFilePath, int64(initialSectors*rhpv2.SectorSize)); err != nil {
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	// reload the volume, since the initialization progress will have changed
+	v, err := vm.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume = v.Volume
+
+	// check the volume
+	if err := checkFileSize(volumeFilePath, int64(initialSectors*rhpv2.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != initialSectors {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors, volume.TotalSectors)
@@ -527,11 +587,16 @@ func TestVolumeGrow(t *testing.T) {
 
 	// grow the volume
 	const newSectors = 64
-	if err := vm.ResizeVolume(volume.ID, newSectors); err != nil {
+	if err := vm.ResizeVolume(volume.ID, newSectors, result); err != nil {
 		t.Fatal(err)
-	} else if err := checkFileSize(volumeFilePath, int64(newSectors*rhpv2.SectorSize)); err != nil {
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
+
+	if err := checkFileSize(volumeFilePath, int64(newSectors*rhpv2.SectorSize)); err != nil {
+		t.Fatal(err)
+	}
+
 	meta, err := vm.Volume(volume.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -577,17 +642,29 @@ func TestVolumeShrink(t *testing.T) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
-	volume, err := vm.AddVolume(volumeFilePath, sectors)
+	vol, err := vm.AddVolume(volumeFilePath, sectors, result)
 	if err != nil {
 		t.Fatal(err)
-	} else if err := checkFileSize(volumeFilePath, int64(sectors*rhpv2.SectorSize)); err != nil {
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	volume, err := vm.Volume(vol.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check the volume
+	if err := checkFileSize(volumeFilePath, int64(sectors*rhpv2.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != sectors {
 		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
@@ -641,7 +718,9 @@ func TestVolumeShrink(t *testing.T) {
 	// try to shrink the volume, should fail since no space is available
 	toRemove := sectors / 4
 	remainingSectors := uint64(sectors - toRemove)
-	if err := vm.ResizeVolume(volume.ID, remainingSectors); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.ResizeVolume(volume.ID, remainingSectors, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected not enough storage error, got %v", err)
 	}
 
@@ -656,7 +735,9 @@ func TestVolumeShrink(t *testing.T) {
 	roots = append(roots[remainingSectors:], roots[toRemove:remainingSectors]...)
 
 	// shrink the volume by the number of sectors removed, should succeed
-	if err := vm.ResizeVolume(volume.ID, remainingSectors); err != nil {
+	if err := vm.ResizeVolume(volume.ID, remainingSectors, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	} else if err := checkFileSize(volumeFilePath, int64(remainingSectors*rhpv2.SectorSize)); err != nil {
 		t.Fatal(err)
@@ -723,17 +804,28 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
-	volume, err := vm.AddVolume(volumeFilePath, sectors)
+	vol, err := vm.AddVolume(volumeFilePath, sectors, result)
 	if err != nil {
 		t.Fatal(err)
-	} else if err := checkFileSize(volumeFilePath, int64(sectors*rhpv2.SectorSize)); err != nil {
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	volume, err := vm.Volume(vol.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkFileSize(volumeFilePath, int64(sectors*rhpv2.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != sectors {
 		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
@@ -812,15 +904,19 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
-	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
+	_, err = vm.AddVolume(volumeFilePath, uint64(b.N), result)
 	if err != nil {
+		b.Fatal(err)
+	} else if err := <-result; err != nil {
 		b.Fatal(err)
 	}
 
@@ -877,7 +973,8 @@ func BenchmarkNewVolume(b *testing.B) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -887,36 +984,13 @@ func BenchmarkNewVolume(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 	b.SetBytes(rhpv2.SectorSize)
 
+	result := make(chan error, 1)
 	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
-	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
+	_, err = vm.AddVolume(volumeFilePath, uint64(b.N), result)
 	if err != nil {
 		b.Fatal(err)
-	}
-}
-
-func BenchmarkThingy(b *testing.B) {
-	f, err := os.Create(filepath.Join(os.TempDir(), "test.tmp"))
-	if err != nil {
+	} else if err := <-result; err != nil {
 		b.Fatal(err)
-	}
-	defer f.Close()
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	b.SetBytes(1)
-
-	lr := io.LimitReader(frand.Reader, int64(b.N))
-	if _, err := io.Copy(f, lr); err != nil {
-		b.Fatal(err)
-	} else if err := f.Sync(); err != nil {
-		b.Fatal(err)
-	}
-
-	stat, err := f.Stat()
-	if err != nil {
-		b.Fatal(err)
-	} else if stat.Size() != int64(b.N) {
-		b.Fatalf("expected file size %v, got %v", b.N, stat.Size())
 	}
 }
 
@@ -950,15 +1024,19 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
-	_, err = vm.AddVolume(volumeFilePath, uint64(b.N))
+	_, err = vm.AddVolume(volumeFilePath, uint64(b.N), result)
 	if err != nil {
+		b.Fatal(err)
+	} else if err := <-result; err != nil {
 		b.Fatal(err)
 	}
 
@@ -1018,15 +1096,19 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	defer cm.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, cm, log.Named("volumes"))
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"))
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer vm.Close()
 
+	result := make(chan error, 1)
 	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
-	volume1, err := vm.AddVolume(volumeFilePath, uint64(b.N))
+	volume1, err := vm.AddVolume(volumeFilePath, uint64(b.N), result)
 	if err != nil {
+		b.Fatal(err)
+	} else if err := <-result; err != nil {
 		b.Fatal(err)
 	}
 
@@ -1045,8 +1127,10 @@ func BenchmarkVolumeRemove(b *testing.B) {
 
 	// add a new volume
 	volume2FilePath := filepath.Join(b.TempDir(), "hostdata2.dat")
-	_, err = vm.AddVolume(volume2FilePath, uint64(b.N))
+	_, err = vm.AddVolume(volume2FilePath, uint64(b.N), result)
 	if err != nil {
+		b.Fatal(err)
+	} else if err := <-result; err != nil {
 		b.Fatal(err)
 	}
 
@@ -1055,7 +1139,9 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	b.SetBytes(rhpv2.SectorSize)
 
 	// migrate the sectors
-	if err := vm.RemoveVolume(volume1.ID, false); err != nil {
+	if err := vm.RemoveVolume(volume1.ID, false, result); err != nil {
+		b.Fatal(err)
+	} else if err := <-result; err != nil {
 		b.Fatal(err)
 	}
 }

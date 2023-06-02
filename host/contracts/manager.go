@@ -8,14 +8,17 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 type (
@@ -47,6 +50,12 @@ type (
 		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
 	}
 
+	// Alerts registers and dismisses global alerts.
+	Alerts interface {
+		Register(alerts.Alert)
+		Dismiss(...types.Hash256)
+	}
+
 	locker struct {
 		c       chan struct{}
 		waiters int
@@ -58,6 +67,7 @@ type (
 		tg    *threadgroup.ThreadGroup
 		log   *zap.Logger
 
+		alerts  Alerts
 		storage StorageManager
 		chain   ChainManager
 		tpool   TransactionPool
@@ -261,6 +271,16 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.SetStatus(reverted, ContractStatusPending); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
+			cm.alerts.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityWarning,
+				Message:  "Contract formation reverted",
+				Data: map[string]any{
+					"contractID":  reverted,
+					"blockHeight": cc.BlockHeight,
+				},
+				Timestamp: time.Now(),
+			})
 			log.Debug("contract formation reverted", zap.String("contract", reverted.String()))
 		}
 
@@ -272,6 +292,16 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.RevertRevision(reverted); err != nil {
 				return fmt.Errorf("failed to revert revision: %w", err)
 			}
+			cm.alerts.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityWarning,
+				Message:  "Contract revision reverted",
+				Data: map[string]any{
+					"contractID":  reverted,
+					"blockHeight": cc.BlockHeight,
+				},
+				Timestamp: time.Now(),
+			})
 			log.Debug("contract revision reverted", zap.String("contract", reverted.String()))
 		}
 
@@ -285,6 +315,16 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.SetStatus(reverted, ContractStatusActive); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
+			cm.alerts.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityWarning,
+				Message:  "Contract resolution reverted",
+				Data: map[string]any{
+					"contractID":  reverted,
+					"blockHeight": cc.BlockHeight,
+				},
+				Timestamp: time.Now(),
+			})
 			log.Debug("contract resolution reverted", zap.String("contract", reverted.String()))
 		}
 
@@ -322,6 +362,17 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.SetStatus(applied.id, ContractStatusSuccessful); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
+			cm.alerts.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityWarning,
+				Message:  "Contract resolution confirmed",
+				Data: map[string]any{
+					"contractID":  applied,
+					"blockHeight": cc.BlockHeight,
+					"resolution":  "successful",
+				},
+				Timestamp: time.Now(),
+			})
 			log.Debug("contract resolution applied", zap.String("contract", applied.id.String()), zap.Uint64("height", applied.height))
 		}
 
@@ -393,12 +444,12 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 }
 
 // NewManager creates a new contract manager.
-func NewManager(store ContractStore, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) (*ContractManager, error) {
+func NewManager(store ContractStore, alerts Alerts, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) (*ContractManager, error) {
 	cm := &ContractManager{
-		store: store,
-		tg:    threadgroup.New(),
-		log:   log,
-
+		store:   store,
+		tg:      threadgroup.New(),
+		log:     log,
+		alerts:  alerts,
 		storage: storage,
 		chain:   chain,
 		tpool:   tpool,

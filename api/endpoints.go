@@ -89,6 +89,21 @@ func (a *api) handleDeleteSyncerPeer(c jape.Context) {
 	a.checkServerError(c, "failed to disconnect from peer", err)
 }
 
+func (a *api) handleGETAlerts(c jape.Context) {
+	c.Encode(a.alerts.Active())
+}
+
+func (a *api) handleDELETEAlerts(c jape.Context) {
+	var req DismissAlertsRequest
+	if err := c.Decode(&req); err != nil {
+		return
+	} else if len(req.IDs) == 0 {
+		c.Error(errors.New("no alerts to dismiss"), http.StatusBadRequest)
+		return
+	}
+	a.alerts.Dismiss(req.IDs...)
+}
+
 func (a *api) handlePOSTAnnounce(c jape.Context) {
 	err := a.settings.Announce()
 	a.checkServerError(c, "failed to announce", err)
@@ -324,7 +339,7 @@ func (a *api) handlePOSTVolume(c jape.Context) {
 		return
 	}
 
-	volume, err := a.volumes.AddVolume(req.LocalPath, req.MaxSectors)
+	volume, err := a.volumes.AddVolume(req.LocalPath, req.MaxSectors, nil)
 	if !a.checkServerError(c, "failed to add volume", err) {
 		return
 	}
@@ -342,7 +357,7 @@ func (a *api) handleDeleteVolume(c jape.Context) {
 	} else if err := c.DecodeForm("force", &force); err != nil {
 		return
 	}
-	err := a.volumes.RemoveVolume(id, force)
+	err := a.volumes.RemoveVolume(id, force, nil)
 	a.checkServerError(c, "failed to remove volume", err)
 }
 
@@ -360,7 +375,7 @@ func (a *api) handlePUTVolumeResize(c jape.Context) {
 		return
 	}
 
-	err := a.volumes.ResizeVolume(id, req.MaxSectors)
+	err := a.volumes.ResizeVolume(id, req.MaxSectors, nil)
 	a.checkServerError(c, "failed to resize volume", err)
 }
 

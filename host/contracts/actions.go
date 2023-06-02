@@ -7,7 +7,9 @@ import (
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/alerts"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 // An action determines what lifecycle event should be performed on a contract.
@@ -223,6 +225,16 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 			if err := cm.store.SetContractStatus(id, ContractStatusFailed); err != nil {
 				log.Error("failed to set contract status", zap.Error(err))
 			}
+			cm.alerts.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityWarning,
+				Message:  "Contract failed without storage proof",
+				Data: map[string]any{
+					"contractID":  id,
+					"blockHeight": height,
+				},
+				Timestamp: time.Now(),
+			})
 			log.Error("contract failed, revenue lost", zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
 			return
 		}

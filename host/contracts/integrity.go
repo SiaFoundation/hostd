@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/alerts"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 type (
@@ -54,6 +57,7 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 		}
 		defer done()
 
+		var missing, corrupt int
 		log := cm.log.Named("integrityCheck").With(zap.String("contractID", contractID.String()))
 		for _, root := range roots {
 			select {
@@ -65,14 +69,34 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 			sector, err := cm.storage.Read(root)
 			if err != nil { // sector read failed
 				log.Error("missing sector", zap.String("root", root.String()), zap.Error(err))
+				missing++
 				results <- IntegrityResult{Root: root, Error: err}
 			} else if calculated := rhpv2.SectorRoot(sector); root != calculated { // sector data corrupt
 				log.Error("corrupt sector", zap.String("root", root.String()), zap.String("actual", calculated.String()))
+				corrupt++
 				results <- IntegrityResult{Root: root, ActualRoot: calculated, Error: errors.New("sector data corrupt")}
 			} else { // sector is valid
 				results <- IntegrityResult{Root: root, ActualRoot: calculated}
 			}
 		}
+
+		log.Info("integrity check complete", zap.Int("missing", missing), zap.Int("corrupt", corrupt))
+		var severity alerts.Severity
+		if corrupt > 0 || missing > 0 {
+			severity = alerts.SeverityError
+		}
+		cm.alerts.Register(alerts.Alert{
+			ID:       frand.Entropy256(),
+			Severity: severity,
+			Message:  "Integrity check complete",
+			Data: map[string]any{
+				"contractID": contractID,
+				"missing":    missing,
+				"corrupt":    corrupt,
+				"checked":    len(roots),
+			},
+			Timestamp: time.Now(),
+		})
 	}()
 	return results, uint64(len(roots)), nil
 }
