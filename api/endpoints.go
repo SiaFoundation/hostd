@@ -557,6 +557,8 @@ func (a *api) handlePOSTLogEntries(c jape.Context) {
 	entries, count, err := a.logs.LogEntries(filter)
 	if !a.checkServerError(c, "failed to get log entries", err) {
 		return
+	} else if entries == nil {
+		entries = []logging.Entry{} // TODO: remove. prevents null in JSON causing client-side error
 	}
 	c.Encode(LogResponse{
 		Entries: entries,
