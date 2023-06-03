@@ -579,13 +579,15 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 	}
 
 	go func() {
-		defer vm.vs.SetAvailable(volumeID, true)
-		defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
-		defer release()
-
 		log := vm.log.Named("initialize").With(zap.Int("volumeID", volumeID), zap.Uint64("maxSectors", maxSectors))
 		start := time.Now()
-		err := vm.doResize(volumeID, 0, maxSectors)
+		err := func() error {
+			defer vm.vs.SetAvailable(volumeID, true)
+			defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
+			defer release()
+
+			return vm.doResize(volumeID, 0, maxSectors)
+		}()
 		if err != nil {
 			vm.a.Register(alerts.Alert{
 				ID:       frand.Entropy256(),
@@ -599,26 +601,21 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 				Timestamp: time.Now(),
 			})
 			log.Error("failed to initialize volume", zap.Error(err))
-			select {
-			case result <- err:
-			default:
-			}
-			return
+		} else {
+			vm.a.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Message:  "Volume initialized",
+				Severity: alerts.SeverityInfo,
+				Data: map[string]interface{}{
+					"volumeID": volumeID,
+					"elapsed":  time.Since(start),
+				},
+				Timestamp: time.Now(),
+			})
+			log.Info("volume initialized")
 		}
-
-		vm.a.Register(alerts.Alert{
-			ID:       frand.Entropy256(),
-			Message:  "Volume initialized",
-			Severity: alerts.SeverityInfo,
-			Data: map[string]interface{}{
-				"volumeID": volumeID,
-				"elapsed":  time.Since(start),
-			},
-			Timestamp: time.Now(),
-		})
-		log.Info("volume initialized")
 		select {
-		case result <- nil:
+		case result <- err:
 		default:
 		}
 	}()
