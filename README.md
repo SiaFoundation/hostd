@@ -14,6 +14,18 @@ manage their storage resources and revenue. `hostd` incorporates an embedded
 web-UI, simplifying deployment and enabling remote management capabilities,
 ensuring a smooth user experience across a diverse range of devices.
 
+### Ports
+`hostd` uses the following ports:
++ `9980` - UI and API
++ `9981` - Sia consensus
++ `9982` - RHP2
++ `9983` - RHP3
+
+### Environment Variables
+`hostd` supports the following environment variables:
++ `HOSTD_API_PASSWORD` - The password for the UI and API
++ `HOSTD_WALLET_SEED` - The recovery phrase for the wallet
+
 ## Current Status
 
 `hostd` is currently in alpha. It is not yet considered stable and may receive breaking changes at any time. It is recommended to only use `hostd` on the Zen testnet. Using `hostd` on the main Sia network is strongly discouraged. By limiting its use to the Zen testnet, you can safely explore its features and contribute to its improvement without risking your assets.
@@ -33,7 +45,18 @@ CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-
 
 ## Testnet Builds
 
-`hostd` can be built to run on the Zen testnet by adding the `testnet` build tag.
+`hostd` can be built to run on the Zen testnet by adding the `testnet` build
+tag.
+
+The Zen testnet version of `hostd` changes the environment variables and default
+ports:
++ `HOSTD_ZEN_WALLT_SEED` - The recovery phrase for the wallet
++ `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
+
++ `9880` - UI and API
++ `9881` - Sia consensus
++ `9882` - RHP2
++ `9883` - RHP3
 
 ```sh
 go generate ./...
@@ -80,6 +103,16 @@ services:
 ## Testnet
 
 Suffix any tag with `-testnet` to use the testnet image.
+
+The Zen testnet version of `hostd` changes the environment variables and default
+ports:
++ `HOSTD_ZEN_WALLT_SEED` - The recovery phrase for the wallet
++ `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
+
++ `9880` - UI and API
++ `9881` - Sia consensus
++ `9882` - RHP2
++ `9883` - RHP3
 
 ## Building image
 
