@@ -449,6 +449,17 @@ func (vm *VolumeManager) migrateForRemoval(id int, localPath string, force bool,
 	} else if err := vm.vs.RemoveVolume(id, force); err != nil {
 		return migrated, fmt.Errorf("failed to remove volume: %w", err)
 	}
+
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	// close the volume
+	vm.volumes[id].Close()
+	// delete the volume from memory
+	delete(vm.volumes, id)
+	// remove the volume file, ignore error if the file does not exist
+	if err := os.Remove(localPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return migrated, fmt.Errorf("failed to remove volume file: %w", err)
+	}
 	return migrated, nil
 }
 
@@ -585,35 +596,27 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 			defer vm.vs.SetAvailable(volumeID, true)
 			defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
 			defer release()
-
 			return vm.doResize(volumeID, 0, maxSectors)
 		}()
-		if err != nil {
-			vm.a.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
-				Message:  "Unable to initialize volume",
-				Severity: alerts.SeverityError,
-				Data: map[string]interface{}{
-					"volumeID": volumeID,
-					"error":    err.Error(),
-					"elapsed":  time.Since(start),
-				},
-				Timestamp: time.Now(),
-			})
-			log.Error("failed to initialize volume", zap.Error(err))
-		} else {
-			vm.a.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
-				Message:  "Volume initialized",
-				Severity: alerts.SeverityInfo,
-				Data: map[string]interface{}{
-					"volumeID": volumeID,
-					"elapsed":  time.Since(start),
-				},
-				Timestamp: time.Now(),
-			})
-			log.Info("volume initialized")
+		alert := alerts.Alert{
+			ID: frand.Entropy256(),
+			Data: map[string]interface{}{
+				"volumeID": volumeID,
+				"elapsed":  time.Since(start),
+				"target":   maxSectors,
+			},
+			Timestamp: time.Now(),
 		}
+		if err != nil {
+			log.Error("failed to initialize volume", zap.Error(err))
+			alert.Message = "Failed to initialize volume"
+			alert.Severity = alerts.SeverityError
+		} else {
+			alert.Message = "Volume initialized"
+			alert.Severity = alerts.SeverityInfo
+		}
+		vm.a.Register(alert)
+
 		select {
 		case result <- err:
 		default:
@@ -670,86 +673,39 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) e
 	}
 
 	go func() {
-		vm.setVolumeStatus(id, VolumeStatusRemoving)
-		defer vm.setVolumeStatus(id, VolumeStatusUnavailable)
-		defer release()
-
 		start := time.Now()
+		migrated, err := func() (int, error) {
+			vm.setVolumeStatus(id, VolumeStatusRemoving)
+			defer vm.setVolumeStatus(id, VolumeStatusUnavailable)
+			defer release()
+			return vm.migrateForRemoval(id, vol.LocalPath, force, log)
+		}()
 
-		migrated, err := vm.migrateForRemoval(id, vol.LocalPath, force, log)
-		log.Info("migrated sectors", zap.Int("count", migrated))
+		alert := alerts.Alert{
+			ID: frand.Entropy256(),
+			Data: map[string]interface{}{
+				"volumeID":        id,
+				"elapsed":         time.Since(start),
+				"migratedSectors": migrated,
+			},
+			Timestamp: time.Now(),
+		}
 		if err != nil {
-			log.Error("failed to migrate data", zap.Error(err))
-			if !force {
-				vm.a.Register(alerts.Alert{
-					ID:       frand.Entropy256(),
-					Severity: alerts.SeverityError,
-					Message:  "Removal failed, unable to migrate sectors",
-					Data: map[string]interface{}{
-						"volumeID": id,
-						"error":    err.Error(),
-						"elapsed":  time.Since(start),
-					},
-					Timestamp: time.Now(),
-				})
-				select {
-				case result <- err:
-				default:
-				}
-				return
-			}
+			alert.Message = "Volume removal failed"
+			alert.Severity = alerts.SeverityError
+			alert.Data["error"] = err.Error()
+		} else {
+			alert.Message = "Volume removed"
+			alert.Severity = alerts.SeverityInfo
 		}
-
-		vm.mu.Lock()
-		defer vm.mu.Unlock()
-		// close the volume
-		vm.volumes[id].Close()
-		// delete the volume from memory
-		delete(vm.volumes, id)
-		// remove the volume file, ignore error if the file does not exist
-		if err := os.Remove(vol.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			vm.a.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
-				Severity: alerts.SeverityError,
-				Message:  "Removal failed, unable to remove volume file",
-				Data: map[string]interface{}{
-					"volumeID": id,
-					"error":    err.Error(),
-					"elapsed":  time.Since(start),
-				},
-				Timestamp: time.Now(),
-			})
-			select {
-			case result <- err:
-			default:
-			}
-			log.Error("failed to remove volume file", zap.Error(err))
-		}
-
-		if err := vm.vs.RemoveVolume(id, force); err != nil {
-			vm.a.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
-				Severity: alerts.SeverityError,
-				Message:  "Removal failed, unable to remove volume",
-				Data: map[string]interface{}{
-					"volumeID": id,
-					"error":    err.Error(),
-					"elapsed":  time.Since(start),
-				},
-				Timestamp: time.Now(),
-			})
-			log.Error("failed to remove volume", zap.Error(err))
-			select {
-			case result <- err:
-			default:
-			}
-		}
+		vm.a.Register(alert)
 
 		select {
-		case result <- nil:
+		case result <- err:
 		default:
 		}
 	}()
+
 	return nil
 }
 
@@ -782,56 +738,42 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 
 	go func() {
 		log := vm.log.Named("resize").With(zap.Int("volumeID", id))
-		defer func() {
-			// restore the volume to its original read-only status
-			if err := vm.vs.SetReadOnly(id, oldReadonly); err != nil {
-				log.Error("failed to restore volume read-only status", zap.Error(err))
-			}
-			vm.setVolumeStatus(id, VolumeStatusReady)
-		}()
-		defer release()
-
 		start := time.Now()
-		if err := vm.doResize(id, vol.TotalSectors, maxSectors); err != nil {
-			log.Error("failed to resize volume", zap.Error(err))
-			vm.a.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
-				Severity: alerts.SeverityError,
-				Message:  "Unable to resize volume",
-				Data: map[string]any{
-					"volumeID":       id,
-					"error":          err.Error(),
-					"elapsed":        time.Since(start),
-					"targetSectors":  maxSectors,
-					"currentSectors": vol.TotalSectors,
-				},
-				Timestamp: time.Now(),
-			})
-			select {
-			case result <- err:
-			default:
-			}
-			return
-		}
-
-		vm.a.Register(alerts.Alert{
-			ID:       frand.Entropy256(),
-			Severity: alerts.SeverityInfo,
-			Message:  "Volume resized",
-			Data: map[string]any{
-				"volumeID":       id,
-				"elapsed":        time.Since(start),
-				"targetSectors":  maxSectors,
-				"currentSectors": vol.TotalSectors,
+		err := func() error {
+			defer func() {
+				// restore the volume to its original read-only status
+				if err := vm.vs.SetReadOnly(id, oldReadonly); err != nil {
+					log.Error("failed to restore volume read-only status", zap.Error(err))
+				}
+				vm.setVolumeStatus(id, VolumeStatusReady)
+			}()
+			defer release()
+			return vm.doResize(id, vol.TotalSectors, maxSectors)
+		}()
+		alert := alerts.Alert{
+			ID: frand.Entropy256(),
+			Data: map[string]interface{}{
+				"volumeID":      id,
+				"elapsed":       time.Since(start),
+				"targetSectors": maxSectors,
 			},
 			Timestamp: time.Now(),
-		})
+		}
+		if err != nil {
+			log.Error("failed to resize volume", zap.Error(err))
+			alert.Message = "Volume resize failed"
+			alert.Severity = alerts.SeverityError
+			alert.Data["error"] = err.Error()
+		} else {
+			alert.Message = "Volume resized"
+			alert.Severity = alerts.SeverityInfo
+		}
+		vm.a.Register(alert)
 		select {
-		case result <- nil:
+		case result <- err:
 		default:
 		}
 	}()
-
 	return nil
 }
 
