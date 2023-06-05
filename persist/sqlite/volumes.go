@@ -238,7 +238,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		if err != nil {
 			return err
 		}
-		time.Sleep(10 * time.Millisecond) // allow other transactions to run
+		time.Sleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
@@ -297,7 +297,7 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 		} else if done {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(time.Millisecond)
 	}
 	_, err := s.exec(`DELETE FROM storage_volumes WHERE id=?`, id)
 	return err
