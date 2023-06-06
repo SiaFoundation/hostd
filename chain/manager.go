@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"gitlab.com/NebulousLabs/encoding"
@@ -16,7 +17,8 @@ import (
 
 var (
 	// ErrBlockNotFound is returned when a block is not found.
-	ErrBlockNotFound = errors.New("block not found")
+	ErrBlockNotFound   = errors.New("block not found")
+	ErrInvalidChangeID = errors.New("invalid change id")
 )
 
 func convertToSiad(core types.EncoderTo, siad encoding.SiaUnmarshaler) {
@@ -126,7 +128,13 @@ func (m *Manager) AcceptBlock(b types.Block) error {
 
 // Subscribe subscribes to the consensus set.
 func (m *Manager) Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error {
-	return m.cs.ConsensusSetSubscribe(s, ccID, cancel)
+	if err := m.cs.ConsensusSetSubscribe(s, ccID, cancel); err != nil {
+		if strings.Contains(err.Error(), "consensus subscription has invalid id") {
+			return ErrInvalidChangeID
+		}
+		return err
+	}
+	return nil
 }
 
 // NewManager creates a new chain manager.
