@@ -50,7 +50,7 @@ tag.
 
 The Zen testnet version of `hostd` changes the environment variables and default
 ports:
-+ `HOSTD_ZEN_WALLT_SEED` - The recovery phrase for the wallet
++ `HOSTD_ZEN_WALLET_SEED` - The recovery phrase for the wallet
 + `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
 
 + `9880` - UI and API
@@ -106,7 +106,7 @@ Suffix any tag with `-testnet` to use the testnet image.
 
 The Zen testnet version of `hostd` changes the environment variables and default
 ports:
-+ `HOSTD_ZEN_WALLT_SEED` - The recovery phrase for the wallet
++ `HOSTD_ZEN_WALLET_SEED` - The recovery phrase for the wallet
 + `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
 
 + `9880` - UI and API
