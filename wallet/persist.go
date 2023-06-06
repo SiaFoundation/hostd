@@ -34,7 +34,13 @@ type (
 		// TransactionCount returns the total number of transactions in the
 		// wallet.
 		TransactionCount() (uint64, error)
-
 		UpdateWallet(ccID modules.ConsensusChangeID, height uint64, fn func(UpdateTransaction) error) error
+		// ResetWallet resets the wallet to its initial state. This is used when a
+		// consensus subscription error occurs.
+		ResetWallet() error
+		// VerifyWalletKey checks that the wallet seed matches the existing seed
+		// hash. This detects if the user's recovery phrase has changed and the
+		// wallet needs to rescan.
+		VerifyWalletKey(seedHash types.Hash256) error
 	}
 )
