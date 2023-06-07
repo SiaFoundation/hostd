@@ -3,6 +3,7 @@ package rhp_test
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -413,4 +415,145 @@ func TestRenew(t *testing.T) {
 			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
 		}
 	})
+}
+
+func BenchmarkAppendSector(b *testing.B) {
+	log := zaptest.NewLogger(b)
+	renter, host, err := test.NewTestingPair(b.TempDir(), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer session.Close()
+
+	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// register the price table
+	contractSession := session.WithContractPayment(&revision, renter.PrivateKey(), rhpv3.Account(renter.PublicKey()))
+	pt, err := contractSession.RegisterPriceTable()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// fund an account
+	account := rhpv3.Account(renter.PublicKey())
+	_, err = contractSession.FundAccount(account, types.Siacoins(10))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// upload a sector
+	accountSession := contractSession.WithAccountPayment(account, renter.PrivateKey())
+	// calculate the cost of the upload
+	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
+	if cost.IsZero() {
+		b.Fatal("cost is zero")
+	}
+
+	var sectors [][rhpv2.SectorSize]byte
+	for i := 0; i < b.N; i++ {
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:256])
+		sectors = append(sectors, sector)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.SetBytes(rhpv2.SectorSize)
+
+	for i := 0; i < b.N; i++ {
+		err = accountSession.AppendSector(&sectors[i], &revision, renter.PrivateKey(), cost)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkReadSector(b *testing.B) {
+	log := zaptest.NewLogger(b)
+	renter, host, err := test.NewTestingPair(b.TempDir(), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	s := settings.DefaultSettings
+	s.MaxAccountBalance = types.Siacoins(100)
+	s.MaxCollateral = types.Siacoins(10000)
+	s.EgressPrice = types.ZeroCurrency
+	s.IngressPrice = types.ZeroCurrency
+	s.AcceptingContracts = true
+	if err := host.UpdateSettings(s); err != nil {
+		b.Fatal(err)
+	}
+
+	if err := host.AddVolume(filepath.Join(b.TempDir(), "data.dat"), uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer session.Close()
+
+	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(500), types.Siacoins(1000), 200)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// register the price table
+	contractSession := session.WithContractPayment(&revision, renter.PrivateKey(), rhpv3.Account(renter.PublicKey()))
+	pt, err := contractSession.RegisterPriceTable()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// fund an account
+	account := rhpv3.Account(renter.PublicKey())
+	_, err = contractSession.FundAccount(account, types.Siacoins(100))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// upload a sector
+	accountSession := contractSession.WithAccountPayment(account, renter.PrivateKey())
+	// calculate the cost of the upload
+	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
+	if cost.IsZero() {
+		b.Fatal("cost is zero")
+	}
+
+	var roots []types.Hash256
+	for i := 0; i < b.N; i++ {
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:256])
+
+		err = accountSession.AppendSector(&sector, &revision, renter.PrivateKey(), cost)
+		if err != nil {
+			b.Fatal(err)
+		}
+		roots = append(roots, rhpv2.SectorRoot(&sector))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.SetBytes(rhpv2.SectorSize)
+
+	for i := 0; i < b.N; i++ {
+		_, err = accountSession.ReadSector(roots[i], 0, rhpv2.SectorSize, cost)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }
