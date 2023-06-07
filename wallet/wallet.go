@@ -96,6 +96,8 @@ type (
 	}
 )
 
+// ErrDifferentSeed is returned when a different seed is provided to
+// NewSingleAddressWallet than was used to initialize the wallet
 var ErrDifferentSeed = errors.New("seed differs from wallet seed")
 
 // EncodeTo implements types.EncoderTo.

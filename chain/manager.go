@@ -17,7 +17,9 @@ import (
 
 var (
 	// ErrBlockNotFound is returned when a block is not found.
-	ErrBlockNotFound   = errors.New("block not found")
+	ErrBlockNotFound = errors.New("block not found")
+	// ErrInvalidChangeID is returned to a subscriber when the change id is
+	// invalid.
 	ErrInvalidChangeID = errors.New("invalid change id")
 )
 
