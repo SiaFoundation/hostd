@@ -204,7 +204,7 @@ func TestWallet(t *testing.T) {
 	defer w2.Close()
 
 	// mine enough blocks on the second node to trigger a reorg
-	if err := w2.MineBlocks(types.Address{}, int(stypes.MaturityDelay)*2); err != nil {
+	if err := w2.MineBlocks(types.Address{}, int(stypes.MaturityDelay)*4); err != nil {
 		t.Fatal(err)
 	}
 
@@ -212,7 +212,15 @@ func TestWallet(t *testing.T) {
 	if err := w.ConnectPeer(w2.GatewayAddr()); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Second)
+	for i := 0; i < 100; i++ {
+		if w.TipState().Index.ID == w2.TipState().Index.ID {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if w.TipState().Index.ID != w2.TipState().Index.ID {
+		t.Fatal("nodes are not synced")
+	}
 
 	// check that the wallet's balance is back to 0
 	_, balance, _, err = w.Balance()
@@ -252,7 +260,7 @@ func TestWalletReset(t *testing.T) {
 	}
 
 	// mine until the wallet has funds
-	if err := w.MineBlocks(w.Address(), 60); err != nil {
+	if err := w.MineBlocks(w.Address(), int(stypes.MaturityDelay)*2); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second) // sleep for sync
