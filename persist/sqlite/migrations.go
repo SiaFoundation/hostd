@@ -2,6 +2,14 @@ package sqlite
 
 import "fmt"
 
+// migrateVersion3 adds a wallet hash to the global settings table to detect
+// when the private key has changed.
+func migrateVersion3(tx txn) error {
+	_, err := tx.Exec(`ALTER TABLE global_settings ADD COLUMN wallet_hash BLOB;`)
+	return err
+}
+
+// migrateVersion2 removes the min prefix from the price columns in host_settings
 func migrateVersion2(tx txn) error {
 	const (
 		newSettingsSchema = `CREATE TABLE host_settings (
@@ -59,4 +67,5 @@ egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, regi
 // match the schema in init.sql.
 var migrations = []func(tx txn) error{
 	migrateVersion2,
+	migrateVersion3,
 }
