@@ -204,7 +204,7 @@ func TestWallet(t *testing.T) {
 	defer w2.Close()
 
 	// mine enough blocks on the second node to trigger a reorg
-	if err := w2.MineBlocks(types.Address{}, int(stypes.MaturityDelay)*2); err != nil {
+	if err := w2.MineBlocks(types.Address{}, int(stypes.MaturityDelay)*4); err != nil {
 		t.Fatal(err)
 	}
 
@@ -212,7 +212,15 @@ func TestWallet(t *testing.T) {
 	if err := w.ConnectPeer(w2.GatewayAddr()); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Second)
+	for i := 0; i < 100; i++ {
+		if w.TipState().Index.ID == w2.TipState().Index.ID {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if w.TipState().Index.ID != w2.TipState().Index.ID {
+		t.Fatal("nodes are not synced")
+	}
 
 	// check that the wallet's balance is back to 0
 	_, balance, _, err = w.Balance()
@@ -227,10 +235,79 @@ func TestWallet(t *testing.T) {
 	}
 
 	// check that all transactions have been deleted
-	txns, err = w.Transactions(0, 100)
+	txns, err = w.Transactions(100, 0)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(txns) != 0 {
 		t.Fatalf("expected 0 transactions, got %v", len(txns))
+	}
+}
+
+func TestWalletReset(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	w, err := test.NewWallet(types.GeneratePrivateKey(), dir, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	_, balance, _, err := w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.IsZero() {
+		t.Fatalf("expected zero balance, got %v", balance)
+	}
+
+	// mine until the wallet has funds
+	if err := w.MineBlocks(w.Address(), int(stypes.MaturityDelay)*2); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second) // sleep for sync
+
+	height := w.ScanHeight()
+
+	// check that the wallet has UTXOs and transactions
+	_, balance, _, err = w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if balance.IsZero() {
+		t.Fatal("expected non-zero balance")
+	} else if txns, err := w.Transactions(100, 0); err != nil {
+		t.Fatal(err)
+	} else if len(txns) == 0 {
+		t.Fatal("expected transactions")
+	}
+
+	// close the wallet and trigger a reset by using a different private key
+	w.Close()
+
+	w, err = test.NewWallet(types.GeneratePrivateKey(), dir, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	// wait for the wallet to resync
+	for i := 0; i < 100; i++ {
+		if current := w.ScanHeight(); current == height {
+			break
+		}
+		time.Sleep(time.Second) // sleep for sync
+	}
+	if current := w.ScanHeight(); current != height {
+		t.Fatalf("expected scan height %v, got %v", height, current)
+	}
+
+	// check that the wallet has no UTXOs or transactions
+	_, balance, _, err = w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.IsZero() {
+		t.Fatalf("expected zero balance, got %v", balance)
+	} else if txns, err := w.Transactions(100, 0); err != nil {
+		t.Fatal(err)
+	} else if len(txns) != 0 {
+		t.Fatal("expected no transactions")
 	}
 }

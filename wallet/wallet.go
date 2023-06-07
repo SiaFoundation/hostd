@@ -11,6 +11,7 @@ import (
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
@@ -94,6 +95,10 @@ type (
 		locked map[types.SiacoinOutputID]bool
 	}
 )
+
+// ErrDifferentSeed is returned when a different seed is provided to
+// NewSingleAddressWallet than was used to initialize the wallet
+var ErrDifferentSeed = errors.New("seed differs from wallet seed")
 
 // EncodeTo implements types.EncoderTo.
 func (txn Transaction) EncodeTo(e *types.Encoder) {
@@ -727,6 +732,17 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		return nil, fmt.Errorf("failed to get last wallet change: %w", err)
 	}
 
+	if err := store.VerifyWalletKey(types.HashBytes(priv[:])); errors.Is(err, ErrDifferentSeed) {
+		changeID = modules.ConsensusChangeBeginning
+		scanHeight = 0
+		if err := store.ResetWallet(); err != nil {
+			return nil, fmt.Errorf("failed to reset wallet: %w", err)
+		}
+		log.Info("wallet reset due to seed change")
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to verify wallet key: %w", err)
+	}
+
 	sw := &SingleAddressWallet{
 		priv:       priv,
 		scanHeight: scanHeight,
@@ -750,6 +766,14 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		// note: start in goroutine to avoid blocking startup
 		if err := cm.Subscribe(sw, changeID, sw.tg.Done()); err != nil {
 			sw.log.Error("failed to subscribe to consensus changes", zap.Error(err))
+			if errors.Is(err, chain.ErrInvalidChangeID) {
+				// reset change ID and subscribe again
+				if err := store.ResetWallet(); err != nil {
+					sw.log.Fatal("failed to reset wallet", zap.Error(err))
+				} else if err = cm.Subscribe(sw, modules.ConsensusChangeBeginning, sw.tg.Done()); err != nil {
+					sw.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
+				}
+			}
 		}
 	}()
 	tp.Subscribe(sw)

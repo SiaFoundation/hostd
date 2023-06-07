@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
@@ -444,14 +445,14 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 }
 
 // NewManager creates a new contract manager.
-func NewManager(store ContractStore, alerts Alerts, storage StorageManager, chain ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) (*ContractManager, error) {
+func NewManager(store ContractStore, alerts Alerts, storage StorageManager, c ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) (*ContractManager, error) {
 	cm := &ContractManager{
 		store:   store,
 		tg:      threadgroup.New(),
 		log:     log,
 		alerts:  alerts,
 		storage: storage,
-		chain:   chain,
+		chain:   c,
 		tpool:   tpool,
 		wallet:  wallet,
 
@@ -474,6 +475,11 @@ func NewManager(store ContractStore, alerts Alerts, storage StorageManager, chai
 		err := cm.chain.Subscribe(cm, changeID, cm.tg.Done())
 		if err != nil {
 			cm.log.Error("failed to subscribe to consensus set", zap.Error(err))
+			if errors.Is(err, chain.ErrInvalidChangeID) {
+				if err := cm.chain.Subscribe(cm, modules.ConsensusChangeBeginning, cm.tg.Done()); err != nil {
+					cm.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
+				}
+			}
 		}
 	}()
 

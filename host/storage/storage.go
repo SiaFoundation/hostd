@@ -556,11 +556,10 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 	defer done()
 
 	// check that the volume file does not already exist
-	if _, err := os.Stat(localPath); !errors.Is(err, os.ErrNotExist) {
-		if err != nil {
-			return Volume{}, fmt.Errorf("failed to stat volume file: %w", err)
-		}
+	if _, err := os.Stat(localPath); err == nil {
 		return Volume{}, fmt.Errorf("volume file already exists: %s", localPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Volume{}, fmt.Errorf("failed to stat volume file: %w", err)
 	}
 
 	f, err := os.Create(localPath)
