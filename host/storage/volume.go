@@ -159,6 +159,8 @@ func (v *volume) Close() error {
 	defer v.mu.Unlock()
 	if v.data == nil {
 		return nil
+	} else if err := v.data.Sync(); err != nil {
+		return fmt.Errorf("failed to sync volume: %w", err)
 	} else if err := v.data.Close(); err != nil {
 		return fmt.Errorf("failed to close volume: %w", err)
 	}

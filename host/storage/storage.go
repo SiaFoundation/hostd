@@ -675,7 +675,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) e
 		start := time.Now()
 		migrated, err := func() (int, error) {
 			vm.setVolumeStatus(id, VolumeStatusRemoving)
-			defer vm.setVolumeStatus(id, VolumeStatusUnavailable)
+			defer vm.setVolumeStatus(id, VolumeStatusReady)
 			defer release()
 			return vm.migrateForRemoval(id, vol.LocalPath, force, log)
 		}()
