@@ -164,7 +164,11 @@ func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []t
 		return err
 	}
 	defer done()
-	return cm.store.AddContract(revision, formationSet, lockedCollateral, initialUsage, cm.chain.TipState().Index.Height)
+	if err := cm.store.AddContract(revision, formationSet, lockedCollateral, initialUsage, cm.chain.TipState().Index.Height); err != nil {
+		return err
+	}
+	cm.log.Debug("contract formed", zap.Stringer("contractID", revision.Revision.ParentID))
+	return nil
 }
 
 // RenewContract renews a contract. It is expected that the existing
@@ -184,7 +188,12 @@ func (cm *ContractManager) RenewContract(renewal SignedRevision, existing Signed
 	} else if existing.Revision.RevisionNumber != types.MaxRevisionNumber {
 		return errors.New("existing contract must be cleared")
 	}
-	return cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, clearingUsage, initialUsage, cm.chain.TipState().Index.Height)
+
+	if err := cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, clearingUsage, initialUsage, cm.chain.TipState().Index.Height); err != nil {
+		return err
+	}
+	cm.log.Debug("contract renewed", zap.Stringer("renewalID", renewal.Revision.ParentID), zap.Stringer("existingID", existing.Revision.ParentID))
+	return nil
 }
 
 // SectorRoots returns the roots of all sectors stored by the contract.
