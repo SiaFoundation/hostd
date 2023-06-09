@@ -24,7 +24,7 @@ type (
 )
 
 // CheckIntegrity checks the integrity of a contract's sector roots on disk. The
-// result of every check is sent on the returned channel. The channel is closed
+// result of every checked sector is sent on the returned channel. The channel is closed
 // when all checks are complete.
 func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan IntegrityResult, uint64, error) {
 	// lock the contract to ensure it doesn't get modified before the sector
@@ -46,6 +46,22 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 		return nil, 0, fmt.Errorf("expected Merkle root %v, got %v", contract.Revision.FileMerkleRoot, calculated)
 	}
 
+	// register an alert to track progress
+	alert := alerts.Alert{
+		ID:       frand.Entropy256(),
+		Severity: alerts.SeverityInfo,
+		Message:  "Checking contract integrity",
+		Data: map[string]any{
+			"contractID": contractID,
+			"checked":    0,
+			"missing":    0,
+			"corrupt":    0,
+			"total":      len(roots),
+		},
+		Timestamp: time.Now(),
+	}
+	cm.alerts.Register(alert)
+
 	results := make(chan IntegrityResult, 1)
 	// start a goroutine to check each sector
 	go func() {
@@ -59,7 +75,7 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 
 		var missing, corrupt int
 		log := cm.log.Named("integrityCheck").With(zap.String("contractID", contractID.String()))
-		for _, root := range roots {
+		for i, root := range roots {
 			select {
 			case <-ctx.Done():
 				return
@@ -78,25 +94,21 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 			} else { // sector is valid
 				results <- IntegrityResult{Root: root, ActualRoot: calculated}
 			}
+
+			// update alert
+			alert.Data["checked"] = i + 1
+			alert.Data["missing"] = missing
+			alert.Data["corrupt"] = corrupt
+			cm.alerts.Register(alert)
 		}
 
 		log.Info("integrity check complete", zap.Int("missing", missing), zap.Int("corrupt", corrupt))
-		var severity alerts.Severity
+		// update the alert with the final results
+		alert.Message = "Integrity check complete"
 		if corrupt > 0 || missing > 0 {
-			severity = alerts.SeverityError
+			alert.Severity = alerts.SeverityError
 		}
-		cm.alerts.Register(alerts.Alert{
-			ID:       frand.Entropy256(),
-			Severity: severity,
-			Message:  "Integrity check complete",
-			Data: map[string]any{
-				"contractID": contractID,
-				"missing":    missing,
-				"corrupt":    corrupt,
-				"checked":    len(roots),
-			},
-			Timestamp: time.Now(),
-		})
+		cm.alerts.Register(alert)
 	}()
 	return results, uint64(len(roots)), nil
 }
