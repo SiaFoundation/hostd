@@ -605,6 +605,11 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		return fmt.Errorf("failed to commit budget: %w", err)
 	}
 
+	if err := pe.storage.Sync(); err != nil {
+		s.WriteResponseErr(fmt.Errorf("failed to commit storage: %w", ErrHostInternalError))
+		return fmt.Errorf("failed to sync storage: %w", err)
+	}
+
 	// finalize the program
 	if pe.finalize {
 		s.SetDeadline(time.Now().Add(time.Minute))
