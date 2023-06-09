@@ -129,21 +129,18 @@ func (v *volume) SetStatus(status string) {
 }
 
 // Sync syncs the volume
-func (v *volume) Sync() (err error) {
+func (v *volume) Sync() error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
 	if v.data == nil {
 		return nil
 	}
-	err = v.data.Sync()
+	err := v.data.Sync()
 	if err != nil {
-		v.stats.Errors = append(v.stats.Errors, fmt.Errorf("failed to sync volume: %w", err))
-		if len(v.stats.Errors) > 100 {
-			v.stats.Errors = v.stats.Errors[len(v.stats.Errors)-100:]
-		}
+		v.appendError(fmt.Errorf("failed to sync volume: %w", err))
 	}
-	return
+	return err
 }
 
 func (v *volume) Resize(sectors uint64) error {
