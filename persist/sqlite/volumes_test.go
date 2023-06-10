@@ -628,7 +628,7 @@ func TestPrune(t *testing.T) {
 	}
 
 	// check that there are no locked sectors
-	var count int64
+	var count int
 	err = db.queryRow(`SELECT COUNT(id) FROM locked_volume_sectors;`).Scan(&count)
 	if err != nil {
 		t.Fatal(err)
@@ -653,14 +653,24 @@ func TestPrune(t *testing.T) {
 	err = db.queryRow(`SELECT COUNT(id) FROM locked_volume_sectors;`).Scan(&count)
 	if err != nil {
 		t.Fatal(err)
-	} else if count != int64(len(locks)) {
+	} else if count != len(locks) {
 		t.Fatalf("expected %v locked sectors, got %v", len(locks), count)
 	}
-	t.Log(len(locks))
 
 	// prune the sectors
-	if err := db.PruneSectors(); err != nil {
+	count, err = db.PruneSectors()
+	if err != nil {
 		t.Fatal(err)
+	} else if count != len(deletedSectors) {
+		t.Fatalf("expected to prune %v sectors, got %v", len(deletedSectors), count)
+	}
+
+	// next prune should be a no-op
+	count, err = db.PruneSectors()
+	if err != nil {
+		t.Fatal(err)
+	} else if count != 0 {
+		t.Fatalf("expected to prune %v sectors, got %v", 0, count)
 	}
 
 	checkConsistency := func(stored, deleted []types.Hash256) error {
@@ -697,36 +707,45 @@ func TestPrune(t *testing.T) {
 	}
 
 	// prune the unlocked sectors
-	if err := db.PruneSectors(); err != nil {
+	count, err = db.PruneSectors()
+	if err != nil {
 		t.Fatal(err)
+	} else if count != len(lockedSectors) {
+		t.Fatalf("expected to prune %v sectors, got %v", len(lockedSectors), count)
 	}
 
 	if err := checkConsistency(roots[:40], roots[40:]); err != nil {
 		t.Fatal(err)
 	}
 
-	// delete the temp sectors
+	// expire the temp sectors
 	if err := db.ExpireTempSectors(100); err != nil {
 		t.Fatal(err)
 	}
 
 	// prune the temp sectors
-	if err := db.PruneSectors(); err != nil {
+	count, err = db.PruneSectors()
+	if err != nil {
 		t.Fatal(err)
+	} else if count != len(tempSectors) {
+		t.Fatalf("expected to prune %v sectors, got %v", len(tempSectors), count)
 	}
 
 	if err := checkConsistency(roots[:20], roots[20:]); err != nil {
 		t.Fatal(err)
 	}
 
-	// delete the contract sectors
-	if _, err := db.exec(`DELETE FROM contract_sector_roots;`); err != nil {
+	// expire the contract sectors
+	if err := db.ExpireContractSectors(c.Revision.WindowEnd + 1); err != nil {
 		t.Fatal(err)
 	}
 
 	// prune the contract sectors
-	if err := db.PruneSectors(); err != nil {
+	count, err = db.PruneSectors()
+	if err != nil {
 		t.Fatal(err)
+	} else if count != len(contractSectors) {
+		t.Fatalf("expected to prune %v sectors, got %v", len(contractSectors), count)
 	}
 
 	if err := checkConsistency(nil, roots); err != nil {
