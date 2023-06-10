@@ -68,8 +68,7 @@ type (
 		log      *zap.Logger
 		recorder *sectorAccessRecorder
 
-		tg         *threadgroup.ThreadGroup
-		cleanTimer *time.Timer
+		tg *threadgroup.ThreadGroup
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int]*volume
@@ -134,13 +133,17 @@ func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLoc
 // cleanup removes all sectors that are not referenced by a contract.
 // This function is called periodically by the cleanup timer.
 func (vm *VolumeManager) cleanup() {
-	if err := vm.PruneSectors(); errors.Is(err, threadgroup.ErrClosed) {
-		return
-	} else if err != nil {
-		vm.log.Error("failed to expire temp sectors", zap.Error(err))
+	t := time.NewTicker(cleanupInterval)
+	defer t.Stop()
+	for range t.C {
+		count, err := vm.PruneSectors()
+		if errors.Is(err, threadgroup.ErrClosed) {
+			return
+		} else if err != nil {
+			vm.log.Error("failed to expire temp sectors", zap.Error(err))
+		}
+		vm.log.Named("cleanup").Debug("deleted unused sectors", zap.Int("deleted", count))
 	}
-	// reset the timer
-	vm.cleanTimer.Reset(cleanupInterval)
 }
 
 // loadVolumes opens all volumes. Volumes that are already loaded are skipped.
@@ -936,23 +939,18 @@ func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
 }
 
 // PruneSectors removes expired sectors from the volume store.
-func (vm *VolumeManager) PruneSectors() error {
+func (vm *VolumeManager) PruneSectors() (int, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer done()
 	// expire temp sectors
 	currentHeight := vm.cm.TipState().Index.Height
 	if err := vm.vs.ExpireTempSectors(currentHeight); err != nil {
-		return fmt.Errorf("failed to expire temp sectors: %w", err)
+		return 0, fmt.Errorf("failed to expire temp sectors: %w", err)
 	}
-
-	// prune sectors
-	if err := vm.vs.PruneSectors(); err != nil {
-		return fmt.Errorf("failed to prune sectors: %w", err)
-	}
-	return nil
+	return vm.vs.PruneSectors()
 }
 
 // NewVolumeManager creates a new VolumeManager.
@@ -976,6 +974,6 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 		return nil, err
 	}
 	go vm.recorder.Run(vm.tg.Done())
-	vm.cleanTimer = time.AfterFunc(cleanupInterval, vm.cleanup)
+	go vm.cleanup()
 	return vm, nil
 }
