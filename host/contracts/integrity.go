@@ -2,8 +2,10 @@ package contracts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -17,11 +19,45 @@ type (
 	// An IntegrityResult contains the result of an integrity check for a
 	// contract sector.
 	IntegrityResult struct {
-		Root       types.Hash256 `json:"root"`
-		ActualRoot types.Hash256 `json:"actualRoot"`
-		Error      error         `json:"error"`
+		ExpectedRoot types.Hash256 `json:"expectedRoot"`
+		ActualRoot   types.Hash256 `json:"actualRoot"`
+		Error        error         `json:"error"`
 	}
 )
+
+// MarshalJSON implements a custom json.Marshaler to handle the error interface.
+func (i IntegrityResult) MarshalJSON() ([]byte, error) {
+	var sb strings.Builder
+	sb.WriteString(`{"expectedRoot":"`)
+	sb.WriteString(i.ExpectedRoot.String())
+	sb.WriteString(`","actualRoot":"`)
+	sb.WriteString(i.ActualRoot.String())
+	if i.Error != nil {
+		sb.WriteString(`","error":"`)
+		sb.WriteString(i.Error.Error())
+	}
+	sb.WriteString(`"}`)
+	return []byte(sb.String()), nil
+}
+
+// UnmarshalJSON implements a custom json.Unmarshaler to handle the error
+// interface.
+func (i *IntegrityResult) UnmarshalJSON(b []byte) error {
+	type Alias IntegrityResult
+	// wrap the IntegrityResult to properly decode the error field
+	aux := &struct {
+		*Alias
+		Error *string `json:"error"`
+	}{
+		Alias: (*Alias)(i),
+	}
+	if err := json.Unmarshal(b, aux); err != nil {
+		return err
+	} else if aux.Error != nil {
+		i.Error = errors.New(*aux.Error)
+	}
+	return nil
+}
 
 // CheckIntegrity checks the integrity of a contract's sector roots on disk. The
 // result of every checked sector is sent on the returned channel. The channel is closed
@@ -86,13 +122,13 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 			if err != nil { // sector read failed
 				log.Error("missing sector", zap.String("root", root.String()), zap.Error(err))
 				missing++
-				results <- IntegrityResult{Root: root, Error: err}
+				results <- IntegrityResult{ExpectedRoot: root, Error: err}
 			} else if calculated := rhpv2.SectorRoot(sector); root != calculated { // sector data corrupt
 				log.Error("corrupt sector", zap.String("root", root.String()), zap.String("actual", calculated.String()))
 				corrupt++
-				results <- IntegrityResult{Root: root, ActualRoot: calculated, Error: errors.New("sector data corrupt")}
+				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculated, Error: errors.New("sector data corrupt")}
 			} else { // sector is valid
-				results <- IntegrityResult{Root: root, ActualRoot: calculated}
+				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculated}
 			}
 
 			// update alert

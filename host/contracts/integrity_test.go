@@ -2,6 +2,8 @@ package contracts_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +20,53 @@ import (
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
+
+func TestIntegrityResultJSON(t *testing.T) {
+	type test struct {
+		Name string
+		Func func() contracts.IntegrityResult
+	}
+	tests := []test{
+		{"without error", func() contracts.IntegrityResult {
+			return contracts.IntegrityResult{
+				ExpectedRoot: frand.Entropy256(),
+				ActualRoot:   frand.Entropy256(),
+			}
+		}},
+		{"with error", func() contracts.IntegrityResult {
+			return contracts.IntegrityResult{
+				ExpectedRoot: frand.Entropy256(),
+				ActualRoot:   frand.Entropy256(),
+				Error:        errors.New("foo"),
+			}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			a := test.Func()
+
+			buf, err := json.Marshal(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var b contracts.IntegrityResult
+			if err := json.Unmarshal(buf, &b); err != nil {
+				t.Fatal(err)
+			}
+
+			switch {
+			case a.ExpectedRoot != b.ExpectedRoot:
+				t.Fatal("ExpectedRoot does not match")
+			case a.ActualRoot != b.ActualRoot:
+				t.Fatal("ActualRoot does not match")
+			case a.Error != nil && a.Error.Error() != b.Error.Error():
+				t.Fatal("Error does not match")
+			}
+		})
+	}
+}
 
 func TestCheckIntegrity(t *testing.T) {
 	hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
