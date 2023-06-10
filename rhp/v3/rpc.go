@@ -194,7 +194,7 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 
 	contract, err := sh.contracts.Contract(req.ContractID)
 	if err != nil {
-		err := fmt.Errorf("failed to get contract: %w", err)
+		err := fmt.Errorf("failed to get contract %q: %w", req.ContractID, err)
 		s.WriteResponseErr(err)
 		return err
 	}
