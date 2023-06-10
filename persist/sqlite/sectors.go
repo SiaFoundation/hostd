@@ -121,7 +121,7 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 				return fmt.Errorf("failed to update metric: %w", err)
 			}
 
-			s.log.Debug("removed temp sectors", zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+			s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
 				for _, sector := range sectors {
 					enc.AppendString(sector.Root.String())
 				}
