@@ -4,7 +4,7 @@ package main
 
 const (
 	apiPasswordEnvVariable = "HOSTD_API_PASSWORD"
-	walletSeedEnvVariable  = "HOSTD_WALLET_SEED"
+	walletSeedEnvVariable  = "HOSTD_SEED"
 	logPathEnvVariable     = "HOSTD_LOG_PATH"
 
 	defaultAPIAddr      = "localhost:9980"

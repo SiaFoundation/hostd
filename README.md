@@ -24,7 +24,9 @@ ensuring a smooth user experience across a diverse range of devices.
 ### Environment Variables
 `hostd` supports the following environment variables:
 + `HOSTD_API_PASSWORD` - The password for the UI and API
-+ `HOSTD_WALLET_SEED` - The recovery phrase for the wallet
++ `HOSTD_SEED` - The recovery phrase for the wallet
++ `HOSTD_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
+  log file will be created in the data directory
 
 ## Current Status
 
@@ -50,7 +52,7 @@ tag.
 
 The Zen testnet version of `hostd` changes the environment variables and default
 ports:
-+ `HOSTD_ZEN_WALLET_SEED` - The recovery phrase for the wallet
++ `HOSTD_ZEN_SEED` - The recovery phrase for the wallet
 + `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
 
 + `9880` - UI and API
@@ -76,7 +78,7 @@ docker run -d \
   -p 9981-9983:9981-9983 \
   -v ./data:/data \
   -v ./storage:/storage \
-  -e HOSTD_WALLET_SEED="my wallet seed" \
+  -e HOSTD_SEED="my wallet seed" \
   -e HOSTD_API_PASSWORD=hostsarecool \
     ghcr.io/siafoundation/hostd:latest
 ```
@@ -89,7 +91,7 @@ services:
   host:
     image: ghcr.io/siafoundation/hostd:latest
     environment:
-      - HOSTD_WALLET_SEED=my wallet seed
+      - HOSTD_SEED=my wallet seed
       - HOSTD_API_PASSWORD=hostsarecool
     ports:
       - 127.0.0.1:9980:9980/tcp
@@ -106,8 +108,10 @@ Suffix any tag with `-testnet` to use the testnet image.
 
 The Zen testnet version of `hostd` changes the environment variables and default
 ports:
-+ `HOSTD_ZEN_WALLET_SEED` - The recovery phrase for the wallet
++ `HOSTD_ZEN_SEED` - The recovery phrase for the wallet
 + `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
++ `HOSTD_ZEN_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
+  log file will be created in the data directory
 
 + `9880` - UI and API
 + `9881` - Sia consensus
