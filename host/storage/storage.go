@@ -177,6 +177,19 @@ func (vm *VolumeManager) loadVolumes() error {
 			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
 				return fmt.Errorf("failed to mark volume '%v' as unavailable: %w", vol.LocalPath, err)
 			}
+
+			// register an alert
+			vm.a.Register(alerts.Alert{
+				ID:       frand.Entropy256(),
+				Severity: alerts.SeverityError,
+				Message:  fmt.Sprintf("Failed to open volume %q", vol.LocalPath),
+				Data: map[string]any{
+					"volume": vol.LocalPath,
+					"error":  err.Error(),
+				},
+				Timestamp: time.Now(),
+			})
+
 			continue
 		}
 		// mark the volume as available
