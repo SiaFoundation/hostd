@@ -800,7 +800,7 @@ func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []b
 		registry:  sh.registry,
 	}
 
-	if finalize {
+	if revision != nil {
 		ex.remainingDuration = revision.Revision.WindowEnd - pt.HostBlockHeight
 		updater, err := sh.contracts.ReviseContract(revision.Revision.ParentID)
 		if err != nil {
