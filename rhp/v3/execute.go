@@ -240,8 +240,13 @@ func (pe *programExecutor) executeReadSector(instr *rhpv3.InstrReadSector) ([]by
 	}
 
 	// validate the offset and length
-	if offset+length > rhpv2.SectorSize {
+	switch {
+	case length == 0:
+		return nil, nil, fmt.Errorf("read length cannot be 0")
+	case offset+length > rhpv2.SectorSize:
 		return nil, nil, fmt.Errorf("read length %v is out of bounds", length)
+	case instr.ProofRequired && (offset%rhpv2.LeafSize != 0 || length%rhpv2.LeafSize != 0):
+		return nil, nil, fmt.Errorf("read offset (%d) and length (%d) must be multiples of %d", offset, length, rhpv2.LeafSize)
 	}
 
 	// pay for execution
