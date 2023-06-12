@@ -615,11 +615,15 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 		return fmt.Errorf("failed to sync storage: %w", err)
 	}
 
+	if pe.updater != nil {
+		defer pe.updater.Close() // close the updater
+	}
+
 	// finalize the program
 	if pe.finalize {
 		s.SetDeadline(time.Now().Add(time.Minute))
 		start := time.Now()
-		defer pe.updater.Close() // close the updater
+
 		// read the finalize request
 		var req rhpv3.RPCFinalizeProgramRequest
 		if err := s.ReadResponse(&req, maxRequestSize); err != nil {
