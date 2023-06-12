@@ -12,28 +12,36 @@ import (
 	"net"
 
 	"go.sia.tech/core/consensus"
-	rhpv2 "go.sia.tech/core/rhp/v2"
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp2 "go.sia.tech/core/rhp/v2"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/wallet"
 )
 
 type (
+	// An accountPayment pays for usage using an ephemeral account
 	accountPayment struct {
-		cm ChainManager
-
-		Account    rhpv3.Account
+		Account    rhp3.Account
 		PrivateKey types.PrivateKey
 	}
 
+	// A contractPayment pays for usage using a contract
 	contractPayment struct {
-		Revision      *rhpv2.ContractRevision
-		RefundAccount rhpv3.Account
+		Revision      *rhp2.ContractRevision
+		RefundAccount rhp3.Account
 		RenterKey     types.PrivateKey
 	}
 
-	paymentMethod interface {
-		Pay(types.Currency) (rhpv3.PaymentMethod, bool)
+	// A PaymentMethod facilitates payments to the host using either a contract
+	// or an ephemeral account
+	PaymentMethod interface {
+		Pay(amount types.Currency, height uint64) (rhp3.PaymentMethod, bool)
+	}
+
+	// A Wallet funds and signs transactions
+	Wallet interface {
+		Address() types.Address
+		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
+		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
 	}
 
 	// A ChainManager is used to get the current consensus state
@@ -47,104 +55,72 @@ type (
 	Session struct {
 		hostKey types.PublicKey
 		cm      ChainManager
-		w       *wallet.SingleAddressWallet
-		t       *rhpv3.Transport
+		w       Wallet
+		t       *rhp3.Transport
 
-		pt rhpv3.HostPriceTable
-	}
-
-	// A PaymentSession is an RHP3 session with the host that supports payments
-	// either from a contract or an ephemeral account
-	PaymentSession struct {
-		*Session
-		payment paymentMethod
+		pt rhp3.HostPriceTable
 	}
 )
 
-func (cp *contractPayment) Pay(amount types.Currency) (rhpv3.PaymentMethod, bool) {
-	req, ok := rhpv3.PayByContract(&cp.Revision.Revision, amount, cp.RefundAccount, cp.RenterKey)
+// Pay implements PaymentMethod
+func (cp *contractPayment) Pay(amount types.Currency, height uint64) (rhp3.PaymentMethod, bool) {
+	req, ok := rhp3.PayByContract(&cp.Revision.Revision, amount, cp.RefundAccount, cp.RenterKey)
 	return &req, ok
 }
 
-func (ap *accountPayment) Pay(amount types.Currency) (rhpv3.PaymentMethod, bool) {
-	height := ap.cm.TipState().Index.Height
-	req := rhpv3.PayByEphemeralAccount(ap.Account, amount, height+6, ap.PrivateKey)
+// Pay implements PaymentMethod
+func (ap *accountPayment) Pay(amount types.Currency, height uint64) (rhp3.PaymentMethod, bool) {
+	expirationHeight := height + 6
+	req := rhp3.PayByEphemeralAccount(ap.Account, amount, expirationHeight, ap.PrivateKey)
 	return &req, true
 }
 
-func (ps *PaymentSession) processPayment(s *rhpv3.Stream, amount types.Currency) error {
-	pm, ok := ps.payment.Pay(amount)
-	if !ok {
-		return fmt.Errorf("payment method cannot pay %v", amount)
-	}
-	switch pm := pm.(type) {
-	case *rhpv3.PayByEphemeralAccountRequest:
-		if err := s.WriteResponse(&rhpv3.PaymentTypeEphemeralAccount); err != nil {
-			return fmt.Errorf("failed to write payment request type: %w", err)
-		} else if err := s.WriteResponse(pm); err != nil {
-			return fmt.Errorf("failed to write request: %w", err)
-		}
-	case *rhpv3.PayByContractRequest:
-		if err := s.WriteResponse(&rhpv3.PaymentTypeContract); err != nil {
-			return fmt.Errorf("failed to write payment request type: %w", err)
-		} else if err := s.WriteResponse(pm); err != nil {
-			return fmt.Errorf("failed to write request: %w", err)
-		}
-		var hostSigResp rhpv3.PaymentResponse
-		if err := s.ReadResponse(&hostSigResp, 4096); err != nil {
-			return fmt.Errorf("failed to read response: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // RegisterPriceTable registers the price table with the host
-func (ps *PaymentSession) RegisterPriceTable() (rhpv3.HostPriceTable, error) {
-	stream := ps.t.DialStream()
+func (s *Session) RegisterPriceTable(payment PaymentMethod) (rhp3.HostPriceTable, error) {
+	stream := s.t.DialStream()
 	defer stream.Close()
 
-	if err := stream.WriteRequest(rhpv3.RPCUpdatePriceTableID, nil); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to write request: %w", err)
+	if err := stream.WriteRequest(rhp3.RPCUpdatePriceTableID, nil); err != nil {
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to write request: %w", err)
 	}
-	var resp rhpv3.RPCUpdatePriceTableResponse
+	var resp rhp3.RPCUpdatePriceTableResponse
 	if err := stream.ReadResponse(&resp, 4096); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to read response: %w", err)
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	var pt rhpv3.HostPriceTable
+	var pt rhp3.HostPriceTable
 	if err := json.Unmarshal(resp.PriceTableJSON, &pt); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to unmarshal price table: %w", err)
-	} else if err := ps.processPayment(stream, pt.UpdatePriceTableCost); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to pay: %w", err)
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to unmarshal price table: %w", err)
+	} else if err := s.processPayment(stream, payment, pt.UpdatePriceTableCost); err != nil {
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to pay: %w", err)
 	}
-	var confirmResp rhpv3.RPCPriceTableResponse
+	var confirmResp rhp3.RPCPriceTableResponse
 	if err := stream.ReadResponse(&confirmResp, 4096); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to read response: %w", err)
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to read response: %w", err)
 	}
-	ps.pt = pt
+	s.pt = pt
 	return pt, nil
 }
 
 // FundAccount funds the account with the given amount
-func (ps *PaymentSession) FundAccount(account rhpv3.Account, amount types.Currency) (types.Currency, error) {
-	stream := ps.t.DialStream()
+func (s *Session) FundAccount(account rhp3.Account, payment PaymentMethod, amount types.Currency) (types.Currency, error) {
+	stream := s.t.DialStream()
 	defer stream.Close()
 
-	if err := stream.WriteRequest(rhpv3.RPCFundAccountID, &ps.pt.UID); err != nil {
+	if err := stream.WriteRequest(rhp3.RPCFundAccountID, &s.pt.UID); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
 	}
 
-	req := &rhpv3.RPCFundAccountRequest{
+	req := &rhp3.RPCFundAccountRequest{
 		Account: account,
 	}
 	if err := stream.WriteResponse(req); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
-	} else if err := ps.processPayment(stream, ps.pt.FundAccountCost.Add(amount)); err != nil {
+	} else if err := s.processPayment(stream, payment, s.pt.FundAccountCost.Add(amount)); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
 	}
 
-	var resp rhpv3.RPCFundAccountResponse
+	var resp rhp3.RPCFundAccountResponse
 	if err := stream.ReadResponse(&resp, 4096); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -152,60 +128,58 @@ func (ps *PaymentSession) FundAccount(account rhpv3.Account, amount types.Curren
 }
 
 // AccountBalance retrieves the balance of the given account
-func (ps *PaymentSession) AccountBalance(account rhpv3.Account) (types.Currency, error) {
-	stream := ps.t.DialStream()
+func (s *Session) AccountBalance(account rhp3.Account, payment PaymentMethod) (types.Currency, error) {
+	stream := s.t.DialStream()
 	defer stream.Close()
 
-	if err := stream.WriteRequest(rhpv3.RPCAccountBalanceID, &ps.pt.UID); err != nil {
+	if err := stream.WriteRequest(rhp3.RPCAccountBalanceID, &s.pt.UID); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
-	} else if err := ps.processPayment(stream, ps.pt.AccountBalanceCost); err != nil {
+	} else if err := s.processPayment(stream, payment, s.pt.AccountBalanceCost); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
 	}
 
-	req := rhpv3.RPCAccountBalanceRequest{
+	req := rhp3.RPCAccountBalanceRequest{
 		Account: account,
 	}
 	if err := stream.WriteResponse(&req); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
 	}
 
-	var resp rhpv3.RPCAccountBalanceResponse
+	var resp rhp3.RPCAccountBalanceResponse
 	if err := stream.ReadResponse(&resp, 4096); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	}
 	return resp.Balance, nil
 }
 
-// LatestRevision retrieves the latest revision of the given contract
-func (ps *PaymentSession) LatestRevision(contractID types.FileContractID) (types.FileContractRevision, error) {
-	stream := ps.t.DialStream()
+// Revision retrieves the latest revision of the contract
+func (s *Session) Revision(contractID types.FileContractID) (types.FileContractRevision, error) {
+	stream := s.t.DialStream()
 	defer stream.Close()
 
-	req := rhpv3.RPCLatestRevisionRequest{
+	req := rhp3.RPCLatestRevisionRequest{
 		ContractID: contractID,
 	}
-	if err := stream.WriteRequest(rhpv3.RPCLatestRevisionID, &req); err != nil {
+	if err := stream.WriteRequest(rhp3.RPCLatestRevisionID, &req); err != nil {
 		return types.FileContractRevision{}, fmt.Errorf("failed to write request: %w", err)
 	}
-	var resp rhpv3.RPCLatestRevisionResponse
+	var resp rhp3.RPCLatestRevisionResponse
 	if err := stream.ReadResponse(&resp, 4096); err != nil {
 		return types.FileContractRevision{}, fmt.Errorf("failed to read response: %w", err)
-	} else if err := stream.WriteResponse(&ps.pt.UID); err != nil {
+	} else if err := stream.WriteResponse(&s.pt.UID); err != nil {
 		return types.FileContractRevision{}, fmt.Errorf("failed to write price table uid: %w", err)
-	} else if err := ps.processPayment(stream, ps.pt.LatestRevisionCost); err != nil {
-		return types.FileContractRevision{}, fmt.Errorf("failed to pay: %w", err)
 	}
 	return resp.Revision, nil
 }
 
 // StoreSector stores the given sector for the given duration
-func (ps *PaymentSession) StoreSector(sector *[rhpv2.SectorSize]byte, duration uint64, budget types.Currency) error {
-	stream := ps.t.DialStream()
+func (s *Session) StoreSector(sector *[rhp2.SectorSize]byte, duration uint64, payment PaymentMethod, budget types.Currency) error {
+	stream := s.t.DialStream()
 	defer stream.Close()
 
-	req := rhpv3.RPCExecuteProgramRequest{
-		Program: []rhpv3.Instruction{
-			&rhpv3.InstrStoreSector{
+	req := rhp3.RPCExecuteProgramRequest{
+		Program: []rhp3.Instruction{
+			&rhp3.InstrStoreSector{
 				DataOffset: 0,
 				Duration:   duration,
 			},
@@ -213,9 +187,9 @@ func (ps *PaymentSession) StoreSector(sector *[rhpv2.SectorSize]byte, duration u
 		ProgramData: sector[:],
 	}
 
-	if err := stream.WriteRequest(rhpv3.RPCExecuteProgramID, &ps.pt.UID); err != nil {
+	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
 		return fmt.Errorf("failed to write request: %w", err)
-	} else if ps.processPayment(stream, ps.pt.InitBaseCost.Add(budget)) != nil {
+	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
 		return fmt.Errorf("failed to pay: %w", err)
 	} else if err := stream.WriteResponse(&req); err != nil {
 		return fmt.Errorf("failed to write response: %w", err)
@@ -225,7 +199,7 @@ func (ps *PaymentSession) StoreSector(sector *[rhpv2.SectorSize]byte, duration u
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	var resp rhpv3.RPCExecuteProgramResponse
+	var resp rhp3.RPCExecuteProgramResponse
 	if err := stream.ReadResponse(&resp, 4096); err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	} else if resp.Error != nil {
@@ -235,14 +209,14 @@ func (ps *PaymentSession) StoreSector(sector *[rhpv2.SectorSize]byte, duration u
 }
 
 // AppendSector appends a sector to the contract
-func (ps *PaymentSession) AppendSector(sector *[rhpv2.SectorSize]byte, revision *rhpv2.ContractRevision, renterKey types.PrivateKey, budget types.Currency) error {
-	stream := ps.t.DialStream()
+func (s *Session) AppendSector(sector *[rhp2.SectorSize]byte, revision *rhp2.ContractRevision, renterKey types.PrivateKey, payment PaymentMethod, budget types.Currency) (types.Currency, error) {
+	stream := s.t.DialStream()
 	defer stream.Close()
 
-	req := rhpv3.RPCExecuteProgramRequest{
+	req := rhp3.RPCExecuteProgramRequest{
 		FileContractID: revision.ID(),
-		Program: []rhpv3.Instruction{
-			&rhpv3.InstrAppendSector{
+		Program: []rhp3.Instruction{
+			&rhp3.InstrAppendSector{
 				SectorDataOffset: 0,
 				ProofRequired:    true,
 			},
@@ -250,25 +224,25 @@ func (ps *PaymentSession) AppendSector(sector *[rhpv2.SectorSize]byte, revision 
 		ProgramData: sector[:],
 	}
 
-	if err := stream.WriteRequest(rhpv3.RPCExecuteProgramID, &ps.pt.UID); err != nil {
-		return fmt.Errorf("failed to write request: %w", err)
-	} else if ps.processPayment(stream, ps.pt.InitBaseCost.Add(budget)) != nil {
-		return fmt.Errorf("failed to pay: %w", err)
+	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
+		return types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
+	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
+		return types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
 	} else if err := stream.WriteResponse(&req); err != nil {
-		return fmt.Errorf("failed to write response: %w", err)
+		return types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
 	}
 	var cancelToken types.Specifier // unused
 	if err := stream.ReadResponse(&cancelToken, 4096); err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+		return types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	var resp rhpv3.RPCExecuteProgramResponse
+	var resp rhp3.RPCExecuteProgramResponse
 	if err := stream.ReadResponse(&resp, 4096); err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+		return types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	} else if resp.Error != nil {
-		return fmt.Errorf("failed to append sector: %w", resp.Error)
-	} else if resp.NewSize != revision.Revision.Filesize+rhpv2.SectorSize {
-		return fmt.Errorf("unexpected filesize: %v != %v", resp.NewSize, revision.Revision.Filesize+rhpv2.SectorSize)
+		return types.ZeroCurrency, fmt.Errorf("failed to append sector: %w", resp.Error)
+	} else if resp.NewSize != revision.Revision.Filesize+rhp2.SectorSize {
+		return types.ZeroCurrency, fmt.Errorf("unexpected filesize: %v != %v", resp.NewSize, revision.Revision.Filesize+rhp2.SectorSize)
 	}
 	//TODO: validate proof
 	// revise the contract
@@ -301,18 +275,18 @@ func (ps *PaymentSession) AppendSector(sector *[rhpv2.SectorSize]byte, revision 
 	}
 
 	sigHash := hashRevision(revised)
-	finalizeReq := rhpv3.RPCFinalizeProgramRequest{
+	finalizeReq := rhp3.RPCFinalizeProgramRequest{
 		Signature:         renterKey.SignHash(sigHash),
 		RevisionNumber:    revised.RevisionNumber,
 		ValidProofValues:  validProofValues,
 		MissedProofValues: missedProofValues,
 	}
 	if err := stream.WriteResponse(&finalizeReq); err != nil {
-		return fmt.Errorf("failed to write response: %w", err)
+		return types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
 	}
-	var finalizeResp rhpv3.RPCFinalizeProgramResponse
+	var finalizeResp rhp3.RPCFinalizeProgramResponse
 	if err := stream.ReadResponse(&finalizeResp, 4096); err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+		return types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	}
 	revision.Revision = revised
 	revision.Signatures = [2]types.TransactionSignature{
@@ -333,12 +307,12 @@ func (ps *PaymentSession) AppendSector(sector *[rhpv2.SectorSize]byte, revision 
 			Signature: finalizeResp.Signature[:],
 		},
 	}
-	return nil
+	return resp.TotalCost, nil
 }
 
 // ReadSector downloads a sector from the host.
-func (ps *PaymentSession) ReadSector(root types.Hash256, offset, length uint64, budget types.Currency) ([]byte, error) {
-	stream := ps.t.DialStream()
+func (s *Session) ReadSector(root types.Hash256, offset, length uint64, payment PaymentMethod, budget types.Currency) ([]byte, types.Currency, error) {
+	stream := s.t.DialStream()
 	defer stream.Close()
 
 	programData := make([]byte, 48)
@@ -346,9 +320,9 @@ func (ps *PaymentSession) ReadSector(root types.Hash256, offset, length uint64, 
 	binary.LittleEndian.PutUint64(programData[8:16], offset)
 	copy(programData[16:], root[:])
 
-	req := rhpv3.RPCExecuteProgramRequest{
-		Program: []rhpv3.Instruction{
-			&rhpv3.InstrReadSector{
+	req := rhp3.RPCExecuteProgramRequest{
+		Program: []rhp3.Instruction{
+			&rhp3.InstrReadSector{
 				LengthOffset:     0,
 				OffsetOffset:     8,
 				MerkleRootOffset: 16,
@@ -358,68 +332,112 @@ func (ps *PaymentSession) ReadSector(root types.Hash256, offset, length uint64, 
 		ProgramData: programData,
 	}
 
-	if err := stream.WriteRequest(rhpv3.RPCExecuteProgramID, &ps.pt.UID); err != nil {
-		return nil, fmt.Errorf("failed to write request: %w", err)
-	} else if ps.processPayment(stream, ps.pt.InitBaseCost.Add(budget)) != nil {
-		return nil, fmt.Errorf("failed to pay: %w", err)
+	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
+	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
 	} else if err := stream.WriteResponse(&req); err != nil {
-		return nil, fmt.Errorf("failed to write response: %w", err)
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
 	}
 	var cancelToken types.Specifier // unused
 	if err := stream.ReadResponse(&cancelToken, 4096); err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	var resp rhpv3.RPCExecuteProgramResponse
+	var resp rhp3.RPCExecuteProgramResponse
 	if err := stream.ReadResponse(&resp, 4096+length); err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	} else if resp.Error != nil {
-		return nil, fmt.Errorf("failed to append sector: %w", resp.Error)
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to append sector: %w", resp.Error)
 	} else if len(resp.Output) != int(length) {
-		return nil, fmt.Errorf("unexpected output length: %v != %v", len(resp.Output), length)
+		return nil, types.ZeroCurrency, fmt.Errorf("unexpected output length: %v != %v", len(resp.Output), length)
 	}
-	return resp.Output, nil
+	return resp.Output, resp.TotalCost, nil
 }
 
-// ScanPriceTable retrieves the host's current price table
-func (s *Session) ScanPriceTable() (rhpv3.HostPriceTable, error) {
+// ReadSector downloads a sector from the host.
+func (s *Session) ReadOffset(offset, length uint64, contractID types.FileContractID, payment PaymentMethod, budget types.Currency) ([]byte, types.Currency, error) {
 	stream := s.t.DialStream()
 	defer stream.Close()
 
-	if err := stream.WriteRequest(rhpv3.RPCUpdatePriceTableID, nil); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to write request: %w", err)
-	}
-	var resp rhpv3.RPCUpdatePriceTableResponse
-	if err := stream.ReadResponse(&resp, 4096); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to read response: %w", err)
+	programData := make([]byte, 16)
+	binary.LittleEndian.PutUint64(programData[0:8], length)
+	binary.LittleEndian.PutUint64(programData[8:16], offset)
+
+	req := rhp3.RPCExecuteProgramRequest{
+		FileContractID: contractID,
+		Program: []rhp3.Instruction{
+			&rhp3.InstrReadOffset{
+				LengthOffset:  0,
+				OffsetOffset:  8,
+				ProofRequired: true,
+			},
+		},
+		ProgramData: programData,
 	}
 
-	var pt rhpv3.HostPriceTable
+	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
+	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
+	} else if err := stream.WriteResponse(&req); err != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
+	}
+	var cancelToken types.Specifier // unused
+	if err := stream.ReadResponse(&cancelToken, 4096); err != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var resp rhp3.RPCExecuteProgramResponse
+	if err := stream.ReadResponse(&resp, 4096+length); err != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
+	} else if resp.Error != nil {
+		return nil, types.ZeroCurrency, fmt.Errorf("failed to append sector: %w", resp.Error)
+	} else if len(resp.Output) != int(length) {
+		return nil, types.ZeroCurrency, fmt.Errorf("unexpected output length: %v != %v", len(resp.Output), length)
+	}
+	return resp.Output, resp.TotalCost, nil
+}
+
+// ScanPriceTable retrieves the host's current price table
+func (s *Session) ScanPriceTable() (rhp3.HostPriceTable, error) {
+	stream := s.t.DialStream()
+	defer stream.Close()
+
+	if err := stream.WriteRequest(rhp3.RPCUpdatePriceTableID, nil); err != nil {
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to write request: %w", err)
+	}
+	var resp rhp3.RPCUpdatePriceTableResponse
+	if err := stream.ReadResponse(&resp, 4096); err != nil {
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var pt rhp3.HostPriceTable
 	if err := json.Unmarshal(resp.PriceTableJSON, &pt); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to unmarshal price table: %w", err)
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to unmarshal price table: %w", err)
 	}
 	return pt, nil
 }
 
 // RenewContract renews an existing contract with the host
-func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, endHeight uint64) (rhpv2.ContractRevision, []types.Transaction, error) {
+func (s *Session) RenewContract(revision *rhp2.ContractRevision, hostAddr types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, endHeight uint64) (rhp2.ContractRevision, []types.Transaction, error) {
 	stream := s.t.DialStream()
 	defer stream.Close()
 
 	state := s.cm.TipState()
 
 	pt := s.pt
-	if err := stream.WriteRequest(rhpv3.RPCRenewContractID, &pt.UID); err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to write request: %w", err)
-	} else if pt.UID == (rhpv3.SettingsID{}) {
+	if err := stream.WriteRequest(rhp3.RPCRenewContractID, &pt.UID); err != nil {
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to write request: %w", err)
+	} else if pt.UID == (rhp3.SettingsID{}) {
 		// if the price table UID is the zero value, the host sends
 		// a temporary price table
-		var priceTableResp rhpv3.RPCUpdatePriceTableResponse
+		var priceTableResp rhp3.RPCUpdatePriceTableResponse
 		if err := stream.ReadResponse(&priceTableResp, 4096); err != nil {
-			return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to read response: %w", err)
+			return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to read response: %w", err)
 		}
 		if err := json.Unmarshal(priceTableResp.PriceTableJSON, &pt); err != nil {
-			return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to unmarshal price table: %w", err)
+			return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to unmarshal price table: %w", err)
 		}
 	}
 
@@ -430,7 +448,7 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 
 	clearingRevision, err := clearingRevision(revision.Revision, clearingValues)
 	if err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to create clearing revision: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to create clearing revision: %w", err)
 	}
 
 	txnFee := types.Siacoins(1)
@@ -440,28 +458,28 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 		FileContractRevisions: []types.FileContractRevision{clearingRevision},
 		FileContracts:         []types.FileContract{renewal},
 	}
-	renterCost := rhpv2.ContractRenewalCost(state, renewal, pt.ContractPrice, txnFee, baseCost)
+	renterCost := rhp2.ContractRenewalCost(state, renewal, pt.ContractPrice, txnFee, baseCost)
 	toSign, release, err := s.w.FundTransaction(&renewTxn, renterCost)
 	if err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to fund transaction: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
 
 	clearingSigHash := hashFinalRevision(clearingRevision, renewal)
-	renewReq := &rhpv3.RPCRenewContractRequest{
+	renewReq := &rhp3.RPCRenewContractRequest{
 		TransactionSet:         []types.Transaction{renewTxn},
 		RenterKey:              renterKey.PublicKey().UnlockKey(),
 		FinalRevisionSignature: renterKey.SignHash(clearingSigHash),
 	}
 	if err := stream.WriteResponse(renewReq); err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to write renew request: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to write renew request: %w", err)
 	}
 
-	var hostAdditions rhpv3.RPCRenewContractHostAdditions
+	var hostAdditions rhp3.RPCRenewContractHostAdditions
 	if err := stream.ReadResponse(&hostAdditions, 4096); err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to read host additions response: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to read host additions response: %w", err)
 	} else if !s.hostKey.VerifyHash(clearingSigHash, hostAdditions.FinalRevisionSignature) {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("host final revision signature invalid")
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("host final revision signature invalid")
 	}
 	// add the host's additions to the transaction set
 	renewalParents := hostAdditions.Parents
@@ -470,13 +488,13 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 
 	// sign the transaction
 	if err := s.w.SignTransaction(state, &renewTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to sign transaction: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
 	renewRevision := initialRevision(&renewTxn, s.hostKey.UnlockKey(), renterKey.PublicKey().UnlockKey())
 	renewSigHash := hashRevision(renewRevision)
 	renterSig := renterKey.SignHash(renewSigHash)
-	renterSigsResp := &rhpv3.RPCRenewSignatures{
+	renterSigsResp := &rhp3.RPCRenewSignatures{
 		TransactionSignatures: renewTxn.Signatures,
 		RevisionSignature: types.TransactionSignature{
 			ParentID:       types.Hash256(renewRevision.ParentID),
@@ -488,16 +506,16 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 		},
 	}
 	if err := stream.WriteResponse(renterSigsResp); err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to write renter signatures: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to write renter signatures: %w", err)
 	}
 
-	var hostSigsResp rhpv3.RPCRenewSignatures
+	var hostSigsResp rhp3.RPCRenewSignatures
 	if err := stream.ReadResponse(&hostSigsResp, 4096); err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("failed to read host signatures: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to read host signatures: %w", err)
 	} else if err := validateHostRevisionSignature(hostSigsResp.RevisionSignature, renewRevision.ParentID, renewSigHash, s.hostKey); err != nil {
-		return rhpv2.ContractRevision{}, nil, fmt.Errorf("invalid host revision signature: %w", err)
+		return rhp2.ContractRevision{}, nil, fmt.Errorf("invalid host revision signature: %w", err)
 	}
-	return rhpv2.ContractRevision{
+	return rhp2.ContractRevision{
 		Revision: renewRevision,
 		Signatures: [2]types.TransactionSignature{
 			renterSigsResp.RevisionSignature,
@@ -506,35 +524,36 @@ func (s *Session) RenewContract(revision *rhpv2.ContractRevision, hostAddr types
 	}, append(renewalParents, renewTxn), nil
 }
 
-// WithContractPayment creates a new payment session for a contract
-func (s *Session) WithContractPayment(revision *rhpv2.ContractRevision, renterKey types.PrivateKey, refundAccount rhpv3.Account) *PaymentSession {
-	payment := &PaymentSession{
-		Session: s,
-		payment: &contractPayment{
-			Revision:      revision,
-			RenterKey:     renterKey,
-			RefundAccount: refundAccount,
-		},
-	}
-	return payment
-}
-
-// WithAccountPayment creates a new payment session for an account
-func (s *Session) WithAccountPayment(account rhpv3.Account, privateKey types.PrivateKey) *PaymentSession {
-	payment := &PaymentSession{
-		Session: s,
-		payment: &accountPayment{
-			cm:         s.cm,
-			Account:    account,
-			PrivateKey: privateKey,
-		},
-	}
-	return payment
-}
-
-// Close closes the session
+// Close closes the underlying transport
 func (s *Session) Close() error {
 	return s.t.Close()
+}
+
+// processPayment processes a payment using the given payment method
+func (s *Session) processPayment(stream *rhp3.Stream, method PaymentMethod, amount types.Currency) error {
+	pm, ok := method.Pay(amount, s.cm.TipState().Index.Height)
+	if !ok {
+		return fmt.Errorf("payment method cannot pay %v", amount)
+	}
+	switch pm := pm.(type) {
+	case *rhp3.PayByEphemeralAccountRequest:
+		if err := stream.WriteResponse(&rhp3.PaymentTypeEphemeralAccount); err != nil {
+			return fmt.Errorf("failed to write payment request type: %w", err)
+		} else if err := stream.WriteResponse(pm); err != nil {
+			return fmt.Errorf("failed to write request: %w", err)
+		}
+	case *rhp3.PayByContractRequest:
+		if err := stream.WriteResponse(&rhp3.PaymentTypeContract); err != nil {
+			return fmt.Errorf("failed to write payment request type: %w", err)
+		} else if err := stream.WriteResponse(pm); err != nil {
+			return fmt.Errorf("failed to write request: %w", err)
+		}
+		var hostSigResp rhp3.PaymentResponse
+		if err := stream.ReadResponse(&hostSigResp, 4096); err != nil {
+			return fmt.Errorf("failed to read response: %w", err)
+		}
+	}
+	return nil
 }
 
 // clearingRevision returns a revision that locks a contract and sets the missed
@@ -638,7 +657,7 @@ func initialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey t
 }
 
 // calculateRenewalPayouts calculates the contract payouts for the host.
-func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency, pt rhpv3.HostPriceTable, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency) {
+func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency, pt rhp3.HostPriceTable, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency) {
 	// The host gets their contract fee, plus the cost of the data already in the
 	// contract, plus their collateral. In the event of a missed payout, the cost
 	// and collateral of the data already in the contract is subtracted from the
@@ -728,7 +747,7 @@ func taxAdjustedPayout(target types.Currency) types.Currency {
 	return guess.Add(tm).Sub(gm)
 }
 
-func prepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, hostAddr types.Address, host rhpv3.HostPriceTable, endHeight uint64) (types.FileContract, types.Currency) {
+func prepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, hostAddr types.Address, host rhp3.HostPriceTable, endHeight uint64) (types.FileContract, types.Currency) {
 	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice := calculateRenewalPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
 	renterPub := renterKey.PublicKey()
 	return types.FileContract{
@@ -756,13 +775,30 @@ func prepareContractRenewal(currentRevision types.FileContractRevision, renterAd
 	}, basePrice
 }
 
+// ContractPayment creates a new payment method for a contract
+func ContractPayment(revision *rhp2.ContractRevision, renterKey types.PrivateKey, refundAccount rhp3.Account) PaymentMethod {
+	return &contractPayment{
+		Revision:      revision,
+		RenterKey:     renterKey,
+		RefundAccount: refundAccount,
+	}
+}
+
+// AccountPayment creates a new payment method for an account
+func AccountPayment(account rhp3.Account, privateKey types.PrivateKey) PaymentMethod {
+	return &accountPayment{
+		Account:    account,
+		PrivateKey: privateKey,
+	}
+}
+
 // NewSession creates a new session with a host
-func NewSession(ctx context.Context, hostKey types.PublicKey, hostAddr string, cm ChainManager, w *wallet.SingleAddressWallet) (*Session, error) {
+func NewSession(ctx context.Context, hostKey types.PublicKey, hostAddr string, cm ChainManager, w Wallet) (*Session, error) {
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", hostAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial host: %w", err)
 	}
-	t, err := rhpv3.NewRenterTransport(conn, hostKey)
+	t, err := rhp3.NewRenterTransport(conn, hostKey)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to create transport: %w", err)
