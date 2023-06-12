@@ -49,8 +49,8 @@ type (
 		BaseRPCPrice      types.Currency `json:"baseRPCPrice"`
 		SectorAccessPrice types.Currency `json:"sectorAccessPrice"`
 
-		Collateral    types.Currency `json:"collateral"`
-		MaxCollateral types.Currency `json:"maxCollateral"`
+		CollateralMultiplier float64        `json:"collateralMultiplier"`
+		MaxCollateral        types.Currency `json:"maxCollateral"`
 
 		StoragePrice types.Currency `json:"storagePrice"`
 		EgressPrice  types.Currency `json:"egressPrice"`
@@ -130,8 +130,8 @@ var (
 		BaseRPCPrice:      types.Siacoins(1).Div64(1e7), // 1 SC / million RPCs
 		SectorAccessPrice: types.Siacoins(1).Div64(1e7), // 1 SC / million sectors
 
-		Collateral:    types.Siacoins(300).Div64(1 << 40).Div64(blocksPerMonth), // 300 SC / TB / month
-		MaxCollateral: types.Siacoins(1000),
+		CollateralMultiplier: 2.0, // 2x storage price
+		MaxCollateral:        types.Siacoins(1000),
 
 		StoragePrice: types.Siacoins(150).Div64(1 << 40).Div64(blocksPerMonth), // 150 SC / TB / month
 		EgressPrice:  types.Siacoins(500).Div64(1 << 40),                       // 500 SC / TB
