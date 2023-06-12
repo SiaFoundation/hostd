@@ -355,7 +355,7 @@ func (s *Session) ReadSector(root types.Hash256, offset, length uint64, payment 
 	return resp.Output, resp.TotalCost, nil
 }
 
-// ReadSector downloads a sector from the host.
+// ReadOffset reads a sector from a contract at a given offset.
 func (s *Session) ReadOffset(offset, length uint64, contractID types.FileContractID, payment PaymentMethod, budget types.Currency) ([]byte, types.Currency, error) {
 	stream := s.t.DialStream()
 	defer stream.Close()
