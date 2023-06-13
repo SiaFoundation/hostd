@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -39,13 +40,13 @@ const (
 	metricRHP3Egress  = "rhp3Egress"
 
 	// pricing
-	metricContractPrice     = "contractPrice"
-	metricIngressPrice      = "ingressPrice"
-	metricEgressPrice       = "egressPrice"
-	metricBaseRPCPrice      = "baseRPCPrice"
-	metricSectorAccessPrice = "sectorAccessPrice"
-	metricStoragePrice      = "storagePrice"
-	metricCollateral        = "collateral"
+	metricContractPrice        = "contractPrice"
+	metricIngressPrice         = "ingressPrice"
+	metricEgressPrice          = "egressPrice"
+	metricBaseRPCPrice         = "baseRPCPrice"
+	metricSectorAccessPrice    = "sectorAccessPrice"
+	metricStoragePrice         = "storagePrice"
+	metricCollateralMultiplier = "collateralMultiplier"
 
 	// wallet
 	metricWalletBalance = "walletBalance"
@@ -296,8 +297,9 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Pricing.SectorAccessPrice = mustScanCurrency(buf)
 	case metricStoragePrice:
 		m.Pricing.StoragePrice = mustScanCurrency(buf)
-	case metricCollateral:
-		m.Pricing.Collateral = mustScanCurrency(buf)
+	case metricCollateralMultiplier:
+		value := mustScanUint64(buf)
+		m.Pricing.CollateralMultiplier = math.Float64frombits(value)
 	// contracts
 	case metricPendingContracts:
 		m.Contracts.Pending = mustScanUint64(buf)
@@ -414,6 +416,23 @@ func setCurrencyStat(tx txn, stat string, value types.Currency, timestamp time.T
 
 func setNumericStat(tx txn, stat string, value uint64, timestamp time.Time) error {
 	timestamp = timestamp.Truncate(statInterval)
+	var current uint64
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to query existing value: %w", err)
+	} else if value == current {
+		return nil
+	}
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlUint64(value), sqlTime(timestamp))
+	if err != nil {
+		return fmt.Errorf("failed to insert stat: %w", err)
+	}
+	return nil
+}
+
+func setFloat64Stat(tx txn, stat string, f float64, timestamp time.Time) error {
+	timestamp = timestamp.Truncate(statInterval)
+	value := math.Float64bits(f)
 	var current uint64
 	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

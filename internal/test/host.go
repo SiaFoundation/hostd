@@ -65,10 +65,10 @@ var DefaultSettings = settings.Settings{
 	BaseRPCPrice:      types.NewCurrency64(100),
 	SectorAccessPrice: types.NewCurrency64(100),
 
-	Collateral:   types.Siacoins(200).Div64(1e12).Div64(blocksPerMonth),
-	StoragePrice: types.Siacoins(100).Div64(1e12).Div64(blocksPerMonth),
-	EgressPrice:  types.Siacoins(100).Div64(1e12),
-	IngressPrice: types.Siacoins(100).Div64(1e12),
+	CollateralMultiplier: 2.0,
+	StoragePrice:         types.Siacoins(100).Div64(1e12).Div64(blocksPerMonth),
+	EgressPrice:          types.Siacoins(100).Div64(1e12),
+	IngressPrice:         types.Siacoins(100).Div64(1e12),
 
 	PriceTableValidity: 30 * time.Second,
 

@@ -47,13 +47,13 @@ type (
 
 	// Pricing is a collection of metrics related to the host's pricing settings.
 	Pricing struct {
-		ContractPrice     types.Currency `json:"contractPrice"`
-		IngressPrice      types.Currency `json:"ingressPrice"`
-		EgressPrice       types.Currency `json:"egressPrice"`
-		BaseRPCPrice      types.Currency `json:"baseRPCPrice"`
-		SectorAccessPrice types.Currency `json:"sectorAccessPrice"`
-		StoragePrice      types.Currency `json:"storagePrice"`
-		Collateral        types.Currency `json:"collateral"`
+		ContractPrice        types.Currency `json:"contractPrice"`
+		IngressPrice         types.Currency `json:"ingressPrice"`
+		EgressPrice          types.Currency `json:"egressPrice"`
+		BaseRPCPrice         types.Currency `json:"baseRPCPrice"`
+		SectorAccessPrice    types.Currency `json:"sectorAccessPrice"`
+		StoragePrice         types.Currency `json:"storagePrice"`
+		CollateralMultiplier float64        `json:"collateralMultiplier"`
 	}
 
 	// Registry is a collection of metrics related to the host's registry.
