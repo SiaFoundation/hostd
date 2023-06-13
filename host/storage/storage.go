@@ -189,7 +189,7 @@ func (vm *VolumeManager) loadVolumes() error {
 			vm.a.Register(alerts.Alert{
 				ID:       frand.Entropy256(),
 				Severity: alerts.SeverityError,
-				Message:  fmt.Sprintf("Failed to open volume %q", vol.LocalPath),
+				Message:  "Failed to open volume",
 				Data: map[string]any{
 					"volume": vol.LocalPath,
 					"error":  err.Error(),
@@ -630,6 +630,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 			log.Error("failed to initialize volume", zap.Error(err))
 			alert.Message = "Failed to initialize volume"
 			alert.Severity = alerts.SeverityError
+			alert.Data["error"] = err.Error()
 		} else {
 			alert.Message = "Volume initialized"
 			alert.Severity = alerts.SeverityInfo

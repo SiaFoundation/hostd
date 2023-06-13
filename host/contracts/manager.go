@@ -374,7 +374,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			}
 			cm.alerts.Register(alerts.Alert{
 				ID:       frand.Entropy256(),
-				Severity: alerts.SeverityWarning,
+				Severity: alerts.SeverityInfo,
 				Message:  "Contract resolution confirmed",
 				Data: map[string]any{
 					"contractID":  applied,
