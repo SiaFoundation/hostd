@@ -17,7 +17,7 @@ import (
 func (s *Store) Settings() (config settings.Settings, err error) {
 	var dyndnsBuf []byte
 	const query = `SELECT settings_revision, accepting_contracts, net_address, 
-	contract_price, base_rpc_price, sector_access_price, collateral, 
+	contract_price, base_rpc_price, sector_access_price, collateral_multiplier, 
 	max_collateral, storage_price, egress_price, ingress_price, 
 	max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
 	ingress_limit, egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts
@@ -25,7 +25,7 @@ FROM host_settings;`
 	err = s.queryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
 		&config.NetAddress, (*sqlCurrency)(&config.ContractPrice),
 		(*sqlCurrency)(&config.BaseRPCPrice), (*sqlCurrency)(&config.SectorAccessPrice),
-		(*sqlCurrency)(&config.Collateral), (*sqlCurrency)(&config.MaxCollateral),
+		&config.CollateralMultiplier, (*sqlCurrency)(&config.MaxCollateral),
 		(*sqlCurrency)(&config.StoragePrice), (*sqlCurrency)(&config.EgressPrice),
 		(*sqlCurrency)(&config.IngressPrice), (*sqlCurrency)(&config.MaxAccountBalance),
 		&config.AccountExpiry, &config.PriceTableValidity, &config.MaxContractDuration, &config.WindowSize,
@@ -47,20 +47,20 @@ FROM host_settings;`
 func (s *Store) UpdateSettings(settings settings.Settings) error {
 	const query = `INSERT INTO host_settings (id, settings_revision, 
 		accepting_contracts, net_address, contract_price, base_rpc_price, 
-		sector_access_price, collateral, max_collateral, storage_price, 
+		sector_access_price, collateral_multiplier, max_collateral, storage_price, 
 		egress_price, ingress_price, max_account_balance, 
 		max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
 		egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts) 
 		VALUES (0, 0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) 
 ON CONFLICT (id) DO UPDATE SET (settings_revision, 
 	accepting_contracts, net_address, contract_price, base_rpc_price, 
-	sector_access_price, collateral, max_collateral, storage_price, 
+	sector_access_price, collateral_multiplier, max_collateral, storage_price, 
 	egress_price, ingress_price, max_account_balance, 
 	max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
 	egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts) = (
 	settings_revision + 1, EXCLUDED.accepting_contracts, EXCLUDED.net_address,
 	EXCLUDED.contract_price, EXCLUDED.base_rpc_price, EXCLUDED.sector_access_price,
-	EXCLUDED.collateral, EXCLUDED.max_collateral, EXCLUDED.storage_price,
+	EXCLUDED.collateral_multiplier, EXCLUDED.max_collateral, EXCLUDED.storage_price,
 	EXCLUDED.egress_price, EXCLUDED.ingress_price, EXCLUDED.max_account_balance,
 	EXCLUDED.max_account_age, EXCLUDED.price_table_validity, EXCLUDED.max_contract_duration, EXCLUDED.window_size, 
 	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.ddns_provider, 
@@ -78,7 +78,7 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 		_, err := tx.Exec(query, settings.AcceptingContracts,
 			settings.NetAddress, sqlCurrency(settings.ContractPrice),
 			sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),
-			sqlCurrency(settings.Collateral), sqlCurrency(settings.MaxCollateral),
+			settings.CollateralMultiplier, sqlCurrency(settings.MaxCollateral),
 			sqlCurrency(settings.StoragePrice), sqlCurrency(settings.EgressPrice),
 			sqlCurrency(settings.IngressPrice), sqlCurrency(settings.MaxAccountBalance),
 			settings.AccountExpiry, settings.PriceTableValidity, settings.MaxContractDuration, settings.WindowSize,
@@ -96,8 +96,6 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			return fmt.Errorf("failed to update base RPC price stat: %w", err)
 		} else if err := setCurrencyStat(tx, metricSectorAccessPrice, settings.SectorAccessPrice, timestamp); err != nil {
 			return fmt.Errorf("failed to update sector access price stat: %w", err)
-		} else if err := setCurrencyStat(tx, metricCollateral, settings.Collateral, timestamp); err != nil {
-			return fmt.Errorf("failed to update collateral stat: %w", err)
 		} else if err := setCurrencyStat(tx, metricStoragePrice, settings.StoragePrice, timestamp); err != nil {
 			return fmt.Errorf("failed to update storage price stat: %w", err)
 		} else if err := setCurrencyStat(tx, metricEgressPrice, settings.EgressPrice, timestamp); err != nil {
@@ -106,6 +104,8 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			return fmt.Errorf("failed to update ingress price stat: %w", err)
 		} else if err := setNumericStat(tx, metricMaxRegistryEntries, settings.MaxRegistryEntries, timestamp); err != nil {
 			return fmt.Errorf("failed to update max registry entries stat: %w", err)
+		} else if err := setFloat64Stat(tx, metricCollateralMultiplier, settings.CollateralMultiplier, timestamp); err != nil {
+			return fmt.Errorf("failed to update collateral stat: %w", err)
 		}
 		return nil
 	})

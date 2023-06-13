@@ -151,7 +151,7 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 
 		// Contract Formation/Renewal related fields
 		ContractPrice:     settings.ContractPrice,
-		CollateralCost:    settings.Collateral,
+		CollateralCost:    settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
 		MaxCollateral:     settings.MaxCollateral,
 		MaxDuration:       settings.MaxContractDuration,
 		WindowSize:        settings.WindowSize,

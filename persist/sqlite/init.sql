@@ -189,12 +189,12 @@ CREATE TABLE host_settings (
 	contract_price BLOB NOT NULL,
 	base_rpc_price BLOB NOT NULL,
 	sector_access_price BLOB NOT NULL,
-	collateral BLOB NOT NULL,
 	max_collateral BLOB NOT NULL,
 	storage_price BLOB NOT NULL,
 	egress_price BLOB NOT NULL,
 	ingress_price BLOB NOT NULL,
 	max_account_balance BLOB NOT NULL,
+	collateral_multiplier REAL NOT NULL,
 	max_account_age INTEGER NOT NULL,
 	price_table_validity INTEGER NOT NULL,
 	max_contract_duration INTEGER NOT NULL,
@@ -234,4 +234,4 @@ CREATE TABLE global_settings (
 	contracts_height INTEGER -- height of the contract manager as of the last processed change
 );
 
-INSERT INTO global_settings (id, db_version) VALUES (0, 3); -- version must be updated when the schema changes
+INSERT INTO global_settings (id, db_version) VALUES (0, 4); -- version must be updated when the schema changes

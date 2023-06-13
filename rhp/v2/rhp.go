@@ -243,7 +243,7 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		// rpc prices
 		BaseRPCPrice:           settings.BaseRPCPrice,
 		SectorAccessPrice:      settings.SectorAccessPrice,
-		Collateral:             settings.Collateral,
+		Collateral:             settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
 		MaxCollateral:          settings.MaxCollateral,
 		StoragePrice:           settings.StoragePrice,
 		DownloadBandwidthPrice: settings.EgressPrice,
