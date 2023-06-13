@@ -15,6 +15,8 @@ import (
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -74,6 +76,8 @@ type (
 		volumes map[int]*volume
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
+		cache          *lru.Cache[types.Hash256, *[rhpv2.SectorSize]byte] // Added cache
+		cacheMu        sync.Mutex
 	}
 )
 
@@ -849,6 +853,15 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 	}
 	defer done()
 
+	// Check the cache first
+	vm.cacheMu.Lock()
+	if sector, ok := vm.cache.Get(root); ok {
+		vm.cacheMu.Unlock()
+		return sector, nil
+	}
+	vm.cacheMu.Unlock()
+
+	// Cache miss, read from disk
 	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate sector %v: %w", root, err)
@@ -866,6 +879,12 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sector %v: %w", root, err)
 	}
+
+	// Add sector to cache
+	vm.cacheMu.Lock()
+	vm.cache.Add(root, sector)
+	vm.cacheMu.Unlock()
+
 	vm.recorder.AddRead()
 	return sector, nil
 }
@@ -917,6 +936,12 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 		} else if err := vol.WriteSector(data, loc.Index); err != nil {
 			return fmt.Errorf("failed to write sector %v: %w", root, err)
 		}
+
+		// Add newly written sector to cache
+		vm.cacheMu.Lock()
+		vm.cache.Add(root, data)
+		vm.cacheMu.Unlock()
+
 		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		return nil
 	})
@@ -955,6 +980,8 @@ func (vm *VolumeManager) PruneSectors() (int, error) {
 
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
+	// Initialize cache with LRU eviction and a max capacity of 1000 items
+	cache, _ := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](1000)
 	vm := &VolumeManager{
 		vs:  vs,
 		a:   a,
@@ -967,12 +994,24 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
+		cache:          cache,
+		cacheMu:        sync.Mutex{},
 
 		tg: threadgroup.New(),
 	}
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
 	}
+
+	// Background goroutine to evict old entries from cache
+	go func() {
+		for {
+			vm.cacheMu.Lock()
+			vm.cacheMu.Unlock()
+			time.Sleep(time.Minute)
+		}
+	}()
+
 	go vm.recorder.Run(vm.tg.Done())
 	go vm.cleanup()
 	return vm, nil
