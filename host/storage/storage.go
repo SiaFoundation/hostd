@@ -15,6 +15,10 @@ import (
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
+
+	"sync/atomic"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -74,6 +78,9 @@ type (
 		volumes map[int]*volume
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
+		cache          *lru.Cache[types.Hash256, *[rhpv2.SectorSize]byte] // Added cache
+		cacheHits      uint64                                             // Cache hit counter
+		cacheMisses    uint64                                             // Cache miss counter
 	}
 )
 
@@ -850,6 +857,13 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 	}
 	defer done()
 
+	// Check the cache first
+	if sector, ok := vm.cache.Get(root); ok {
+		atomic.AddUint64(&vm.cacheHits, 1) // Increment cache hit counter
+		return sector, nil
+	}
+
+	// Cache miss, read from disk
 	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate sector %v: %w", root, err)
@@ -867,6 +881,11 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sector %v: %w", root, err)
 	}
+
+	// Add sector to cache
+	vm.cache.Add(root, sector)
+	atomic.AddUint64(&vm.cacheMisses, 1) // Increment cache miss counter
+
 	vm.recorder.AddRead()
 	return sector, nil
 }
@@ -918,6 +937,10 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 		} else if err := vol.WriteSector(data, loc.Index); err != nil {
 			return fmt.Errorf("failed to write sector %v: %w", root, err)
 		}
+
+		// Add newly written sector to cache
+		vm.cache.Add(root, data)
+
 		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		return nil
 	})
@@ -954,8 +977,19 @@ func (vm *VolumeManager) PruneSectors() (int, error) {
 	return vm.vs.PruneSectors()
 }
 
+// ResizeCache resizes the cache to the given size.
+func (vm *VolumeManager) ResizeCache(size int) error {
+	vm.cache.Resize(size)
+	return nil
+}
+
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
+	// Initialize cache with LRU eviction and a max capacity of 64
+	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize cache: %w", err)
+	}
 	vm := &VolumeManager{
 		vs:  vs,
 		a:   a,
@@ -968,12 +1002,14 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
+		cache:          cache,
 
 		tg: threadgroup.New(),
 	}
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
 	}
+
 	go vm.recorder.Run(vm.tg.Done())
 	go vm.cleanup()
 	return vm, nil
