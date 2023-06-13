@@ -185,7 +185,7 @@ func (vm *VolumeManager) loadVolumes() error {
 			vm.a.Register(alerts.Alert{
 				ID:       frand.Entropy256(),
 				Severity: alerts.SeverityError,
-				Message:  fmt.Sprintf("Failed to open volume %q", vol.LocalPath),
+				Message:  "Failed to open volume",
 				Data: map[string]any{
 					"volume": vol.LocalPath,
 					"error":  err.Error(),
