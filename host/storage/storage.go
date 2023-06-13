@@ -626,6 +626,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 			log.Error("failed to initialize volume", zap.Error(err))
 			alert.Message = "Failed to initialize volume"
 			alert.Severity = alerts.SeverityError
+			alert.Data["error"] = err.Error()
 		} else {
 			alert.Message = "Volume initialized"
 			alert.Severity = alerts.SeverityInfo
