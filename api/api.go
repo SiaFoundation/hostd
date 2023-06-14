@@ -157,8 +157,8 @@ func NewServer(hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, 
 		"PUT /syncer/peers":             api.handlePUTSyncerPeer,
 		"DELETE /syncer/peers/:address": api.handleDeleteSyncerPeer,
 		// alerts endpoints
-		"GET /alerts":    api.handleGETAlerts,
-		"DELETE /alerts": api.handleDELETEAlerts,
+		"GET /alerts":          api.handleGETAlerts,
+		"POST /alerts/dismiss": api.handlePOSTAlertsDismiss,
 		// settings endpoints
 		"GET /settings":             api.handleGETSettings,
 		"PATCH /settings":           api.handlePATCHSettings,

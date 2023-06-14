@@ -93,7 +93,7 @@ func (a *api) handleGETAlerts(c jape.Context) {
 	c.Encode(a.alerts.Active())
 }
 
-func (a *api) handleDELETEAlerts(c jape.Context) {
+func (a *api) handlePOSTAlertsDismiss(c jape.Context) {
 	var ids []types.Hash256
 	if err := c.Decode(&ids); err != nil {
 		return
