@@ -152,6 +152,9 @@ func TestStoreSector(t *testing.T) {
 	defer renter.Close()
 	defer host.Close()
 
+	// Resize cache to 0 sectors
+	host.Storage().ResizeCache(0)
+
 	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/aws/aws-sdk-go v1.44.156
 	github.com/cloudflare/cloudflare-go v0.66.0
+	github.com/hashicorp/golang-lru/v2 v2.0.3
 	github.com/mattn/go-sqlite3 v1.14.16
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	go.sia.tech/core v0.1.12-0.20230529164041-6347a98003be
