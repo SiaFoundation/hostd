@@ -978,9 +978,9 @@ func (vm *VolumeManager) PruneSectors() (int, error) {
 }
 
 // ResizeCache resizes the cache to the given size.
-func (vm *VolumeManager) ResizeCache(size int) error {
+func (vm *VolumeManager) ResizeCache(size int) {
+	// Resize the underlying cache data structure
 	vm.cache.Resize(size)
-	return nil
 }
 
 // NewVolumeManager creates a new VolumeManager.
