@@ -1,6 +1,23 @@
 package sqlite
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
+
+// migrateVersion5 fixes a bug where the contract sectors metric was not being
+// properly increased when a contract is renewed. Unfortunately, this means that
+// the contract sectors metric will drastically increase for existing hosts.
+// This is unavoidable, as we have no way of knowing how many sectors were
+// previously renewed.
+func migrateVersion5(tx txn) error {
+	var count int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&count); err != nil {
+		return fmt.Errorf("failed to count contract sector roots: %w", err)
+	}
+
+	return setNumericStat(tx, metricContractSectors, uint64(count), time.Now().Truncate(statInterval))
+}
 
 // migrateVersion4 changes the collateral setting to collateral_multiplier
 func migrateVersion4(tx txn) error {
@@ -124,4 +141,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion2,
 	migrateVersion3,
 	migrateVersion4,
+	migrateVersion5,
 }
