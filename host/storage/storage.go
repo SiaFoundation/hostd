@@ -192,7 +192,7 @@ func (vm *VolumeManager) loadVolumes() error {
 			vm.a.Register(alerts.Alert{
 				ID:       frand.Entropy256(),
 				Severity: alerts.SeverityError,
-				Message:  "Failed to open volume",
+				Message:  fmt.Sprintf("Failed to open volume %q", vol.LocalPath),
 				Data: map[string]any{
 					"volume": vol.LocalPath,
 					"error":  err.Error(),
@@ -633,7 +633,6 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 			log.Error("failed to initialize volume", zap.Error(err))
 			alert.Message = "Failed to initialize volume"
 			alert.Severity = alerts.SeverityError
-			alert.Data["error"] = err.Error()
 		} else {
 			alert.Message = "Volume initialized"
 			alert.Severity = alerts.SeverityInfo
@@ -857,14 +856,9 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 	}
 	defer done()
 
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-
 	// Check the cache first
 	if sector, ok := vm.cache.Get(root); ok {
 		atomic.AddUint64(&vm.cacheHits, 1) // Increment cache hit counter
-		// Remove sector from cache to simulate cache miss
-		vm.cache.Remove(root)
 		return sector, nil
 	}
 
@@ -982,10 +976,19 @@ func (vm *VolumeManager) PruneSectors() (int, error) {
 	return vm.vs.PruneSectors()
 }
 
+// ResizeCache resizes the cache to the given size.
+func (vm *VolumeManager) ResizeCache(size int) error {
+	vm.cache.Resize(size)
+	return nil
+}
+
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
 	// Initialize cache with LRU eviction and a max capacity of 64
-	cache, _ := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](64)
+	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize cache: %w", err)
+	}
 	vm := &VolumeManager{
 		vs:  vs,
 		a:   a,
