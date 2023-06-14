@@ -327,6 +327,9 @@ func TestRemoveCorrupt(t *testing.T) {
 	}
 	defer vm.Close()
 
+	// Resize cache to 0 sectors
+	vm.ResizeCache(0)
+
 	result := make(chan error, 1)
 	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
 	volume, err := vm.AddVolume(volumePath, expectedSectors, result)

@@ -86,10 +86,8 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Disable cache for this test
-	if err := s.ResizeCache(0); err != nil {
-		t.Fatal(err)
-	}
+	// Resize cache to 0 sectors
+	s.ResizeCache(0)
 
 	result := make(chan error, 1)
 	if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
