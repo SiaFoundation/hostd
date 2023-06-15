@@ -2,11 +2,6 @@ FROM docker.io/library/golang:1.20 AS builder
 
 WORKDIR /hostd
 
-# upgrade git.
-RUN echo 'deb http://deb.debian.org/debian bullseye-backports main' >> /etc/apt/sources.list && \
-	apt update && \
-	apt install git/bullseye-backports -y
-
 COPY . .
 # build
 RUN go generate ./...
