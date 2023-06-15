@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+	"go.sia.tech/hostd/host/settings"
 )
 
 const (
@@ -71,6 +72,7 @@ type (
 		cm       ChainManager
 		log      *zap.Logger
 		recorder *sectorAccessRecorder
+		s        settings.Settings // Added Settings field
 
 		tg *threadgroup.ThreadGroup
 
@@ -984,9 +986,9 @@ func (vm *VolumeManager) ResizeCache(size int) {
 }
 
 // NewVolumeManager creates a new VolumeManager.
-func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
+func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger, s settings.Settings) (*VolumeManager, error) {
 	// Initialize cache with LRU eviction and a max capacity of 64
-	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](64)
+	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](int(s.SectorsToCache))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cache: %w", err)
 	}
@@ -995,6 +997,7 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 		a:   a,
 		cm:  cm,
 		log: log,
+		s:   s, // Initialize the s field
 		recorder: &sectorAccessRecorder{
 			store: vs,
 			log:   log.Named("recorder"),
@@ -1003,8 +1006,7 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
 		cache:          cache,
-
-		tg: threadgroup.New(),
+		tg:             threadgroup.New(),
 	}
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
