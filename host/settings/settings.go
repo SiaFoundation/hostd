@@ -72,6 +72,9 @@ type (
 		// DNS settings
 		DDNS DNSSettings `json:"ddns"`
 
+		// New setting for number of sectors to cache
+		SectorsToCache uint32 `json:"sectorsToCache"`
+
 		Revision uint64 `json:"revision"`
 	}
 

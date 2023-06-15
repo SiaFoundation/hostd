@@ -149,6 +149,13 @@ func (a *api) handlePATCHSettings(c jape.Context) {
 	if !a.checkServerError(c, "failed to update settings", err) {
 		return
 	}
+
+	// Resize the cache based on the updated settings
+	if a.volumes != nil {
+		cacheSize := int(settings.SectorsToCache) //converting uint32 type to int type for ResizeCache func() that accepts int type
+		a.volumes.ResizeCache(cacheSize)
+	}
+
 	c.Encode(a.settings.Settings())
 }
 

@@ -205,7 +205,9 @@ CREATE TABLE host_settings (
 	ddns_update_v4 BOOLEAN NOT NULL,
 	ddns_update_v6 BOOLEAN NOT NULL,
 	ddns_opts BLOB,
-	registry_limit INTEGER NOT NULL
+	registry_limit INTEGER NOT NULL,
+	sectors_to_cache INTEGER NOT NULL DEFAULT 0 -- new column for the number of sectors to cache
+
 );
 
 CREATE TABLE log_lines (

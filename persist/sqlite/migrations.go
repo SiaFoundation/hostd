@@ -108,16 +108,17 @@ func migrateVersion2(tx txn) error {
 			ddns_update_v4 BOOLEAN NOT NULL,
 			ddns_update_v6 BOOLEAN NOT NULL,
 			ddns_opts BLOB,
-			registry_limit INTEGER NOT NULL
+			registry_limit INTEGER NOT NULL,
+			sectors_to_cache INTEGER NOT NULL DEFAULT 0
 		);`
 		migrateSettings = `INSERT INTO host_settings (id, settings_revision, accepting_contracts, net_address, 
 contract_price, base_rpc_price, sector_access_price, collateral, max_collateral, storage_price, egress_price, 
 ingress_price, max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
-ingress_limit, egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit)
+ingress_limit, egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit, sectors_to_cache)
 SELECT 0, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price, 
 sector_access_price, collateral, max_collateral, storage_price, egress_price, ingress_price, 
 max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
-egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, registry_limit FROM host_settings_old;`
+egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, registry_limit, 0 FROM host_settings_old;`
 	)
 
 	if _, err := tx.Exec(`ALTER TABLE host_settings RENAME TO host_settings_old`); err != nil {
@@ -132,6 +133,12 @@ egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, regi
 		return fmt.Errorf("failed to drop old host_settings table: %w", err)
 	}
 	return nil
+}
+
+// migrateVersion6 adds the sectors_to_cache column to the host_settings table
+func migrateVersion6(tx txn) error {
+	_, err := tx.Exec(`ALTER TABLE host_settings ADD COLUMN sectors_to_cache INTEGER NOT NULL DEFAULT 0;`)
+	return err
 }
 
 // migrations is a list of functions that are run to migrate the database from

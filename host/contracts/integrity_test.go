@@ -80,7 +80,7 @@ func TestCheckIntegrity(t *testing.T) {
 	defer node.Close()
 
 	am := alerts.NewManager()
-	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"))
+	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), DefaultSettings)
 	if err != nil {
 		t.Fatal(err)
 	}

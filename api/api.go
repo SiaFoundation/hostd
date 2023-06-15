@@ -59,6 +59,7 @@ type (
 		ResizeVolume(id int, maxSectors uint64, result chan<- error) error
 		SetReadOnly(id int, readOnly bool) error
 		RemoveSector(root types.Hash256) error
+		ResizeCache(size int)
 	}
 
 	// A ContractManager manages the host's contracts

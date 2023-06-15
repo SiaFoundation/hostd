@@ -74,6 +74,7 @@ var DefaultSettings = settings.Settings{
 
 	AccountExpiry:     30 * 24 * time.Hour, // 1 month
 	MaxAccountBalance: types.Siacoins(10),
+	SectorsToCache:    0,
 }
 
 // Close shutsdown the host
@@ -163,7 +164,7 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 	}
 
 	am := alerts.NewManager()
-	storage, err := storage.NewVolumeManager(db, am, node.cm, log.Named("storage"))
+	storage, err := storage.NewVolumeManager(db, am, node.cm, log.Named("storage"), DefaultSettings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
@@ -20,6 +21,10 @@ import (
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
+
+var DefaultSettings = settings.Settings{
+	SectorsToCache: 0,
+}
 
 func hashRevision(rev types.FileContractRevision) types.Hash256 {
 	h := types.NewHasher()
@@ -103,7 +108,7 @@ func TestContractLockUnlock(t *testing.T) {
 	defer node.Close()
 
 	am := alerts.NewManager()
-	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"))
+	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"), DefaultSettings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +187,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer node.Close()
 
 		am := alerts.NewManager()
-		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"))
+		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), DefaultSettings)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -340,7 +345,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer node.Close()
 
 		am := alerts.NewManager()
-		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"))
+		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), DefaultSettings)
 		if err != nil {
 			t.Fatal(err)
 		}
