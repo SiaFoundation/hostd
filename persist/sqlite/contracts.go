@@ -364,10 +364,21 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 			return fmt.Errorf("failed to update renewed contract: %w", err)
 		}
 
+		// get the count of sector roots for the old contract
+		var count int
+		if _, err = tx.Exec(`SELECT COUNT(*) FROM contract_sector_roots WHERE contract_id=$1;`, clearedDBID); err != nil {
+			return fmt.Errorf("failed to get sector root count: %w", err)
+		}
+
 		// copy the sector roots from the old contract to the new contract
 		_, err = tx.Exec(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) SELECT $1, sector_id, root_index FROM contract_sector_roots WHERE contract_id=$2;`, renewedDBID, clearedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to copy sector roots: %w", err)
+		}
+
+		// increment the number of contract sectors
+		if err := incrementNumericStat(tx, metricContractSectors, count, time.Now()); err != nil {
+			return fmt.Errorf("failed to track contract sectors: %w", err)
 		}
 		return nil
 	})
