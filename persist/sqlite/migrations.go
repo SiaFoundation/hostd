@@ -115,7 +115,7 @@ contract_price, base_rpc_price, sector_access_price, collateral, max_collateral,
 ingress_price, max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
 ingress_limit, egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit)
 SELECT 0, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price, 
-sector_access_price, collateral, max_collateral, storage_price, egress_price, ingress_price, 
+sector_access_price, collateral, max_collateral, min_storage_price, min_egress_price, min_ingress_price, 
 max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
 egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, registry_limit FROM host_settings_old;`
 	)
