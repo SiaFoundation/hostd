@@ -205,7 +205,8 @@ CREATE TABLE host_settings (
 	ddns_update_v4 BOOLEAN NOT NULL,
 	ddns_update_v6 BOOLEAN NOT NULL,
 	ddns_opts BLOB,
-	registry_limit INTEGER NOT NULL
+	registry_limit INTEGER NOT NULL,
+	sector_cache_size INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE log_lines (
@@ -234,4 +235,4 @@ CREATE TABLE global_settings (
 	contracts_height INTEGER -- height of the contract manager as of the last processed change
 );
 
-INSERT INTO global_settings (id, db_version) VALUES (0, 6); -- version must be updated when the schema changes
+INSERT INTO global_settings (id, db_version) VALUES (0, 7); -- version must be updated when the schema changes

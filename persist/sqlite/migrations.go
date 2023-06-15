@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// migrateVersion7 adds the sector_cache_size column to the host_settings table
+func migrateVersion7(tx txn) error {
+	_, err := tx.Exec(`ALTER TABLE host_settings ADD COLUMN sector_cache_size INTEGER NOT NULL DEFAULT 0;`)
+	return err
+}
+
 // migrateVersion6 fixes a bug where the physical sectors metric was not being
 // properly decreased when a volume is force removed.
 func migrateVersion6(tx txn) error {
@@ -123,7 +129,7 @@ func migrateVersion2(tx txn) error {
 		migrateSettings = `INSERT INTO host_settings (id, settings_revision, accepting_contracts, net_address, 
 contract_price, base_rpc_price, sector_access_price, collateral, max_collateral, storage_price, egress_price, 
 ingress_price, max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
-ingress_limit, egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit)
+ingress_limit, egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit, sector_cache_size)
 SELECT 0, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price, 
 sector_access_price, collateral, max_collateral, min_storage_price, min_egress_price, min_ingress_price, 
 max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
@@ -153,4 +159,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion4,
 	migrateVersion5,
 	migrateVersion6,
+	migrateVersion7,
 }

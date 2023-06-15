@@ -80,14 +80,11 @@ func TestCheckIntegrity(t *testing.T) {
 	defer node.Close()
 
 	am := alerts.NewManager()
-	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"))
+	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-
-	// Resize cache to 0 sectors
-	s.ResizeCache(0)
 
 	result := make(chan error, 1)
 	if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {

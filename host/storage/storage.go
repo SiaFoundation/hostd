@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
@@ -15,10 +17,6 @@ import (
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
-
-	"sync/atomic"
-
-	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -978,15 +976,15 @@ func (vm *VolumeManager) PruneSectors() (int, error) {
 }
 
 // ResizeCache resizes the cache to the given size.
-func (vm *VolumeManager) ResizeCache(size int) {
+func (vm *VolumeManager) ResizeCache(size uint32) {
 	// Resize the underlying cache data structure
-	vm.cache.Resize(size)
+	vm.cache.Resize(int(size))
 }
 
 // NewVolumeManager creates a new VolumeManager.
-func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger) (*VolumeManager, error) {
+func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger, sectorCacheSize uint32) (*VolumeManager, error) {
 	// Initialize cache with LRU eviction and a max capacity of 64
-	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](64)
+	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](int(sectorCacheSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cache: %w", err)
 	}
@@ -1003,8 +1001,7 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 		volumes:        make(map[int]*volume),
 		changedVolumes: make(map[int]bool),
 		cache:          cache,
-
-		tg: threadgroup.New(),
+		tg:             threadgroup.New(),
 	}
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err

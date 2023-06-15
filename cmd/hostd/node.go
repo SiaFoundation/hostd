@@ -248,7 +248,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 
 	accountManager := accounts.NewManager(db, sr)
 	am := alerts.NewManager()
-	sm, err := storage.NewVolumeManager(db, am, cm, logger.Named("volumes"))
+	sm, err := storage.NewVolumeManager(db, am, cm, logger.Named("volumes"), sr.Settings().SectorCacheSize)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create storage manager: %w", err)
 	}
