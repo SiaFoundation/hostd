@@ -12,7 +12,7 @@ require (
 	go.sia.tech/jape v0.9.1-0.20230525021720-ecf031ecbffb
 	go.sia.tech/renterd v0.0.0-20230322105544-b8424a111b76
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
-	go.sia.tech/web/hostd v0.14.0
+	go.sia.tech/web/hostd v0.15.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/sys v0.7.0
 	golang.org/x/term v0.7.0
@@ -67,6 +67,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.13.0 // indirect
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
 	go.sia.tech/mux v1.2.0 // indirect
+	go.sia.tech/web v0.0.0-20230616170703-7ed0b639fb22 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/crypto v0.5.0 // indirect

@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
 	"go.sia.tech/jape"
+	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
 	"golang.org/x/term"
 )
@@ -172,7 +173,7 @@ func main() {
 	web := http.Server{
 		Handler: webRouter{
 			api: auth(api.NewServer(hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.storage, node.metrics, node.store, node.settings, node.w, logger.Named("api"))),
-			ui:  createUIHandler(),
+			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,
 	}
