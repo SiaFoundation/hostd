@@ -440,7 +440,6 @@ func TestRemoveVolume(t *testing.T) {
 	} else if m.Storage.PhysicalSectors != 0 {
 		t.Fatalf("expected %v used sectors, got %v", 0, m.Storage.PhysicalSectors)
 	}
-
 }
 
 func TestMigrateSectors(t *testing.T) {
