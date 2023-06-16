@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+// migrateVersion6 fixes a bug where the physical sectors metric was not being
+// properly decreased when a volume is force removed.
+func migrateVersion6(tx txn) error {
+	var count int64
+	if err := tx.QueryRow(`SELECT COUNT(id) FROM volume_sectors WHERE sector_id IS NOT NULL`).Scan(&count); err != nil {
+		return fmt.Errorf("failed to count volume sectors: %w", err)
+	}
+	return setNumericStat(tx, metricPhysicalSectors, uint64(count), time.Now().Truncate(statInterval))
+}
+
 // migrateVersion5 fixes a bug where the contract sectors metric was not being
 // properly increased when a contract is renewed. Unfortunately, this means that
 // the contract sectors metric will drastically increase for existing hosts.
@@ -142,4 +152,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion3,
 	migrateVersion4,
 	migrateVersion5,
+	migrateVersion6,
 }
