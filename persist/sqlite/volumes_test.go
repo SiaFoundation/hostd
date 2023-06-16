@@ -413,6 +413,15 @@ func TestRemoveVolume(t *testing.T) {
 		}
 	}
 
+	// check that the metrics were updated correctly
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != initialSectors {
+		t.Fatalf("expected %v total sectors, got %v", initialSectors, m.Storage.TotalSectors)
+	} else if m.Storage.PhysicalSectors != 5 {
+		t.Fatalf("expected %v used sectors, got %v", 5, m.Storage.PhysicalSectors)
+	}
+
 	// check that the volume cannot be removed
 	if err := db.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrVolumeNotEmpty) {
 		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
@@ -422,6 +431,16 @@ func TestRemoveVolume(t *testing.T) {
 	if err := db.RemoveVolume(volume.ID, true); err != nil {
 		t.Fatal(err)
 	}
+
+	// check that the metrics were updated correctly
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != 0 {
+		t.Fatalf("expected %v total sectors, got %v", 0, m.Storage.TotalSectors)
+	} else if m.Storage.PhysicalSectors != 0 {
+		t.Fatalf("expected %v used sectors, got %v", 0, m.Storage.PhysicalSectors)
+	}
+
 }
 
 func TestMigrateSectors(t *testing.T) {

@@ -10,6 +10,11 @@ import (
 	"go.sia.tech/hostd/host/storage"
 )
 
+type volumeSectorRef struct {
+	ID    int64
+	Empty bool
+}
+
 // StorageUsage returns the number of sectors stored and the total number of sectors
 // available in the storage pool.
 func (s *Store) StorageUsage() (usedSectors, totalSectors uint64, err error) {
@@ -276,18 +281,37 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 				return nil // no more sectors to remove
 			}
 
+			var forceRemoved int
+			locIDs := make([]int64, 0, len(locations))
+			for _, loc := range locations {
+				locIDs = append(locIDs, loc.ID)
+				// if the root is not empty, the sector was not migrated and
+				// will be forcefully removed
+				if !loc.Empty {
+					forceRemoved++
+				}
+			}
+
+			// reduce the physical sectors metric if there are sectors that
+			// failed to migrate.
+			if forceRemoved > 0 {
+				if err := incrementNumericStat(tx, metricPhysicalSectors, -forceRemoved, time.Now()); err != nil {
+					return fmt.Errorf("failed to update force removed sector metric: %w", err)
+				}
+			}
+
 			// remove the sectors
-			deleteQuery := `DELETE FROM volume_sectors WHERE id IN (` + queryPlaceHolders(len(locations)) + `)`
-			_, err = tx.Exec(deleteQuery, queryArgs(locations)...)
+			deleteQuery := `DELETE FROM volume_sectors WHERE id IN (` + queryPlaceHolders(len(locIDs)) + `)`
+			_, err = tx.Exec(deleteQuery, queryArgs(locIDs)...)
 			if err != nil {
 				return fmt.Errorf("failed to remove volume sectors: %w", err)
 			}
 
 			const updateMetaQuery = `UPDATE storage_volumes SET total_sectors=total_sectors-$1 WHERE id=$2`
-			_, err = tx.Exec(updateMetaQuery, len(locations), id)
+			_, err = tx.Exec(updateMetaQuery, len(locIDs), id)
 			if err != nil {
 				return fmt.Errorf("failed to update volume metadata: %w", err)
-			} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locations), time.Now()); err != nil {
+			} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locIDs), time.Now()); err != nil {
 				return fmt.Errorf("failed to update total sector metric: %w", err)
 			}
 			return nil
@@ -466,19 +490,19 @@ LIMIT 1;`
 	return
 }
 
-func volumeSectorsForDeletion(tx txn, volumeID, batchSize int) (locs []int64, err error) {
-	const query = `SELECT id FROM volume_sectors WHERE volume_id=$1 LIMIT $2`
+func volumeSectorsForDeletion(tx txn, volumeID, batchSize int) (locs []volumeSectorRef, err error) {
+	const query = `SELECT id, sector_id IS NULL AS empty FROM volume_sectors WHERE volume_id=$1 LIMIT $2`
 	rows, err := tx.Query(query, volumeID, batchSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query volume sectors: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var ref volumeSectorRef
+		if err := rows.Scan(&ref.ID, &ref.Empty); err != nil {
 			return nil, fmt.Errorf("failed to scan volume sector: %w", err)
 		}
-		locs = append(locs, id)
+		locs = append(locs, ref)
 	}
 	return
 }
