@@ -83,7 +83,7 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			sqlCurrency(settings.IngressPrice), sqlCurrency(settings.MaxAccountBalance),
 			settings.AccountExpiry, settings.PriceTableValidity, settings.MaxContractDuration, settings.WindowSize,
 			settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries,
-			settings.DDNS.Provider, settings.DDNS.IPv4, settings.DDNS.IPv6, dnsOptsBuf, settings.SectorCacheSize) //Update the parameter for the new column
+			settings.DDNS.Provider, settings.DDNS.IPv4, settings.DDNS.IPv6, dnsOptsBuf, settings.SectorCacheSize)
 		if err != nil {
 			return fmt.Errorf("failed to update settings: %w", err)
 		}
