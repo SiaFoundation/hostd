@@ -17,6 +17,9 @@ type (
 		mu sync.Mutex
 		r  uint64
 		w  uint64
+
+		cacheHit  uint64
+		cacheMiss uint64
 	}
 )
 
@@ -24,7 +27,9 @@ type (
 func (sr *sectorAccessRecorder) Flush() {
 	sr.mu.Lock()
 	r, w := sr.r, sr.w
+	cacheHit, cacheMiss := sr.cacheHit, sr.cacheMiss
 	sr.r, sr.w = 0, 0
+	sr.cacheHit, sr.cacheMiss = 0, 0
 	sr.mu.Unlock()
 
 	// no need to persist if there is no change
@@ -32,7 +37,7 @@ func (sr *sectorAccessRecorder) Flush() {
 		return
 	}
 
-	if err := sr.store.IncrementSectorAccess(r, w); err != nil {
+	if err := sr.store.IncrementSectorStats(r, w, cacheHit, cacheMiss); err != nil {
 		sr.log.Error("failed to persist sector access", zap.Error(err))
 		return
 	}
@@ -50,6 +55,18 @@ func (sr *sectorAccessRecorder) AddWrite() {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 	sr.w++
+}
+
+func (sr *sectorAccessRecorder) AddCacheHit() {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	sr.cacheHit++
+}
+
+func (sr *sectorAccessRecorder) AddCacheMiss() {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	sr.cacheMiss++
 }
 
 // Run starts the recorder, flushing data at regular intervals.

@@ -74,6 +74,9 @@ type (
 
 		Reads  uint64 `json:"reads"`
 		Writes uint64 `json:"writes"`
+
+		SectorCacheHits   uint64 `json:"sectorCacheHits"`
+		SectorCacheMisses uint64 `json:"sectorCacheMisses"`
 	}
 
 	// RevenueMetrics is a collection of metrics related to revenue.

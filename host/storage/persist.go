@@ -70,8 +70,8 @@ type (
 		// ExpireTempSectors removes all temporary sectors that expired before
 		// the given height.
 		ExpireTempSectors(height uint64) error
-		// IncrementSectorAccess increments the read and write access counters
-		IncrementSectorAccess(reads, writes uint64) error
+		// IncrementSectorStats increments sector stats
+		IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) error
 	}
 )
 

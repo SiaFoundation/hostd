@@ -876,6 +876,142 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	}
 }
 
+func TestSectorCache(t *testing.T) {
+	const sectors = 10
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+
+	// initialize the storage manager
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectors/2) // cache half the sectors
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	result := make(chan error, 1)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	vol, err := vm.AddVolume(volumeFilePath, sectors, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	volume, err := vm.Volume(vol.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkFileSize(volumeFilePath, int64(sectors*rhpv2.SectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != sectors {
+		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
+	} else if volume.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
+	}
+
+	roots := make([]types.Hash256, 0, sectors)
+	// fill the volume
+	for i := 0; i < cap(roots); i++ {
+		var sector [rhpv2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		root := rhpv2.SectorRoot(&sector)
+		release, err := vm.Write(root, &sector)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		defer release()
+		roots = append(roots, root)
+
+		// validate the volume stats are correct
+		volumes, err := vm.Volumes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if volumes[0].UsedSectors != uint64(i+1) {
+			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// read the last 5 sectors all sectors should be cached
+	for i, root := range roots[5:] {
+		_, err := vm.Read(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		hits, misses := vm.CacheStats()
+		if hits != uint64(i+1) {
+			t.Fatalf("expected %v cache hits, got %v", i+1, hits)
+		} else if misses != 0 {
+			t.Fatalf("expected 0 cache misses, got %v", misses)
+		}
+	}
+
+	// read the first 5 sectors all sectors should be missed
+	for i, root := range roots[:5] {
+		_, err := vm.Read(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		hits, misses := vm.CacheStats()
+		if hits != 5 {
+			t.Fatalf("expected 5 cache hits, got %v", hits) // existing 5 cache hits
+		} else if misses != uint64(i+1) {
+			t.Fatalf("expected %v cache misses, got %v", i+1, misses)
+		}
+	}
+
+	// read the first 5 sectors again all sectors should be cached
+	for i, root := range roots[:5] {
+		_, err := vm.Read(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expectedHits := 5 + (uint64(i) + 1) // 5 original hits, plus the new hit
+		hits, misses := vm.CacheStats()
+		if hits != expectedHits {
+			t.Fatalf("expected %d cache hits, got %v", expectedHits, hits)
+		} else if misses != 5 {
+			t.Fatalf("expected %v cache misses, got %v", 5, misses) // existing 5 cache misses
+		}
+	}
+}
+
 func BenchmarkVolumeManagerWrite(b *testing.B) {
 	dir := b.TempDir()
 
