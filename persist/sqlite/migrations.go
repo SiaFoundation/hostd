@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// migrateVersion7 adds the sector_cache_size column to the host_settings table
+func migrateVersion7(tx txn) error {
+	_, err := tx.Exec(`ALTER TABLE host_settings ADD COLUMN sector_cache_size INTEGER NOT NULL DEFAULT 0;`)
+	return err
+}
+
 // migrateVersion6 fixes a bug where the physical sectors metric was not being
 // properly decreased when a volume is force removed.
 func migrateVersion6(tx txn) error {
@@ -153,4 +159,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion4,
 	migrateVersion5,
 	migrateVersion6,
+	migrateVersion7,
 }

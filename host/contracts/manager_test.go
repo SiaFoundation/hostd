@@ -21,6 +21,8 @@ import (
 	"lukechampine.com/frand"
 )
 
+const sectorCacheSize = 64
+
 func hashRevision(rev types.FileContractRevision) types.Hash256 {
 	h := types.NewHasher()
 	rev.EncodeTo(h.E)
@@ -103,7 +105,7 @@ func TestContractLockUnlock(t *testing.T) {
 	defer node.Close()
 
 	am := alerts.NewManager()
-	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"))
+	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +184,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer node.Close()
 
 		am := alerts.NewManager()
-		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"))
+		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -340,7 +342,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer node.Close()
 
 		am := alerts.NewManager()
-		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"))
+		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 		if err != nil {
 			t.Fatal(err)
 		}
