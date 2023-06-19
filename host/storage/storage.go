@@ -984,10 +984,14 @@ func (vm *VolumeManager) ResizeCache(size uint32) {
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger, sectorCacheSize uint32) (*VolumeManager, error) {
 	// Initialize cache with LRU eviction and a max capacity of 64
-	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](int(sectorCacheSize))
+	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cache: %w", err)
 	}
+	// resize the cache, prevents an error in lru.New when initializing the
+	// cache to 0
+	cache.Resize(int(sectorCacheSize))
+
 	vm := &VolumeManager{
 		vs:  vs,
 		a:   a,
