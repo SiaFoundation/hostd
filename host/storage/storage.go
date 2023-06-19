@@ -77,8 +77,8 @@ type (
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
 		cache          *lru.Cache[types.Hash256, *[rhpv2.SectorSize]byte] // Added cache
-		cacheHits      uint64                                             // Cache hit counter
-		cacheMisses    uint64                                             // Cache miss counter
+		cacheHits      uint64
+		cacheMisses    uint64
 	}
 )
 
@@ -847,6 +847,11 @@ func (vm *VolumeManager) LockSector(root types.Hash256) (func() error, error) {
 	return release, err
 }
 
+// CacheStats returns the number of cache hits and misses.
+func (vm *VolumeManager) CacheStats() (hits, misses uint64) {
+	return atomic.LoadUint64(&vm.cacheHits), atomic.LoadUint64(&vm.cacheMisses)
+}
+
 // Read reads the sector with the given root
 func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error) {
 	done, err := vm.tg.Add()
@@ -857,7 +862,8 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 
 	// Check the cache first
 	if sector, ok := vm.cache.Get(root); ok {
-		atomic.AddUint64(&vm.cacheHits, 1) // Increment cache hit counter
+		vm.recorder.AddCacheHit()
+		atomic.AddUint64(&vm.cacheHits, 1)
 		return sector, nil
 	}
 
@@ -882,8 +888,8 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, erro
 
 	// Add sector to cache
 	vm.cache.Add(root, sector)
-	atomic.AddUint64(&vm.cacheMisses, 1) // Increment cache miss counter
-
+	vm.recorder.AddCacheMiss()
+	atomic.AddUint64(&vm.cacheMisses, 1)
 	vm.recorder.AddRead()
 	return sector, nil
 }

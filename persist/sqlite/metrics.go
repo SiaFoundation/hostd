@@ -26,6 +26,8 @@ const (
 	metricTempSectors     = "tempSectors"
 	metricSectorReads     = "sectorReads"
 	metricSectorWrites    = "sectorWrites"
+	metricSectorCacheHit  = "sectorCacheHit"
+	metricSectorCacheMiss = "sectorCacheMiss"
 
 	// registry
 	metricMaxRegistryEntries = "maxRegistryEntries"
@@ -230,8 +232,8 @@ func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
 	})
 }
 
-// IncrementSectorAccess increments the sector read and write metrics.
-func (s *Store) IncrementSectorAccess(reads, writes uint64) error {
+// IncrementSectorStats increments the sector read, write and cache metrics.
+func (s *Store) IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) error {
 	return s.transaction(func(tx txn) error {
 		if reads > 0 {
 			if err := incrementNumericStat(tx, metricSectorReads, int(reads), time.Now()); err != nil {
@@ -241,6 +243,18 @@ func (s *Store) IncrementSectorAccess(reads, writes uint64) error {
 		if writes > 0 {
 			if err := incrementNumericStat(tx, metricSectorWrites, int(writes), time.Now()); err != nil {
 				return fmt.Errorf("failed to track writes: %w", err)
+			}
+		}
+
+		if cacheHit > 0 {
+			if err := incrementNumericStat(tx, metricSectorCacheHit, int(cacheHit), time.Now()); err != nil {
+				return fmt.Errorf("failed to track cache hits: %w", err)
+			}
+		}
+
+		if cacheMiss > 0 {
+			if err := incrementNumericStat(tx, metricSectorCacheMiss, int(cacheMiss), time.Now()); err != nil {
+				return fmt.Errorf("failed to track cache misses: %w", err)
 			}
 		}
 		return nil
@@ -324,6 +338,10 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Storage.Reads = mustScanUint64(buf)
 	case metricSectorWrites:
 		m.Storage.Writes = mustScanUint64(buf)
+	case metricSectorCacheHit:
+		m.Storage.SectorCacheHits = mustScanUint64(buf)
+	case metricSectorCacheMiss:
+		m.Storage.SectorCacheMisses = mustScanUint64(buf)
 	// registry
 	case metricRegistryEntries:
 		m.Registry.Entries = mustScanUint64(buf)
