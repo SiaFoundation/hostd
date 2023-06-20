@@ -39,31 +39,28 @@ func (s *Store) LogEntries(filter logging.Filter) (entries []logging.Entry, coun
 	if err != nil {
 		return nil, 0, err
 	}
+	selectQuery := fmt.Sprintf(`SELECT date_created, log_level, log_name, log_caller, log_message, log_fields FROM log_lines %s ORDER BY date_created DESC LIMIT ? OFFSET ?`, whereClause)
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM log_lines %s`, whereClause)
 
-	err = s.transaction(func(tx txn) error {
-		// count the total number of entries matching the filter
-		countQuery := fmt.Sprintf(`SELECT COUNT(id) FROM log_lines %s`, whereClause)
-		if err := tx.QueryRow(countQuery, queryParams...).Scan(&count); err != nil {
-			return fmt.Errorf("failed to count log lines: %w", err)
-		}
+	// count the total number of entries matching the filter
+	if err := s.queryRow(countQuery, queryParams...).Scan(&count); err != nil {
+		return nil, 0, fmt.Errorf("failed to count log lines: %w", err)
+	}
 
-		// get the paginated log entries
-		selectQuery := fmt.Sprintf(`SELECT date_created, log_level, log_name, log_caller, log_message, log_fields FROM log_lines %s ORDER BY date_created DESC LIMIT ? OFFSET ?`, whereClause)
-		rows, err := s.db.Query(selectQuery, append(queryParams, filter.Limit, filter.Offset)...)
-		if err != nil {
-			return fmt.Errorf("failed to query log lines: %w", err)
-		}
-		defer rows.Close()
+	// get the paginated log entries
+	rows, err := s.query(selectQuery, append(queryParams, filter.Limit, filter.Offset)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query log lines: %w", err)
+	}
+	defer rows.Close()
 
-		for rows.Next() {
-			var entry logging.Entry
-			if err := rows.Scan((*sqlTime)(&entry.Timestamp), &entry.Level, &entry.Name, &entry.Caller, &entry.Message, &entry.Fields); err != nil {
-				return fmt.Errorf("failed to scan log line: %w", err)
-			}
-			entries = append(entries, entry)
+	for rows.Next() {
+		var entry logging.Entry
+		if err := rows.Scan((*sqlTime)(&entry.Timestamp), &entry.Level, &entry.Name, &entry.Caller, &entry.Message, &entry.Fields); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan log line: %w", err)
 		}
-		return nil
-	})
+		entries = append(entries, entry)
+	}
 	return
 }
 
