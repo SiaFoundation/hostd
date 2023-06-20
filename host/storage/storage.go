@@ -64,6 +64,9 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
+		cacheHits   uint64 // ensure 64-bit alignment on 32-bit systems
+		cacheMisses uint64
+
 		a        Alerts
 		vs       VolumeStore
 		cm       ChainManager
@@ -77,8 +80,6 @@ type (
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
 		cache          *lru.Cache[types.Hash256, *[rhpv2.SectorSize]byte] // Added cache
-		cacheHits      uint64
-		cacheMisses    uint64
 	}
 )
 

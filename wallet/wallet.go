@@ -66,9 +66,10 @@ type (
 	// A SingleAddressWallet is a hot wallet that manages the outputs controlled by
 	// a single address.
 	SingleAddressWallet struct {
-		priv       types.PrivateKey
-		addr       types.Address
-		scanHeight uint64
+		scanHeight uint64 // ensure 64-bit alignment on 32-bit systems
+
+		priv types.PrivateKey
+		addr types.Address
 
 		cm    ChainManager
 		store SingleAddressStore
