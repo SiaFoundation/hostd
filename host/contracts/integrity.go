@@ -136,6 +136,7 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 			alert.Data["missing"] = missing
 			alert.Data["corrupt"] = corrupt
 			cm.alerts.Register(alert)
+			time.Sleep(time.Millisecond) // sleep to allow other transactions to proceed
 		}
 
 		log.Info("integrity check complete", zap.Int("missing", missing), zap.Int("corrupt", corrupt))

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
 )
 
@@ -77,7 +78,16 @@ func (s *Store) queryRow(query string, args ...any) *loggedRow {
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed.
 func (s *Store) transaction(fn func(txn) error) error {
-	tx, err := s.db.BeginTx(context.Background(), nil)
+	var tx *sql.Tx
+	var err error
+	start := time.Now()
+	for i := 1; i <= 5; i++ {
+		tx, err = s.db.BeginTx(context.Background(), nil)
+		if sqliteErr, ok := err.(sqlite3.Error); !ok || sqliteErr.Code != sqlite3.ErrBusy {
+			break
+		}
+		s.log.Debug("database locked", zap.Int("attempt", i), zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+	}
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -85,7 +95,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 		Tx:  tx,
 		log: s.log.Named("transaction"),
 	}
-	start := time.Now()
+	start = time.Now()
 	err = fn(ltx)
 	if time.Since(start) > longTxnDuration {
 		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
@@ -117,7 +127,7 @@ func (s *Store) Close() error {
 
 func sqliteFilepath(fp string) string {
 	params := []string{
-		"_busy_timeout=5000",
+		"_busy_timeout=5000", // 5s
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",
