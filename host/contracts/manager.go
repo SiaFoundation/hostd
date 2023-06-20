@@ -64,6 +64,8 @@ type (
 
 	// A ContractManager manages contracts' lifecycle
 	ContractManager struct {
+		blockHeight uint64 // ensure 64-bit alignment on 32-bit systems
+
 		store ContractStore
 		tg    *threadgroup.ThreadGroup
 		log   *zap.Logger
@@ -73,8 +75,6 @@ type (
 		chain   ChainManager
 		tpool   TransactionPool
 		wallet  Wallet
-
-		blockHeight uint64
 
 		processQueue chan uint64 // signals that the contract manager should process actions for a given block height
 
