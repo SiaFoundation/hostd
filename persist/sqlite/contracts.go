@@ -261,27 +261,23 @@ INNER JOIN contract_renters r ON (c.renter_id=r.id)
 LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
 LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s`, whereClause)
 
-	err = s.transaction(func(tx txn) error {
-		if err := tx.QueryRow(countQuery, whereParams...).Scan(&count); err != nil {
-			return fmt.Errorf("failed to query contract count: %w", err)
-		}
+	if err := s.queryRow(countQuery, whereParams...).Scan(&count); err != nil {
+		return nil, 0, fmt.Errorf("failed to query contract count: %w", err)
+	}
 
-		rows, err := tx.Query(contractQuery, append(whereParams, filter.Limit, filter.Offset)...)
+	rows, err := s.query(contractQuery, append(whereParams, filter.Limit, filter.Offset)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		contract, err := scanContract(rows)
 		if err != nil {
-			return fmt.Errorf("failed to query contracts: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan contract: %w", err)
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			contract, err := scanContract(rows)
-			if err != nil {
-				return fmt.Errorf("failed to scan contract: %w", err)
-			}
-			contracts = append(contracts, contract)
-		}
-
-		return nil
-	})
+		contracts = append(contracts, contract)
+	}
 	return
 }
 
