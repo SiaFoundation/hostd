@@ -418,6 +418,7 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 		log:   cm.log.Named("contractUpdater"),
 
 		contractID:  contractID,
+		sectors:     uint64(len(roots)),
 		sectorRoots: roots,
 
 		done: done, // decrements the threadgroup counter after the updater is closed
