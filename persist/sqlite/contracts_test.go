@@ -25,7 +25,7 @@ func rootsEqual(a, b []types.Hash256) error {
 	return nil
 }
 
-func TestUpdateContractRoots(t *testing.T) {
+func TestReviseContract(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
@@ -72,24 +72,23 @@ func TestUpdateContractRoots(t *testing.T) {
 	}
 
 	// add some sector roots
-	roots := make([]types.Hash256, 10)
-	for i := range roots {
-		roots[i] = frand.Entropy256()
-		release, err := db.StoreSector(roots[i], func(loc storage.SectorLocation, exists bool) error { return nil })
+	var changes []contracts.SectorChange
+	var roots []types.Hash256
+	for i := 0; i < 10; i++ {
+		root := frand.Entropy256()
+		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer release()
+		changes = append(changes, contracts.SectorChange{
+			Root:   root,
+			Action: contracts.SectorActionAppend,
+		})
+		roots = append(roots, root)
 	}
 
-	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
-		for _, root := range roots {
-			if err := tx.AppendSector(root); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	err = db.ReviseContract(contract, contracts.Usage{}, 0, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,13 +103,14 @@ func TestUpdateContractRoots(t *testing.T) {
 
 	// swap two roots
 	i, j := 5, 8
-	roots[i], roots[j] = roots[j], roots[i]
-	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
-		return tx.SwapSectors(uint64(i), uint64(j))
-	})
+	changes = []contracts.SectorChange{
+		{Action: contracts.SectorActionSwap, A: uint64(i), B: uint64(j)},
+	}
+	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
 	if err != nil {
 		t.Fatal(err)
 	}
+	roots[i], roots[j] = roots[j], roots[i]
 
 	// verify the roots were swapped
 	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
@@ -122,13 +122,14 @@ func TestUpdateContractRoots(t *testing.T) {
 
 	// trim the last 3 roots
 	toRemove := 3
-	roots = roots[:len(roots)-toRemove]
-	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
-		return tx.TrimSectors(toRemove)
-	})
+	changes = []contracts.SectorChange{
+		{Action: contracts.SectorActionTrim, A: uint64(toRemove)},
+	}
+	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
 	if err != nil {
 		t.Fatal(err)
 	}
+	roots = roots[:len(roots)-toRemove]
 
 	// verify the roots were removed
 	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
@@ -139,14 +140,94 @@ func TestUpdateContractRoots(t *testing.T) {
 	}
 
 	// swap a root outside of the range, should fail
-	err = db.UpdateContract(contract.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
-		return tx.SwapSectors(0, 100)
-	})
+	changes = []contracts.SectorChange{
+		{Action: contracts.SectorActionSwap, A: 0, B: 15},
+	}
+	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
 	if err == nil {
 		t.Fatal("expected error")
 	}
 
 	// verify the roots stayed the same
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if err = rootsEqual(roots, dbRoots); err != nil {
+		t.Fatal(err)
+	}
+
+	// trim everything
+	toTrim := len(roots)
+	// swap a root outside of the range, should fail
+	changes = []contracts.SectorChange{
+		{Action: contracts.SectorActionTrim, A: uint64(toTrim)},
+	}
+	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots = roots[:0]
+
+	// verify the roots are gone
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if err = rootsEqual(roots, dbRoots); err != nil {
+		t.Fatal(err)
+	}
+
+	// test multiple operations in the same transaction
+	// add some sector roots
+	changes = changes[:0]
+	for i := 0; i < 10; i++ {
+		root := frand.Entropy256()
+		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		changes = append(changes, contracts.SectorChange{
+			Root:   root,
+			Action: contracts.SectorActionAppend,
+		})
+		roots = append(roots, root)
+	}
+
+	// store a sector root to update the contract
+	updateRoot := frand.Entropy256()
+	release, err := db.StoreSector(updateRoot, func(loc storage.SectorLocation, exists bool) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	i, j = 3, 6
+	toUpdate := 8
+	toTrim = 3
+	changes = append(changes, contracts.SectorChange{
+		Action: contracts.SectorActionSwap,
+		A:      uint64(i),
+		B:      uint64(j),
+	}, contracts.SectorChange{
+		Action: contracts.SectorActionUpdate,
+		A:      uint64(toUpdate),
+		Root:   updateRoot,
+	}, contracts.SectorChange{
+		Action: contracts.SectorActionTrim,
+		A:      uint64(toTrim),
+	})
+
+	err = db.ReviseContract(contract, contracts.Usage{}, 0, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// update the roots
+	roots[i], roots[j] = roots[j], roots[i]
+	roots[toUpdate] = updateRoot
+	roots = roots[:len(roots)-toTrim]
+
+	// verify the roots match
 	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
 	if err != nil {
 		t.Fatal(err)

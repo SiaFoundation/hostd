@@ -21,11 +21,13 @@ const (
 	RevisionSubmissionBuffer = 36 // 6 hours
 )
 
+// A SectorAction denotes the type of action to be performed on a
+// contract sector.
 const (
-	sectorActionAppend sectorActionType = "append"
-	sectorActionUpdate sectorActionType = "update"
-	sectorActionSwap   sectorActionType = "swap"
-	sectorActionTrim   sectorActionType = "trim"
+	SectorActionAppend SectorAction = "append"
+	SectorActionUpdate SectorAction = "update"
+	SectorActionSwap   SectorAction = "swap"
+	SectorActionTrim   SectorAction = "trim"
 )
 
 // ContractStatus is an enum that indicates the current status of a contract.
@@ -57,9 +59,9 @@ const (
 )
 
 type (
-	// A sectorActionType denotes the type of action to be performed on a
-	// contract's sectors.
-	sectorActionType string
+	// A SectorAction denotes the type of action to be performed on a
+	// contract sector.
+	SectorAction string
 
 	// ContractStatus is an enum that indicates the current status of a contract.
 	ContractStatus uint8
@@ -135,12 +137,11 @@ type (
 		SortDesc  bool   `json:"sortDesc"`
 	}
 
-	// A contractSectorAction defines an action to be performed on a contract's
-	// sectors.
-	contractSectorAction struct {
+	// A SectorChange defines an action to be performed on a contract's sectors.
+	SectorChange struct {
+		Action SectorAction
 		Root   types.Hash256
 		A, B   uint64
-		Action sectorActionType
 	}
 
 	// A ContractUpdater is used to atomically update a contract's sectors
@@ -152,8 +153,9 @@ type (
 		once sync.Once
 		done func() // done is called when the updater is closed.
 
+		sectors       uint64
 		contractID    types.FileContractID
-		sectorActions []contractSectorAction
+		sectorActions []SectorChange
 		sectorRoots   []types.Hash256
 	}
 )
@@ -247,9 +249,9 @@ func (sr SignedRevision) Signatures() []types.TransactionSignature {
 
 // AppendSector appends a sector to the contract.
 func (cu *ContractUpdater) AppendSector(root types.Hash256) {
-	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+	cu.sectorActions = append(cu.sectorActions, SectorChange{
 		Root:   root,
-		Action: sectorActionAppend,
+		Action: SectorActionAppend,
 	})
 	cu.sectorRoots = append(cu.sectorRoots, root)
 }
@@ -259,10 +261,10 @@ func (cu *ContractUpdater) SwapSectors(a, b uint64) error {
 	if a >= uint64(len(cu.sectorRoots)) || b >= uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector indices %v, %v", a, b)
 	}
-	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+	cu.sectorActions = append(cu.sectorActions, SectorChange{
 		A:      a,
 		B:      b,
-		Action: sectorActionSwap,
+		Action: SectorActionSwap,
 	})
 	cu.sectorRoots[a], cu.sectorRoots[b] = cu.sectorRoots[b], cu.sectorRoots[a]
 	return nil
@@ -273,9 +275,9 @@ func (cu *ContractUpdater) TrimSectors(n uint64) error {
 	if n > uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector count %v", n)
 	}
-	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+	cu.sectorActions = append(cu.sectorActions, SectorChange{
 		A:      n,
-		Action: sectorActionTrim,
+		Action: SectorActionTrim,
 	})
 	cu.sectorRoots = cu.sectorRoots[:uint64(len(cu.sectorRoots))-n]
 	return nil
@@ -286,10 +288,10 @@ func (cu *ContractUpdater) UpdateSector(root types.Hash256, i uint64) error {
 	if i >= uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector index %v", i)
 	}
-	cu.sectorActions = append(cu.sectorActions, contractSectorAction{
+	cu.sectorActions = append(cu.sectorActions, SectorChange{
 		Root:   root,
 		A:      i,
-		Action: sectorActionUpdate,
+		Action: SectorActionUpdate,
 	})
 	cu.sectorRoots[i] = root
 	return nil
@@ -329,38 +331,13 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 	if revision.Revision.ParentID != cu.contractID {
 		panic("contract updater used with wrong contract")
 	}
-	start := time.Now()
-	err := cu.store.UpdateContract(revision.Revision.ParentID, func(tx UpdateContractTransaction) error {
-		for i, action := range cu.sectorActions {
-			switch action.Action {
-			case sectorActionAppend:
-				if err := tx.AppendSector(action.Root); err != nil {
-					return fmt.Errorf("failed to apply action %v: append sector: %w", i, err)
-				}
-			case sectorActionUpdate:
-				if err := tx.UpdateSector(action.A, action.Root); err != nil {
-					return fmt.Errorf("failed to update sector: %w", err)
-				}
-			case sectorActionSwap:
-				if err := tx.SwapSectors(action.A, action.B); err != nil {
-					return fmt.Errorf("failed to swap sectors: %w", err)
-				}
-			case sectorActionTrim:
-				if err := tx.TrimSectors(int(action.A)); err != nil {
-					return fmt.Errorf("failed to trim sectors: %w", err)
-				}
-			}
-		}
 
-		if err := tx.AddUsage(usage); err != nil {
-			return fmt.Errorf("failed to add revenue: %w", err)
-		} else if err := tx.ReviseContract(revision); err != nil {
-			return fmt.Errorf("failed to revise contract: %w", err)
-		}
-		return nil
-	})
-	// clear the committed sector actions
-	cu.sectorActions = cu.sectorActions[:0]
+	start := time.Now()
+	err := cu.store.ReviseContract(revision, usage, cu.sectors, cu.sectorActions)
+	if err == nil {
+		// clear the committed sector actions
+		cu.sectorActions = cu.sectorActions[:0]
+	}
 	cu.log.Debug("contract update committed", zap.String("contractID", revision.Revision.ParentID.String()), zap.Uint64("revision", revision.Revision.RevisionNumber), zap.Duration("elapsed", time.Since(start)))
 	return err
 }

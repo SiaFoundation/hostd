@@ -623,14 +623,15 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	contractSectors, tempSectors, lockedSectors, deletedSectors := roots[:20], roots[20:40], roots[40:60], roots[60:]
-	err = db.UpdateContract(c.Revision.ParentID, func(tx contracts.UpdateContractTransaction) error {
-		for _, root := range contractSectors {
-			if err := tx.AppendSector(root); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	// append the contract sectors to the contract
+	var changes []contracts.SectorChange
+	for _, root := range contractSectors {
+		changes = append(changes, contracts.SectorChange{
+			Root:   root,
+			Action: contracts.SectorActionAppend,
+		})
+	}
+	err = db.ReviseContract(c, contracts.Usage{}, 0, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
