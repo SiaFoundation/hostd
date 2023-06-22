@@ -18,7 +18,7 @@ ENV PUID=0
 ENV PGID=0
 
 ENV HOSTD_API_PASSWORD=
-ENV HOSTD_WALLET_SEED=
+ENV HOSTD_SEED=
 
 # copy binary and prepare data dir.
 COPY --from=builder /hostd/bin/* /usr/bin/
