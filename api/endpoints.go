@@ -48,6 +48,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 		},
 	})
 }
+
 func (a *api) handleGETConsensusState(c jape.Context) {
 	c.Encode(ConsensusState{
 		Synced:     a.chain.Synced(),
