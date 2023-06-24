@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,12 +36,25 @@ var (
 	logLevel  string
 	logStdout bool
 
-	disableStdin bool
+	disableStdin  bool
+	insecureInput bool
 )
 
-func check(context string, err error) {
-	if err != nil {
-		log.Fatalf("%v: %v", context, err)
+func readStdinPassword(prompt string) string {
+	fmt.Print(prompt)
+	if insecureInput {
+		pw, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil {
+			log.Fatalln(err)
+		}
+		return pw
+	} else {
+		buf, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			log.Fatalln(err)
+		}
+		return string(buf)
 	}
 }
 
@@ -52,15 +66,7 @@ func getAPIPassword() string {
 	} else if disableStdin {
 		log.Fatalf("%s must be set via environment variable when running in docker.", apiPasswordEnvVariable)
 	}
-
-	fmt.Print("Enter API password: ")
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	if err != nil {
-		log.Fatal(err)
-	}
-	apiPassword = string(pw)
-	return apiPassword
+	return readStdinPassword("Enter API password: ")
 }
 
 func getWalletKey() types.PrivateKey {
@@ -70,12 +76,9 @@ func getWalletKey() types.PrivateKey {
 	} else if disableStdin {
 		log.Fatalf("%s must be set via environment variable when running in docker.", walletSeedEnvVariable)
 	} else {
-		fmt.Print("Enter wallet seed: ")
-		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-		check("Could not read seed phrase:", err)
-		fmt.Println()
-		phrase = string(pw)
+		phrase = readStdinPassword("Enter wallet seed: ")
 	}
+
 	var seed [32]byte
 	if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
 		log.Fatal(err)
@@ -84,16 +87,17 @@ func getWalletKey() types.PrivateKey {
 }
 
 func main() {
+	flag.StringVar(&dir, "dir", ".", "directory to store hostd metadata")
+	flag.BoolVar(&bootstrap, "bootstrap", true, "bootstrap the gateway and consensus modules")
+	flag.StringVar(&logLevel, "log.level", "info", "log level (debug, info, warn, error)")
+	flag.BoolVar(&logStdout, "log.stdout", false, "log to stdout")
+	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables")
+	flag.BoolVar(&insecureInput, "insecure-input", false, "disable shoulder-surf protection -- echoing passwords and seeds")
 	flag.StringVar(&gatewayAddr, "rpc", defaultGatewayAddr, "address to listen on for peer connections")
 	flag.StringVar(&rhp2Addr, "rhp2", defaultRHPv2Addr, "address to listen on for RHP2 connections")
 	flag.StringVar(&rhp3TCPAddr, "rhp3.tcp", defaultRHPv3TCPAddr, "address to listen on for TCP RHP3 connections")
 	flag.StringVar(&rhp3WSAddr, "rhp3.ws", defaultRHPv3WSAddr, "address to listen on for WebSocket RHP3 connections")
 	flag.StringVar(&apiAddr, "http", defaultAPIAddr, "address to serve API on")
-	flag.StringVar(&dir, "dir", ".", "directory to store hostd metadata")
-	flag.BoolVar(&bootstrap, "bootstrap", true, "bootstrap the gateway and consensus modules")
-	flag.StringVar(&logLevel, "log.level", "info", "log level (debug, info, warn, error)")
-	flag.BoolVar(&logStdout, "log.stdout", false, "log to stdout (default false)")
-	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
 	flag.Parse()
 
 	log.Println("hostd", build.Version())
