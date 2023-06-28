@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -185,7 +186,7 @@ func main() {
 		Handler:     node.rhp3.WebSocketHandler(),
 		ReadTimeout: 30 * time.Second,
 		TLSConfig:   node.settings.RHP3TLSConfig(),
-		ErrorLog:    nil,
+		ErrorLog:    log.New(io.Discard, "", 0),
 	}
 	defer rhpv3WS.Close()
 
