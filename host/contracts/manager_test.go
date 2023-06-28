@@ -312,7 +312,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(time.Second) // sync time
-		proofHeight := rev.Revision.WindowStart
+		proofHeight := rev.Revision.WindowStart + 1
 
 		contract, err = c.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -451,7 +451,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(time.Second) // sync time
-		proofHeight := rev.Revision.WindowStart
+		proofHeight := rev.Revision.WindowStart + 1
 
 		contract, err = c.Contract(rev.Revision.ParentID)
 		if err != nil {

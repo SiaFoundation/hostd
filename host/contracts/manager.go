@@ -19,10 +19,14 @@ import (
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
-	"lukechampine.com/frand"
 )
 
 type (
+	contractChange struct {
+		id    types.FileContractID
+		index types.ChainIndex
+	}
+
 	// ChainManager defines the interface required by the contract manager to
 	// interact with the consensus set.
 	ChainManager interface {
@@ -216,40 +220,45 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	defer done()
 	log := cm.log.Named("consensusChange")
 
-	var revertedFormations, revertedResolutions []types.FileContractID
-	revertedRevisions := make(map[types.FileContractID]struct{})
+	// calculate the block height of the first reverted diff
+	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + uint64(len(cc.RevertedBlocks)) + 1
+	var revertedFormations, revertedResolutions []contractChange
+	revertedRevisions := make(map[types.FileContractID]contractChange)
 	for _, reverted := range cc.RevertedBlocks {
+		index := types.ChainIndex{
+			Height: blockHeight,
+			ID:     types.BlockID(reverted.ID()),
+		}
 		for _, transaction := range reverted.Transactions {
 			for i := range transaction.FileContracts {
 				contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
-				revertedFormations = append(revertedFormations, contractID)
+				revertedFormations = append(revertedFormations, contractChange{contractID, index})
 			}
 
 			for _, rev := range transaction.FileContractRevisions {
 				contractID := types.FileContractID(rev.ParentID)
-				revertedRevisions[contractID] = struct{}{} // TODO: revert to the previous revision number, instead of setting to 0
+				revertedRevisions[contractID] = contractChange{types.FileContractID(rev.ParentID), index} // TODO: revert to the previous revision number, instead of setting to 0
 			}
 
 			for _, proof := range transaction.StorageProofs {
 				contractID := types.FileContractID(proof.ParentID)
-				revertedResolutions = append(revertedResolutions, contractID)
+				revertedResolutions = append(revertedResolutions, contractChange{contractID, index})
 			}
 		}
+		blockHeight--
 	}
 
-	var appliedFormations []types.FileContractID
-	var appliedResolutions []struct {
-		id     types.FileContractID
-		height uint64
-	}
+	var appliedFormations, appliedResolutions []contractChange
 	appliedRevisions := make(map[types.FileContractID]types.FileContractRevision)
-	// calculate the block height of the first applied diff
-	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks))
 	for _, applied := range cc.AppliedBlocks {
+		index := types.ChainIndex{
+			Height: blockHeight,
+			ID:     types.BlockID(applied.ID()),
+		}
 		for _, transaction := range applied.Transactions {
 			for i := range transaction.FileContracts {
 				contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
-				appliedFormations = append(appliedFormations, contractID)
+				appliedFormations = append(appliedFormations, contractChange{contractID, index})
 			}
 
 			for _, rev := range transaction.FileContractRevisions {
@@ -261,10 +270,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 			for _, proof := range transaction.StorageProofs {
 				contractID := types.FileContractID(proof.ParentID)
-				appliedResolutions = append(appliedResolutions, struct {
-					id     types.FileContractID
-					height uint64
-				}{contractID, blockHeight})
+				appliedResolutions = append(appliedResolutions, contractChange{contractID, index})
 			}
 		}
 		blockHeight++
@@ -272,83 +278,88 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 	err = cm.store.UpdateContractState(cc.ID, uint64(cc.BlockHeight), func(tx UpdateStateTransaction) error {
 		for _, reverted := range revertedFormations {
-			if relevant, err := tx.ContractRelevant(reverted); err != nil {
+			if relevant, err := tx.ContractRelevant(reverted.id); err != nil {
 				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
 			} else if !relevant {
 				continue
-			} else if err := tx.RevertFormation(reverted); err != nil {
+			} else if err := tx.RevertFormation(reverted.id); err != nil {
 				return fmt.Errorf("failed to revert formation: %w", err)
-			} else if err := tx.SetStatus(reverted, ContractStatusPending); err != nil {
+			} else if err := tx.SetStatus(reverted.id, ContractStatusPending); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
+
+			log.Warn("contract formation reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
 			cm.alerts.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
+				ID:       types.Hash256(reverted.id),
 				Severity: alerts.SeverityWarning,
 				Message:  "Contract formation reverted",
 				Data: map[string]any{
-					"contractID":  reverted,
-					"blockHeight": cc.BlockHeight,
+					"contractID": reverted.id,
+					"index":      reverted.index,
 				},
 				Timestamp: time.Now(),
 			})
-			log.Debug("contract formation reverted", zap.String("contract", reverted.String()))
 		}
 
-		for reverted := range revertedRevisions {
-			if relevant, err := tx.ContractRelevant(reverted); err != nil {
+		for _, reverted := range revertedRevisions {
+			if relevant, err := tx.ContractRelevant(reverted.id); err != nil {
 				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
 			} else if !relevant {
 				continue
-			} else if err := tx.RevertRevision(reverted); err != nil {
+			} else if err := tx.RevertRevision(reverted.id); err != nil {
 				return fmt.Errorf("failed to revert revision: %w", err)
 			}
+
+			log.Warn("contract revision reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
 			cm.alerts.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
+				ID:       types.Hash256(reverted.id),
 				Severity: alerts.SeverityWarning,
 				Message:  "Contract revision reverted",
 				Data: map[string]any{
-					"contractID":  reverted,
-					"blockHeight": cc.BlockHeight,
+					"contractID": reverted.id,
+					"index":      reverted.index,
 				},
 				Timestamp: time.Now(),
 			})
-			log.Debug("contract revision reverted", zap.String("contract", reverted.String()))
 		}
 
 		for _, reverted := range revertedResolutions {
-			if relevant, err := tx.ContractRelevant(reverted); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
+			if relevant, err := tx.ContractRelevant(reverted.id); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted.id, err)
 			} else if !relevant {
 				continue
-			} else if err := tx.RevertResolution(reverted); err != nil {
+			} else if err := tx.RevertResolution(reverted.id); err != nil {
 				return fmt.Errorf("failed to revert proof: %w", err)
-			} else if err := tx.SetStatus(reverted, ContractStatusActive); err != nil {
+			} else if err := tx.SetStatus(reverted.id, ContractStatusActive); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
+
+			log.Warn("contract resolution reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
 			cm.alerts.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
+				ID:       types.Hash256(reverted.id),
 				Severity: alerts.SeverityWarning,
 				Message:  "Contract resolution reverted",
 				Data: map[string]any{
-					"contractID":  reverted,
-					"blockHeight": cc.BlockHeight,
+					"contractID": reverted.id,
+					"index":      reverted.index,
 				},
 				Timestamp: time.Now(),
 			})
-			log.Debug("contract resolution reverted", zap.String("contract", reverted.String()))
 		}
 
 		for _, applied := range appliedFormations {
-			if relevant, err := tx.ContractRelevant(applied); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied, err)
+			if relevant, err := tx.ContractRelevant(applied.id); err != nil {
+				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied.id, err)
 			} else if !relevant {
 				continue
-			} else if err := tx.ConfirmFormation(applied); err != nil {
+			} else if err := tx.ConfirmFormation(applied.id); err != nil {
 				return fmt.Errorf("failed to apply formation: %w", err)
-			} else if err := tx.SetStatus(applied, ContractStatusActive); err != nil {
+			} else if err := tx.SetStatus(applied.id, ContractStatusActive); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
-			log.Debug("contract formation applied", zap.String("contract", applied.String()))
+
+			log.Debug("contract formation confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
+			cm.alerts.Dismiss(types.Hash256(applied.id)) // dismiss any lifecycle alerts for this contract
 		}
 
 		for _, applied := range appliedRevisions {
@@ -359,7 +370,9 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			} else if err := tx.ConfirmRevision(applied); err != nil {
 				return fmt.Errorf("failed to apply revision: %w", err)
 			}
-			log.Debug("contract revision applied", zap.String("contract", applied.ParentID.String()), zap.Uint64("revisionNumber", applied.RevisionNumber))
+
+			log.Debug("contract revision confirmed", zap.Stringer("contractID", applied.ParentID), zap.Uint64("revisionNumber", applied.RevisionNumber))
+			cm.alerts.Dismiss(types.Hash256(applied.ParentID)) // dismiss any lifecycle alerts for this contract
 		}
 
 		for _, applied := range appliedResolutions {
@@ -367,25 +380,15 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied, err)
 			} else if !relevant {
 				continue
-			} else if err := tx.ConfirmResolution(applied.id, applied.height); err != nil {
+			} else if err := tx.ConfirmResolution(applied.id, applied.index.Height); err != nil {
 				return fmt.Errorf("failed to apply proof: %w", err)
 			} else if err := tx.SetStatus(applied.id, ContractStatusSuccessful); err != nil {
 				return fmt.Errorf("failed to set status: %w", err)
 			}
-			cm.alerts.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
-				Severity: alerts.SeverityInfo,
-				Message:  "Contract resolution confirmed",
-				Data: map[string]any{
-					"contractID":  applied,
-					"blockHeight": cc.BlockHeight,
-					"resolution":  "successful",
-				},
-				Timestamp: time.Now(),
-			})
-			log.Debug("contract resolution applied", zap.String("contract", applied.id.String()), zap.Uint64("height", applied.height))
-		}
 
+			log.Debug("contract resolution confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
+			cm.alerts.Dismiss(types.Hash256(applied.id)) // dismiss any lifecycle alerts for this contract
+		}
 		return nil
 	})
 	if err != nil {
