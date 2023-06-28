@@ -23,7 +23,9 @@ import (
 	"go.uber.org/zap"
 )
 
-const stdTxnSize = 1200
+const stdTxnSize = 1200 // bytes
+
+var startTime = time.Now()
 
 // checkServerError conditionally writes an error to the response if err is not
 // nil.
@@ -37,8 +39,10 @@ func (a *api) checkServerError(c jape.Context, context string, err error) bool {
 
 func (a *api) handleGETHostState(c jape.Context) {
 	c.Encode(HostState{
+		Name:          a.name,
 		PublicKey:     a.hostKey,
 		WalletAddress: a.wallet.Address(),
+		StartTime:     startTime,
 		BuildState: BuildState{
 			Network:   build.NetworkName(),
 			Version:   build.Version(),

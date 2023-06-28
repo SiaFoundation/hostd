@@ -108,6 +108,7 @@ type (
 	// An api provides an HTTP API for the host
 	api struct {
 		hostKey types.PublicKey
+		name    string
 
 		log *zap.Logger
 
@@ -127,9 +128,10 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, ls LogStore, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, ls LogStore, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
+		name:    name,
 
 		checks: integrityCheckJobs{
 			contracts: cm,

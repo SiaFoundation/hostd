@@ -24,6 +24,7 @@ import (
 )
 
 var (
+	name        string
 	gatewayAddr string
 	rhp2Addr    string
 	rhp3TCPAddr string
@@ -84,6 +85,7 @@ func getWalletKey() types.PrivateKey {
 }
 
 func main() {
+	flag.StringVar(&name, "name", "", "a friendly name for the host, only used for display")
 	flag.StringVar(&gatewayAddr, "rpc", defaultGatewayAddr, "address to listen on for peer connections")
 	flag.StringVar(&rhp2Addr, "rhp2", defaultRHPv2Addr, "address to listen on for RHP2 connections")
 	flag.StringVar(&rhp3TCPAddr, "rhp3.tcp", defaultRHPv3TCPAddr, "address to listen on for TCP RHP3 connections")
@@ -172,7 +174,7 @@ func main() {
 	auth := jape.BasicAuth(apiPassword)
 	web := http.Server{
 		Handler: webRouter{
-			api: auth(api.NewServer(hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.storage, node.metrics, node.store, node.settings, node.w, logger.Named("api"))),
+			api: auth(api.NewServer(name, hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.storage, node.metrics, node.store, node.settings, node.w, logger.Named("api"))),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,
