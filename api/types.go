@@ -51,7 +51,7 @@ type (
 
 	// HostState is the response body for the [GET] /state/host endpoint.
 	HostState struct {
-		Name          string          `json:"name"`
+		Name          string          `json:"name,omitempty"`
 		PublicKey     types.PublicKey `json:"publicKey"`
 		WalletAddress types.Address   `json:"walletAddress"`
 		StartTime     time.Time       `json:"startTime"`
