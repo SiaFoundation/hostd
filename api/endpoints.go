@@ -472,17 +472,24 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 		return
 	}
 
-	// special handling for / on Windows
-	if (path == `/` || path == `\`) && runtime.GOOS == "windows" {
-		drives, err := disk.Drives()
-		if !a.checkServerError(c, "failed to get drives", err) {
+	if runtime.GOOS == "windows" {
+		// special handling for / on Windows
+		if path == `/` || path == `\` {
+			drives, err := disk.Drives()
+			if !a.checkServerError(c, "failed to get drives", err) {
+				return
+			}
+			c.Encode(SystemDirResponse{
+				Path:        path,
+				Directories: drives,
+			})
 			return
 		}
-		c.Encode(SystemDirResponse{
-			Path:        path,
-			Directories: drives,
-		})
-		return
+
+		// add a trailing slash to the root path
+		if len(path) == 2 && path[1] == ':' && ('a' <= path[0] && path[0] <= 'z' || 'A' <= path[0] && path[0] <= 'Z') {
+			path += string(filepath.Separator)
+		}
 	}
 
 	switch path {
