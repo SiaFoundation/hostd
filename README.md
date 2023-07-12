@@ -17,7 +17,14 @@ ensuring a smooth user experience across a diverse range of devices.
 - A project roadmap is available on [GitHub](https://github.com/orgs/SiaFoundation/projects/3)
 - Setup guides are available at [https://docs.sia.tech](https://docs.sia.tech/hosting/hostd/about-hosting-on-sia)
 
-### Ports
+## Configuration
+
+`hostd` can be configured in multiple ways. Some settings, like the wallet key,
+can be configured via environment variables or stdin. Others, like the RHP
+ports, can be configured via CLI flags. To simplify more complex configurations,
+`hostd` also supports the use of a YAML configuration file for all settings.
+
+## Default Ports
 `hostd` uses the following ports:
 + `9980` - UI and API
 + `9981` - Sia consensus
@@ -30,6 +37,59 @@ ensuring a smooth user experience across a diverse range of devices.
 + `HOSTD_SEED` - The recovery phrase for the wallet
 + `HOSTD_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
   log file will be created in the data directory
++ `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
+  `hostd` will check for a config file in the current directory
+
+### CLI Flags
+```sh
+-bootstrap
+	bootstrap the gateway and consensus modules
+-dir string
+	directory to store hostd metadata (default ".")
+-env
+	disable stdin prompts for environment variables (default false)
+-http string
+	address to serve API on (default ":9980")
+-log.level string
+	log level (debug, info, warn, error) (default "info")
+-log.stdout
+	log to stdout (default false)
+-name string
+	a friendly name for the host, only used for display
+-rpc string
+	address to listen on for peer connections (default ":9981")
+-rhp2 string
+	address to listen on for RHP2 connections (default ":9982")
+-rhp3.tcp string
+	address to listen on for TCP RHP3 connections (default ":9983")
+-rhp3.ws string
+	address to listen on for WebSocket RHP3 connections (default ":9984")
+```
+
+### YAML
+All environment variables and CLI flags can be set via a YAML config file. The
+config file defaults to `hostd.yml` in the current directory, but can be changed
+with the `HOSTD_CONFIG_FILE` environment variable. All fields are optional and
+default to the same values as the CLI flags.
+
+```yaml
+dataDir: /etc/hostd
+recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect potato weapon bid
+http:
+  address: :9980
+  password: sia is cool
+consensus:
+  gatewayAddress: :9981
+  bootstrap: true
+rhp2:
+  address: :9982
+rhp3:
+  tcp: :9983
+  websocket: :9984
+log:
+  path: /var/log/hostd
+  level: info
+```
 
 # Building
 
