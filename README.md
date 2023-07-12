@@ -14,6 +14,9 @@ manage their storage resources and revenue. `hostd` incorporates an embedded
 web-UI, simplifying deployment and enabling remote management capabilities,
 ensuring a smooth user experience across a diverse range of devices.
 
+- A project roadmap is available on [GitHub](https://github.com/orgs/SiaFoundation/projects/3)
+- Setup guides are available at [https://docs.sia.tech](https://docs.sia.tech/hosting/hostd/about-hosting-on-sia)
+
 ### Ports
 `hostd` uses the following ports:
 + `9980` - UI and API
@@ -27,14 +30,6 @@ ensuring a smooth user experience across a diverse range of devices.
 + `HOSTD_SEED` - The recovery phrase for the wallet
 + `HOSTD_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
   log file will be created in the data directory
-
-## Current Status
-
-`hostd` is currently in alpha. It is not yet considered stable and may receive breaking changes at any time. It is recommended to only use `hostd` on the Zen testnet. Using `hostd` on the main Sia network is strongly discouraged. By limiting its use to the Zen testnet, you can safely explore its features and contribute to its improvement without risking your assets.
-
-## What's Next?
-
-Our current goal is work towards the first stable release of `hostd` by integrating the UI and enabling migrations for existing `siad` hosts. A project roadmap is available on [GitHub](https://github.com/orgs/SiaFoundation/projects/3)
 
 # Building
 
