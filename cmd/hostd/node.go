@@ -163,20 +163,28 @@ func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhpv3.ChainManager, 
 	return rhp3, nil
 }
 
-func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, walletKey types.PrivateKey, logger *zap.Logger, logLevel zapcore.Level) (*node, types.PrivateKey, error) {
-	gatewayDir := filepath.Join(dir, "gateway")
+func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.PrivateKey, error) {
+	gatewayDir := filepath.Join(config.DataDir, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway dir: %w", err)
 	}
-	g, err := gateway.NewCustomGateway(gatewayAddr, bootstrap, false, gatewayDir, modules.ProdDependencies)
+	g, err := gateway.NewCustomGateway(config.Consensus.GatewayAddress, config.Consensus.Bootstrap, false, gatewayDir, modules.ProdDependencies)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway: %w", err)
 	}
-	consensusDir := filepath.Join(dir, "consensus")
+
+	// connect to additional peers from the config file
+	go func() {
+		for _, peer := range config.Consensus.Peers {
+			g.Connect(modules.NetAddress(peer))
+		}
+	}()
+
+	consensusDir := filepath.Join(config.DataDir, "consensus")
 	if err := os.MkdirAll(consensusDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, err
 	}
-	cs, errCh := consensus.New(g, bootstrap, consensusDir)
+	cs, errCh := consensus.New(g, config.Consensus.Bootstrap, consensusDir)
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -189,7 +197,7 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 			}
 		}()
 	}
-	tpoolDir := filepath.Join(dir, "tpool")
+	tpoolDir := filepath.Join(config.DataDir, "tpool")
 	if err := os.MkdirAll(tpoolDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create tpool dir: %w", err)
 	}
@@ -199,13 +207,13 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 	}
 	tp := &txpool{stp}
 
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), logger.Named("sqlite"))
+	db, err := sqlite.OpenDatabase(filepath.Join(config.DataDir, "hostd.db"), logger.Named("sqlite"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create sqlite store: %w", err)
 	}
 
 	// create a new zap core by combining the current logger and a custom logging core
-	core := zapcore.NewTee(logger.Core(), logging.Core(db, logLevel))
+	core := zapcore.NewTee(logger.Core(), logging.Core(db, logger.Level()))
 	// reinstantiate the logger with the new core
 	logger = zap.New(core)
 	// reset the logger so queries are logged to the database
@@ -224,24 +232,24 @@ func newNode(gatewayAddr, rhp2Addr, rhp3Addr, dir string, bootstrap bool, wallet
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	rhp2Listener, err := net.Listen("tcp", rhp2Addr)
+	rhp2Listener, err := net.Listen("tcp", config.RHP2.Address)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp2 addr: %w", err)
 	}
 
-	rhp3Listener, err := net.Listen("tcp", rhp3Addr)
+	rhp3Listener, err := net.Listen("tcp", config.RHP3.TCPAddress)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp3 addr: %w", err)
 	}
 
-	_, rhp2Port, err := net.SplitHostPort(rhp2Addr)
+	_, rhp2Port, err := net.SplitHostPort(config.RHP2.Address)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to parse rhp2 addr: %w", err)
 	}
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	sr, err := settings.NewConfigManager(dir, hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
+	sr, err := settings.NewConfigManager(config.DataDir, hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
 	}

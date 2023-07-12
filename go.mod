@@ -17,6 +17,7 @@ require (
 	golang.org/x/sys v0.7.0
 	golang.org/x/term v0.7.0
 	golang.org/x/time v0.3.0
+	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/frand v1.4.2
 	nhooyr.io/websocket v1.8.7
 )

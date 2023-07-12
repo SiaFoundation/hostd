@@ -6,6 +6,7 @@ const (
 	apiPasswordEnvVariable = "HOSTD_API_PASSWORD"
 	walletSeedEnvVariable  = "HOSTD_SEED"
 	logPathEnvVariable     = "HOSTD_LOG_PATH"
+	configPathEnvVariable  = "HOSTD_CONFIG_FILE"
 
 	defaultAPIAddr      = "localhost:9980"
 	defaultGatewayAddr  = ":9981"
