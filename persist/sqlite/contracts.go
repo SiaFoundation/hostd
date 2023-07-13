@@ -394,7 +394,8 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 	return txnSet, nil
 }
 
-// SetContractStatus sets the contract's status.
+// ExpireContract expires a contract and updates its status. Should only be used
+// if the contract is active or pending.
 func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
 	return s.transaction(func(tx txn) error {
 		if err := setContractStatus(&dbTxn{s}, id, status); err != nil {
