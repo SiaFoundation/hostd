@@ -47,11 +47,6 @@ func (u *updateContractsTxn) setLastChangeID(ccID modules.ConsensusChangeID, hei
 	return err
 }
 
-// SetStatus sets the contract's status.
-func (u *updateContractsTxn) setStatus(id types.FileContractID, status contracts.ContractStatus) error {
-	return setContractStatus(u.tx, id, status)
-}
-
 // ConfirmFormation sets the formation_confirmed flag to true.
 func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 	const query = `UPDATE contracts SET formation_confirmed=true WHERE contract_id=$1;`
@@ -75,7 +70,7 @@ func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 	}
 
 	// set the contract status to active
-	if err := u.setStatus(id, contracts.ContractStatusActive); err != nil {
+	if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
 		return fmt.Errorf("failed to set contract status to active: %w", err)
 	}
 	return nil
@@ -94,7 +89,7 @@ func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID, height u
 	var dbID int64
 	if err := u.tx.QueryRow(query, height, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to confirm resolution: %w", err)
-	} else if err := u.setStatus(id, contracts.ContractStatusSuccessful); err != nil {
+	} else if err := setContractStatus(u.tx, id, contracts.ContractStatusSuccessful); err != nil {
 		return fmt.Errorf("failed to set contract status to ended: %w", err)
 	}
 
@@ -116,7 +111,7 @@ func (u *updateContractsTxn) RevertFormation(id types.FileContractID) error {
 	var dbID int64
 	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to revert formation: %w", err)
-	} else if err := u.setStatus(id, contracts.ContractStatusPending); err != nil {
+	} else if err := setContractStatus(u.tx, id, contracts.ContractStatusPending); err != nil {
 		return fmt.Errorf("failed to set contract status to active: %w", err)
 	}
 	return nil
@@ -135,7 +130,7 @@ func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
 	var dbID int64
 	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to revert resolution: %w", err)
-	} else if err := u.setStatus(id, contracts.ContractStatusActive); err != nil {
+	} else if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
 		return fmt.Errorf("failed to set contract status to active: %w", err)
 	}
 
