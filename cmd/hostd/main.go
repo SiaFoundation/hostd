@@ -169,10 +169,6 @@ func main() {
 	// attempt to load the config file first, command line flags will override
 	// any values set in the config file
 	mustLoadConfig()
-	// set the log path to the data dir if it is not already set
-	if len(config.Log.Path) == 0 {
-		config.Log.Path = config.DataDir
-	}
 
 	// global
 	flag.StringVar(&config.Name, "name", config.Name, "a friendly name for the host, only used for display")
@@ -214,6 +210,13 @@ func main() {
 	// check that the API password and wallet seed are set
 	mustSetAPIPassword()
 	mustSetWalletkey()
+
+	// set the log path to the data dir if it is not already set note: this
+	// musst happen after CLI flags are parsed so that the data directory can be
+	// specified via the command line
+	if len(config.Log.Path) == 0 {
+		config.Log.Path = config.DataDir
+	}
 
 	var seed [32]byte
 	if err := wallet.SeedFromPhrase(&seed, config.RecoveryPhrase); err != nil {
