@@ -58,10 +58,27 @@ func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 	_, err := u.tx.Exec(query, sqlHash256(id))
 	if err != nil {
 		return fmt.Errorf("failed to confirm formation: %w", err)
-	} else if u.setStatus(id, contracts.ContractStatusActive) != nil {
+	}
+
+	// check if the contract is currently "rejected"
+	contract, err := getContract(u.tx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get contract: %w", err)
+	} else if contract.Status == contracts.ContractStatusRejected {
+		// rejected contracts have already had their collateral and revenue
+		// removed, need to re-add it if the contract is now confirmed
+		if err := incrementCurrencyStat(u.tx, metricLockedCollateral, contract.LockedCollateral, false, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment locked collateral stat: %w", err)
+		} else if err := incrementCurrencyStat(u.tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, false, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+		}
+	}
+
+	// set the contract status to active
+	if err := u.setStatus(id, contracts.ContractStatusActive); err != nil {
 		return fmt.Errorf("failed to set contract status to active: %w", err)
 	}
-	return err
+	return nil
 }
 
 // ConfirmRevision sets the confirmed revision number.
@@ -99,7 +116,7 @@ func (u *updateContractsTxn) RevertFormation(id types.FileContractID) error {
 	var dbID int64
 	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to revert formation: %w", err)
-	} else if u.setStatus(id, contracts.ContractStatusPending) != nil {
+	} else if err := u.setStatus(id, contracts.ContractStatusPending); err != nil {
 		return fmt.Errorf("failed to set contract status to active: %w", err)
 	}
 	return nil
@@ -118,11 +135,11 @@ func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
 	var dbID int64
 	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to revert resolution: %w", err)
-	} else if u.setStatus(id, contracts.ContractStatusActive) != nil {
+	} else if err := u.setStatus(id, contracts.ContractStatusActive); err != nil {
 		return fmt.Errorf("failed to set contract status to active: %w", err)
 	}
 
-	// re-add the locked and risked collateral
+	// increase the host's locked and risked collateral
 	contract, err := getContract(u.tx, id)
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
