@@ -284,8 +284,6 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.RevertFormation(reverted.id); err != nil {
 				return fmt.Errorf("failed to revert formation: %w", err)
-			} else if err := tx.SetStatus(reverted.id, ContractStatusPending); err != nil {
-				return fmt.Errorf("failed to set status: %w", err)
 			}
 
 			log.Warn("contract formation reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
@@ -330,8 +328,6 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.RevertResolution(reverted.id); err != nil {
 				return fmt.Errorf("failed to revert proof: %w", err)
-			} else if err := tx.SetStatus(reverted.id, ContractStatusActive); err != nil {
-				return fmt.Errorf("failed to set status: %w", err)
 			}
 
 			log.Warn("contract resolution reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
@@ -354,8 +350,6 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.ConfirmFormation(applied.id); err != nil {
 				return fmt.Errorf("failed to apply formation: %w", err)
-			} else if err := tx.SetStatus(applied.id, ContractStatusActive); err != nil {
-				return fmt.Errorf("failed to set status: %w", err)
 			}
 
 			log.Debug("contract formation confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
@@ -382,8 +376,6 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				continue
 			} else if err := tx.ConfirmResolution(applied.id, applied.index.Height); err != nil {
 				return fmt.Errorf("failed to apply proof: %w", err)
-			} else if err := tx.SetStatus(applied.id, ContractStatusSuccessful); err != nil {
-				return fmt.Errorf("failed to set status: %w", err)
 			}
 
 			log.Debug("contract resolution confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))

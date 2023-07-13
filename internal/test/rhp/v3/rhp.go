@@ -189,7 +189,7 @@ func (s *Session) StoreSector(sector *[rhp2.SectorSize]byte, duration uint64, pa
 
 	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
 		return fmt.Errorf("failed to write request: %w", err)
-	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
+	} else if err := s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)); err != nil {
 		return fmt.Errorf("failed to pay: %w", err)
 	} else if err := stream.WriteResponse(&req); err != nil {
 		return fmt.Errorf("failed to write response: %w", err)
@@ -226,7 +226,7 @@ func (s *Session) AppendSector(sector *[rhp2.SectorSize]byte, revision *rhp2.Con
 
 	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
-	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
+	} else if err := s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
 	} else if err := stream.WriteResponse(&req); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
@@ -334,7 +334,7 @@ func (s *Session) ReadSector(root types.Hash256, offset, length uint64, payment 
 
 	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
 		return nil, types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
-	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
+	} else if err := s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)); err != nil {
 		return nil, types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
 	} else if err := stream.WriteResponse(&req); err != nil {
 		return nil, types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)
@@ -378,7 +378,7 @@ func (s *Session) ReadOffset(offset, length uint64, contractID types.FileContrac
 
 	if err := stream.WriteRequest(rhp3.RPCExecuteProgramID, &s.pt.UID); err != nil {
 		return nil, types.ZeroCurrency, fmt.Errorf("failed to write request: %w", err)
-	} else if s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)) != nil {
+	} else if err := s.processPayment(stream, payment, s.pt.InitBaseCost.Add(budget)); err != nil {
 		return nil, types.ZeroCurrency, fmt.Errorf("failed to pay: %w", err)
 	} else if err := stream.WriteResponse(&req); err != nil {
 		return nil, types.ZeroCurrency, fmt.Errorf("failed to write response: %w", err)

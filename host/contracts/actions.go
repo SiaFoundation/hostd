@@ -157,7 +157,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
 		if missedPayout.Cmp(validPayout) >= 0 {
 			log.Info("skipping storage proof, no benefit to host", zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
-			if err := cm.store.SetContractStatus(id, ContractStatusSuccessful); err != nil {
+			if err := cm.store.ExpireContract(id, ContractStatusSuccessful); err != nil {
 				log.Error("failed to set contract status", zap.Error(err))
 			}
 			return
@@ -220,7 +220,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		}
 		log.Info("broadcast storage proof", zap.String("transactionID", resolutionTxnSet[1].ID().String()), zap.Duration("elapsed", time.Since(start)))
 	case ActionReject:
-		if err := cm.store.SetContractStatus(id, ContractStatusRejected); err != nil {
+		if err := cm.store.ExpireContract(id, ContractStatusRejected); err != nil {
 			log.Error("failed to set contract status", zap.Error(err))
 		}
 		log.Info("contract rejected", zap.Uint64("negotiationHeight", contract.NegotiationHeight))
@@ -229,7 +229,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		if validPayout.Cmp(missedPayout) > 0 {
 			// if the host valid payout is greater than the missed payout, the
 			// host lost potential revenue.
-			if err := cm.store.SetContractStatus(id, ContractStatusFailed); err != nil {
+			if err := cm.store.ExpireContract(id, ContractStatusFailed); err != nil {
 				log.Error("failed to set contract status", zap.Error(err))
 			}
 			cm.alerts.Register(alerts.Alert{
@@ -246,7 +246,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 			return
 		}
 		// note: this should always be a no-op, but it's good to be explicit
-		if err := cm.store.SetContractStatus(id, ContractStatusSuccessful); err != nil {
+		if err := cm.store.ExpireContract(id, ContractStatusSuccessful); err != nil {
 			log.Error("failed to set contract status", zap.Error(err))
 		}
 		log.Info("contract expired")

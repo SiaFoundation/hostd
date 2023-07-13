@@ -3,7 +3,40 @@ package sqlite
 import (
 	"fmt"
 	"time"
+
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 )
+
+// migrateVersion8 sets the initial values for the locked and risked collateral
+// metrics for existing hosts
+func migrateVersion8(tx txn) error {
+	rows, err := tx.Query(`SELECT locked_collateral, risked_collateral FROM contracts WHERE contract_status IN (?, ?)`, contracts.ContractStatusPending, contracts.ContractStatusActive)
+	if err != nil {
+		return fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+	var totalLocked, totalRisked types.Currency
+	for rows.Next() {
+		var locked, risked types.Currency
+		if err := rows.Scan((*sqlCurrency)(&locked), (*sqlCurrency)(&risked)); err != nil {
+			return fmt.Errorf("failed to scan contract: %w", err)
+		}
+		totalLocked = totalLocked.Add(locked)
+		totalRisked = totalRisked.Add(risked)
+	}
+
+	if totalLocked.IsZero() && totalRisked.IsZero() {
+		return nil
+	}
+
+	if err := incrementCurrencyStat(tx, metricLockedCollateral, totalLocked, false, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment locked collateral: %w", err)
+	} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, totalRisked, false, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment risked collateral: %w", err)
+	}
+	return nil
+}
 
 // migrateVersion7 adds the sector_cache_size column to the host_settings table
 func migrateVersion7(tx txn) error {
@@ -160,4 +193,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion5,
 	migrateVersion6,
 	migrateVersion7,
+	migrateVersion8,
 }

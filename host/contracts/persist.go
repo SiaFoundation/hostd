@@ -28,7 +28,6 @@ type (
 	UpdateStateTransaction interface {
 		ContractRelevant(types.FileContractID) (bool, error)
 
-		SetStatus(types.FileContractID, ContractStatus) error
 		ConfirmFormation(types.FileContractID) error
 		ConfirmRevision(types.FileContractRevision) error
 		ConfirmResolution(id types.FileContractID, height uint64) error
@@ -50,7 +49,9 @@ type (
 		// ContractFormationSet returns the formation transaction set for the
 		// contract with the given ID.
 		ContractFormationSet(types.FileContractID) ([]types.Transaction, error)
-		SetContractStatus(types.FileContractID, ContractStatus) error
+		// ExpireContract is used to mark a contract as complete. It should only
+		// be used on active or pending contracts.
+		ExpireContract(types.FileContractID, ContractStatus) error
 		// Add stores the provided contract, should error if the contract
 		// already exists in the store.
 		AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage, negotationHeight uint64) error
