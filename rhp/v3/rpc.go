@@ -358,7 +358,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	// create the initial revision and verify the renter's signature
 	renewalRevision := rhp.InitialRevision(&renewalTxn, hostUnlockKey, req.RenterKey)
 	renewalSigHash := rhp.HashRevision(renewalRevision)
-	if validateRenterRevisionSignature(renterSigsResp.RevisionSignature, renewalRevision.ParentID, renewalSigHash, renterKey) != nil {
+	if err := validateRenterRevisionSignature(renterSigsResp.RevisionSignature, renewalRevision.ParentID, renewalSigHash, renterKey); err != nil {
 		err := fmt.Errorf("failed to verify renter revision signature: %w", ErrInvalidRenterSignature)
 		s.WriteResponseErr(err)
 		return err
