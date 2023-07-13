@@ -19,7 +19,7 @@ func migrateVersion8(tx txn) error {
 	var totalLocked, totalRisked types.Currency
 	for rows.Next() {
 		var locked, risked types.Currency
-		if err := rows.Scan(&locked, &risked); err != nil {
+		if err := rows.Scan((*sqlCurrency)(&locked), (*sqlCurrency)(&risked)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 		totalLocked = totalLocked.Add(locked)
