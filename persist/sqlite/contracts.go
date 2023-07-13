@@ -47,6 +47,200 @@ func (u *updateContractsTxn) setLastChangeID(ccID modules.ConsensusChangeID, hei
 	return err
 }
 
+// SetStatus sets the contract's status.
+func (u *updateContractsTxn) setStatus(id types.FileContractID, status contracts.ContractStatus) error {
+	return setContractStatus(u.tx, id, status)
+}
+
+// ConfirmFormation sets the formation_confirmed flag to true.
+func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
+	const query = `UPDATE contracts SET formation_confirmed=true WHERE contract_id=$1;`
+	_, err := u.tx.Exec(query, sqlHash256(id))
+	if err != nil {
+		return fmt.Errorf("failed to confirm formation: %w", err)
+	} else if u.setStatus(id, contracts.ContractStatusActive) != nil {
+		return fmt.Errorf("failed to set contract status to active: %w", err)
+	}
+	return err
+}
+
+// ConfirmRevision sets the confirmed revision number.
+func (u *updateContractsTxn) ConfirmRevision(revision types.FileContractRevision) error {
+	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, sqlUint64(revision.RevisionNumber), sqlHash256(revision.ParentID)).Scan(&dbID)
+}
+
+// ConfirmResolution sets the resolution height.
+func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID, height uint64) error {
+	const query = `UPDATE contracts SET resolution_height=$1 WHERE contract_id=$2 RETURNING id;`
+	var dbID int64
+	if err := u.tx.QueryRow(query, height, sqlHash256(id)).Scan(&dbID); err != nil {
+		return fmt.Errorf("failed to confirm resolution: %w", err)
+	} else if err := u.setStatus(id, contracts.ContractStatusSuccessful); err != nil {
+		return fmt.Errorf("failed to set contract status to ended: %w", err)
+	}
+
+	// reduce the host's locked and risked collateral
+	contract, err := getContract(u.tx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get contract: %w", err)
+	} else if err := incrementCurrencyStat(u.tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment locked collateral stat: %w", err)
+	} else if err := incrementCurrencyStat(u.tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+	}
+	return nil
+}
+
+// RevertFormation sets the formation_confirmed flag to false.
+func (u *updateContractsTxn) RevertFormation(id types.FileContractID) error {
+	const query = `UPDATE contracts SET formation_confirmed=false WHERE contract_id=$1 RETURNING id;`
+	var dbID int64
+	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
+		return fmt.Errorf("failed to revert formation: %w", err)
+	} else if u.setStatus(id, contracts.ContractStatusPending) != nil {
+		return fmt.Errorf("failed to set contract status to active: %w", err)
+	}
+	return nil
+}
+
+// RevertRevision sets the confirmed revision number to 0.
+func (u *updateContractsTxn) RevertRevision(id types.FileContractID) error {
+	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2 RETURNING id;`
+	var dbID int64
+	return u.tx.QueryRow(query, sqlUint64(0), sqlHash256(id)).Scan(&dbID)
+}
+
+// RevertResolution sets the resolution height to null
+func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
+	const query = `UPDATE contracts SET resolution_height=NULL WHERE contract_id=$1 RETURNING id;`
+	var dbID int64
+	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
+		return fmt.Errorf("failed to revert resolution: %w", err)
+	} else if u.setStatus(id, contracts.ContractStatusActive) != nil {
+		return fmt.Errorf("failed to set contract status to active: %w", err)
+	}
+
+	// re-add the locked and risked collateral
+	contract, err := getContract(u.tx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get contract: %w", err)
+	} else if err := incrementCurrencyStat(u.tx, metricLockedCollateral, contract.LockedCollateral, false, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment locked collateral stat: %w", err)
+	} else if err := incrementCurrencyStat(u.tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, false, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+	}
+	return nil
+}
+
+// ContractRevelant returns true if the contract is relevant to the host.
+func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, error) {
+	const query = `SELECT id FROM contracts WHERE contract_id=$1`
+	var dbID int64
+	err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Contracts returns a paginated list of contracts.
+func (s *Store) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, count int, err error) {
+	if filter.Limit <= 0 || filter.Limit > 100 {
+		filter.Limit = 100
+	}
+
+	whereClause, whereParams, err := buildContractFilter(filter)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to build where clause: %w", err)
+	}
+
+	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
+	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
+FROM contracts c
+INNER JOIN contract_renters r ON (c.renter_id=r.id)
+LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
+LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s %s LIMIT ? OFFSET ?`, whereClause, buildOrderBy(filter))
+
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM contracts c
+INNER JOIN contract_renters r ON (c.renter_id=r.id)
+LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
+LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s`, whereClause)
+
+	if err := s.queryRow(countQuery, whereParams...).Scan(&count); err != nil {
+		return nil, 0, fmt.Errorf("failed to query contract count: %w", err)
+	}
+
+	rows, err := s.query(contractQuery, append(whereParams, filter.Limit, filter.Offset)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		contract, err := scanContract(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan contract: %w", err)
+		}
+		contracts = append(contracts, contract)
+	}
+	return
+}
+
+// Contract returns the contract with the given ID.
+func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
+	return getContract(&dbTxn{s}, id)
+}
+
+// AddContract adds a new contract to the database.
+func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
+	_, err := insertContract(&dbTxn{s}, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
+	return err
+}
+
+// RenewContract adds a new contract to the database and sets the old
+// contract's renewed_from field. The old contract's sector roots are
+// copied to the new contract.
+func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotationHeight uint64) error {
+	return s.transaction(func(tx txn) error {
+		// add the new contract
+		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotationHeight)
+		if err != nil {
+			return fmt.Errorf("failed to insert renewed contract: %w", err)
+		}
+
+		clearedDBID, err := clearContract(tx, clearing, renewedDBID, clearingUsage)
+		if err != nil {
+			return fmt.Errorf("faile to clear contract: %w", err)
+		}
+
+		err = tx.QueryRow(`UPDATE contracts SET renewed_from=$1 WHERE id=$2 RETURNING id;`, clearedDBID, renewedDBID).Scan(&renewedDBID)
+		if err != nil {
+			return fmt.Errorf("failed to update renewed contract: %w", err)
+		}
+
+		// get the count of sector roots for the old contract
+		var count int
+		if _, err = tx.Exec(`SELECT COUNT(*) FROM contract_sector_roots WHERE contract_id=$1;`, clearedDBID); err != nil {
+			return fmt.Errorf("failed to get sector root count: %w", err)
+		}
+
+		// copy the sector roots from the old contract to the new contract
+		_, err = tx.Exec(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) SELECT $1, sector_id, root_index FROM contract_sector_roots WHERE contract_id=$2;`, renewedDBID, clearedDBID)
+		if err != nil {
+			return fmt.Errorf("failed to copy sector roots: %w", err)
+		}
+
+		// increment the number of contract sectors
+		if err := incrementNumericStat(tx, metricContractSectors, count, time.Now()); err != nil {
+			return fmt.Errorf("failed to track contract sectors: %w", err)
+		}
+		return nil
+	})
+}
+
 // ReviseContract atomically updates a contract's revision and sectors
 func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, oldSectors uint64, sectorChanges []contracts.SectorChange) error {
 	return s.transaction(func(tx txn) error {
@@ -86,9 +280,211 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contract
 
 		if err := incrementNumericStat(tx, metricContractSectors, delta, time.Now()); err != nil {
 			return fmt.Errorf("failed to track contract sectors: %w", err)
+		} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, usage.RiskedCollateral, false, time.Now()); err != nil {
+			return fmt.Errorf("failed to track risked collateral: %w", err)
 		}
 		return nil
 	})
+}
+
+// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
+// are returned.
+func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint64) ([]types.Hash256, error) {
+	var dbID int64
+	err := s.queryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get contract id: %w", err)
+	}
+
+	var query string
+	if limit <= 0 {
+		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC;`
+	} else {
+		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC LIMIT $2 OFFSET $3;`
+	}
+
+	rows, err := s.query(query, dbID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sector roots: %w", err)
+	}
+	defer rows.Close()
+
+	var roots []types.Hash256
+	for rows.Next() {
+		var root types.Hash256
+		if err := rows.Scan((*sqlHash256)(&root)); err != nil {
+			return nil, fmt.Errorf("failed to scan sector root: %w", err)
+		}
+		roots = append(roots, root)
+	}
+	return roots, nil
+}
+
+// ContractAction calls contractFn on every contract in the store that
+// needs a lifecycle action performed.
+func (s *Store) ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error {
+	tx := &dbTxn{s}
+	actions, err := rebroadcastContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get rebroadcast actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = rejectContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get reject actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = revisionContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get revision actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = resolveContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get resolve actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	actions, err = expireContractActions(tx, height)
+	if err != nil {
+		return fmt.Errorf("failed to get expire actions: %w", err)
+	}
+	for _, action := range actions {
+		contractFn(action.ID, height, action.Action)
+	}
+	return nil
+}
+
+// ContractFormationSet returns the set of transactions that were created during
+// contract formation.
+func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transaction, error) {
+	var buf []byte
+	err := s.queryRow(`SELECT formation_txn_set FROM contracts WHERE contract_id=$1;`, sqlHash256(id)).Scan(&buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query formation txn set: %w", err)
+	}
+	var txnSet []types.Transaction
+	if err := decodeTxnSet(buf, &txnSet); err != nil {
+		return nil, fmt.Errorf("failed to decode formation txn set: %w", err)
+	}
+	return txnSet, nil
+}
+
+// SetContractStatus sets the contract's status.
+func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
+	return s.transaction(func(tx txn) error {
+		if err := setContractStatus(&dbTxn{s}, id, status); err != nil {
+			return fmt.Errorf("failed to set contract status: %w", err)
+		}
+
+		// reduce the locked and risked collateral metrics
+		contract, err := getContract(tx, id)
+		if err != nil {
+			return fmt.Errorf("failed to get contract: %w", err)
+		} else if err := incrementCurrencyStat(tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment locked collateral stat: %w", err)
+		} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+		}
+		return nil
+	})
+}
+
+// LastContractChange gets the last consensus change processed by the
+// contractor.
+func (s *Store) LastContractChange() (id modules.ConsensusChangeID, err error) {
+	err = s.queryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(nullable((*sqlHash256)(&id)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return modules.ConsensusChangeBeginning, nil
+	} else if err != nil {
+		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to query last contract change: %w", err)
+	}
+	return
+}
+
+// UpdateContractState atomically updates the contractor's state.
+func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint64, fn func(contracts.UpdateStateTransaction) error) error {
+	return s.transaction(func(tx txn) error {
+		utx := &updateContractsTxn{tx: tx}
+		if err := fn(utx); err != nil {
+			return err
+		} else if err := utx.setLastChangeID(ccID, height); err != nil {
+			return fmt.Errorf("failed to update last change id: %w", err)
+		}
+		return nil
+	})
+}
+
+// ExpireContractSectors expires all sectors that are no longer covered by an
+// active contract.
+func (s *Store) ExpireContractSectors(height uint64) error {
+	// delete in batches to avoid holding a lock on the database for too long
+	var done bool
+	for {
+		if done {
+			return nil
+		}
+		err := s.transaction(func(tx txn) error {
+			sectors, err := expiredContractSectors(tx, height, pruneBatchSize)
+			if err != nil {
+				return fmt.Errorf("failed to select sectors: %w", err)
+			} else if len(sectors) == 0 {
+				done = true
+				return nil
+			}
+
+			contractSectors := make(map[types.FileContractID][]contractSectorRef)
+			sectorIDs := make([]int64, 0, len(sectors))
+			for _, sector := range sectors {
+				sectorIDs = append(sectorIDs, sector.ID)
+				contractSectors[sector.ContractID] = append(contractSectors[sector.ContractID], sector)
+			}
+
+			query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
+			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
+				return fmt.Errorf("failed to delete sectors: %w", err)
+			} else if err := incrementNumericStat(tx, metricContractSectors, len(sectorIDs), time.Now()); err != nil {
+				return fmt.Errorf("failed to track contract sectors: %w", err)
+			}
+
+			for contractID, sectors := range contractSectors {
+				s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+					for _, sector := range sectors {
+						enc.AppendString(sector.SectorRoot.String())
+					}
+					return nil
+				})))
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to prune sectors: %w", err)
+		}
+		time.Sleep(time.Millisecond) // allow other transactions to run
+	}
+}
+
+func getContract(tx txn, contractID types.FileContractID) (contracts.Contract, error) {
+	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
+	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
+FROM contracts c
+LEFT JOIN contracts rt ON (c.renewed_to = rt.id)
+LEFT JOIN contracts rf ON (c.renewed_from = rf.id)
+WHERE c.contract_id=$1;`
+	row := tx.QueryRow(query, sqlHash256(contractID))
+	contract, err := scanContract(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = contracts.ErrNotFound
+	}
+	return contract, err
 }
 
 func appendSector(tx txn, contractID int64, root types.Hash256, index uint64) error {
@@ -196,6 +592,41 @@ WHERE contract_id = $1
 	return nil
 }
 
+func clearContract(tx txn, revision contracts.SignedRevision, renewedDBID int64, usage contracts.Usage) (dbID int64, err error) {
+	// get the existing contract's current usage
+	var total contracts.Usage
+	err = tx.QueryRow(`SELECT id, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral FROM contracts WHERE contract_id=$1`, sqlHash256(revision.Revision.ParentID)).Scan(
+		&dbID,
+		(*sqlCurrency)(&total.RPCRevenue),
+		(*sqlCurrency)(&total.StorageRevenue),
+		(*sqlCurrency)(&total.IngressRevenue),
+		(*sqlCurrency)(&total.EgressRevenue),
+		(*sqlCurrency)(&total.AccountFunding),
+		(*sqlCurrency)(&total.RiskedCollateral))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get existing usage: %w", err)
+	}
+	total = total.Add(usage)
+
+	// update the existing contract
+	const clearQuery = `UPDATE contracts SET (renewed_to, revision_number, host_sig, renter_sig, raw_revision, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) WHERE id=$12 RETURNING id;`
+	err = tx.QueryRow(clearQuery,
+		renewedDBID,
+		sqlUint64(revision.Revision.RevisionNumber),
+		sqlHash512(revision.HostSignature),
+		sqlHash512(revision.RenterSignature),
+		encodeRevision(revision.Revision),
+		sqlCurrency(total.RPCRevenue),
+		sqlCurrency(total.StorageRevenue),
+		sqlCurrency(total.IngressRevenue),
+		sqlCurrency(total.EgressRevenue),
+		sqlCurrency(total.AccountFunding),
+		sqlCurrency(total.RiskedCollateral),
+		dbID,
+	).Scan(&dbID)
+	return
+}
+
 func reviseContract(tx txn, revision contracts.SignedRevision) (dbID int64, err error) {
 	err = tx.QueryRow(`UPDATE contracts SET (revision_number, window_start, window_end, raw_revision, host_sig, renter_sig) = ($1, $2, $3, $4, $5, $6) WHERE contract_id=$7 RETURNING id;`,
 		sqlUint64(revision.Revision.RevisionNumber),
@@ -232,388 +663,6 @@ func updateContractUsage(tx txn, dbID int64, usage contracts.Usage) error {
 		sqlCurrency(total.AccountFunding),
 		sqlCurrency(total.RiskedCollateral),
 		dbID).Scan(&updatedID)
-}
-
-// SetStatus sets the contract's status.
-func (u *updateContractsTxn) SetStatus(id types.FileContractID, status contracts.ContractStatus) error {
-	return setContractStatus(u.tx, id, status)
-}
-
-// ConfirmFormation sets the formation_confirmed flag to true.
-func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
-	const query = `UPDATE contracts SET formation_confirmed=true WHERE contract_id=$1;`
-	_, err := u.tx.Exec(query, sqlHash256(id))
-	if err != nil {
-		return fmt.Errorf("failed to confirm formation: %w", err)
-	}
-	return err
-}
-
-// ConfirmRevision sets the confirmed revision number.
-func (u *updateContractsTxn) ConfirmRevision(revision types.FileContractRevision) error {
-	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2 RETURNING id;`
-	var dbID int64
-	return u.tx.QueryRow(query, sqlUint64(revision.RevisionNumber), sqlHash256(revision.ParentID)).Scan(&dbID)
-}
-
-// ConfirmResolution sets the resolution height.
-func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID, height uint64) error {
-	const query = `UPDATE contracts SET resolution_height=$1 WHERE contract_id=$2 RETURNING id;`
-	var dbID int64
-	if err := u.tx.QueryRow(query, height, sqlHash256(id)).Scan(&dbID); err != nil {
-		return fmt.Errorf("failed to confirm resolution: %w", err)
-	}
-	return nil
-}
-
-// RevertFormation sets the formation_confirmed flag to false.
-func (u *updateContractsTxn) RevertFormation(id types.FileContractID) error {
-	const query = `UPDATE contracts SET formation_confirmed=false WHERE contract_id=$1 RETURNING id;`
-	var dbID int64
-	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
-		return fmt.Errorf("failed to revert formation: %w", err)
-	}
-	return nil
-}
-
-// RevertRevision sets the confirmed revision number to 0.
-func (u *updateContractsTxn) RevertRevision(id types.FileContractID) error {
-	const query = `UPDATE contracts SET confirmed_revision_number=$1 WHERE contract_id=$2 RETURNING id;`
-	var dbID int64
-	return u.tx.QueryRow(query, sqlUint64(0), sqlHash256(id)).Scan(&dbID)
-}
-
-// RevertResolution sets the resolution height to null
-func (u *updateContractsTxn) RevertResolution(id types.FileContractID) error {
-	const query = `UPDATE contracts SET resolution_height=NULL WHERE contract_id=$1 RETURNING id;`
-	var dbID int64
-	if err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID); err != nil {
-		return fmt.Errorf("failed to revert resolution: %w", err)
-	}
-	return nil
-}
-
-// ContractRevelant returns true if the contract is relevant to the host.
-func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, error) {
-	const query = `SELECT id FROM contracts WHERE contract_id=$1`
-	var dbID int64
-	err := u.tx.QueryRow(query, sqlHash256(id)).Scan(&dbID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
-// Contracts returns a paginated list of contracts.
-func (s *Store) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, count int, err error) {
-	if filter.Limit <= 0 || filter.Limit > 100 {
-		filter.Limit = 100
-	}
-
-	whereClause, whereParams, err := buildContractFilter(filter)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to build where clause: %w", err)
-	}
-
-	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
-	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
-	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
-FROM contracts c
-INNER JOIN contract_renters r ON (c.renter_id=r.id)
-LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
-LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s %s LIMIT ? OFFSET ?`, whereClause, buildOrderBy(filter))
-
-	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM contracts c
-INNER JOIN contract_renters r ON (c.renter_id=r.id)
-LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
-LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s`, whereClause)
-
-	if err := s.queryRow(countQuery, whereParams...).Scan(&count); err != nil {
-		return nil, 0, fmt.Errorf("failed to query contract count: %w", err)
-	}
-
-	rows, err := s.query(contractQuery, append(whereParams, filter.Limit, filter.Offset)...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query contracts: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		contract, err := scanContract(rows)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		contracts = append(contracts, contract)
-	}
-	return
-}
-
-// Contract returns the contract with the given ID.
-func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
-	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
-	c.revision_number=c.confirmed_revision_number AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
-	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
-FROM contracts c
-LEFT JOIN contracts rt ON (c.renewed_to = rt.id)
-LEFT JOIN contracts rf ON (c.renewed_from = rf.id)
-WHERE c.contract_id=$1;`
-	row := s.queryRow(query, sqlHash256(id))
-	contract, err := scanContract(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = contracts.ErrNotFound
-	}
-	return contract, err
-}
-
-// AddContract adds a new contract to the database.
-func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
-	_, err := insertContract(&dbTxn{s}, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
-	return err
-}
-
-func clearContract(tx txn, revision contracts.SignedRevision, renewedDBID int64, usage contracts.Usage) (dbID int64, err error) {
-	// get the existing contract's current usage
-	var total contracts.Usage
-	err = tx.QueryRow(`SELECT id, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral FROM contracts WHERE contract_id=$1`, sqlHash256(revision.Revision.ParentID)).Scan(
-		&dbID,
-		(*sqlCurrency)(&total.RPCRevenue),
-		(*sqlCurrency)(&total.StorageRevenue),
-		(*sqlCurrency)(&total.IngressRevenue),
-		(*sqlCurrency)(&total.EgressRevenue),
-		(*sqlCurrency)(&total.AccountFunding),
-		(*sqlCurrency)(&total.RiskedCollateral))
-	if err != nil {
-		return 0, fmt.Errorf("failed to get existing usage: %w", err)
-	}
-	total = total.Add(usage)
-
-	// update the existing contract
-	const clearQuery = `UPDATE contracts SET (renewed_to, revision_number, host_sig, renter_sig, raw_revision, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) WHERE id=$12 RETURNING id;`
-	err = tx.QueryRow(clearQuery,
-		renewedDBID,
-		sqlUint64(revision.Revision.RevisionNumber),
-		sqlHash512(revision.HostSignature),
-		sqlHash512(revision.RenterSignature),
-		encodeRevision(revision.Revision),
-		sqlCurrency(total.RPCRevenue),
-		sqlCurrency(total.StorageRevenue),
-		sqlCurrency(total.IngressRevenue),
-		sqlCurrency(total.EgressRevenue),
-		sqlCurrency(total.AccountFunding),
-		sqlCurrency(total.RiskedCollateral),
-		dbID,
-	).Scan(&dbID)
-	return
-}
-
-// RenewContract adds a new contract to the database and sets the old
-// contract's renewed_from field. The old contract's sector roots are
-// copied to the new contract.
-func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotationHeight uint64) error {
-	return s.transaction(func(tx txn) error {
-		// add the new contract
-		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotationHeight)
-		if err != nil {
-			return fmt.Errorf("failed to insert renewed contract: %w", err)
-		}
-
-		clearedDBID, err := clearContract(tx, clearing, renewedDBID, clearingUsage)
-		if err != nil {
-			return fmt.Errorf("faile to clear contract: %w", err)
-		}
-
-		err = tx.QueryRow(`UPDATE contracts SET renewed_from=$1 WHERE id=$2 RETURNING id;`, clearedDBID, renewedDBID).Scan(&renewedDBID)
-		if err != nil {
-			return fmt.Errorf("failed to update renewed contract: %w", err)
-		}
-
-		// get the count of sector roots for the old contract
-		var count int
-		if _, err = tx.Exec(`SELECT COUNT(*) FROM contract_sector_roots WHERE contract_id=$1;`, clearedDBID); err != nil {
-			return fmt.Errorf("failed to get sector root count: %w", err)
-		}
-
-		// copy the sector roots from the old contract to the new contract
-		_, err = tx.Exec(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) SELECT $1, sector_id, root_index FROM contract_sector_roots WHERE contract_id=$2;`, renewedDBID, clearedDBID)
-		if err != nil {
-			return fmt.Errorf("failed to copy sector roots: %w", err)
-		}
-
-		// increment the number of contract sectors
-		if err := incrementNumericStat(tx, metricContractSectors, count, time.Now()); err != nil {
-			return fmt.Errorf("failed to track contract sectors: %w", err)
-		}
-		return nil
-	})
-}
-
-// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
-// are returned.
-func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint64) ([]types.Hash256, error) {
-	var dbID int64
-	err := s.queryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get contract id: %w", err)
-	}
-
-	var query string
-	if limit <= 0 {
-		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC;`
-	} else {
-		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC LIMIT $2 OFFSET $3;`
-	}
-
-	rows, err := s.query(query, dbID, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query sector roots: %w", err)
-	}
-	defer rows.Close()
-
-	var roots []types.Hash256
-	for rows.Next() {
-		var root types.Hash256
-		if err := rows.Scan((*sqlHash256)(&root)); err != nil {
-			return nil, fmt.Errorf("failed to scan sector root: %w", err)
-		}
-		roots = append(roots, root)
-	}
-	return roots, nil
-}
-
-// ContractAction calls contractFn on every contract in the store that
-// needs a lifecycle action performed.
-func (s *Store) ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error {
-	tx := &dbTxn{s}
-	actions, err := rebroadcastContractActions(tx, height)
-	if err != nil {
-		return fmt.Errorf("failed to get rebroadcast actions: %w", err)
-	}
-	for _, action := range actions {
-		contractFn(action.ID, height, action.Action)
-	}
-	actions, err = rejectContractActions(tx, height)
-	if err != nil {
-		return fmt.Errorf("failed to get reject actions: %w", err)
-	}
-	for _, action := range actions {
-		contractFn(action.ID, height, action.Action)
-	}
-	actions, err = revisionContractActions(tx, height)
-	if err != nil {
-		return fmt.Errorf("failed to get revision actions: %w", err)
-	}
-	for _, action := range actions {
-		contractFn(action.ID, height, action.Action)
-	}
-	actions, err = resolveContractActions(tx, height)
-	if err != nil {
-		return fmt.Errorf("failed to get resolve actions: %w", err)
-	}
-	for _, action := range actions {
-		contractFn(action.ID, height, action.Action)
-	}
-	actions, err = expireContractActions(tx, height)
-	if err != nil {
-		return fmt.Errorf("failed to get expire actions: %w", err)
-	}
-	for _, action := range actions {
-		contractFn(action.ID, height, action.Action)
-	}
-	return nil
-}
-
-// ContractFormationSet returns the set of transactions that were created during
-// contract formation.
-func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transaction, error) {
-	var buf []byte
-	err := s.queryRow(`SELECT formation_txn_set FROM contracts WHERE contract_id=$1;`, sqlHash256(id)).Scan(&buf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query formation txn set: %w", err)
-	}
-	var txnSet []types.Transaction
-	if err := decodeTxnSet(buf, &txnSet); err != nil {
-		return nil, fmt.Errorf("failed to decode formation txn set: %w", err)
-	}
-	return txnSet, nil
-}
-
-// SetContractStatus sets the contract's status.
-func (s *Store) SetContractStatus(id types.FileContractID, status contracts.ContractStatus) error {
-	return setContractStatus(&dbTxn{s}, id, status)
-}
-
-// LastContractChange gets the last consensus change processed by the
-// contractor.
-func (s *Store) LastContractChange() (id modules.ConsensusChangeID, err error) {
-	err = s.queryRow(`SELECT contracts_last_processed_change FROM global_settings`).Scan(nullable((*sqlHash256)(&id)))
-	if errors.Is(err, sql.ErrNoRows) {
-		return modules.ConsensusChangeBeginning, nil
-	} else if err != nil {
-		return modules.ConsensusChangeBeginning, fmt.Errorf("failed to query last contract change: %w", err)
-	}
-	return
-}
-
-// UpdateContractState atomically updates the contractor's state.
-func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint64, fn func(contracts.UpdateStateTransaction) error) error {
-	return s.transaction(func(tx txn) error {
-		utx := &updateContractsTxn{tx: tx}
-		if err := fn(utx); err != nil {
-			return err
-		} else if err := utx.setLastChangeID(ccID, height); err != nil {
-			return fmt.Errorf("failed to update last change id: %w", err)
-		}
-		return nil
-	})
-}
-
-// ExpireContractSectors expires all sectors that are no longer covered by an
-// active contract.
-func (s *Store) ExpireContractSectors(height uint64) error {
-	// delete in batches to avoid holding a lock on the database for too long
-	var done bool
-	for {
-		if done {
-			return nil
-		}
-		err := s.transaction(func(tx txn) error {
-			sectors, err := expiredContractSectors(tx, height, pruneBatchSize)
-			if err != nil {
-				return fmt.Errorf("failed to select sectors: %w", err)
-			} else if len(sectors) == 0 {
-				done = true
-				return nil
-			}
-
-			contractSectors := make(map[types.FileContractID][]contractSectorRef)
-			sectorIDs := make([]int64, 0, len(sectors))
-			for _, sector := range sectors {
-				sectorIDs = append(sectorIDs, sector.ID)
-				contractSectors[sector.ContractID] = append(contractSectors[sector.ContractID], sector)
-			}
-
-			query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
-			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
-				return fmt.Errorf("failed to delete sectors: %w", err)
-			} else if err := incrementNumericStat(tx, metricContractSectors, len(sectorIDs), time.Now()); err != nil {
-				return fmt.Errorf("failed to track contract sectors: %w", err)
-			}
-
-			for contractID, sectors := range contractSectors {
-				s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-					for _, sector := range sectors {
-						enc.AppendString(sector.SectorRoot.String())
-					}
-					return nil
-				})))
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("failed to prune sectors: %w", err)
-		}
-		time.Sleep(time.Millisecond) // allow other transactions to run
-	}
 }
 
 func rebroadcastContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
@@ -781,6 +830,10 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirm
 		return 0, fmt.Errorf("failed to insert contract: %w", err)
 	} else if err := incrementNumericStat(tx, metricPendingContracts, 1, time.Now()); err != nil {
 		return 0, fmt.Errorf("failed to track pending contracts: %w", err)
+	} else if err := incrementCurrencyStat(tx, metricLockedCollateral, lockedCollateral, false, time.Now()); err != nil {
+		return 0, fmt.Errorf("failed to track locked collateral: %w", err)
+	} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, initialUsage.RiskedCollateral, false, time.Now()); err != nil {
+		return 0, fmt.Errorf("failed to track risked collateral: %w", err)
 	}
 	return
 }

@@ -43,6 +43,9 @@ type (
 		Rejected   uint64 `json:"rejected"`
 		Failed     uint64 `json:"failed"`
 		Successful uint64 `json:"successful"`
+
+		LockedCollateral types.Currency `json:"lockedCollateral"`
+		RiskedCollateral types.Currency `json:"riskedCollateral"`
 	}
 
 	// Pricing is a collection of metrics related to the host's pricing settings.
