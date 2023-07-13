@@ -29,7 +29,10 @@ func hashRevision(rev types.FileContractRevision) types.Hash256 {
 	return h.Sum()
 }
 
-func formContract(renterKey, hostKey types.PrivateKey, start, end uint64, c *contracts.ContractManager, w contracts.Wallet, cm contracts.ChainManager, tp contracts.TransactionPool) (contracts.SignedRevision, error) {
+func formContract(renterKey, hostKey types.PrivateKey, start, end uint64, renterPayout, hostPayout types.Currency, c *contracts.ContractManager, w contracts.Wallet, cm contracts.ChainManager, tp contracts.TransactionPool) (contracts.SignedRevision, error) {
+	contract := rhpv2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterPayout, hostPayout, start, rhpv2.HostSettings{WindowSize: end - start}, w.Address())
+	state := cm.TipState()
+	formationCost := rhpv2.ContractFormationCost(state, contract, types.ZeroCurrency)
 	contractUnlockConditions := types.UnlockConditions{
 		PublicKeys: []types.UnlockKey{
 			renterKey.PublicKey().UnlockKey(),
@@ -38,33 +41,16 @@ func formContract(renterKey, hostKey types.PrivateKey, start, end uint64, c *con
 		SignaturesRequired: 2,
 	}
 	txn := types.Transaction{
-		FileContracts: []types.FileContract{{
-			UnlockHash:  types.Hash256(contractUnlockConditions.UnlockHash()),
-			WindowStart: start,
-			WindowEnd:   end,
-			ValidProofOutputs: []types.SiacoinOutput{
-				{Value: types.NewCurrency64(500), Address: w.Address()},
-				{Address: w.Address()},
-			},
-			MissedProofOutputs: []types.SiacoinOutput{
-				{Value: types.NewCurrency64(500), Address: w.Address()},
-				{Address: w.Address()},
-				{Address: types.VoidAddress},
-			},
-		}},
+		FileContracts: []types.FileContract{contract},
 	}
-	state := cm.TipState()
-	txn.FileContracts[0].Payout = txn.FileContracts[0].ValidProofOutputs[0].Value.Add(state.FileContractTax(txn.FileContracts[0]))
-	toSign, discard, err := w.FundTransaction(&txn, txn.FileContracts[0].Payout)
+	toSign, discard, err := w.FundTransaction(&txn, formationCost.Add(hostPayout)) // we're funding both sides of the payout
 	if err != nil {
 		return contracts.SignedRevision{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer discard()
 	if err := w.SignTransaction(state, &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 		return contracts.SignedRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
-	}
-
-	if err := tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
+	} else if err := tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
 		return contracts.SignedRevision{}, fmt.Errorf("failed to accept transaction set: %w", err)
 	}
 	revision := types.FileContractRevision{
@@ -80,7 +66,7 @@ func formContract(renterKey, hostKey types.PrivateKey, start, end uint64, c *con
 		RenterSignature: renterKey.SignHash(sigHash),
 	}
 
-	if err := c.AddContract(rev, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}); err != nil {
+	if err := c.AddContract(rev, []types.Transaction{}, hostPayout, contracts.Usage{}); err != nil {
 		return contracts.SignedRevision{}, fmt.Errorf("failed to add contract: %w", err)
 	}
 	return rev, nil
@@ -203,12 +189,15 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer c.Close()
 
-		if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay+2)); err != nil {
+		// note: many more blocks than necessary are mined to ensure all forks have activated
+		if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(100 * time.Millisecond) // sync time
 
-		rev, err := formContract(renterKey, hostKey, 50, 60, c, node, node.ChainManager(), node.TPool())
+		renterFunds := types.Siacoins(500)
+		hostCollateral := types.Siacoins(1000)
+		rev, err := formContract(renterKey, hostKey, 50, 60, renterFunds, hostCollateral, c, node, node.ChainManager(), node.TPool())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -222,6 +211,10 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		} else if m.Contracts.Pending != 1 {
 			t.Fatal("expected 1 pending contract")
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
 		}
 
 		if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
@@ -240,6 +233,10 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal("expected 0 pending contracts")
 		} else if m.Contracts.Active != 1 {
 			t.Fatal("expected 1 active contract")
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
 		}
 
 		var roots []types.Hash256
@@ -257,11 +254,15 @@ func TestContractLifecycle(t *testing.T) {
 
 		// create a revision that adds sectors and transfers funds to the host
 		amount := types.NewCurrency64(100)
+		collateral := types.NewCurrency64(200)
 		rev.Revision.RevisionNumber++
 		rev.Revision.Filesize = rhpv2.SectorSize * uint64(len(roots))
 		rev.Revision.FileMerkleRoot = rhpv2.MetaRoot(roots)
 		rev.Revision.ValidProofOutputs[0].Value = rev.Revision.ValidProofOutputs[0].Value.Sub(amount)
 		rev.Revision.ValidProofOutputs[1].Value = rev.Revision.ValidProofOutputs[1].Value.Add(amount)
+		rev.Revision.MissedProofOutputs[0].Value = rev.Revision.MissedProofOutputs[0].Value.Sub(amount)
+		rev.Revision.MissedProofOutputs[1].Value = rev.Revision.MissedProofOutputs[1].Value.Sub(collateral)
+		rev.Revision.MissedProofOutputs[2].Value = rev.Revision.MissedProofOutputs[2].Value.Add(collateral.Add(amount))
 		sigHash := hashRevision(rev.Revision)
 		rev.HostSignature = hostKey.SignHash(sigHash)
 		rev.RenterSignature = renterKey.SignHash(sigHash)
@@ -276,8 +277,18 @@ func TestContractLifecycle(t *testing.T) {
 			updater.AppendSector(root)
 		}
 
-		if err := updater.Commit(rev, contracts.Usage{}); err != nil {
+		err = updater.Commit(rev, contracts.Usage{
+			StorageRevenue:   amount,
+			RiskedCollateral: collateral,
+		})
+		if err != nil {
 			t.Fatal(err)
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.Equals(collateral) {
+			t.Fatalf("expected %v risked collateral, got %v", collateral, m.Contracts.RiskedCollateral)
 		}
 
 		// mine until the revision is broadcast
@@ -327,6 +338,12 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal("expected 0 active contracts")
 		} else if m.Contracts.Successful != 1 {
 			t.Fatal("expected 1 successful contract")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.IsZero() {
+			t.Fatalf("expected %v locked collateral, got %v", types.ZeroCurrency, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected %v risked collateral, got %v", types.ZeroCurrency, m.Contracts.RiskedCollateral)
 		}
 	})
 
@@ -361,12 +378,13 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer c.Close()
 
-		if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay+2)); err != nil {
+		// note: mine enough blocks to ensure all forks have activated
+		if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(100 * time.Millisecond) // sync time
 
-		rev, err := formContract(renterKey, hostKey, 50, 60, c, node, node.ChainManager(), node.TPool())
+		rev, err := formContract(renterKey, hostKey, 50, 60, types.Siacoins(500), types.Siacoins(1000), c, node, node.ChainManager(), node.TPool())
 		if err != nil {
 			t.Fatal(err)
 		}

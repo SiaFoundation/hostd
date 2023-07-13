@@ -99,12 +99,13 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay+2)); err != nil {
+	// note: many more blocks than necessary are mined to ensure all forks have activated
+	if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond) // sync time
 
-	rev, err := formContract(renterKey, hostKey, 50, 60, c, node, node.ChainManager(), node.TPool())
+	rev, err := formContract(renterKey, hostKey, 50, 60, types.Siacoins(500), types.Siacoins(1000), c, node, node.ChainManager(), node.TPool())
 	if err != nil {
 		t.Fatal(err)
 	}
