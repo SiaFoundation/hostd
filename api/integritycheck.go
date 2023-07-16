@@ -97,7 +97,6 @@ func (ic *integrityCheckJobs) CheckContract(contractID types.FileContractID) (ui
 func (a *api) handleGETContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {
-		c.Error(fmt.Errorf("failed to parse contract ID: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -112,7 +111,6 @@ func (a *api) handleGETContractCheck(c jape.Context) {
 func (a *api) handleDeleteContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {
-		c.Error(fmt.Errorf("failed to parse contract ID: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -124,7 +122,6 @@ func (a *api) handleDeleteContractCheck(c jape.Context) {
 func (a *api) handlePUTContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {
-		c.Error(fmt.Errorf("failed to parse contract ID: %w", err), http.StatusBadRequest)
 		return
 	}
 
