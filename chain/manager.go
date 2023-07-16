@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
@@ -14,6 +15,8 @@ import (
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
 )
+
+const maxSyncTime = time.Hour
 
 var (
 	// ErrBlockNotFound is returned when a block is not found.
@@ -48,9 +51,10 @@ type Manager struct {
 	cs      modules.ConsensusSet
 	network *consensus.Network
 
-	close chan struct{}
-	mu    sync.Mutex
-	tip   consensus.State
+	close  chan struct{}
+	mu     sync.Mutex
+	tip    consensus.State
+	synced bool
 }
 
 // ProcessConsensusChange implements the modules.ConsensusSetSubscriber interface.
@@ -64,6 +68,7 @@ func (m *Manager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			Height: uint64(cc.BlockHeight),
 		},
 	}
+	m.synced = synced(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp)
 }
 
 // Network returns the network name.
@@ -91,7 +96,9 @@ func (m *Manager) Close() error {
 
 // Synced returns true if the chain manager is synced with the consensus set.
 func (m *Manager) Synced() bool {
-	return m.cs.Synced()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.synced
 }
 
 // BlockAtHeight returns the block at the given height.
@@ -139,6 +146,10 @@ func (m *Manager) Subscribe(s modules.ConsensusSetSubscriber, ccID modules.Conse
 	return nil
 }
 
+func synced(timestamp stypes.Timestamp) bool {
+	return time.Since(time.Unix(int64(timestamp), 0)) <= maxSyncTime
+}
+
 // NewManager creates a new chain manager.
 func NewManager(cs modules.ConsensusSet) (*Manager, error) {
 	height := cs.Height()
@@ -157,8 +168,8 @@ func NewManager(cs modules.ConsensusSet) (*Manager, error) {
 				Height: uint64(height),
 			},
 		},
-
-		close: make(chan struct{}),
+		synced: synced(block.Timestamp),
+		close:  make(chan struct{}),
 	}
 
 	if err := cs.ConsensusSetSubscribe(m, modules.ConsensusChangeRecent, m.close); err != nil {

@@ -733,10 +733,11 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		return nil, fmt.Errorf("failed to get last wallet change: %w", err)
 	}
 
-	if err := store.VerifyWalletKey(types.HashBytes(priv[:])); errors.Is(err, ErrDifferentSeed) {
+	seedHash := types.HashBytes(priv[:])
+	if err := store.VerifyWalletKey(seedHash); errors.Is(err, ErrDifferentSeed) {
 		changeID = modules.ConsensusChangeBeginning
 		scanHeight = 0
-		if err := store.ResetWallet(); err != nil {
+		if err := store.ResetWallet(seedHash); err != nil {
 			return nil, fmt.Errorf("failed to reset wallet: %w", err)
 		}
 		log.Info("wallet reset due to seed change")
@@ -769,7 +770,7 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 			sw.log.Error("failed to subscribe to consensus changes", zap.Error(err))
 			if errors.Is(err, chain.ErrInvalidChangeID) {
 				// reset change ID and subscribe again
-				if err := store.ResetWallet(); err != nil {
+				if err := store.ResetWallet(seedHash); err != nil {
 					sw.log.Fatal("failed to reset wallet", zap.Error(err))
 				} else if err = cm.Subscribe(sw, modules.ConsensusChangeBeginning, sw.tg.Done()); err != nil {
 					sw.log.Fatal("failed to reset consensus change subscription", zap.Error(err))

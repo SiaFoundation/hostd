@@ -183,13 +183,13 @@ func (s *Store) VerifyWalletKey(seedHash types.Hash256) error {
 
 // ResetWallet resets the wallet to its initial state. This is used when a
 // consensus subscription error occurs.
-func (s *Store) ResetWallet() error {
+func (s *Store) ResetWallet(seedHash types.Hash256) error {
 	return s.transaction(func(tx txn) error {
 		if _, err := tx.Exec(`DELETE FROM wallet_utxos`); err != nil {
 			return fmt.Errorf("failed to delete wallet utxos: %w", err)
 		} else if _, err := tx.Exec(`DELETE FROM wallet_transactions`); err != nil {
 			return fmt.Errorf("failed to delete wallet transactions: %w", err)
-		} else if _, err := tx.Exec(`UPDATE global_settings SET wallet_last_processed_change=NULL, wallet_height=NULL`); err != nil {
+		} else if _, err := tx.Exec(`UPDATE global_settings SET wallet_last_processed_change=NULL, wallet_height=NULL,  wallet_hash=?`, sqlHash256(seedHash)); err != nil {
 			return fmt.Errorf("failed to reset wallet settings: %w", err)
 		}
 		return nil
