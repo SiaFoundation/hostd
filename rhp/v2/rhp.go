@@ -34,10 +34,7 @@ type (
 		// Lock locks the contract with the given ID. Will wait for the given
 		// duration before giving up. Unlock must be called to unlock the
 		// contract.
-		Lock(ctx context.Context, id types.FileContractID) (contracts.SignedRevision, error)
-		// Unlock unlocks the contract with the given ID.
-		Unlock(id types.FileContractID)
-
+		Lock(ctx context.Context, id types.FileContractID) (contract contracts.SignedRevision, unlock func(), err error)
 		// AddContract adds a new contract to the manager.
 		AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage) error
 		// RenewContract renews an existing contract.
@@ -183,8 +180,9 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 	recordEnd := sh.recordSessionStart(sess)
 	defer recordEnd()
 	defer func() {
-		if sess.contract.Revision.ParentID != (types.FileContractID{}) {
-			sh.contracts.Unlock(sess.contract.Revision.ParentID)
+		if sess.unlockContract != nil {
+			sess.unlockContract()
+			sess.unlockContract = nil
 		}
 	}()
 

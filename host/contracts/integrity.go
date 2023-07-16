@@ -65,11 +65,11 @@ func (i *IntegrityResult) UnmarshalJSON(b []byte) error {
 func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan IntegrityResult, uint64, error) {
 	// lock the contract to ensure it doesn't get modified before the sector
 	// roots are retrieved.
-	contract, err := cm.Lock(ctx, contractID)
+	contract, unlock, err := cm.lock(ctx, contractID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to lock contract: %w", err)
 	}
-	defer cm.Unlock(contractID)
+	defer unlock()
 
 	expectedRoots := contract.Revision.Filesize / rhpv2.SectorSize
 

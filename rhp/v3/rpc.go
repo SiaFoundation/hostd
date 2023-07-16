@@ -288,13 +288,13 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	existing, err := sh.contracts.Lock(ctx, clearingRevision.ParentID)
+	existing, unlock, err := sh.contracts.Lock(ctx, clearingRevision.ParentID)
 	if err != nil {
 		err := fmt.Errorf("failed to lock contract %v: %w", clearingRevision.ParentID, err)
 		s.WriteResponseErr(err)
 		return err
 	}
-	defer sh.contracts.Unlock(clearingRevision.ParentID)
+	defer unlock()
 
 	// validate the final revision and renter signature
 	finalPayment, err := rhp.ValidateClearingRevision(existing.Revision, clearingRevision, types.ZeroCurrency)
@@ -491,13 +491,13 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		contract, err := sh.contracts.Lock(ctx, executeReq.FileContractID)
+		contract, unlock, err := sh.contracts.Lock(ctx, executeReq.FileContractID)
 		if err != nil {
 			err = fmt.Errorf("failed to lock contract %v: %w", executeReq.FileContractID, err)
 			s.WriteResponseErr(err)
 			return err
 		}
-		defer sh.contracts.Unlock(contract.Revision.ParentID)
+		defer unlock()
 		revision = &contract
 		log = log.With(zap.String("contractID", contract.Revision.ParentID.String())) // attach the contract ID to the logger
 	}

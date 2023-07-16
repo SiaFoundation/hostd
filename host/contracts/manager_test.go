@@ -126,32 +126,36 @@ func TestContractLockUnlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := c.Lock(context.Background(), rev.Revision.ParentID); err != nil {
+	contract, unlock, err := c.Lock(context.Background(), rev.Revision.ParentID)
+	if err != nil {
 		t.Fatal(err)
+	} else if contract.Revision.ParentID != rev.Revision.ParentID {
+		t.Fatal("wrong contract")
 	}
 
 	err = func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		_, err = c.Lock(ctx, rev.Revision.ParentID)
+		_, _, err = c.Lock(ctx, rev.Revision.ParentID)
 		return err
 	}()
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("expected context deadline exceeded, got", err)
 	}
 
-	c.Unlock(rev.Revision.ParentID)
+	unlock() // unlock the contract
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := c.Lock(context.Background(), rev.Revision.ParentID); err != nil {
+			_, unlock, err := c.Lock(context.Background(), rev.Revision.ParentID)
+			if err != nil {
 				t.Error(err)
 			}
+			defer unlock()
 			time.Sleep(100 * time.Millisecond)
-			c.Unlock(rev.Revision.ParentID)
 		}()
 	}
 	wg.Wait()

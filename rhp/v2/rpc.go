@@ -67,7 +67,7 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	contract, err := sh.contracts.Lock(ctx, req.ContractID)
+	contract, unlock, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
 		err := fmt.Errorf("failed to lock contract: %w", err)
 		s.t.WriteResponseErr(err)
@@ -77,7 +77,7 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 	// verify the renter's challenge signature
 	newChallenge, ok := s.t.VerifyChallenge(req.Signature, contract.RenterKey())
 	if !ok {
-		sh.contracts.Unlock(contract.Revision.ParentID)
+		unlock()
 		err := fmt.Errorf("challenge failed: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
 		return err
@@ -85,6 +85,7 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 
 	// set the contract
 	s.contract = contract
+	s.unlockContract = unlock
 	lockResp := &rhpv2.RPCLockResponse{
 		Acquired:     true,
 		NewChallenge: newChallenge,
@@ -93,7 +94,7 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 	}
 	// avoid holding lock during network round trip
 	if err := s.writeResponse(lockResp, 30*time.Second); err != nil {
-		sh.contracts.Unlock(contract.Revision.ParentID)
+		unlock()
 		return fmt.Errorf("failed to write lock response: %w", err)
 	}
 	return nil
@@ -102,11 +103,12 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 // rpcUnlock unlocks the contract associated with the session.
 func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) error {
 	// check if a contract is locked
-	if s.contract.Revision.ParentID == (types.FileContractID{}) {
+	if s.contract.Revision.ParentID == (types.FileContractID{}) || s.unlockContract == nil {
 		return ErrNoContractLocked
 	}
-	sh.contracts.Unlock(s.contract.Revision.ParentID)
+	s.unlockContract()
 	s.contract = contracts.SignedRevision{}
+	s.unlockContract = nil
 	return nil
 }
 

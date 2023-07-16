@@ -19,7 +19,8 @@ type session struct {
 	conn *rhp.Conn
 	t    *rhpv2.Transport
 
-	contract contracts.SignedRevision
+	contract       contracts.SignedRevision
+	unlockContract func()
 
 	uid     UniqueID
 	spent   types.Currency

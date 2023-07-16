@@ -87,11 +87,11 @@ type (
 	}
 )
 
-// Lock locks a contract for modification.
-func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (SignedRevision, error) {
+// lock locks a contract.
+func (cm *ContractManager) lock(ctx context.Context, id types.FileContractID) (Contract, func(), error) {
 	ctx, cancel, err := cm.tg.AddContext(ctx)
 	if err != nil {
-		return SignedRevision{}, err
+		return Contract{}, nil, err
 	}
 	defer cancel()
 
@@ -99,10 +99,24 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 	contract, err := cm.store.Contract(id)
 	if err != nil {
 		cm.mu.Unlock()
-		return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
-	} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
-		cm.mu.Unlock()
-		return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
+		return Contract{}, nil, fmt.Errorf("failed to get contract: %w", err)
+	}
+
+	var once sync.Once
+	unlock := func() {
+		once.Do(func() {
+			cm.mu.Lock()
+			defer cm.mu.Unlock()
+			lock, exists := cm.locks[id]
+			if !exists {
+				return
+			} else if lock.waiters <= 0 {
+				delete(cm.locks, id)
+				return
+			}
+			lock.waiters--
+			lock.c <- struct{}{}
+		})
 	}
 
 	// if the contract isn't already locked, create a new lock
@@ -112,7 +126,7 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 			waiters: 0,
 		}
 		cm.mu.Unlock()
-		return contract.SignedRevision, nil
+		return contract, unlock, nil
 	}
 	cm.locks[id].waiters++
 	c := cm.locks[id].c
@@ -124,29 +138,24 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 		defer cm.mu.Unlock()
 		contract, err := cm.store.Contract(id)
 		if err != nil {
-			return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
-		} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
-			return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
+			return Contract{}, nil, fmt.Errorf("failed to get contract: %w", err)
 		}
-		return contract.SignedRevision, nil
+		return contract, unlock, nil
 	case <-ctx.Done():
-		return SignedRevision{}, ctx.Err()
+		return Contract{}, nil, ctx.Err()
 	}
 }
 
-// Unlock unlocks a locked contract.
-func (cm *ContractManager) Unlock(id types.FileContractID) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	lock, exists := cm.locks[id]
-	if !exists {
-		return
-	} else if lock.waiters <= 0 {
-		delete(cm.locks, id)
-		return
+// Lock locks a contract for modification. The contract must be unlocked with
+func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (SignedRevision, func(), error) {
+	contract, unlock, err := cm.lock(ctx, id)
+	if err != nil {
+		return SignedRevision{}, nil, err
+	} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
+		unlock() // unlock the contract if it's not good for modification
+		return SignedRevision{}, nil, errors.New("contract is not good for modification")
 	}
-	lock.waiters--
-	lock.c <- struct{}{}
+	return contract.SignedRevision, unlock, nil
 }
 
 // Contracts returns a paginated list of contracts matching the filter and the

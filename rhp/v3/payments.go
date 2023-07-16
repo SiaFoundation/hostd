@@ -23,12 +23,12 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	contract, err := sh.contracts.Lock(ctx, req.ContractID)
+	contract, unlock, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
-	defer sh.contracts.Unlock(req.ContractID)
+	defer unlock()
 
 	current := contract.Revision
 	revision, err := rhp.Revise(current, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
@@ -177,12 +177,12 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	contract, err := sh.contracts.Lock(ctx, req.ContractID)
+	contract, unlock, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
-	defer sh.contracts.Unlock(req.ContractID)
+	defer unlock()
 
 	current := contract.Revision
 	revision, err := rhp.Revise(current, req.RevisionNumber, req.ValidProofValues, req.MissedProofValues)
