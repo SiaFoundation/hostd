@@ -8,6 +8,43 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion9 recalculates the contract metrics for existing contracts.
+func migrateVersion9(tx txn) error {
+	rows, err := tx.Query(`SELECT contract_status, COUNT(*) FROM contracts GROUP BY contract_status`)
+	if err != nil {
+		return fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status contracts.ContractStatus
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return fmt.Errorf("failed to scan contract: %w", err)
+		}
+
+		// set the metric value
+		var metric string
+		switch status {
+		case contracts.ContractStatusPending:
+			metric = metricPendingContracts
+		case contracts.ContractStatusRejected:
+			metric = metricRejectedContracts
+		case contracts.ContractStatusActive:
+			metric = metricActiveContracts
+		case contracts.ContractStatusSuccessful:
+			metric = metricSuccessfulContracts
+		case contracts.ContractStatusFailed:
+			metric = metricFailedContracts
+		}
+
+		if err := setNumericStat(tx, metric, uint64(count), time.Now()); err != nil {
+			return fmt.Errorf("failed to update %v metric: %w", metric, err)
+		}
+	}
+	return nil
+}
+
 // migrateVersion8 sets the initial values for the locked and risked collateral
 // metrics for existing hosts
 func migrateVersion8(tx txn) error {
@@ -194,4 +231,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion6,
 	migrateVersion7,
 	migrateVersion8,
+	migrateVersion9,
 }
