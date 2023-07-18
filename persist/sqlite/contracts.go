@@ -680,14 +680,14 @@ func updateContractUsage(tx txn, dbID int64, usage contracts.Usage) error {
 
 func rebroadcastContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
 	// formation not confirmed, within rebroadcast window
-	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1`
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height BETWEEN $1 AND $2`
 
-	var maxRebroadcastHeight uint64
+	var minNegotiationHeight uint64
 	if height >= contracts.RebroadcastBuffer {
-		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
+		minNegotiationHeight = height - contracts.RebroadcastBuffer
 	}
 
-	rows, err := tx.Query(query, maxRebroadcastHeight)
+	rows, err := tx.Query(query, minNegotiationHeight, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
@@ -1006,6 +1006,10 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 }
 
 func updateContractMetrics(tx txn, prev, current contracts.ContractStatus) error {
+	if prev == current {
+		return nil
+	}
+
 	var initialMetric, finalMetric string
 	switch prev {
 	case contracts.ContractStatusPending:
