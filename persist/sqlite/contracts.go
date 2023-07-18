@@ -398,7 +398,7 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // if the contract is active or pending.
 func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
 	return s.transaction(func(tx txn) error {
-		if err := setContractStatus(&dbTxn{s}, id, status); err != nil {
+		if err := setContractStatus(tx, id, status); err != nil {
 			return fmt.Errorf("failed to set contract status: %w", err)
 		}
 
