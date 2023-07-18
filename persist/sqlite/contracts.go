@@ -69,9 +69,12 @@ func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 		}
 	}
 
-	// set the contract status to active
-	if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
-		return fmt.Errorf("failed to set contract status to active: %w", err)
+	// set the contract status to active only if the contract is pending or rejected
+	// if the contract is successful or failed, leave it as is.
+	if contract.Status == contracts.ContractStatusPending || contract.Status == contracts.ContractStatusRejected {
+		if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
+			return fmt.Errorf("failed to set contract status to active: %w", err)
+		}
 	}
 	return nil
 }
