@@ -211,8 +211,10 @@ func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
 
 // AddContract adds a new contract to the database.
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
-	_, err := insertContract(&dbTxn{s}, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
-	return err
+	return s.transaction(func(tx txn) error {
+		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
+		return err
+	})
 }
 
 // RenewContract adds a new contract to the database and sets the old
