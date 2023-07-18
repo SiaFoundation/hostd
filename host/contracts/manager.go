@@ -392,9 +392,16 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	atomic.StoreUint64(&cm.blockHeight, scanHeight)
 	log.Debug("consensus change applied", zap.Uint64("height", scanHeight), zap.String("changeID", cc.ID.String()))
 
+	// if the last block is more than 12 hours old, skip action processing until
+	// consensus is caught up
+	blockTime := time.Unix(int64(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp), 0)
+	if time.Since(blockTime) > 6*time.Hour {
+		return
+	}
+
 	// perform actions in a separate goroutine to avoid deadlock in tpool
 	// triggers the processActions goroutine to process the block
-	cm.processQueue <- scanHeight
+	cm.processQueue <- uint64(cc.BlockHeight)
 }
 
 // ReviseContract initializes a new contract updater for the given contract.
