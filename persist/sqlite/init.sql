@@ -235,4 +235,4 @@ CREATE TABLE global_settings (
 	contracts_height INTEGER -- height of the contract manager as of the last processed change
 );
 
-INSERT INTO global_settings (id, db_version) VALUES (0, 8); -- version must be updated when the schema changes
+INSERT INTO global_settings (id, db_version) VALUES (0, 9); -- version must be updated when the schema changes

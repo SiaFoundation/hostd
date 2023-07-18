@@ -69,9 +69,12 @@ func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 		}
 	}
 
-	// set the contract status to active
-	if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
-		return fmt.Errorf("failed to set contract status to active: %w", err)
+	// set the contract status to active only if the contract is pending or rejected
+	// if the contract is successful or failed, leave it as is.
+	if contract.Status == contracts.ContractStatusPending || contract.Status == contracts.ContractStatusRejected {
+		if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
+			return fmt.Errorf("failed to set contract status to active: %w", err)
+		}
 	}
 	return nil
 }
@@ -208,8 +211,10 @@ func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
 
 // AddContract adds a new contract to the database.
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
-	_, err := insertContract(&dbTxn{s}, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
-	return err
+	return s.transaction(func(tx txn) error {
+		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
+		return err
+	})
 }
 
 // RenewContract adds a new contract to the database and sets the old
@@ -393,7 +398,7 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // if the contract is active or pending.
 func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
 	return s.transaction(func(tx txn) error {
-		if err := setContractStatus(&dbTxn{s}, id, status); err != nil {
+		if err := setContractStatus(tx, id, status); err != nil {
 			return fmt.Errorf("failed to set contract status: %w", err)
 		}
 
@@ -680,14 +685,14 @@ func updateContractUsage(tx txn, dbID int64, usage contracts.Usage) error {
 
 func rebroadcastContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
 	// formation not confirmed, within rebroadcast window
-	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height >= $1`
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=false AND negotiation_height BETWEEN $1 AND $2`
 
-	var maxRebroadcastHeight uint64
+	var minNegotiationHeight uint64
 	if height >= contracts.RebroadcastBuffer {
-		maxRebroadcastHeight = height - contracts.RebroadcastBuffer
+		minNegotiationHeight = height - contracts.RebroadcastBuffer
 	}
 
-	rows, err := tx.Query(query, maxRebroadcastHeight)
+	rows, err := tx.Query(query, minNegotiationHeight, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
@@ -1006,6 +1011,10 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 }
 
 func updateContractMetrics(tx txn, prev, current contracts.ContractStatus) error {
+	if prev == current {
+		return nil
+	}
+
 	var initialMetric, finalMetric string
 	switch prev {
 	case contracts.ContractStatusPending:
