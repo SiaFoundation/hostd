@@ -81,7 +81,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 	var tx *sql.Tx
 	var err error
 	start := time.Now()
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= 10; i++ {
 		tx, err = s.db.BeginTx(context.Background(), nil)
 		if sqliteErr, ok := err.(sqlite3.Error); !ok || sqliteErr.Code != sqlite3.ErrBusy {
 			break
