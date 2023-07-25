@@ -53,11 +53,6 @@ func (s *Store) init() error {
 			}
 			logger.Debug("migration complete", zap.Int64("current", version), zap.Int64("target", targetVersion), zap.Duration("elapsed", time.Since(start)))
 		}
-		// clear any locked sectors, metadata not synced to disk is safe to
-		// overwrite.
-		if _, err := tx.Exec(clearLockedSectors); err != nil {
-			return fmt.Errorf("failed to clear locked sectors table: %w", err)
-		}
 		return setDBVersion(tx, targetVersion)
 	})
 }

@@ -167,6 +167,10 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	} else if _, err := db.Exec(clearLockedSectors); err != nil {
+		// clear any locked sectors, metadata not synced to disk is safe to
+		// overwrite.
+		return nil, fmt.Errorf("failed to clear locked sectors table: %w", err)
 	}
 	return store, nil
 }
