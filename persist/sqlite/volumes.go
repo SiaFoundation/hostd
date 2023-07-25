@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,6 +14,172 @@ import (
 type volumeSectorRef struct {
 	ID    int64
 	Empty bool
+}
+
+func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn func(locations []storage.SectorLocation) error) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
+	// get a batch of sectors to migrate
+	var done bool
+	var oldLocations, newLocations []storage.SectorLocation
+	var locks []int64
+	err := s.transaction(ctx, func(tx txn) (err error) {
+		oldLocations, err = sectorsForMigration(tx, volumeID, startIndex, pruneBatchSize)
+		if err != nil {
+			return fmt.Errorf("failed to get sectors for migration: %w", err)
+		} else if len(oldLocations) == 0 {
+			done = true
+			return nil // no more sectors to migrate
+		}
+
+		// get new locations for each sector
+		newLocations, err = locationsForMigration(tx, volumeID, startIndex, len(oldLocations))
+		if err != nil {
+			return fmt.Errorf("failed to get new locations: %w", err)
+		} else if len(newLocations) == 0 {
+			// if no new locations were returned, there's no more space
+			return storage.ErrNotEnoughStorage
+		} else if len(newLocations) < len(oldLocations) {
+			// only enough space to partially migrate the batch. truncate
+			// the old locations to avoid unnecessary locks
+			oldLocations = oldLocations[:len(newLocations)]
+		}
+
+		// add the sector root to the new locations
+		for i := range newLocations {
+			newLocations[i].Root = oldLocations[i].Root
+		}
+
+		// lock the old and new locations
+		locks, err = lockLocationBatch(tx, append(oldLocations, newLocations...)...)
+		if err != nil {
+			return fmt.Errorf("failed to lock sectors: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to move sectors: %w", err)
+	} else if len(oldLocations) == 0 {
+		return true, nil // no more sectors to migrate
+	}
+	defer unlockLocationBatch(&dbTxn{s}, locks...)
+
+	// call migrateFn with the new locations, data should be copied to the
+	// new locations and synced to disk
+	if err := migrateFn(newLocations); err != nil {
+		return false, fmt.Errorf("failed to migrate data: %w", err)
+	}
+
+	// update the sector locations in a separate transaction
+	err = s.transaction(ctx, func(tx txn) error {
+		selectStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare sector select statement: %w", err)
+		}
+		defer selectStmt.Close()
+
+		clearStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 RETURNING volume_id`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare sector clear statement: %w", err)
+		}
+		defer clearStmt.Close()
+
+		updateSectorStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING volume_id;`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare sector update statement: %w", err)
+		}
+		defer updateSectorStmt.Close()
+
+		updateMetaStmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=used_sectors+$1 WHERE id=$2`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare sector metadata update statement: %w", err)
+		}
+		defer updateMetaStmt.Close()
+
+		for i, newLoc := range newLocations {
+			oldLoc := oldLocations[i]
+
+			var sectorDBID int64
+			if err = selectStmt.QueryRow(sqlHash256(oldLoc.Root)).Scan(&sectorDBID); err != nil {
+				return fmt.Errorf("failed to select sector: %w", err)
+			}
+			var oldVolumeID int64
+			if err = clearStmt.QueryRow(oldLoc.ID).Scan(&oldVolumeID); err != nil {
+				return fmt.Errorf("failed to clear sector location: %w", err)
+			} else if _, err = updateMetaStmt.Exec(-1, oldVolumeID); err != nil {
+				return fmt.Errorf("failed to update sector metadata: %w", err)
+			}
+			var newVolumeID int64
+			if err = updateSectorStmt.QueryRow(sectorDBID, newLoc.ID).Scan(&newVolumeID); err != nil {
+				return fmt.Errorf("failed to update sector location: %w", err)
+			} else if _, err = updateMetaStmt.Exec(1, newVolumeID); err != nil {
+				return fmt.Errorf("failed to update sector metadata: %w", err)
+			}
+		}
+		return nil
+	})
+	return done, err
+}
+
+func (s *Store) batchRemoveVolume(id int, force bool) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
+	var done bool
+	err := s.transaction(ctx, func(tx txn) error {
+		var dbID int64
+		err := tx.QueryRow(`SELECT id FROM volume_sectors WHERE volume_id=$1 AND sector_id IS NOT NULL LIMIT 1;`, id).Scan(&dbID)
+		if err == nil && !force {
+			return storage.ErrVolumeNotEmpty
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to check if volume is empty: %w", err)
+		}
+
+		locations, err := volumeSectorsForDeletion(tx, id, pruneBatchSize)
+		if err != nil {
+			return fmt.Errorf("failed to get volume sectors: %w", err)
+		} else if len(locations) == 0 {
+			done = true
+			return nil // no more sectors to remove
+		}
+
+		var forceRemoved int
+		locIDs := make([]int64, 0, len(locations))
+		for _, loc := range locations {
+			locIDs = append(locIDs, loc.ID)
+			// if the root is not empty, the sector was not migrated and
+			// will be forcefully removed
+			if !loc.Empty {
+				forceRemoved++
+			}
+		}
+
+		// reduce the physical sectors metric if there are sectors that
+		// failed to migrate.
+		if forceRemoved > 0 {
+			if err := incrementNumericStat(tx, metricPhysicalSectors, -forceRemoved, time.Now()); err != nil {
+				return fmt.Errorf("failed to update force removed sector metric: %w", err)
+			}
+		}
+
+		// remove the sectors
+		deleteQuery := `DELETE FROM volume_sectors WHERE id IN (` + queryPlaceHolders(len(locIDs)) + `)`
+		_, err = tx.Exec(deleteQuery, queryArgs(locIDs)...)
+		if err != nil {
+			return fmt.Errorf("failed to remove volume sectors: %w", err)
+		}
+
+		const updateMetaQuery = `UPDATE storage_volumes SET total_sectors=total_sectors-$1 WHERE id=$2`
+		_, err = tx.Exec(updateMetaQuery, len(locIDs), id)
+		if err != nil {
+			return fmt.Errorf("failed to update volume metadata: %w", err)
+		} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locIDs), time.Now()); err != nil {
+			return fmt.Errorf("failed to update total sector metric: %w", err)
+		}
+		return nil
+	})
+	return done, err
 }
 
 // StorageUsage returns the number of sectors stored and the total number of sectors
@@ -75,7 +242,11 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 	var lockID int64
 	var location storage.SectorLocation
 	var exists bool
-	err := s.transaction(func(tx txn) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
+	err := s.transaction(ctx, func(tx txn) error {
 		var err error
 		location, err = sectorLocation(tx, root)
 		exists = err == nil
@@ -108,7 +279,7 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		return s.unlockLocationFn(lockID), nil
 	}
 	// commit the sector location
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(ctx, func(tx txn) error {
 		sectorID, err := sectorDBID(tx, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector id: %w", err)
@@ -141,107 +312,12 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 // startIndex. The sector data should be copied to the new location and synced
 // to disk during migrateFn. Sectors are migrated in batches of 256.
 func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(locations []storage.SectorLocation) error) error {
-	const batchSize = 256 // migrate 1GiB at a time
 	for {
-		// get a batch of sectors to migrate
-		var oldLocations, newLocations []storage.SectorLocation
-		var locks []int64
-		err := s.transaction(func(tx txn) (err error) {
-			oldLocations, err = sectorsForMigration(tx, volumeID, startIndex, batchSize)
-			if err != nil {
-				return fmt.Errorf("failed to get sectors for migration: %w", err)
-			} else if len(oldLocations) == 0 {
-				return nil // no more sectors to migrate
-			}
-
-			// get new locations for each sector
-			newLocations, err = locationsForMigration(tx, volumeID, startIndex, len(oldLocations))
-			if err != nil {
-				return fmt.Errorf("failed to get new locations: %w", err)
-			} else if len(newLocations) == 0 {
-				// if no new locations were returned, there's no more space
-				return storage.ErrNotEnoughStorage
-			} else if len(newLocations) < len(oldLocations) {
-				// only enough space to partially migrate the batch. truncate
-				// the old locations to avoid unnecessary locks
-				oldLocations = oldLocations[:len(newLocations)]
-			}
-
-			// add the sector root to the new locations
-			for i := range newLocations {
-				newLocations[i].Root = oldLocations[i].Root
-			}
-
-			// lock the old and new locations
-			locks, err = lockLocationBatch(tx, append(oldLocations, newLocations...)...)
-			if err != nil {
-				return fmt.Errorf("failed to lock sectors: %w", err)
-			}
-			return nil
-		})
+		done, err := s.batchMigrateSectors(volumeID, startIndex, migrateFn)
 		if err != nil {
-			return fmt.Errorf("failed to move sectors: %w", err)
-		} else if len(oldLocations) == 0 {
-			return nil // no more sectors to migrate
-		}
-		defer unlockLocationBatch(&dbTxn{s}, locks...)
-
-		// call migrateFn with the new locations, data should be copied to the
-		// new locations and synced to disk
-		if err := migrateFn(newLocations); err != nil {
-			return fmt.Errorf("failed to migrate data: %w", err)
-		}
-
-		// update the sector locations in a separate transaction
-		err = s.transaction(func(tx txn) error {
-			selectStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=$1`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare sector select statement: %w", err)
-			}
-			defer selectStmt.Close()
-
-			clearStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 RETURNING volume_id`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare sector clear statement: %w", err)
-			}
-			defer clearStmt.Close()
-
-			updateSectorStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING volume_id;`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare sector update statement: %w", err)
-			}
-			defer updateSectorStmt.Close()
-
-			updateMetaStmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=used_sectors+$1 WHERE id=$2`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare sector metadata update statement: %w", err)
-			}
-			defer updateMetaStmt.Close()
-
-			for i, newLoc := range newLocations {
-				oldLoc := oldLocations[i]
-
-				var sectorDBID int64
-				if err = selectStmt.QueryRow(sqlHash256(oldLoc.Root)).Scan(&sectorDBID); err != nil {
-					return fmt.Errorf("failed to select sector: %w", err)
-				}
-				var oldVolumeID int64
-				if err = clearStmt.QueryRow(oldLoc.ID).Scan(&oldVolumeID); err != nil {
-					return fmt.Errorf("failed to clear sector location: %w", err)
-				} else if _, err = updateMetaStmt.Exec(-1, oldVolumeID); err != nil {
-					return fmt.Errorf("failed to update sector metadata: %w", err)
-				}
-				var newVolumeID int64
-				if err = updateSectorStmt.QueryRow(sectorDBID, newLoc.ID).Scan(&newVolumeID); err != nil {
-					return fmt.Errorf("failed to update sector location: %w", err)
-				} else if _, err = updateMetaStmt.Exec(1, newVolumeID); err != nil {
-					return fmt.Errorf("failed to update sector metadata: %w", err)
-				}
-			}
+			return fmt.Errorf("failed to migrate sectors: %w", err)
+		} else if done {
 			return nil
-		})
-		if err != nil {
-			return err
 		}
 		time.Sleep(time.Millisecond) // allow other transactions to run
 	}
@@ -263,59 +339,7 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 	// remove the volume sectors in batches to avoid holding a transaction lock
 	// for too long
 	for {
-		var done bool
-		err := s.transaction(func(tx txn) error {
-			var dbID int64
-			err := tx.QueryRow(`SELECT id FROM volume_sectors WHERE volume_id=$1 AND sector_id IS NOT NULL LIMIT 1;`, id).Scan(&dbID)
-			if err == nil && !force {
-				return storage.ErrVolumeNotEmpty
-			} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("failed to check if volume is empty: %w", err)
-			}
-
-			locations, err := volumeSectorsForDeletion(tx, id, pruneBatchSize)
-			if err != nil {
-				return fmt.Errorf("failed to get volume sectors: %w", err)
-			} else if len(locations) == 0 {
-				done = true
-				return nil // no more sectors to remove
-			}
-
-			var forceRemoved int
-			locIDs := make([]int64, 0, len(locations))
-			for _, loc := range locations {
-				locIDs = append(locIDs, loc.ID)
-				// if the root is not empty, the sector was not migrated and
-				// will be forcefully removed
-				if !loc.Empty {
-					forceRemoved++
-				}
-			}
-
-			// reduce the physical sectors metric if there are sectors that
-			// failed to migrate.
-			if forceRemoved > 0 {
-				if err := incrementNumericStat(tx, metricPhysicalSectors, -forceRemoved, time.Now()); err != nil {
-					return fmt.Errorf("failed to update force removed sector metric: %w", err)
-				}
-			}
-
-			// remove the sectors
-			deleteQuery := `DELETE FROM volume_sectors WHERE id IN (` + queryPlaceHolders(len(locIDs)) + `)`
-			_, err = tx.Exec(deleteQuery, queryArgs(locIDs)...)
-			if err != nil {
-				return fmt.Errorf("failed to remove volume sectors: %w", err)
-			}
-
-			const updateMetaQuery = `UPDATE storage_volumes SET total_sectors=total_sectors-$1 WHERE id=$2`
-			_, err = tx.Exec(updateMetaQuery, len(locIDs), id)
-			if err != nil {
-				return fmt.Errorf("failed to update volume metadata: %w", err)
-			} else if err := incrementNumericStat(tx, metricTotalSectors, -len(locIDs), time.Now()); err != nil {
-				return fmt.Errorf("failed to update total sector metric: %w", err)
-			}
-			return nil
-		})
+		done, err := s.batchRemoveVolume(id, force)
 		if err != nil {
 			return fmt.Errorf("failed to remove volume: %w", err)
 		} else if done {
@@ -332,7 +356,10 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 	if maxSectors == 0 {
 		panic("maxSectors must be greater than 0") // dev error
 	}
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
+	return s.transaction(ctx, func(tx txn) error {
 		var nextIndex uint64
 		err := tx.QueryRow(`SELECT total_sectors FROM storage_volumes WHERE id=?;`, id).Scan(&nextIndex)
 		if err != nil {
@@ -370,7 +397,10 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 	if maxSectors == 0 {
 		panic("maxSectors must be greater than 0") // dev error
 	}
-	return s.transaction(func(tx txn) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		// check if there are any used sectors in the shrink range
 		var usedSectors uint64
 		err := tx.QueryRow(`SELECT COUNT(sector_id) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_id IS NOT NULL;`, id, maxSectors).Scan(&usedSectors)

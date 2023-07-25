@@ -4,12 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
 )
+
+const defaultTxnTimeout = time.Minute
 
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
@@ -77,38 +80,52 @@ func (s *Store) queryRow(query string, args ...any) *loggedRow {
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed.
-func (s *Store) transaction(fn func(txn) error) error {
+func (s *Store) transaction(ctx context.Context, fn func(txn) error) error {
 	var tx *sql.Tx
 	var err error
 	start := time.Now()
-	for i := 1; i <= 5; i++ {
-		tx, err = s.db.BeginTx(context.Background(), nil)
-		if sqliteErr, ok := err.(sqlite3.Error); !ok || sqliteErr.Code != sqlite3.ErrBusy {
+	for i := 1; i <= 10; i++ {
+		tx, err = s.db.BeginTx(ctx, nil)
+		// no error, break out of the loop
+		if err == nil {
 			break
+		} else if sqliteErr, ok := err.(sqlite3.Error); !ok || sqliteErr.Code != sqlite3.ErrBusy {
+			// if the error is not a busy error, return immediately
+			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
 		s.log.Debug("database locked", zap.Int("attempt", i), zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+		time.Sleep(time.Duration(math.Pow(2, float64(i))) * time.Millisecond)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
 	ltx := &loggedTxn{
 		Tx:  tx,
 		log: s.log.Named("transaction"),
 	}
 	start = time.Now()
 	err = fn(ltx)
+	if err != nil {
+		return fmt.Errorf("failed to execute transaction: %w", err)
+	}
+	// log the transaction if it took longer than txn duration
 	if time.Since(start) > longTxnDuration {
 		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
 	}
+
+	// commit the transaction
 	commitStart := time.Now()
+	err = tx.Commit()
 	if err != nil {
-		if err := tx.Rollback(); err != nil {
-			return fmt.Errorf("failed to rollback transaction: %w", err)
-		}
-		return fmt.Errorf("failed to execute transaction: %w", err)
-	} else if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	// log the commit if it took longer than commit duration
 	if time.Since(commitStart) > longQueryDuration {
 		ltx.log.Debug("long transaction commit", zap.Duration("elapsed", time.Since(commitStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
 	}
@@ -150,6 +167,10 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	} else if _, err := db.Exec(clearLockedSectors); err != nil {
+		// clear any locked sectors, metadata not synced to disk is safe to
+		// overwrite.
+		return nil, fmt.Errorf("failed to clear locked sectors table: %w", err)
 	}
 	return store, nil
 }

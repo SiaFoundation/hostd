@@ -50,7 +50,7 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize u
 	return sp, nil
 }
 
-// processActions performs lifecycle actions on contracts. Triggerd by a
+// processActions performs lifecycle actions on contracts. Triggered by a
 // consensus change, changes are processed in the order they were received.
 func (cm *ContractManager) processActions() {
 	for {

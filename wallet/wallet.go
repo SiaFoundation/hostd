@@ -686,8 +686,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		return nil
 	})
 	if err != nil {
-		sw.log.Error("failed to update wallet", zap.Error(err), zap.String("changeID", cc.ID.String()), zap.Uint64("height", uint64(cc.BlockHeight)))
-		sw.Close()
+		sw.log.Panic("failed to update wallet", zap.Error(err), zap.String("changeID", cc.ID.String()), zap.Uint64("height", uint64(cc.BlockHeight)))
 	}
 
 	sw.mu.Lock()

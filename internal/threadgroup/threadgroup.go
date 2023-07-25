@@ -79,12 +79,12 @@ func (tg *ThreadGroup) AddContext(parent context.Context) (context.Context, cont
 // Stop stops accepting new threads and waits for all existing threads to close
 func (tg *ThreadGroup) Stop() {
 	tg.mu.Lock()
-	defer tg.mu.Unlock()
 	select {
 	case <-tg.closed:
 	default:
 		close(tg.closed)
 	}
+	tg.mu.Unlock()
 	tg.wg.Wait()
 }
 

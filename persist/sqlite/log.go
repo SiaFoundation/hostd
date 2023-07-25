@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,7 +12,9 @@ import (
 
 // AddEntries adds the entries to the database
 func (s *Store) AddEntries(entries []logging.Entry) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		stmt, err := tx.Prepare(`INSERT INTO log_lines (date_created, log_level, log_name, log_caller, log_message, log_fields) VALUES (?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare log insert statement: %w", err)

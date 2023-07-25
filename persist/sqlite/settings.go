@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
@@ -74,7 +75,10 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 		}
 	}
 
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
+	return s.transaction(ctx, func(tx txn) error {
 		_, err := tx.Exec(query, settings.AcceptingContracts,
 			settings.NetAddress, sqlCurrency(settings.ContractPrice),
 			sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),

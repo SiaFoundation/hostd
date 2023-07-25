@@ -78,7 +78,7 @@ func (sr *sectorAccessRecorder) Run(stop <-chan struct{}) {
 			t.Stop()
 			return
 		case <-t.C:
+			sr.Flush()
 		}
-		sr.Flush()
 	}
 }
