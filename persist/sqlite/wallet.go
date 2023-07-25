@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -153,7 +154,9 @@ func (s *Store) TransactionCount() (count uint64, err error) {
 
 // UpdateWallet begins an update transaction on the wallet store.
 func (s *Store) UpdateWallet(ccID modules.ConsensusChangeID, height uint64, fn func(wallet.UpdateTransaction) error) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		utx := &updateWalletTxn{tx}
 		if err := fn(utx); err != nil {
 			return err
@@ -184,7 +187,9 @@ func (s *Store) VerifyWalletKey(seedHash types.Hash256) error {
 // ResetWallet resets the wallet to its initial state. This is used when a
 // consensus subscription error occurs.
 func (s *Store) ResetWallet(seedHash types.Hash256) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		if _, err := tx.Exec(`DELETE FROM wallet_utxos`); err != nil {
 			return fmt.Errorf("failed to delete wallet utxos: %w", err)
 		} else if _, err := tx.Exec(`DELETE FROM wallet_transactions`); err != nil {

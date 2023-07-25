@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -160,6 +161,46 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 	return err == nil, err
 }
 
+func (s *Store) batchExpireContractSectors(height uint64) (bool, error) {
+	var done bool
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	err := s.transaction(ctx, func(tx txn) error {
+		sectors, err := expiredContractSectors(tx, height, pruneBatchSize)
+		if err != nil {
+			return fmt.Errorf("failed to select sectors: %w", err)
+		} else if len(sectors) == 0 {
+			done = true
+			return nil
+		}
+
+		contractSectors := make(map[types.FileContractID][]contractSectorRef)
+		sectorIDs := make([]int64, 0, len(sectors))
+		for _, sector := range sectors {
+			sectorIDs = append(sectorIDs, sector.ID)
+			contractSectors[sector.ContractID] = append(contractSectors[sector.ContractID], sector)
+		}
+
+		query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
+		if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
+			return fmt.Errorf("failed to delete sectors: %w", err)
+		} else if err := incrementNumericStat(tx, metricContractSectors, len(sectorIDs), time.Now()); err != nil {
+			return fmt.Errorf("failed to track contract sectors: %w", err)
+		}
+
+		for contractID, sectors := range contractSectors {
+			s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+				for _, sector := range sectors {
+					enc.AppendString(sector.SectorRoot.String())
+				}
+				return nil
+			})))
+		}
+		return nil
+	})
+	return done, err
+}
+
 // Contracts returns a paginated list of contracts.
 func (s *Store) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, count int, err error) {
 	if filter.Limit <= 0 || filter.Limit > 100 {
@@ -211,7 +252,9 @@ func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
 
 // AddContract adds a new contract to the database.
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
 		return err
 	})
@@ -221,7 +264,9 @@ func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []ty
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract.
 func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotationHeight uint64) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		// add the new contract
 		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotationHeight)
 		if err != nil {
@@ -260,7 +305,9 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 
 // ReviseContract atomically updates a contract's revision and sectors
 func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, oldSectors uint64, sectorChanges []contracts.SectorChange) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		contractID, err := reviseContract(tx, revision)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
@@ -397,7 +444,9 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // ExpireContract expires a contract and updates its status. Should only be used
 // if the contract is active or pending.
 func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		if err := setContractStatus(tx, id, status); err != nil {
 			return fmt.Errorf("failed to set contract status: %w", err)
 		}
@@ -429,7 +478,9 @@ func (s *Store) LastContractChange() (id modules.ConsensusChangeID, err error) {
 
 // UpdateContractState atomically updates the contractor's state.
 func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint64, fn func(contracts.UpdateStateTransaction) error) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		utx := &updateContractsTxn{tx: tx}
 		if err := fn(utx); err != nil {
 			return err
@@ -444,46 +495,12 @@ func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint6
 // active contract.
 func (s *Store) ExpireContractSectors(height uint64) error {
 	// delete in batches to avoid holding a lock on the database for too long
-	var done bool
 	for {
-		if done {
-			return nil
-		}
-		err := s.transaction(func(tx txn) error {
-			sectors, err := expiredContractSectors(tx, height, pruneBatchSize)
-			if err != nil {
-				return fmt.Errorf("failed to select sectors: %w", err)
-			} else if len(sectors) == 0 {
-				done = true
-				return nil
-			}
-
-			contractSectors := make(map[types.FileContractID][]contractSectorRef)
-			sectorIDs := make([]int64, 0, len(sectors))
-			for _, sector := range sectors {
-				sectorIDs = append(sectorIDs, sector.ID)
-				contractSectors[sector.ContractID] = append(contractSectors[sector.ContractID], sector)
-			}
-
-			query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
-			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
-				return fmt.Errorf("failed to delete sectors: %w", err)
-			} else if err := incrementNumericStat(tx, metricContractSectors, len(sectorIDs), time.Now()); err != nil {
-				return fmt.Errorf("failed to track contract sectors: %w", err)
-			}
-
-			for contractID, sectors := range contractSectors {
-				s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-					for _, sector := range sectors {
-						enc.AppendString(sector.SectorRoot.String())
-					}
-					return nil
-				})))
-			}
-			return nil
-		})
+		done, err := s.batchExpireContractSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
+		} else if done {
+			return nil
 		}
 		time.Sleep(time.Millisecond) // allow other transactions to run
 	}

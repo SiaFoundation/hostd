@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -21,6 +22,106 @@ type (
 	}
 )
 
+func (s *Store) batchExpireTempSectors(height uint64) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
+	var done bool
+	err := s.transaction(ctx, func(tx txn) error {
+		sectors, err := expiredTempSectors(tx, height, pruneBatchSize)
+		if err != nil {
+			return fmt.Errorf("failed to select sectors: %w", err)
+		} else if len(sectors) == 0 {
+			done = true
+			return nil
+		}
+
+		sectorIDs := make([]int64, 0, len(sectors))
+		for _, sector := range sectors {
+			sectorIDs = append(sectorIDs, sector.ID)
+		}
+
+		query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
+		if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
+			return fmt.Errorf("failed to delete sectors: %w", err)
+		} else if err := incrementNumericStat(tx, metricTempSectors, -len(sectorIDs), time.Now()); err != nil {
+			return fmt.Errorf("failed to update metric: %w", err)
+		}
+
+		s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+			for _, sector := range sectors {
+				enc.AppendString(sector.Root.String())
+			}
+			return nil
+		})))
+		return nil
+	})
+	return done, err
+}
+
+func (s *Store) batchPruneSectors() (int, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
+	var count int
+	var done bool
+	err := s.transaction(ctx, func(tx txn) error {
+		sectors, err := sectorsForDeletion(tx, pruneBatchSize)
+		if err != nil {
+			return fmt.Errorf("failed to select sectors: %w", err)
+		} else if len(sectors) == 0 {
+			done = true
+			return nil
+		}
+
+		// TODO: each sector is removed in individual queries to keep the
+		// volume counts accurate. There are more efficient ways to do this
+		updateVolumeStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE sector_id=$1 RETURNING volume_id;`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare query: %w", err)
+		}
+		defer updateVolumeStmt.Close()
+
+		deleteStmt, err := tx.Prepare(`DELETE FROM stored_sectors WHERE id=$1;`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare query: %w", err)
+		}
+		defer deleteStmt.Close()
+
+		// decrement volume usage
+		metaUpdateStmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1;`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare query: %w", err)
+		}
+		defer metaUpdateStmt.Close()
+
+		for _, sector := range sectors {
+			var volumeID int64
+			if err := updateVolumeStmt.QueryRow(sector.ID).Scan(&volumeID); err != nil {
+				return fmt.Errorf("failed to get volume id for sector: %w", err)
+			} else if _, err := deleteStmt.Exec(sector.ID); err != nil {
+				return fmt.Errorf("failed to delete sector: %w", err)
+			} else if _, err := metaUpdateStmt.Exec(volumeID); err != nil {
+				return fmt.Errorf("failed to update volume metadata: %w", err)
+			}
+		}
+
+		s.log.Debug("deleted unreferenced sectors", zap.Int("deleted", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+			for _, sector := range sectors {
+				enc.AppendString(sector.Root.String())
+			}
+			return nil
+		})))
+
+		if err := incrementNumericStat(tx, metricPhysicalSectors, -len(sectors), time.Now()); err != nil {
+			return fmt.Errorf("failed to update metric: %w", err)
+		}
+		count += len(sectors)
+		return nil
+	})
+	return count, done, err
+}
+
 // unlockLocationFn returns a function that unlocks a sector when called.
 func (s *Store) unlockLocationFn(id int64) func() error {
 	return func() error { return unlockLocation(&dbTxn{s}, id) }
@@ -29,7 +130,9 @@ func (s *Store) unlockLocationFn(id int64) func() error {
 // RemoveSector removes the metadata of a sector and returns its
 // location in the volume.
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		var volumeID int64
 		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=null WHERE sector_id IN (SELECT id FROM stored_sectors WHERE sector_root=$1) RETURNING volume_id;`, sqlHash256(root)).Scan(&volumeID)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -51,9 +154,12 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 // sector is not found. The location is locked until release is
 // called.
 func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func() error, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+
 	var lockID int64
 	var location storage.SectorLocation
-	err := s.transaction(func(tx txn) error {
+	err := s.transaction(ctx, func(tx txn) error {
 		var err error
 		location, err = sectorLocation(tx, root)
 		if err != nil {
@@ -74,7 +180,9 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 // AddTemporarySectors adds the roots of sectors that are temporarily stored
 // on the host. The sectors will be deleted after the expiration height.
 func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
-	return s.transaction(func(tx txn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
+	defer cancel()
+	return s.transaction(ctx, func(tx txn) error {
 		stmt, err := tx.Prepare(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) SELECT id, $1 FROM stored_sectors WHERE sector_root=$2 RETURNING id;`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare query: %w", err)
@@ -98,37 +206,8 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 // temporarily stored on the host.
 func (s *Store) ExpireTempSectors(height uint64) error {
 	// delete in batches to avoid holding a lock on the table for too long
-	var done bool
 	for {
-		err := s.transaction(func(tx txn) error {
-			sectors, err := expiredTempSectors(tx, height, pruneBatchSize)
-			if err != nil {
-				return fmt.Errorf("failed to select sectors: %w", err)
-			} else if len(sectors) == 0 {
-				done = true
-				return nil
-			}
-
-			sectorIDs := make([]int64, 0, len(sectors))
-			for _, sector := range sectors {
-				sectorIDs = append(sectorIDs, sector.ID)
-			}
-
-			query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
-			if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
-				return fmt.Errorf("failed to delete sectors: %w", err)
-			} else if err := incrementNumericStat(tx, metricTempSectors, -len(sectorIDs), time.Now()); err != nil {
-				return fmt.Errorf("failed to update metric: %w", err)
-			}
-
-			s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-				for _, sector := range sectors {
-					enc.AppendString(sector.Root.String())
-				}
-				return nil
-			})))
-			return nil
-		})
+		done, err := s.batchExpireTempSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		} else if done {
@@ -142,67 +221,15 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 // by a contract.
 func (s *Store) PruneSectors() (int, error) {
 	// delete in batches to avoid holding a lock on the table for too long
-	var done bool
-	var count int
+	var total int
 	for {
-		err := s.transaction(func(tx txn) error {
-			sectors, err := sectorsForDeletion(tx, pruneBatchSize)
-			if err != nil {
-				return fmt.Errorf("failed to select sectors: %w", err)
-			} else if len(sectors) == 0 {
-				done = true
-				return nil
-			}
-
-			// TODO: each sector is removed in individual queries to keep the
-			// volume counts accurate. There are more efficient ways to do this
-			updateVolumeStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE sector_id=$1 RETURNING volume_id;`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare query: %w", err)
-			}
-			defer updateVolumeStmt.Close()
-
-			deleteStmt, err := tx.Prepare(`DELETE FROM stored_sectors WHERE id=$1;`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare query: %w", err)
-			}
-			defer deleteStmt.Close()
-
-			// decrement volume usage
-			metaUpdateStmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1;`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare query: %w", err)
-			}
-			defer metaUpdateStmt.Close()
-
-			for _, sector := range sectors {
-				var volumeID int64
-				if err := updateVolumeStmt.QueryRow(sector.ID).Scan(&volumeID); err != nil {
-					return fmt.Errorf("failed to get volume id for sector: %w", err)
-				} else if _, err := deleteStmt.Exec(sector.ID); err != nil {
-					return fmt.Errorf("failed to delete sector: %w", err)
-				} else if _, err := metaUpdateStmt.Exec(volumeID); err != nil {
-					return fmt.Errorf("failed to update volume metadata: %w", err)
-				}
-			}
-
-			s.log.Debug("deleted unreferenced sectors", zap.Int("deleted", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-				for _, sector := range sectors {
-					enc.AppendString(sector.Root.String())
-				}
-				return nil
-			})))
-
-			if err := incrementNumericStat(tx, metricPhysicalSectors, -len(sectors), time.Now()); err != nil {
-				return fmt.Errorf("failed to update metric: %w", err)
-			}
-			count += len(sectors)
-			return nil
-		})
+		count, done, err := s.batchPruneSectors()
 		if err != nil {
-			return 0, fmt.Errorf("failed to prune sectors: %w", err)
-		} else if done {
-			return count, nil
+			return total, fmt.Errorf("failed to prune sectors: %w", err)
+		}
+		total += count
+		if done {
+			return total, nil
 		}
 		time.Sleep(time.Millisecond) // allow other transactions to run
 	}
