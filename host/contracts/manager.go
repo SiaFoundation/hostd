@@ -399,9 +399,11 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		return
 	}
 
-	// perform actions in a separate goroutine to avoid deadlock in tpool
+	// perform actions in a separate goroutine to avoid deadlock in tpool.
 	// triggers the processActions goroutine to process the block
-	cm.processQueue <- uint64(cc.BlockHeight)
+	go func() {
+		cm.processQueue <- uint64(cc.BlockHeight)
+	}()
 }
 
 // ReviseContract initializes a new contract updater for the given contract.
