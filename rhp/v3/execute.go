@@ -568,10 +568,12 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 }
 
 func (pe *programExecutor) release() error {
-	for _, release := range pe.releaseFuncs {
+	for len(pe.releaseFuncs) > 0 {
+		release := pe.releaseFuncs[0]
 		if err := release(); err != nil {
 			return err
 		}
+		pe.releaseFuncs = pe.releaseFuncs[1:]
 	}
 	return nil
 }
@@ -580,16 +582,20 @@ func (pe *programExecutor) rollback() error {
 	if pe.committed {
 		return nil
 	}
+	pe.committed = true
+
+	defer func() {
+		// release all of the locked sectors. Any sectors not referenced by a
+		// contract or temporary storage will eventually be garbage collected.
+		if err := pe.release(); err != nil {
+			pe.log.Error("failed to release sectors", zap.Error(err))
+		}
+	}()
 
 	if pe.updater != nil {
 		pe.updater.Close()
 	}
 
-	// release all of the locked sectors. Any sectors not referenced by a
-	// contract or temporary storage will eventually be garbage collected.
-	if err := pe.release(); err != nil {
-		return fmt.Errorf("failed to release storage: %w", err)
-	}
 	// refund the storage spending
 	pe.budget.Refund(pe.cost.Storage)
 	if err := pe.budget.Commit(); err != nil {
@@ -602,8 +608,15 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 	if pe.committed {
 		panic("commit called multiple times")
 	}
-
 	pe.committed = true
+
+	defer func() {
+		// release all of the locked sectors. Any sectors not referenced by a
+		// contract or temporary storage will eventually be garbage collected.
+		if err := pe.release(); err != nil {
+			pe.log.Error("failed to release sectors", zap.Error(err))
+		}
+	}()
 
 	// commit the renter's spending
 	if err := pe.budget.Commit(); err != nil {
@@ -696,12 +709,6 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 	// commit the temporary sectors
 	if err := pe.storage.AddTemporarySectors(pe.tempSectors); err != nil {
 		return fmt.Errorf("failed to commit temporary sectors: %w", err)
-	}
-
-	// release all of the locked sectors. Any sectors not referenced by a
-	// contract or temporary storage will eventually be garbage collected.
-	if err := pe.release(); err != nil {
-		return fmt.Errorf("failed to release storage: %w", err)
 	}
 	return nil
 }
