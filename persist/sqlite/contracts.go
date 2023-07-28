@@ -778,8 +778,8 @@ func revisionContractActions(tx txn, height uint64) (actions []contractAction, _
 
 func resolveContractActions(tx txn, height uint64) (actions []contractAction, _ error) {
 	// formation confirmed, resolution not confirmed, status active, in proof window
-	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=true AND resolution_height IS NULL AND window_start <= $1 AND window_end > $1 AND contract_status=$2`
-	rows, err := tx.Query(query, height, contracts.ContractStatusActive)
+	const query = `SELECT contract_id FROM contracts WHERE formation_confirmed=true AND resolution_height IS NULL AND window_start <= $1 AND window_end > $1`
+	rows, err := tx.Query(query, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
