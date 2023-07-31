@@ -99,11 +99,7 @@ func (s *Store) transaction(ctx context.Context, fn func(txn) error) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
 	ltx := &loggedTxn{
 		Tx:  tx,
 		log: s.log.Named("transaction"),
@@ -144,7 +140,7 @@ func (s *Store) Close() error {
 
 func sqliteFilepath(fp string) string {
 	params := []string{
-		"_busy_timeout=5000", // 5s
+		"_busy_timeout=30000", // 30s
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",

@@ -352,7 +352,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				return fmt.Errorf("failed to apply formation: %w", err)
 			}
 
-			log.Debug("contract formation confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
+			log.Info("contract formation confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
 			cm.alerts.Dismiss(types.Hash256(applied.id)) // dismiss any lifecycle alerts for this contract
 		}
 
@@ -365,7 +365,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				return fmt.Errorf("failed to apply revision: %w", err)
 			}
 
-			log.Debug("contract revision confirmed", zap.Stringer("contractID", applied.ParentID), zap.Uint64("revisionNumber", applied.RevisionNumber))
+			log.Info("contract revision confirmed", zap.Stringer("contractID", applied.ParentID), zap.Uint64("revisionNumber", applied.RevisionNumber))
 			cm.alerts.Dismiss(types.Hash256(applied.ParentID)) // dismiss any lifecycle alerts for this contract
 		}
 
@@ -378,7 +378,7 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				return fmt.Errorf("failed to apply proof: %w", err)
 			}
 
-			log.Debug("contract resolution confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
+			log.Info("contract resolution confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
 			cm.alerts.Dismiss(types.Hash256(applied.id)) // dismiss any lifecycle alerts for this contract
 		}
 		return nil

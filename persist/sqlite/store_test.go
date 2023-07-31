@@ -24,12 +24,12 @@ func TestTransactionRetry(t *testing.T) {
 
 	ch := make(chan struct{}, 1) // channel to synchronize the transaction goroutine
 
-	// start a transaction in a goroutine and hold it open for 8 seconds
+	// start a transaction in a goroutine and hold it open for 10 seconds
 	// this should allow for the next transaction to be retried once
 	go func() {
 		err := db.transaction(context.Background(), func(tx txn) error {
 			ch <- struct{}{}
-			time.Sleep(8 * time.Millisecond)
+			time.Sleep(10 * time.Second)
 			return nil
 		})
 		if err != nil {
