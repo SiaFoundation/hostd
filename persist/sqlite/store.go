@@ -83,7 +83,7 @@ func (s *Store) queryRow(query string, args ...any) *loggedRow {
 func (s *Store) transaction(fn func(txn) error) error {
 	var err error
 	log := s.log.Named("transaction")
-	for i := 1; i <= 15; i++ {
+	for i := 1; i <= retryAttempts; i++ {
 		start := time.Now()
 		log := log.With(zap.Int("attempt", i))
 		err = doTransaction(s.db, log, fn)
@@ -98,8 +98,8 @@ func (s *Store) transaction(fn func(txn) error) error {
 			return err
 		}
 		log.Debug("database locked", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
-		sleep := time.Duration(math.Pow(2, float64(i))) * time.Millisecond // exponential backoff for a total of ~30s
-		time.Sleep(sleep + time.Duration(rand.Int63n(int64(sleep)/10)))
+		sleep := time.Duration(math.Pow(factor, float64(i))) * time.Millisecond // exponential backoff
+		time.Sleep(sleep + time.Duration(rand.Int63n(int64(sleep)/10)))         // add random jitter
 	}
 	return fmt.Errorf("transaction failed: %w", err)
 }

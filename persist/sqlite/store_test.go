@@ -68,7 +68,7 @@ func TestTransactionRetry(t *testing.T) {
 					return err
 				}
 				ch <- struct{}{}
-				time.Sleep(10 * time.Second)
+				time.Sleep(2 * time.Second)
 				return nil
 			})
 			if err != nil {
