@@ -337,8 +337,10 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	_, err := s.exec(`DELETE FROM storage_volumes WHERE id=?`, id)
-	return fmt.Errorf("failed to remove volume: %w", err)
+	if _, err := s.exec(`DELETE FROM storage_volumes WHERE id=?`, id); err != nil {
+		return fmt.Errorf("failed to remove volume: %w", err)
+	}
+	return nil
 }
 
 // GrowVolume grows a storage volume's metadata by n sectors.

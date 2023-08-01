@@ -81,7 +81,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 	var tx *sql.Tx
 	var err error
 	for i := 1; i <= 10; i++ {
-		err := func() error {
+		err = func() error {
 			tx, err = s.db.Begin()
 			if err != nil {
 				return fmt.Errorf("failed to begin transaction: %w", err)
@@ -93,8 +93,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 				log: s.log.Named("transaction"),
 			}
 			start := time.Now()
-			err = fn(ltx)
-			if err != nil {
+			if err = fn(ltx); err != nil {
 				return err
 			}
 
@@ -105,8 +104,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 
 			// commit the transaction
 			commitStart := time.Now()
-			err = tx.Commit()
-			if err != nil {
+			if err = tx.Commit(); err != nil {
 				return fmt.Errorf("failed to commit transaction: %w", err)
 			}
 
