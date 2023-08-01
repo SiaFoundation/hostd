@@ -139,7 +139,6 @@ func sqliteFilepath(fp string) string {
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",
-		"_txlock=exclusive",
 		"_cache_size=-65536", // 64MiB
 	}
 	return "file:" + fp + "?" + strings.Join(params, "&")
