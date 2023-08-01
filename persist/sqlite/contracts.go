@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -163,9 +162,7 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 
 func (s *Store) batchExpireContractSectors(height uint64) (bool, error) {
 	var done bool
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	err := s.transaction(ctx, func(tx txn) error {
+	err := s.transaction(func(tx txn) error {
 		sectors, err := expiredContractSectors(tx, height, sqlBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
@@ -252,9 +249,7 @@ func (s *Store) Contract(id types.FileContractID) (contracts.Contract, error) {
 
 // AddContract adds a new contract to the database.
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
 		return err
 	})
@@ -264,9 +259,7 @@ func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []ty
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract.
 func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotationHeight uint64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		// add the new contract
 		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotationHeight)
 		if err != nil {
@@ -305,9 +298,7 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 
 // ReviseContract atomically updates a contract's revision and sectors
 func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, oldSectors uint64, sectorChanges []contracts.SectorChange) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		contractID, err := reviseContract(tx, revision)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
@@ -444,9 +435,7 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // ExpireContract expires a contract and updates its status. Should only be used
 // if the contract is active or pending.
 func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		if err := setContractStatus(tx, id, status); err != nil {
 			return fmt.Errorf("failed to set contract status: %w", err)
 		}
@@ -478,9 +467,7 @@ func (s *Store) LastContractChange() (id modules.ConsensusChangeID, err error) {
 
 // UpdateContractState atomically updates the contractor's state.
 func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint64, fn func(contracts.UpdateStateTransaction) error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		utx := &updateContractsTxn{tx: tx}
 		if err := fn(utx); err != nil {
 			return err

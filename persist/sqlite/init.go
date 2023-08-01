@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	_ "embed" // for init.sql
 	"time"
 
@@ -29,7 +28,7 @@ func generateHostKey(tx txn) (err error) {
 func (s *Store) init() error {
 	// calculate the expected final database version
 	targetVersion := int64(1 + len(migrations))
-	return s.transaction(context.Background(), func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		// check the current database version and perform any necessary
 		// migrations
 		version := getDBVersion(tx)

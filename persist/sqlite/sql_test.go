@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -19,7 +18,7 @@ func TestInit(t *testing.T) {
 
 	var version int64
 
-	err = db.transaction(context.Background(), func(tx txn) error {
+	err = db.transaction(func(tx txn) error {
 		version = getDBVersion(tx)
 		return nil
 	})

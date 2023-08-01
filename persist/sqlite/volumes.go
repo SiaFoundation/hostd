@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,14 +16,11 @@ type volumeSectorRef struct {
 }
 
 func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn func(locations []storage.SectorLocation) error) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
 	// get a batch of sectors to migrate
 	var done bool
 	var oldLocations, newLocations []storage.SectorLocation
 	var locks []int64
-	err := s.transaction(ctx, func(tx txn) (err error) {
+	err := s.transaction(func(tx txn) (err error) {
 		oldLocations, err = sectorsForMigration(tx, volumeID, startIndex, sqlBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to get sectors for migration: %w", err)
@@ -72,7 +68,7 @@ func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn f
 	}
 
 	// update the sector locations in a separate transaction
-	err = s.transaction(ctx, func(tx txn) error {
+	err = s.transaction(func(tx txn) error {
 		selectStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=$1`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare sector select statement: %w", err)
@@ -123,11 +119,8 @@ func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn f
 }
 
 func (s *Store) batchRemoveVolume(id int, force bool) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
 	var done bool
-	err := s.transaction(ctx, func(tx txn) error {
+	err := s.transaction(func(tx txn) error {
 		var dbID int64
 		err := tx.QueryRow(`SELECT id FROM volume_sectors WHERE volume_id=$1 AND sector_id IS NOT NULL LIMIT 1;`, id).Scan(&dbID)
 		if err == nil && !force {
@@ -243,10 +236,7 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 	var location storage.SectorLocation
 	var exists bool
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
-	err := s.transaction(ctx, func(tx txn) error {
+	err := s.transaction(func(tx txn) error {
 		var err error
 		location, err = sectorLocation(tx, root)
 		exists = err == nil
@@ -279,7 +269,7 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		return s.unlockLocationFn(lockID), nil
 	}
 	// commit the sector location
-	err = s.transaction(ctx, func(tx txn) error {
+	err = s.transaction(func(tx txn) error {
 		sectorID, err := sectorDBID(tx, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector id: %w", err)
@@ -356,10 +346,8 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 	if maxSectors == 0 {
 		panic("maxSectors must be greater than 0") // dev error
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
 
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		var nextIndex uint64
 		err := tx.QueryRow(`SELECT total_sectors FROM storage_volumes WHERE id=?;`, id).Scan(&nextIndex)
 		if err != nil {
@@ -398,9 +386,7 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 		panic("maxSectors must be greater than 0") // dev error
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		// check if there are any used sectors in the shrink range
 		var usedSectors uint64
 		err := tx.QueryRow(`SELECT COUNT(sector_id) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_id IS NOT NULL;`, id, maxSectors).Scan(&usedSectors)

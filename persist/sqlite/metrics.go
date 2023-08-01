@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -203,9 +202,7 @@ func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
 
 // IncrementRHP2DataUsage increments the RHP2 ingress and egress metrics.
 func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		if ingress > 0 {
 			if err := incrementNumericStat(tx, metricRHP2Ingress, int(ingress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
@@ -222,9 +219,7 @@ func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
 
 // IncrementRHP3DataUsage increments the RHP3 ingress and egress metrics.
 func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		if ingress > 0 {
 			if err := incrementNumericStat(tx, metricRHP3Ingress, int(ingress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
@@ -241,9 +236,7 @@ func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
 
 // IncrementSectorStats increments the sector read, write and cache metrics.
 func (s *Store) IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		if reads > 0 {
 			if err := incrementNumericStat(tx, metricSectorReads, int(reads), time.Now()); err != nil {
 				return fmt.Errorf("failed to track reads: %w", err)
@@ -272,9 +265,7 @@ func (s *Store) IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) 
 
 // IncrementRegistryAccess increments the registry read and write metrics.
 func (s *Store) IncrementRegistryAccess(read, write uint64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		if read > 0 {
 			if err := incrementNumericStat(tx, metricRegistryReads, int(read), time.Now()); err != nil {
 				return fmt.Errorf("failed to track reads: %w", err)

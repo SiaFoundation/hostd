@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -27,10 +26,7 @@ func (s *Store) AccountBalance(accountID rhpv3.Account) (balance types.Currency,
 
 // CreditAccount adds the specified amount to the account with the given ID.
 func (s *Store) CreditAccount(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (balance types.Currency, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
-	err = s.transaction(ctx, func(tx txn) error {
+	err = s.transaction(func(tx txn) error {
 		var dbID int64
 		// get current balance
 		dbID, initial, err := accountBalance(tx, accountID)
@@ -57,9 +53,7 @@ func (s *Store) CreditAccount(accountID rhpv3.Account, amount types.Currency, ex
 // DebitAccount subtracts the specified amount from the account with the given
 // ID. Returns the remaining balance of the account.
 func (s *Store) DebitAccount(accountID rhpv3.Account, amount types.Currency) (balance types.Currency, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	err = s.transaction(ctx, func(tx txn) error {
+	err = s.transaction(func(tx txn) error {
 		var dbID int64
 		dbID, balance, err = accountBalance(tx, accountID)
 		if errors.Is(err, sql.ErrNoRows) {

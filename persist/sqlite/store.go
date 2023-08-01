@@ -11,8 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const defaultTxnTimeout = 2 * time.Minute
-
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
@@ -84,7 +82,6 @@ func (s *Store) transaction(fn func(txn) error) error {
 	var err error
 	for i := 1; i <= 10; i++ {
 		err := func() error {
-			start := time.Now()
 			tx, err = s.db.Begin()
 			if err != nil {
 				return fmt.Errorf("failed to begin transaction: %w", err)
@@ -95,7 +92,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 				Tx:  tx,
 				log: s.log.Named("transaction"),
 			}
-			start = time.Now()
+			start := time.Now()
 			err = fn(ltx)
 			if err != nil {
 				return err

@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ func TestTransactionRetry(t *testing.T) {
 	}
 	defer db.Close()
 
-	err = db.transaction(context.Background(), func(tx txn) error { return nil }) // start a new empty transaction, should succeed immediately
+	err = db.transaction(func(tx txn) error { return nil }) // start a new empty transaction, should succeed immediately
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +26,7 @@ func TestTransactionRetry(t *testing.T) {
 	// start a transaction in a goroutine and hold it open for 10 seconds
 	// this should allow for the next transaction to be retried once
 	go func() {
-		err := db.transaction(context.Background(), func(tx txn) error {
+		err := db.transaction(func(tx txn) error {
 			ch <- struct{}{}
 			time.Sleep(10 * time.Second)
 			return nil
@@ -40,7 +39,7 @@ func TestTransactionRetry(t *testing.T) {
 
 	<-ch // wait for the transaction to start
 
-	err = db.transaction(context.Background(), func(tx txn) error { return nil })
+	err = db.transaction(func(tx txn) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
