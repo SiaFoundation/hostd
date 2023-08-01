@@ -107,7 +107,7 @@ func (s *Store) transaction(ctx context.Context, fn func(txn) error) error {
 	start = time.Now()
 	err = fn(ltx)
 	if err != nil {
-		return fmt.Errorf("failed to execute transaction: %w", err)
+		return err
 	}
 	// log the transaction if it took longer than txn duration
 	if time.Since(start) > longTxnDuration {

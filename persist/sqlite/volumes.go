@@ -341,14 +341,14 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 	for {
 		done, err := s.batchRemoveVolume(id, force)
 		if err != nil {
-			return fmt.Errorf("failed to remove volume: %w", err)
+			return err
 		} else if done {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
 	_, err := s.exec(`DELETE FROM storage_volumes WHERE id=?`, id)
-	return err
+	return fmt.Errorf("failed to remove volume: %w", err)
 }
 
 // GrowVolume grows a storage volume's metadata by n sectors.
