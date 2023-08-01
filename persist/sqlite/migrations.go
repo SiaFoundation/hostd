@@ -8,6 +8,11 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+func migrateVersion10(tx txn) error {
+	_, err := tx.Exec(`DROP TABLE log_lines;`)
+	return err
+}
+
 // migrateVersion9 recalculates the contract metrics for existing contracts.
 func migrateVersion9(tx txn) error {
 	rows, err := tx.Query(`SELECT contract_status, COUNT(*) FROM contracts GROUP BY contract_status`)
@@ -232,4 +237,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion7,
 	migrateVersion8,
 	migrateVersion9,
+	migrateVersion10,
 }

@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const defaultTxnTimeout = time.Minute
+const defaultTxnTimeout = 2 * time.Minute
 
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
@@ -126,11 +126,6 @@ func (s *Store) transaction(ctx context.Context, fn func(txn) error) error {
 		ltx.log.Debug("long transaction commit", zap.Duration("elapsed", time.Since(commitStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
 	}
 	return nil
-}
-
-// SetLogger sets the logger used by the store.
-func (s *Store) SetLogger(log *zap.Logger) {
-	s.log = log
 }
 
 // Close closes the underlying database.
