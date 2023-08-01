@@ -140,7 +140,7 @@ func (s *Store) Close() error {
 
 func sqliteFilepath(fp string) string {
 	params := []string{
-		"_busy_timeout=30000", // 30s
+		"_busy_timeout=10000", // 10s
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",

@@ -166,7 +166,7 @@ func (s *Store) batchExpireContractSectors(height uint64) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
 	defer cancel()
 	err := s.transaction(ctx, func(tx txn) error {
-		sectors, err := expiredContractSectors(tx, height, pruneBatchSize)
+		sectors, err := expiredContractSectors(tx, height, sqlBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
