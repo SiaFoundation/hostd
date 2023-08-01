@@ -9,6 +9,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/metrics"
+	"go.sia.tech/hostd/rhp"
 )
 
 const (
@@ -200,35 +201,13 @@ func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
 	return
 }
 
-// IncrementRHP2DataUsage increments the RHP2 ingress and egress metrics.
-func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
+// IncrementDataUsage increments the data usage metrics.
+func (s *Store) IncrementDataUsage(rhp2, rhp3 rhp.DataUsage) error {
 	return s.transaction(func(tx txn) error {
-		if ingress > 0 {
-			if err := incrementNumericStat(tx, metricRHP2Ingress, int(ingress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track ingress: %w", err)
-			}
-		}
-		if egress > 0 {
-			if err := incrementNumericStat(tx, metricRHP2Egress, int(egress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track egress: %w", err)
-			}
-		}
-		return nil
-	})
-}
-
-// IncrementRHP3DataUsage increments the RHP3 ingress and egress metrics.
-func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
-	return s.transaction(func(tx txn) error {
-		if ingress > 0 {
-			if err := incrementNumericStat(tx, metricRHP3Ingress, int(ingress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track ingress: %w", err)
-			}
-		}
-		if egress > 0 {
-			if err := incrementNumericStat(tx, metricRHP3Egress, int(egress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track egress: %w", err)
-			}
+		if err := incrementRHP2Usage(tx, rhp2); err != nil {
+			return fmt.Errorf("failed to track RHP2 usage: %w", err)
+		} else if err := incrementRHP3Usage(tx, rhp3); err != nil {
+			return fmt.Errorf("failed to track RHP3 usage: %w", err)
 		}
 		return nil
 	})
@@ -372,6 +351,34 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 	default:
 		panic(fmt.Sprintf("unknown metric: %v", stat))
 	}
+}
+
+func incrementRHP2Usage(tx txn, usage rhp.DataUsage) error {
+	if usage.Ingress > 0 {
+		if err := incrementNumericStat(tx, metricRHP2Ingress, int(usage.Ingress), time.Now()); err != nil {
+			return fmt.Errorf("failed to track ingress: %w", err)
+		}
+	}
+	if usage.Egress > 0 {
+		if err := incrementNumericStat(tx, metricRHP2Egress, int(usage.Egress), time.Now()); err != nil {
+			return fmt.Errorf("failed to track egress: %w", err)
+		}
+	}
+	return nil
+}
+
+func incrementRHP3Usage(tx txn, usage rhp.DataUsage) error {
+	if usage.Ingress > 0 {
+		if err := incrementNumericStat(tx, metricRHP3Ingress, int(usage.Ingress), time.Now()); err != nil {
+			return fmt.Errorf("failed to track ingress: %w", err)
+		}
+	}
+	if usage.Egress > 0 {
+		if err := incrementNumericStat(tx, metricRHP3Egress, int(usage.Egress), time.Now()); err != nil {
+			return fmt.Errorf("failed to track egress: %w", err)
+		}
+	}
+	return nil
 }
 
 // incrementNumericStat tracks a numeric stat, incrementing the current value by
