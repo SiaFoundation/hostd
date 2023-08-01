@@ -2,8 +2,10 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -76,53 +78,28 @@ func (s *Store) queryRow(query string, args ...any) *loggedRow {
 
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
-// transaction is committed.
+// transaction is committed. If the transaction fails due to a busy error, it is
+// retried up to 10 times before returning.
 func (s *Store) transaction(fn func(txn) error) error {
-	var tx *sql.Tx
 	var err error
+	log := s.log.Named("transaction")
 	for i := 1; i <= 10; i++ {
-		err = func() error {
-			tx, err = s.db.Begin()
-			if err != nil {
-				return fmt.Errorf("failed to begin transaction: %w", err)
-			}
-			defer tx.Rollback()
-
-			ltx := &loggedTxn{
-				Tx:  tx,
-				log: s.log.Named("transaction"),
-			}
-			start := time.Now()
-			if err = fn(ltx); err != nil {
-				return err
-			}
-
-			// log the transaction if it took longer than txn duration
-			if time.Since(start) > longTxnDuration {
-				ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
-			}
-
-			// commit the transaction
-			commitStart := time.Now()
-			if err = tx.Commit(); err != nil {
-				return fmt.Errorf("failed to commit transaction: %w", err)
-			}
-
-			// log the commit if it took longer than commit duration
-			if time.Since(commitStart) > longQueryDuration {
-				ltx.log.Debug("long transaction commit", zap.Duration("elapsed", time.Since(commitStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
-			}
-			return nil
-		}()
+		start := time.Now()
+		log := log.With(zap.Int("attempt", i))
+		err = doTransaction(s.db, log, fn)
 		if err == nil {
 			// no error, break out of the loop
 			return nil
-		} else if sqliteErr, ok := err.(sqlite3.Error); !ok || sqliteErr.Code != sqlite3.ErrBusy {
-			// if the error is not a busy error, return immediately
-			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		s.log.Debug("database locked", zap.Int("attempt", i), zap.Stack("stack"))
-		time.Sleep(time.Duration(math.Pow(2, float64(i))) * time.Millisecond)
+
+		// check if the error is not a busy error
+		var sqliteErr sqlite3.Error
+		if !errors.As(err, &sqliteErr) || sqliteErr.Code != sqlite3.ErrBusy {
+			return err
+		}
+		log.Debug("database locked", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+		sleep := time.Duration(math.Pow(2, float64(i))) * time.Millisecond
+		time.Sleep(sleep + time.Duration(rand.Int63n(int64(sleep)/10)))
 	}
 	return fmt.Errorf("transaction failed: %w", err)
 }
@@ -134,13 +111,50 @@ func (s *Store) Close() error {
 
 func sqliteFilepath(fp string) string {
 	params := []string{
-		"_busy_timeout=10000", // 10s
+		fmt.Sprintf("_busy_timeout=%d", busyTimeout),
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",
 		"_cache_size=-65536", // 64MiB
 	}
 	return "file:" + fp + "?" + strings.Join(params, "&")
+}
+
+// doTransaction is a helper function to execute a function within a transaction. If fn returns
+// an error, the transaction is rolled back. Otherwise, the transaction is
+// committed.
+func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	ltx := &loggedTxn{
+		Tx:  tx,
+		log: log,
+	}
+	start := time.Now()
+	if err = fn(ltx); err != nil {
+		return fmt.Errorf("transaction failed: %w", err)
+	}
+
+	// log the transaction if it took longer than txn duration
+	if time.Since(start) > longTxnDuration {
+		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+	}
+
+	// commit the transaction
+	commitStart := time.Now()
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// log the commit if it took longer than commit duration
+	if time.Since(commitStart) > longQueryDuration {
+		ltx.log.Debug("long transaction commit", zap.Duration("elapsed", time.Since(commitStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
+	}
+	return nil
 }
 
 // OpenDatabase creates a new SQLite store and initializes the database. If the
