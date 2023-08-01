@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,7 +12,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const pruneBatchSize = 64 // 256 MiB
+const sqlBatchSize = 256 // 1 GiB
 
 type (
 	sectorRef struct {
@@ -23,12 +22,9 @@ type (
 )
 
 func (s *Store) batchExpireTempSectors(height uint64) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
 	var done bool
-	err := s.transaction(ctx, func(tx txn) error {
-		sectors, err := expiredTempSectors(tx, height, pruneBatchSize)
+	err := s.transaction(func(tx txn) error {
+		sectors, err := expiredTempSectors(tx, height, sqlBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
@@ -60,13 +56,10 @@ func (s *Store) batchExpireTempSectors(height uint64) (bool, error) {
 }
 
 func (s *Store) batchPruneSectors() (int, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
 	var count int
 	var done bool
-	err := s.transaction(ctx, func(tx txn) error {
-		sectors, err := sectorsForDeletion(tx, pruneBatchSize)
+	err := s.transaction(func(tx txn) error {
+		sectors, err := sectorsForDeletion(tx, sqlBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
@@ -130,9 +123,7 @@ func (s *Store) unlockLocationFn(id int64) func() error {
 // RemoveSector removes the metadata of a sector and returns its
 // location in the volume.
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		var volumeID int64
 		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=null WHERE sector_id IN (SELECT id FROM stored_sectors WHERE sector_root=$1) RETURNING volume_id;`, sqlHash256(root)).Scan(&volumeID)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -154,12 +145,9 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 // sector is not found. The location is locked until release is
 // called.
 func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func() error, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
 	var lockID int64
 	var location storage.SectorLocation
-	err := s.transaction(ctx, func(tx txn) error {
+	err := s.transaction(func(tx txn) error {
 		var err error
 		location, err = sectorLocation(tx, root)
 		if err != nil {
@@ -180,9 +168,7 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 // AddTemporarySectors adds the roots of sectors that are temporarily stored
 // on the host. The sectors will be deleted after the expiration height.
 func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		stmt, err := tx.Prepare(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) SELECT id, $1 FROM stored_sectors WHERE sector_root=$2 RETURNING id;`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare query: %w", err)

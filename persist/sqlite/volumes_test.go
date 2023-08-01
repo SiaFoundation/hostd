@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -884,7 +883,7 @@ func BenchmarkEmptyLocation(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		err := db.transaction(context.Background(), func(tx txn) error {
+		err := db.transaction(func(tx txn) error {
 			_, err := emptyLocation(tx)
 			return err
 		})

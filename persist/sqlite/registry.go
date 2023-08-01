@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -37,10 +36,7 @@ func (s *Store) SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) e
 	)
 	// note: need to error when the registry is full, so can't use upsert
 	registryKey := entry.RegistryKey.Hash()
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTxnTimeout)
-	defer cancel()
-
-	return s.transaction(ctx, func(tx txn) error {
+	return s.transaction(func(tx txn) error {
 		err := tx.QueryRow(selectQuery, sqlHash256(registryKey)).Scan((*sqlHash256)(&registryKey))
 		if errors.Is(err, sql.ErrNoRows) {
 			// key doesn't exist, insert it

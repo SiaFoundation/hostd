@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const flushInterval = 10 * time.Second
+const flushInterval = 30 * time.Second
 
 type (
 	sectorAccessRecorder struct {

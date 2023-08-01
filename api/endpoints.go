@@ -17,7 +17,6 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/disk"
-	"go.sia.tech/hostd/logging"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
@@ -557,38 +556,6 @@ func (a *api) handlePUTSystemDir(c jape.Context) {
 
 func (a *api) handleGETTPoolFee(c jape.Context) {
 	c.Encode(a.tpool.RecommendedFee())
-}
-
-func (a *api) handlePOSTLogEntries(c jape.Context) {
-	var filter logging.Filter
-	if err := c.Decode(&filter); err != nil {
-		return
-	}
-
-	// set default limit
-	if filter.Limit == 0 {
-		filter.Limit = 1000
-	}
-
-	entries, count, err := a.logs.LogEntries(filter)
-	if !a.checkServerError(c, "failed to get log entries", err) {
-		return
-	} else if entries == nil {
-		entries = []logging.Entry{} // TODO: remove. prevents null in JSON causing client-side error
-	}
-	c.Encode(LogResponse{
-		Entries: entries,
-		Count:   count,
-	})
-}
-
-func (a *api) handleDELETELogEntries(c jape.Context) {
-	var timestamp time.Time
-	if err := c.DecodeForm("before", &timestamp); err != nil {
-		return
-	}
-	err := a.logs.Prune(timestamp)
-	a.checkServerError(c, "failed to prune logs", err)
 }
 
 func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset int) {

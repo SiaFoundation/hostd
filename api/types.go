@@ -10,7 +10,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/logging"
 )
 
 // JSON keys for host setting fields
@@ -140,12 +139,6 @@ type (
 	// A CreateDirRequest is the request body for the [POST] /system/dir endpoint.
 	CreateDirRequest struct {
 		Path string `json:"path"`
-	}
-
-	// LogResponse is the response body for the [GET] /log/entries endpoint.
-	LogResponse struct {
-		Count   int             `json:"count"`
-		Entries []logging.Entry `json:"entries"`
 	}
 )
 
