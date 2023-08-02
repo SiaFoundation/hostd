@@ -92,18 +92,23 @@ func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID, height u
 	var dbID int64
 	if err := u.tx.QueryRow(query, height, sqlHash256(id)).Scan(&dbID); err != nil {
 		return fmt.Errorf("failed to confirm resolution: %w", err)
-	} else if err := setContractStatus(u.tx, id, contracts.ContractStatusSuccessful); err != nil {
-		return fmt.Errorf("failed to set contract status to ended: %w", err)
 	}
-
 	// reduce the host's locked and risked collateral
 	contract, err := getContract(u.tx, id)
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
-	} else if err := incrementCurrencyStat(u.tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment locked collateral stat: %w", err)
-	} else if err := incrementCurrencyStat(u.tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+	}
+	// only decrement the collateral if the contract was previously active
+	if contract.Status != contracts.ContractStatusSuccessful && contract.Status != contracts.ContractStatusFailed {
+		if err := incrementCurrencyStat(u.tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment locked collateral stat: %w", err)
+		} else if err := incrementCurrencyStat(u.tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+		}
+	}
+	// set the contract status to successful
+	if err := setContractStatus(u.tx, id, contracts.ContractStatusSuccessful); err != nil {
+		return fmt.Errorf("failed to set contract status to ended: %w", err)
 	}
 	return nil
 }
@@ -444,10 +449,14 @@ func (s *Store) ExpireContract(id types.FileContractID, status contracts.Contrac
 		contract, err := getContract(tx, id)
 		if err != nil {
 			return fmt.Errorf("failed to get contract: %w", err)
-		} else if err := incrementCurrencyStat(tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
-			return fmt.Errorf("failed to increment locked collateral stat: %w", err)
-		} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
-			return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+		}
+		// only decrement if the contract is not already successful or failed
+		if contract.Status != contracts.ContractStatusSuccessful && contract.Status != contracts.ContractStatusFailed {
+			if err := incrementCurrencyStat(tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
+				return fmt.Errorf("failed to increment locked collateral stat: %w", err)
+			} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
+				return fmt.Errorf("failed to increment risked collateral stat: %w", err)
+			}
 		}
 		return nil
 	})
