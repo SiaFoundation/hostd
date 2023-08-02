@@ -1,6 +1,6 @@
 /*
-	When changing the schema, the version must be incremented at the bottom of
-	this file and a migration added to migrations.go
+	When changing the schema, a new migration function must be added to
+	migrations.go
 */
 
 CREATE TABLE wallet_utxos (
@@ -220,4 +220,5 @@ CREATE TABLE global_settings (
 	contracts_height INTEGER -- height of the contract manager as of the last processed change
 );
 
-INSERT INTO global_settings (id, db_version) VALUES (0, 11); -- version must be updated when the schema changes
+-- initialize the global settings table
+INSERT INTO global_settings (id, db_version) VALUES (0, 0); -- should not be changed
