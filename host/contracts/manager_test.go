@@ -158,7 +158,7 @@ func TestContractLockUnlock(t *testing.T) {
 }
 
 func TestContractLifecycle(t *testing.T) {
-	t.Run("contract", func(t *testing.T) {
+	t.Run("successful with proof", func(t *testing.T) {
 		hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
 
 		dir := t.TempDir()
@@ -347,6 +347,193 @@ func TestContractLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("successful no proof", func(t *testing.T) {
+		hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+		dir := t.TempDir()
+		log := zaptest.NewLogger(t)
+		node, err := test.NewWallet(hostKey, dir, log.Named("wallet"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer node.Close()
+
+		am := alerts.NewManager()
+		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+
+		result := make(chan error, 1)
+		if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
+			t.Fatal(err)
+		} else if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+
+		c, err := contracts.NewManager(node.Store(), am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+
+		// note: many more blocks than necessary are mined to ensure all forks have activated
+		if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		renterFunds := types.Siacoins(500)
+		hostCollateral := types.Siacoins(1000)
+		rev, err := formContract(renterKey, hostKey, 50, 60, renterFunds, hostCollateral, c, node, node.ChainManager(), node.TPool())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		contract, err := c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusPending {
+			t.Fatal("expected contract to be pending")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Pending != 1 {
+			t.Fatal("expected 1 pending contract")
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
+		}
+
+		if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatal("expected contract to be active")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Pending != 0 {
+			t.Fatal("expected 0 pending contracts")
+		} else if m.Contracts.Active != 1 {
+			t.Fatal("expected 1 active contract")
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
+		}
+
+		// create a revision that transfers funds to the host, simulating
+		// account funding
+		amount := types.NewCurrency64(100)
+		rev.Revision.RevisionNumber += 10
+		rev.Revision.ValidProofOutputs[0].Value = rev.Revision.ValidProofOutputs[0].Value.Sub(amount)
+		rev.Revision.ValidProofOutputs[1].Value = rev.Revision.ValidProofOutputs[1].Value.Add(amount)
+		rev.Revision.MissedProofOutputs[0].Value = rev.Revision.MissedProofOutputs[0].Value.Sub(amount)
+		rev.Revision.MissedProofOutputs[1].Value = rev.Revision.MissedProofOutputs[1].Value.Add(amount)
+		sigHash := hashRevision(rev.Revision)
+		rev.HostSignature = hostKey.SignHash(sigHash)
+		rev.RenterSignature = renterKey.SignHash(sigHash)
+
+		updater, err := c.ReviseContract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer updater.Close()
+
+		err = updater.Commit(rev, contracts.Usage{
+			AccountFunding: amount,
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.Equals(types.ZeroCurrency) {
+			t.Fatalf("expected %v risked collateral, got %v", types.ZeroCurrency, m.Contracts.RiskedCollateral)
+		}
+
+		// mine until the revision is broadcast
+		remainingBlocks := rev.Revision.WindowStart - node.TipState().Index.Height - contracts.RevisionSubmissionBuffer
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+		// confirm the revision
+		if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatal("expected contract to be active")
+		} else if !contract.RevisionConfirmed {
+			t.Fatal("expected revision to be confirmed")
+		}
+
+		// mine until the end of the proof window -- contract should still be
+		// active since no proof is required.
+		remainingBlocks = rev.Revision.WindowEnd - node.TipState().Index.Height - 1
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatal("expected contract to be active")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Pending != 0 {
+			t.Fatal("expected 0 pending contracts")
+		} else if m.Contracts.Active != 1 {
+			t.Fatal("expected 1 active contract")
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
+		}
+
+		// mine until after the proof window -- contract should be successful
+		remainingBlocks = rev.Revision.WindowEnd - node.TipState().Index.Height + 1
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusSuccessful {
+			t.Fatal("expected contract to be successful")
+		} else if contract.ResolutionHeight != 0 {
+			t.Fatalf("expected resolution height %v, got %v", 0, contract.ResolutionHeight)
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Active != 0 {
+			t.Fatal("expected 0 active contracts")
+		} else if m.Contracts.Successful != 1 {
+			t.Fatal("expected 1 successful contract")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.IsZero() {
+			t.Fatalf("expected %v locked collateral, got %v", types.ZeroCurrency, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected %v risked collateral, got %v", types.ZeroCurrency, m.Contracts.RiskedCollateral)
+		}
+	})
+
 	t.Run("0 filesize contract", func(t *testing.T) {
 		hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
 
@@ -484,6 +671,219 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal("expected 0 active contracts")
 		} else if m.Contracts.Successful != 1 {
 			t.Fatal("expected 1 successful contract")
+		}
+	})
+
+	t.Run("failed corrupt sector", func(t *testing.T) {
+		hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+		dir := t.TempDir()
+		log := zaptest.NewLogger(t)
+		node, err := test.NewWallet(hostKey, dir, log.Named("wallet"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer node.Close()
+
+		am := alerts.NewManager()
+		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+
+		result := make(chan error, 1)
+		if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
+			t.Fatal(err)
+		} else if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+
+		c, err := contracts.NewManager(node.Store(), am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+
+		// note: many more blocks than necessary are mined to ensure all forks have activated
+		if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		renterFunds := types.Siacoins(500)
+		hostCollateral := types.Siacoins(1000)
+		rev, err := formContract(renterKey, hostKey, 50, 60, renterFunds, hostCollateral, c, node, node.ChainManager(), node.TPool())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		contract, err := c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusPending {
+			t.Fatal("expected contract to be pending")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Pending != 1 {
+			t.Fatal("expected 1 pending contract")
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
+		}
+
+		if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatal("expected contract to be active")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Pending != 0 {
+			t.Fatal("expected 0 pending contracts")
+		} else if m.Contracts.Active != 1 {
+			t.Fatal("expected 1 active contract")
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
+		}
+
+		var roots []types.Hash256
+		for i := 0; i < 5; i++ {
+			var sector [rhpv2.SectorSize]byte
+			frand.Read(sector[:256])
+			root := rhpv2.SectorRoot(&sector)
+			release, err := s.Write(root, &sector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			roots = append(roots, root)
+		}
+
+		// create a revision that adds sectors and transfers funds to the host
+		amount := types.NewCurrency64(100)
+		collateral := types.NewCurrency64(200)
+		rev.Revision.RevisionNumber++
+		rev.Revision.Filesize = rhpv2.SectorSize * uint64(len(roots))
+		rev.Revision.FileMerkleRoot = frand.Entropy256() // corrupt the file merkle root so the blockchain rejects the proof
+		rev.Revision.ValidProofOutputs[0].Value = rev.Revision.ValidProofOutputs[0].Value.Sub(amount)
+		rev.Revision.ValidProofOutputs[1].Value = rev.Revision.ValidProofOutputs[1].Value.Add(amount)
+		rev.Revision.MissedProofOutputs[0].Value = rev.Revision.MissedProofOutputs[0].Value.Sub(amount)
+		rev.Revision.MissedProofOutputs[1].Value = rev.Revision.MissedProofOutputs[1].Value.Sub(collateral)
+		rev.Revision.MissedProofOutputs[2].Value = rev.Revision.MissedProofOutputs[2].Value.Add(collateral.Add(amount))
+		sigHash := hashRevision(rev.Revision)
+		rev.HostSignature = hostKey.SignHash(sigHash)
+		rev.RenterSignature = renterKey.SignHash(sigHash)
+
+		updater, err := c.ReviseContract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer updater.Close()
+
+		for _, root := range roots {
+			updater.AppendSector(root)
+		}
+
+		err = updater.Commit(rev, contracts.Usage{
+			StorageRevenue:   amount,
+			RiskedCollateral: collateral,
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.Equals(collateral) {
+			t.Fatalf("expected %v risked collateral, got %v", collateral, m.Contracts.RiskedCollateral)
+		}
+
+		// mine until the revision is broadcast
+		remainingBlocks := rev.Revision.WindowStart - node.TipState().Index.Height - contracts.RevisionSubmissionBuffer
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+		// confirm the revision
+		if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatal("expected contract to be active")
+		} else if !contract.RevisionConfirmed {
+			t.Fatal("expected revision to be confirmed")
+		}
+
+		// mine until the end proof window
+		remainingBlocks = rev.Revision.WindowEnd - node.TipState().Index.Height - 1
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		// check that the contract is still active
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatal("expected contract to be successful")
+		} else if contract.ResolutionHeight != 0 {
+			t.Fatalf("expected resolution height %v, got %v", 0, contract.ResolutionHeight)
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Active != 1 {
+			t.Fatal("expected 1 active contracts")
+		} else if m.Contracts.Successful != 0 {
+			t.Fatal("expected 0 successful contracts")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", types.ZeroCurrency, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.Equals(collateral) {
+			t.Fatalf("expected %v risked collateral, got %v", types.ZeroCurrency, m.Contracts.RiskedCollateral)
+		}
+
+		// mine until after the proof window
+		remainingBlocks = rev.Revision.WindowEnd - node.TipState().Index.Height + 1
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		// check that the contract is now failed
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusFailed {
+			t.Fatal("expected contract to be successful")
+		} else if contract.ResolutionHeight != 0 {
+			t.Fatalf("expected resolution height %v, got %v", 0, contract.ResolutionHeight)
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Active != 0 {
+			t.Fatal("expected 0 active contracts")
+		} else if m.Contracts.Failed != 1 {
+			t.Fatal("expected 1 failed contract")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.IsZero() {
+			t.Fatalf("expected %v locked collateral, got %v", types.ZeroCurrency, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.IsZero() {
+			t.Fatalf("expected %v risked collateral, got %v", types.ZeroCurrency, m.Contracts.RiskedCollateral)
 		}
 	})
 }
