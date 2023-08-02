@@ -98,8 +98,9 @@ func (u *updateContractsTxn) ConfirmResolution(id types.FileContractID, height u
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
 	}
-	// only decrement the collateral if the contract was previously active
-	if contract.Status != contracts.ContractStatusSuccessful && contract.Status != contracts.ContractStatusFailed {
+	// rejected, successful, and failed contracts have already had their
+	// collateral and revenue removed
+	if contract.Status == contracts.ContractStatusActive || contract.Status == contracts.ContractStatusPending {
 		if err := incrementCurrencyStat(u.tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
 			return fmt.Errorf("failed to increment locked collateral stat: %w", err)
 		} else if err := incrementCurrencyStat(u.tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
@@ -441,22 +442,23 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // if the contract is active or pending.
 func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
 	return s.transaction(func(tx txn) error {
-		if err := setContractStatus(tx, id, status); err != nil {
-			return fmt.Errorf("failed to set contract status: %w", err)
-		}
-
 		// reduce the locked and risked collateral metrics
 		contract, err := getContract(tx, id)
 		if err != nil {
 			return fmt.Errorf("failed to get contract: %w", err)
 		}
-		// only decrement if the contract is not already successful or failed
-		if contract.Status != contracts.ContractStatusSuccessful && contract.Status != contracts.ContractStatusFailed {
+		// successful, failed, and rejected contracts should have already had their
+		// collateral removed from the metrics
+		if contract.Status == contracts.ContractStatusActive || contract.Status == contracts.ContractStatusPending {
 			if err := incrementCurrencyStat(tx, metricLockedCollateral, contract.LockedCollateral, true, time.Now()); err != nil {
 				return fmt.Errorf("failed to increment locked collateral stat: %w", err)
 			} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, true, time.Now()); err != nil {
 				return fmt.Errorf("failed to increment risked collateral stat: %w", err)
 			}
+		}
+		// update the contract status
+		if err := setContractStatus(tx, id, status); err != nil {
+			return fmt.Errorf("failed to set contract status: %w", err)
 		}
 		return nil
 	})
@@ -1023,13 +1025,13 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 	return
 }
 
-func updateContractMetrics(tx txn, prev, current contracts.ContractStatus) error {
-	if prev == current {
+func updateContractMetrics(tx txn, current, next contracts.ContractStatus) error {
+	if current == next {
 		return nil
 	}
 
 	var initialMetric, finalMetric string
-	switch prev {
+	switch current {
 	case contracts.ContractStatusPending:
 		initialMetric = metricPendingContracts
 	case contracts.ContractStatusRejected:
@@ -1043,7 +1045,7 @@ func updateContractMetrics(tx txn, prev, current contracts.ContractStatus) error
 	default:
 		return fmt.Errorf("invalid prev contract status: %v", current)
 	}
-	switch current {
+	switch next {
 	case contracts.ContractStatusPending:
 		finalMetric = metricPendingContracts
 	case contracts.ContractStatusRejected:
