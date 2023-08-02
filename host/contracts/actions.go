@@ -156,9 +156,6 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
 		if missedPayout.Cmp(validPayout) >= 0 {
 			log.Info("skipping storage proof, no benefit to host", zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
-			if err := cm.store.ExpireContract(id, ContractStatusSuccessful); err != nil {
-				log.Error("failed to set contract status", zap.Error(err))
-			}
 			return
 		}
 
@@ -244,11 +241,10 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 			log.Error("contract failed, revenue lost", zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
 			return
 		}
-		// note: this should always be a no-op, but it's good to be explicit
 		if err := cm.store.ExpireContract(id, ContractStatusSuccessful); err != nil {
 			log.Error("failed to set contract status", zap.Error(err))
 		}
-		log.Info("contract expired")
+		log.Info("contract successful", zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
 	default:
 		log.Panic("unrecognized contract action", zap.Stack("stack"))
 	}
