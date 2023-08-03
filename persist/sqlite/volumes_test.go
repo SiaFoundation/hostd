@@ -866,7 +866,7 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	}
 }
 
-func BenchmarkEmptyLocation(b *testing.B) {
+func BenchmarkStoreSector(b *testing.B) {
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
 	if err != nil {
@@ -874,19 +874,17 @@ func BenchmarkEmptyLocation(b *testing.B) {
 	}
 	defer db.Close()
 
-	_, err = addVolume(db, "test", 1e6)
+	_, err = addVolume(db, "test", uint64(b.N*2))
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
+	b.ReportMetric(float64(b.N), "sectors")
 
 	for i := 0; i < b.N; i++ {
-		err := db.transaction(func(tx txn) error {
-			_, err := emptyLocation(tx)
-			return err
-		})
+		_, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error { return nil })
 		if err != nil {
 			b.Fatal(err)
 		}

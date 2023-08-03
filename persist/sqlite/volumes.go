@@ -487,25 +487,27 @@ func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err
 	return
 }
 
-func emptyLocation(tx txn) (loc storage.SectorLocation, err error) {
-	// SQLite can only use one index per table and always prefers WHERE clause
-	// indices over ORDER BY clause indices. However, since the query needs to
-	// order potentially millions of rows, an index on the ORDER BY clause is
-	// required. With the existing indices and query, sqlite will use an index
-	// for the ORDER BY clause. Any changes may cause sqlite to switch the ORDER
-	// BY clause to a temp b-tree index, which is significantly slower (200ms vs
-	// 2ms).
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
-FROM volume_sectors vs
-INNER JOIN storage_volumes v ON +(vs.volume_id = v.id)
-WHERE +vs.sector_id IS NULL AND vs.id NOT IN (SELECT volume_sector_id FROM locked_volume_sectors) AND v.read_only=false AND v.available = true
-ORDER BY vs.volume_index ASC -- order by distributes data evenly across volumes rather than filling the first volume.
-LIMIT 1;`
-	err = tx.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
+func emptyLocation(tx txn) (storage.SectorLocation, error) {
+	var volumeID int64
+	err := tx.QueryRow(`SELECT id FROM storage_volumes WHERE available=true AND read_only=false ORDER BY total_sectors-used_sectors ASC LIMIT 1;`).Scan(&volumeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
+	} else if err != nil {
+		return storage.SectorLocation{}, fmt.Errorf("failed to get empty location: %w", err)
+	}
+
+	// note: there is a slight race here where all sectors in a volume could be
+	// locked, but not committed. This is unlikely to happen in practice, and
+	// the worst case is that the host fails to store a sector.
+	var loc storage.SectorLocation
+	const query = `SELECT vs.id, vs.volume_id, vs.volume_index FROM volume_sectors vs
+LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
+WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id=$1 LIMIT 1;`
+	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrNotEnoughStorage
 	}
-	return
+	return loc, err
 }
 
 func volumeSectorsForDeletion(tx txn, volumeID, batchSize int) (locs []volumeSectorRef, err error) {
