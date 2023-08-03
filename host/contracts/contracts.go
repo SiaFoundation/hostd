@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.uber.org/zap"
@@ -150,8 +151,9 @@ type (
 		store ContractStore
 		log   *zap.Logger
 
-		once sync.Once
-		done func() // done is called when the updater is closed.
+		rootsCache *lru.TwoQueueCache[types.FileContractID, []types.Hash256] // reference to the cache in the contract manager
+		once       sync.Once
+		done       func() // done is called when the updater is closed.
 
 		sectors       uint64
 		contractID    types.FileContractID
@@ -333,11 +335,14 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 	}
 
 	start := time.Now()
+	// revise the contract
 	err := cu.store.ReviseContract(revision, usage, cu.sectors, cu.sectorActions)
 	if err == nil {
 		// clear the committed sector actions
 		cu.sectorActions = cu.sectorActions[:0]
 	}
+	// update the roots cache
+	cu.rootsCache.Add(revision.Revision.ParentID, cu.sectorRoots[:])
 	cu.log.Debug("contract update committed", zap.String("contractID", revision.Revision.ParentID.String()), zap.Uint64("revision", revision.Revision.RevisionNumber), zap.Duration("elapsed", time.Since(start)))
 	return err
 }
