@@ -350,7 +350,7 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contract
 
 // SectorRoots returns the sector roots for a contract. If limit is 0, all roots
 // are returned.
-func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint64) (roots []types.Hash256, err error) {
+func (s *Store) SectorRoots(contractID types.FileContractID) (roots []types.Hash256, err error) {
 	err = s.transaction(func(tx txn) error {
 		var dbID int64
 		err := tx.QueryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
@@ -358,16 +358,12 @@ func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint6
 			return fmt.Errorf("failed to get contract id: %w", err)
 		}
 
-		query := `SELECT s.sector_root FROM contract_sector_roots c
+		const query = `SELECT s.sector_root FROM contract_sector_roots c
 INNER JOIN stored_sectors s ON (c.sector_id = s.id)
 WHERE c.contract_id=$1
 ORDER BY root_index ASC`
 
-		if limit > 0 {
-			query += ` LIMIT $2 OFFSET $3;`
-		}
-
-		rows, err := tx.Query(query, dbID, limit, offset)
+		rows, err := tx.Query(query, dbID)
 		if err != nil {
 			return fmt.Errorf("failed to query sector roots: %w", err)
 		}
