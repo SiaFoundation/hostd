@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 type (
@@ -82,9 +84,11 @@ func (s *Store) queryRow(query string, args ...any) *loggedRow {
 // retried up to 10 times before returning.
 func (s *Store) transaction(fn func(txn) error) error {
 	var err error
-	log := s.log.Named("transaction")
+	txnID := hex.EncodeToString(frand.Bytes(4))
+	log := s.log.Named("transaction").With(zap.String("id", txnID))
+	start := time.Now()
 	for i := 1; i <= retryAttempts; i++ {
-		start := time.Now()
+		attemptStart := time.Now()
 		log := log.With(zap.Int("attempt", i))
 		err = doTransaction(s.db, log, fn)
 		if err == nil {
@@ -97,7 +101,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 		if !errors.As(err, &sqliteErr) || sqliteErr.Code != sqlite3.ErrBusy {
 			return err
 		}
-		log.Debug("database locked", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
 		sleep := time.Duration(math.Pow(factor, float64(i))) * time.Millisecond // exponential backoff
 		time.Sleep(sleep + time.Duration(rand.Int63n(int64(sleep)/10)))         // add random jitter
 	}
