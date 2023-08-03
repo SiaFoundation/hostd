@@ -958,6 +958,10 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 // AddTemporarySectors adds sectors to the temporary store. The sectors are not
 // referenced by a contract and will be removed at the expiration height.
 func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
+	if len(sectors) == 0 {
+		return nil
+	}
+
 	done, err := vm.tg.Add()
 	if err != nil {
 		return err
