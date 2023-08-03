@@ -128,35 +128,27 @@ func sqliteFilepath(fp string) string {
 // an error, the transaction is rolled back. Otherwise, the transaction is
 // committed.
 func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
+	start := time.Now()
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
+	defer func() {
+		// log the transaction if it took longer than txn duration
+		if time.Since(start) > longTxnDuration {
+			log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"), zap.Bool("failed", err != nil))
+		}
+	}()
 
 	ltx := &loggedTxn{
 		Tx:  tx,
 		log: log,
 	}
-	start := time.Now()
 	if err = fn(ltx); err != nil {
 		return fmt.Errorf("transaction failed: %w", err)
-	}
-
-	// log the transaction if it took longer than txn duration
-	if time.Since(start) > longTxnDuration {
-		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
-	}
-
-	// commit the transaction
-	commitStart := time.Now()
-	if err = tx.Commit(); err != nil {
+	} else if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// log the commit if it took longer than commit duration
-	if time.Since(commitStart) > longQueryDuration {
-		ltx.log.Debug("long transaction commit", zap.Duration("elapsed", time.Since(commitStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
 	}
 	return nil
 }
