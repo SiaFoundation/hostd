@@ -51,7 +51,7 @@ type (
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
 		// SectorRoots returns the sector roots of the contract with the given ID.
-		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
+		SectorRoots(id types.FileContractID, limit, offset int) ([]types.Hash256, error)
 	}
 
 	// A StorageManager manages the storage of sectors on disk.
