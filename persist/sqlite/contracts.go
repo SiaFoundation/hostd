@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -557,7 +556,6 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 			return fmt.Errorf("failed to scan sector ID: %w", err)
 		}
 		records = append(records, record)
-		log.Println("root", record.dbID, record.sectorID, i, j)
 	}
 
 	if len(records) != 2 {
@@ -594,7 +592,6 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 			if err := rows.Scan(&id, &index); err != nil {
 				panic(fmt.Errorf("failed to scan sector ID: %w", err))
 			}
-			log.Println("newRoot", id, index, i, j)
 		}
 	}()
 
