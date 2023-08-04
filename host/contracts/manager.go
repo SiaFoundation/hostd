@@ -26,7 +26,7 @@ import (
 // Caching prevents frequently updated contracts from continuously hitting the
 // DB. This is left as a hard-coded small value to limit memory usage since
 // contracts can contain any number of sector roots
-const sectorRootCacheSize = 15
+const sectorRootCacheSize = 30
 
 type (
 	contractChange struct {
