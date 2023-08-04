@@ -470,20 +470,14 @@ func sectorDBID(tx txn, root types.Hash256) (id int64, err error) {
 }
 
 func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err error) {
-	var sectorDBID int64
-	err = tx.QueryRow(`UPDATE stored_sectors SET last_access_timestamp=$1 WHERE sector_root=$2 RETURNING id`, sqlTime(time.Now()), sqlHash256(root)).Scan(&sectorDBID)
+	const query = `SELECT v.id, v.volume_id, v.volume_index FROM volume_sectors v 
+	INNER JOIN stored_sectors s ON (s.id=v.sector_id)
+	WHERE s.sector_root=$1`
+	err = tx.QueryRow(query, (*sqlHash256)(&root)).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.SectorLocation{}, storage.ErrSectorNotFound
-	} else if err != nil {
-		return storage.SectorLocation{}, fmt.Errorf("failed to update sector access time: %w", err)
 	}
 	loc.Root = root
-	const query = `SELECT v.id, v.volume_id, v.volume_index FROM volume_sectors v WHERE v.sector_id=$1`
-	err = tx.QueryRow(query, sectorDBID).Scan(&loc.ID, &loc.Volume, &loc.Index)
-	if errors.Is(err, sql.ErrNoRows) {
-		// should only happen if the sector was manually removed
-		return storage.SectorLocation{}, storage.ErrSectorNotFound
-	}
 	return
 }
 
