@@ -120,26 +120,35 @@ func TestAppendSector(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// calculate the cost of the upload
-	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
-	if cost.IsZero() {
-		t.Fatal("cost is zero")
-	}
-	var sector [rhpv2.SectorSize]byte
-	frand.Read(sector[:256])
-	root := rhpv2.SectorRoot(&sector)
+	var roots []types.Hash256
+	for i := 0; i < 10; i++ {
+		// calculate the cost of the upload
+		cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
+		if cost.IsZero() {
+			t.Fatal("cost is zero")
+		}
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhpv2.SectorRoot(&sector)
+		roots = append(roots, root)
 
-	if _, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost); err != nil {
-		t.Fatal(err)
-	}
+		if _, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost); err != nil {
+			t.Fatal(err)
+		}
 
-	// download the sector
-	cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(rhpv2.SectorSize)).Total()
-	downloaded, _, err := session.ReadSector(root, 0, rhpv2.SectorSize, payment, cost)
-	if err != nil {
-		t.Fatal(err)
-	} else if !bytes.Equal(downloaded, sector[:]) {
-		t.Fatal("downloaded sector doesn't match")
+		// check that the contract merkle root matches
+		if revision.Revision.FileMerkleRoot != rhpv2.MetaRoot(roots) {
+			t.Fatal("contract merkle root doesn't match")
+		}
+
+		// download the sector
+		cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(rhpv2.SectorSize)).Total()
+		downloaded, _, err := session.ReadSector(root, 0, rhpv2.SectorSize, payment, cost)
+		if err != nil {
+			t.Fatal(err)
+		} else if !bytes.Equal(downloaded, sector[:]) {
+			t.Fatal("downloaded sector doesn't match")
+		}
 	}
 }
 
