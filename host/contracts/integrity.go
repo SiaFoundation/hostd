@@ -73,7 +73,7 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 
 	expectedRoots := contract.Revision.Filesize / rhpv2.SectorSize
 
-	roots, err := cm.store.SectorRoots(contractID, 0, 0)
+	roots, err := cm.getSectorRoots(contractID, 0, 0)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get sector roots: %w", err)
 	} else if uint64(len(roots)) != expectedRoots {

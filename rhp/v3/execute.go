@@ -707,8 +707,10 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 	}
 
 	// commit the temporary sectors
-	if err := pe.storage.AddTemporarySectors(pe.tempSectors); err != nil {
-		return fmt.Errorf("failed to commit temporary sectors: %w", err)
+	if len(pe.tempSectors) > 0 {
+		if err := pe.storage.AddTemporarySectors(pe.tempSectors); err != nil {
+			return fmt.Errorf("failed to commit temporary sectors: %w", err)
+		}
 	}
 	return nil
 }

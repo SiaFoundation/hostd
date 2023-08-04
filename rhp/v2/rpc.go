@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -467,7 +468,17 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 	}
 	hostSig := sh.privateKey.SignHash(sigHash)
 
-	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID, req.NumRoots, req.RootOffset)
+	if req.NumRoots > math.MaxInt {
+		err := errors.New("too many requested sector roots")
+		s.t.WriteResponseErr(err)
+		return err
+	} else if req.RootOffset > math.MaxInt {
+		err := errors.New("sector root offset is too large")
+		s.t.WriteResponseErr(err)
+		return err
+	}
+
+	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID, int(req.NumRoots), int(req.RootOffset))
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to get sector roots: %w", err)

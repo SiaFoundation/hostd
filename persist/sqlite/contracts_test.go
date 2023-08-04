@@ -94,7 +94,7 @@ func TestReviseContract(t *testing.T) {
 	}
 
 	// verify the roots were added in the correct order
-	dbRoots, err := db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	dbRoots, err := db.SectorRoots(contract.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -113,7 +113,7 @@ func TestReviseContract(t *testing.T) {
 	roots[i], roots[j] = roots[j], roots[i]
 
 	// verify the roots were swapped
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -132,7 +132,7 @@ func TestReviseContract(t *testing.T) {
 	roots = roots[:len(roots)-toRemove]
 
 	// verify the roots were removed
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -149,7 +149,7 @@ func TestReviseContract(t *testing.T) {
 	}
 
 	// verify the roots stayed the same
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -169,7 +169,7 @@ func TestReviseContract(t *testing.T) {
 	roots = roots[:0]
 
 	// verify the roots are gone
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {
@@ -228,7 +228,7 @@ func TestReviseContract(t *testing.T) {
 	roots = roots[:len(roots)-toTrim]
 
 	// verify the roots match
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID, 0, 100)
+	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if err = rootsEqual(roots, dbRoots); err != nil {

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
@@ -20,6 +21,12 @@ import (
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
+
+// sectorRootCacheSize is the number of contracts' sector roots to cache.
+// Caching prevents frequently updated contracts from continuously hitting the
+// DB. This is left as a hard-coded small value to limit memory usage since
+// contracts can contain any number of sector roots
+const sectorRootCacheSize = 30
 
 type (
 	contractChange struct {
@@ -82,10 +89,44 @@ type (
 
 		processQueue chan uint64 // signals that the contract manager should process actions for a given block height
 
+		// caches the sector roots of contracts to avoid hitting the DB
+		// for frequently accessed contracts. The cache is limited to a
+		// small number of contracts to limit memory usage.
+		rootsCache *lru.TwoQueueCache[types.FileContractID, []types.Hash256]
+
 		mu    sync.Mutex                       // guards the following fields
 		locks map[types.FileContractID]*locker // contracts must be locked while they are being modified
 	}
 )
+
+func (cm *ContractManager) getSectorRoots(id types.FileContractID, limit, offset int) ([]types.Hash256, error) {
+	// check the cache first
+	if roots, ok := cm.rootsCache.Get(id); ok {
+		if limit == 0 {
+			limit = len(roots)
+		}
+
+		if offset+limit > len(roots) {
+			return nil, errors.New("offset + limit exceeds length of roots")
+		}
+
+		// copy the roots into a new slice to avoid returning a slice of the
+		// cache's internal array
+		r := make([]types.Hash256, limit)
+		copy(r, roots[offset:offset+limit])
+		return r, nil
+	}
+
+	// if the cache doesn't have the roots, read them from the store
+	roots, err := cm.store.SectorRoots(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sector roots: %w", err)
+	}
+	// add the roots to the cache
+	cm.rootsCache.Add(id, roots)
+	// return the requested roots
+	return roots[offset : offset+limit], nil
+}
 
 // Lock locks a contract for modification.
 func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (SignedRevision, error) {
@@ -201,14 +242,14 @@ func (cm *ContractManager) RenewContract(renewal SignedRevision, existing Signed
 }
 
 // SectorRoots returns the roots of all sectors stored by the contract.
-func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error) {
+func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset int) ([]types.Hash256, error) {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	return cm.store.SectorRoots(id, limit, offset)
+	return cm.getSectorRoots(id, limit, offset)
 }
 
 // ProcessConsensusChange applies a block update to the contract manager.
@@ -413,7 +454,7 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 		return nil, err
 	}
 
-	roots, err := cm.store.SectorRoots(contractID, 0, 0)
+	roots, err := cm.getSectorRoots(contractID, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sector roots: %w", err)
 	}
@@ -421,6 +462,7 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 		store: cm.store,
 		log:   cm.log.Named("contractUpdater"),
 
+		rootsCache:  cm.rootsCache,
 		contractID:  contractID,
 		sectors:     uint64(len(roots)),
 		sectorRoots: roots,
@@ -460,6 +502,10 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 
 // NewManager creates a new contract manager.
 func NewManager(store ContractStore, alerts Alerts, storage StorageManager, c ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) (*ContractManager, error) {
+	cache, err := lru.New2Q[types.FileContractID, []types.Hash256](sectorRootCacheSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
 	cm := &ContractManager{
 		store:   store,
 		tg:      threadgroup.New(),
@@ -469,6 +515,8 @@ func NewManager(store ContractStore, alerts Alerts, storage StorageManager, c Ch
 		chain:   c,
 		tpool:   tpool,
 		wallet:  wallet,
+
+		rootsCache: cache,
 
 		processQueue: make(chan uint64, 100),
 		locks:        make(map[types.FileContractID]*locker),

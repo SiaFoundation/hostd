@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -350,35 +349,35 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contract
 
 // SectorRoots returns the sector roots for a contract. If limit is 0, all roots
 // are returned.
-func (s *Store) SectorRoots(contractID types.FileContractID, offset, limit uint64) ([]types.Hash256, error) {
-	var dbID int64
-	err := s.queryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get contract id: %w", err)
-	}
-
-	var query string
-	if limit <= 0 {
-		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC;`
-	} else {
-		query = `SELECT s.sector_root FROM contract_sector_roots c INNER JOIN stored_sectors s ON (c.sector_id = s.id) WHERE c.contract_id=$1 ORDER BY root_index ASC LIMIT $2 OFFSET $3;`
-	}
-
-	rows, err := s.query(query, dbID, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query sector roots: %w", err)
-	}
-	defer rows.Close()
-
-	var roots []types.Hash256
-	for rows.Next() {
-		var root types.Hash256
-		if err := rows.Scan((*sqlHash256)(&root)); err != nil {
-			return nil, fmt.Errorf("failed to scan sector root: %w", err)
+func (s *Store) SectorRoots(contractID types.FileContractID) (roots []types.Hash256, err error) {
+	err = s.transaction(func(tx txn) error {
+		var dbID int64
+		err := tx.QueryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
+		if err != nil {
+			return fmt.Errorf("failed to get contract id: %w", err)
 		}
-		roots = append(roots, root)
-	}
-	return roots, nil
+
+		const query = `SELECT s.sector_root FROM contract_sector_roots c
+INNER JOIN stored_sectors s ON (c.sector_id = s.id)
+WHERE c.contract_id=$1
+ORDER BY root_index ASC`
+
+		rows, err := tx.Query(query, dbID)
+		if err != nil {
+			return fmt.Errorf("failed to query sector roots: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var root types.Hash256
+			if err := rows.Scan((*sqlHash256)(&root)); err != nil {
+				return fmt.Errorf("failed to scan sector root: %w", err)
+			}
+			roots = append(roots, root)
+		}
+		return nil
+	})
+	return
 }
 
 // ContractAction calls contractFn on every contract in the store that
@@ -557,7 +556,6 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 			return fmt.Errorf("failed to scan sector ID: %w", err)
 		}
 		records = append(records, record)
-		log.Println("root", record.dbID, record.sectorID, i, j)
 	}
 
 	if len(records) != 2 {
@@ -594,7 +592,6 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 			if err := rows.Scan(&id, &index); err != nil {
 				panic(fmt.Errorf("failed to scan sector ID: %w", err))
 			}
-			log.Println("newRoot", id, index, i, j)
 		}
 	}()
 

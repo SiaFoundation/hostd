@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
 
 type (
@@ -82,9 +84,11 @@ func (s *Store) queryRow(query string, args ...any) *loggedRow {
 // retried up to 10 times before returning.
 func (s *Store) transaction(fn func(txn) error) error {
 	var err error
-	log := s.log.Named("transaction")
+	txnID := hex.EncodeToString(frand.Bytes(4))
+	log := s.log.Named("transaction").With(zap.String("id", txnID))
+	start := time.Now()
 	for i := 1; i <= retryAttempts; i++ {
-		start := time.Now()
+		attemptStart := time.Now()
 		log := log.With(zap.Int("attempt", i))
 		err = doTransaction(s.db, log, fn)
 		if err == nil {
@@ -97,7 +101,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 		if !errors.As(err, &sqliteErr) || sqliteErr.Code != sqlite3.ErrBusy {
 			return err
 		}
-		log.Debug("database locked", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
+		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
 		sleep := time.Duration(math.Pow(factor, float64(i))) * time.Millisecond // exponential backoff
 		time.Sleep(sleep + time.Duration(rand.Int63n(int64(sleep)/10)))         // add random jitter
 	}
@@ -124,35 +128,27 @@ func sqliteFilepath(fp string) string {
 // an error, the transaction is rolled back. Otherwise, the transaction is
 // committed.
 func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
+	start := time.Now()
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
+	defer func() {
+		// log the transaction if it took longer than txn duration
+		if time.Since(start) > longTxnDuration {
+			log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"), zap.Bool("failed", err != nil))
+		}
+	}()
 
 	ltx := &loggedTxn{
 		Tx:  tx,
 		log: log,
 	}
-	start := time.Now()
 	if err = fn(ltx); err != nil {
 		return fmt.Errorf("transaction failed: %w", err)
-	}
-
-	// log the transaction if it took longer than txn duration
-	if time.Since(start) > longTxnDuration {
-		ltx.log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"))
-	}
-
-	// commit the transaction
-	commitStart := time.Now()
-	if err = tx.Commit(); err != nil {
+	} else if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// log the commit if it took longer than commit duration
-	if time.Since(commitStart) > longQueryDuration {
-		ltx.log.Debug("long transaction commit", zap.Duration("elapsed", time.Since(commitStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
 	}
 	return nil
 }

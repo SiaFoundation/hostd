@@ -60,7 +60,7 @@ type (
 		RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, initialUsage Usage, negotationHeight uint64) error
 		// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
 		// are returned.
-		SectorRoots(id types.FileContractID, limit, offset uint64) ([]types.Hash256, error)
+		SectorRoots(id types.FileContractID) ([]types.Hash256, error)
 		// ContractAction calls contractFn on every contract in the store that
 		// needs a lifecycle action performed.
 		ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error
