@@ -887,3 +887,114 @@ func TestContractLifecycle(t *testing.T) {
 		}
 	})
 }
+
+func TestSectorRoots(t *testing.T) {
+	const sectors = 256
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	dir := t.TempDir()
+
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	node, err := test.NewWallet(hostKey, t.TempDir(), log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+
+	am := alerts.NewManager()
+	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// create a fake volume so disk space is not used
+	id, err := db.AddVolume("test", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.GrowVolume(id, sectors); err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(id, true); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := contracts.NewManager(db, am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	contractUnlockConditions := types.UnlockConditions{
+		PublicKeys: []types.UnlockKey{
+			renterKey.PublicKey().UnlockKey(),
+			hostKey.PublicKey().UnlockKey(),
+		},
+		SignaturesRequired: 2,
+	}
+	rev := contracts.SignedRevision{
+		Revision: types.FileContractRevision{
+			FileContract: types.FileContract{
+				UnlockHash:  types.Hash256(contractUnlockConditions.UnlockHash()),
+				WindowStart: 100,
+				WindowEnd:   200,
+			},
+			ParentID:         frand.Entropy256(),
+			UnlockConditions: contractUnlockConditions,
+		},
+	}
+
+	if err := c.AddContract(rev, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var roots []types.Hash256
+	for i := 0; i < sectors; i++ {
+		root := frand.Entropy256()
+		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+
+		// use the database method directly to avoid the sector cache
+		err = db.ReviseContract(rev, contracts.Usage{}, uint64(i), []contracts.SectorChange{
+			{Action: contracts.SectorActionAppend, Root: root},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots = append(roots, root)
+	}
+
+	// check that the sector roots are correct
+	check, err := c.SectorRoots(rev.Revision.ParentID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(check) != len(roots) {
+		t.Fatalf("expected %v sector roots, got %v", len(roots), len(check))
+	}
+	for i := range check {
+		if check[i] != roots[i] {
+			t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+		}
+	}
+
+	// check that the cached sector roots are correct
+	check, err = c.SectorRoots(rev.Revision.ParentID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(check) != len(roots) {
+		t.Fatalf("expected %v sector roots, got %v", len(roots), len(check))
+	}
+	for i := range check {
+		if check[i] != roots[i] {
+			t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+		}
+	}
+}

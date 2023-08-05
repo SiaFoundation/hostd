@@ -100,30 +100,30 @@ type (
 )
 
 func (cm *ContractManager) getSectorRoots(id types.FileContractID, limit, offset int) ([]types.Hash256, error) {
+	if limit < 0 || offset < 0 {
+		return nil, errors.New("limit and offset must be non-negative")
+	}
+
 	// check the cache first
-	if roots, ok := cm.rootsCache.Get(id); ok {
-		if limit == 0 {
-			limit = len(roots)
-		}
-
-		if offset+limit > len(roots) {
-			return nil, errors.New("offset + limit exceeds length of roots")
-		}
-
+	roots, ok := cm.rootsCache.Get(id)
+	if ok {
 		// copy the roots into a new slice to avoid returning a slice of the
 		// cache's internal array
-		r := make([]types.Hash256, limit)
-		copy(r, roots[offset:offset+limit])
-		return r, nil
+		roots = append([]types.Hash256(nil), roots...)
+	} else {
+		var err error
+		// if the cache doesn't have the roots, read them from the store
+		roots, err = cm.store.SectorRoots(id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sector roots: %w", err)
+		}
+		// add the roots to the cache
+		cm.rootsCache.Add(id, roots)
 	}
 
-	// if the cache doesn't have the roots, read them from the store
-	roots, err := cm.store.SectorRoots(id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sector roots: %w", err)
+	if limit == 0 {
+		limit = len(roots)
 	}
-	// add the roots to the cache
-	cm.rootsCache.Add(id, roots)
 	// return the requested roots
 	return roots[offset : offset+limit], nil
 }
