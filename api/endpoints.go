@@ -207,6 +207,8 @@ func (a *api) handleGETPeriodMetrics(c jape.Context) {
 	if periods == 0 {
 		// if periods is 0 calculate the number of periods between start and now
 		switch interval {
+		case metrics.Interval5Minutes:
+			periods = int(time.Now().Truncate(5*time.Minute).Sub(start)/(5*time.Minute)) + 1
 		case metrics.Interval15Minutes:
 			periods = int(time.Now().Truncate(15*time.Minute).Sub(start)/(15*time.Minute)) + 1
 		case metrics.IntervalHourly:

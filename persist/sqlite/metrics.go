@@ -66,6 +66,8 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 
 	var end time.Time
 	switch interval {
+	case metrics.Interval5Minutes:
+		end = start.Add(5 * time.Minute * time.Duration(n))
 	case metrics.Interval15Minutes:
 		end = start.Add(15 * time.Minute * time.Duration(n))
 	case metrics.IntervalHourly:
@@ -111,6 +113,8 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 		// normalize the stored timestamp to the locale and interval
 		timestamp = timestamp.In(start.Location())
 		switch interval {
+		case metrics.Interval5Minutes:
+			timestamp = timestamp.Truncate(5 * time.Minute)
 		case metrics.Interval15Minutes:
 			timestamp = timestamp.Truncate(15 * time.Minute)
 		case metrics.IntervalHourly:
@@ -155,6 +159,8 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 
 		// increment the current time by the interval
 		switch interval {
+		case metrics.Interval5Minutes:
+			current = current.Add(5 * time.Minute)
 		case metrics.Interval15Minutes:
 			current = current.Add(15 * time.Minute)
 		case metrics.IntervalHourly:

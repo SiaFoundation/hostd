@@ -9,7 +9,8 @@ import (
 
 // intervals at which metrics should be aggregated.
 const (
-	Interval15Minutes Interval = iota
+	Interval5Minutes Interval = iota
+	Interval15Minutes
 	IntervalHourly
 	IntervalDaily
 	IntervalWeekly
@@ -113,6 +114,8 @@ type (
 // String returns the interval as a string
 func (i Interval) String() string {
 	switch i {
+	case Interval5Minutes:
+		return "5m"
 	case Interval15Minutes:
 		return "15m"
 	case IntervalHourly:
@@ -132,6 +135,7 @@ func (i Interval) String() string {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (i *Interval) UnmarshalText(buf []byte) error {
 	values := map[string]Interval{
+		Interval5Minutes.String():  Interval5Minutes,
 		Interval15Minutes.String(): Interval15Minutes,
 		IntervalHourly.String():    IntervalHourly,
 		IntervalDaily.String():     IntervalDaily,

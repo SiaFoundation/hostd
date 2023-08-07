@@ -37,6 +37,8 @@ func (mm *MetricManager) Metrics(timestamp time.Time) (m Metrics, err error) {
 // Normalize returns the normalized timestamp for the given interval.
 func Normalize(timestamp time.Time, interval Interval) (time.Time, error) {
 	switch interval {
+	case Interval5Minutes:
+		return timestamp.Truncate(5 * time.Minute), nil
 	case Interval15Minutes:
 		return timestamp.Truncate(15 * time.Minute), nil
 	case IntervalHourly:
