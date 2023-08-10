@@ -309,7 +309,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		} else if done {
 			return nil
 		}
-		time.Sleep(time.Millisecond) // allow other transactions to run
+		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
@@ -335,7 +335,7 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 		} else if done {
 			break
 		}
-		time.Sleep(time.Millisecond)
+		jitterSleep(time.Millisecond)
 	}
 	if _, err := s.exec(`DELETE FROM storage_volumes WHERE id=?`, id); err != nil {
 		return fmt.Errorf("failed to remove volume: %w", err)

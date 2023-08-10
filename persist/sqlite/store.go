@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -102,8 +101,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 			return err
 		}
 		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
-		sleep := time.Duration(math.Pow(factor, float64(i))) * time.Millisecond // exponential backoff
-		time.Sleep(sleep + time.Duration(rand.Int63n(int64(sleep)/10)))         // add random jitter
+		jitterSleep(time.Duration(math.Pow(factor, float64(i))) * time.Millisecond) // exponential backoff
 	}
 	return fmt.Errorf("transaction failed: %w", err)
 }
