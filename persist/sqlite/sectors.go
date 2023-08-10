@@ -34,15 +34,13 @@ func (s *Store) batchExpireTempSectors(height uint64) (removed int, err error) {
 		} else if err := incrementNumericStat(tx, metricTempSectors, -len(sectors), time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-
-		s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", len(sectors)))
 		removed = len(sectors)
 		return nil
 	})
 	return
 }
 
-func (s *Store) batchPruneSectors() (removed int, err error) {
+func (s *Store) batchPruneSectors() (removed []sectorRef, err error) {
 	err = s.transaction(func(tx txn) error {
 		sectors, err := sectorsForDeletion(tx, sqlSectorBatchSize)
 		if err != nil {
@@ -83,17 +81,10 @@ func (s *Store) batchPruneSectors() (removed int, err error) {
 			}
 		}
 
-		s.log.Debug("deleted unreferenced sectors", zap.Int("deleted", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-			for _, sector := range sectors {
-				enc.AppendString(sector.Root.String())
-			}
-			return nil
-		})))
-
 		if err := incrementNumericStat(tx, metricPhysicalSectors, -len(sectors), time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-		removed = len(sectors)
+		removed = sectors
 		return nil
 	})
 	return
@@ -175,6 +166,10 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 // ExpireTempSectors deletes the roots of sectors that are no longer
 // temporarily stored on the host.
 func (s *Store) ExpireTempSectors(height uint64) error {
+	var total int
+	defer func() {
+		s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", total))
+	}()
 	// delete in batches to avoid holding a lock on the table for too long
 	for {
 		removed, err := s.batchExpireTempSectors(height)
@@ -183,22 +178,34 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 		} else if removed == 0 {
 			return nil
 		}
+		total += removed
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
 // PruneSectors removes the metadata of any sectors that are not locked or referenced
 // by a contract.
-func (s *Store) PruneSectors() (total int, _ error) {
+func (s *Store) PruneSectors() (int, error) {
+	var removedSectors []types.Hash256
+	defer func() {
+		s.log.Debug("deleted unreferenced sectors", zap.Int("deleted", len(removedSectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+			for _, root := range removedSectors {
+				enc.AppendString(root.String())
+			}
+			return nil
+		})))
+	}()
 	// delete in batches to avoid holding a lock on the table for too long
-	for {
+	for i := 0; ; i++ {
 		removed, err := s.batchPruneSectors()
 		if err != nil {
-			return total, fmt.Errorf("failed to prune sectors: %w", err)
-		} else if removed == 0 {
-			return total, nil
+			return len(removedSectors), fmt.Errorf("failed to prune sectors: %w", err)
+		} else if len(removed) == 0 {
+			return len(removedSectors), nil
 		}
-		total += removed
+		for _, sector := range removed {
+			removedSectors = append(removedSectors, sector.Root)
+		}
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }

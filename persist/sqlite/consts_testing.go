@@ -8,5 +8,5 @@ const (
 	factor        = 2.0 // factor ^ retryAttempts = backoff time in milliseconds
 
 	// the number of records to limit long-running sector queries to
-	sqlSectorBatchSize = 10 // 40 MiB
+	sqlSectorBatchSize = 5 // 20 MiB
 )

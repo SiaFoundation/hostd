@@ -163,7 +163,7 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 	return err == nil, err
 }
 
-func (s *Store) batchExpireContractSectors(height uint64) (removed int, err error) {
+func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSectorRef, err error) {
 	err = s.transaction(func(tx txn) error {
 		sectors, err := expiredContractSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
@@ -172,11 +172,9 @@ func (s *Store) batchExpireContractSectors(height uint64) (removed int, err erro
 			return nil
 		}
 
-		contractSectors := make(map[types.FileContractID][]contractSectorRef)
 		sectorIDs := make([]int64, 0, len(sectors))
 		for _, sector := range sectors {
 			sectorIDs = append(sectorIDs, sector.ID)
-			contractSectors[sector.ContractID] = append(contractSectors[sector.ContractID], sector)
 		}
 
 		query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
@@ -185,11 +183,7 @@ func (s *Store) batchExpireContractSectors(height uint64) (removed int, err erro
 		} else if err := incrementNumericStat(tx, metricContractSectors, len(sectorIDs), time.Now()); err != nil {
 			return fmt.Errorf("failed to track contract sectors: %w", err)
 		}
-
-		for contractID, sectors := range contractSectors {
-			s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", len(sectors)))
-		}
-		removed += len(sectors)
+		removed = sectors
 		return nil
 	})
 	return
@@ -483,13 +477,22 @@ func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint6
 // ExpireContractSectors expires all sectors that are no longer covered by an
 // active contract.
 func (s *Store) ExpireContractSectors(height uint64) error {
+	total := make(map[types.FileContractID]int)
+	defer func() {
+		for contractID, removed := range total {
+			s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", removed))
+		}
+	}()
 	// delete in batches to avoid holding a lock on the database for too long
 	for i := 0; ; i++ {
 		removed, err := s.batchExpireContractSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if removed == 0 {
+		} else if len(removed) == 0 {
 			return nil
+		}
+		for _, ref := range removed {
+			total[ref.ContractID]++
 		}
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
