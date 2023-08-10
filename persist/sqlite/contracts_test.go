@@ -25,7 +25,7 @@ func rootsEqual(a, b []types.Hash256) error {
 	return nil
 }
 
-func TestReviseContract(t *testing.T) {
+func TestUpdateContract(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestReviseContract(t *testing.T) {
 		roots = append(roots, root)
 	}
 
-	err = db.ReviseContract(contract, contracts.Usage{}, 0, changes)
+	err = db.UpdateContract(contract, contracts.Usage{}, 0, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestReviseContract(t *testing.T) {
 	changes = []contracts.SectorChange{
 		{Action: contracts.SectorActionSwap, A: uint64(i), B: uint64(j)},
 	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
+	err = db.UpdateContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestReviseContract(t *testing.T) {
 	changes = []contracts.SectorChange{
 		{Action: contracts.SectorActionTrim, A: uint64(toRemove)},
 	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
+	err = db.UpdateContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestReviseContract(t *testing.T) {
 	changes = []contracts.SectorChange{
 		{Action: contracts.SectorActionSwap, A: 0, B: 15},
 	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
+	err = db.UpdateContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -162,7 +162,7 @@ func TestReviseContract(t *testing.T) {
 	changes = []contracts.SectorChange{
 		{Action: contracts.SectorActionTrim, A: uint64(toTrim)},
 	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
+	err = db.UpdateContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestReviseContract(t *testing.T) {
 		A:      uint64(toTrim),
 	})
 
-	err = db.ReviseContract(contract, contracts.Usage{}, 0, changes)
+	err = db.UpdateContract(contract, contracts.Usage{}, 0, changes)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -631,7 +631,7 @@ func TestPrune(t *testing.T) {
 			Action: contracts.SectorActionAppend,
 		})
 	}
-	err = db.ReviseContract(c, contracts.Usage{}, 0, changes)
+	err = db.UpdateContract(c, contracts.Usage{}, 0, changes)
 	if err != nil {
 		t.Fatal(err)
 	}

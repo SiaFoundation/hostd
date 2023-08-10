@@ -287,8 +287,21 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 	})
 }
 
-// ReviseContract atomically updates a contract's revision and sectors
-func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, oldSectors uint64, sectorChanges []contracts.SectorChange) error {
+// ReviseContract atomically updates a contract's revision
+func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage) error {
+	return s.transaction(func(tx txn) error {
+		contractID, err := reviseContract(tx, revision)
+		if err != nil {
+			return fmt.Errorf("failed to revise contract: %w", err)
+		} else if err := updateContractUsage(tx, contractID, usage); err != nil {
+			return fmt.Errorf("failed to update contract usage: %w", err)
+		}
+		return nil
+	})
+}
+
+// UpdateContract atomically updates a contract's revision and sectors
+func (s *Store) UpdateContract(revision contracts.SignedRevision, usage contracts.Usage, oldSectors uint64, sectorChanges []contracts.SectorChange) error {
 	return s.transaction(func(tx txn) error {
 		contractID, err := reviseContract(tx, revision)
 		if err != nil {
