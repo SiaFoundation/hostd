@@ -28,9 +28,6 @@ const (
 	// DB. This is left as a hard-coded small value to limit memory usage since
 	// contracts can contain any number of sector roots
 	sectorRootCacheSize = 30
-
-	// the minimum interval between contract expiry checks
-	expireInterval = 5 * time.Minute
 )
 
 type (
@@ -101,9 +98,6 @@ type (
 
 		mu    sync.Mutex                       // guards the following fields
 		locks map[types.FileContractID]*locker // contracts must be locked while they are being modified
-
-		expireMu   sync.Mutex // guards the following fields
-		lastExpire time.Time
 	}
 )
 
