@@ -99,6 +99,7 @@ CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
 CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
 CREATE INDEX contracts_negotiation_height ON contracts(negotiation_height);
 CREATE INDEX contracts_window_start ON contracts(window_start);
+CREATE INDEX contracts_window_end ON contracts(window_end);
 CREATE INDEX contracts_contract_status ON contracts(contract_status);
 CREATE INDEX contracts_formation_confirmed_resolution_height_window_start ON contracts(formation_confirmed, resolution_height, window_start);
 CREATE INDEX contracts_formation_confirmed_resolution_height_window_end ON contracts(formation_confirmed, resolution_height, window_end);
