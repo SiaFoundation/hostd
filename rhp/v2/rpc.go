@@ -490,7 +490,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 		RenterSignature: req.Signature,
 		HostSignature:   hostSig,
 	}
-	updater, err := sh.contracts.ReviseContract(revision.ParentID)
+	updater, err := sh.contracts.UpdateContract(revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
@@ -567,7 +567,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 		return err
 	}
 
-	contractUpdater, err := sh.contracts.ReviseContract(revision.ParentID)
+	contractUpdater, err := sh.contracts.UpdateContract(revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)
@@ -776,7 +776,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 		RenterSignature: req.Signature,
 	}
 
-	updater, err := sh.contracts.ReviseContract(revision.ParentID)
+	updater, err := sh.contracts.UpdateContract(revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return fmt.Errorf("failed to revise contract: %w", err)

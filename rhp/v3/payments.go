@@ -82,18 +82,12 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 		HostSignature:   hostSig,
 		RenterSignature: req.Signature,
 	}
-	updater, err := sh.contracts.ReviseContract(req.ContractID)
-	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to create contract revision updater: %w", err)
-	}
-	defer updater.Close()
 	revenue := contracts.Usage{
 		AccountFunding: fundAmount, // funds were transferred from the contract to the account
 	}
-	if err := updater.Commit(signedRevision, revenue); err != nil {
+	if err := sh.contracts.ReviseContract(signedRevision, revenue); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to update stored contract revision: %w", err)
+		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to revise contract: %w", err)
 	}
 
 	// send the updated host signature to the renter
@@ -239,19 +233,13 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 		HostSignature:   hostSig,
 		RenterSignature: req.Signature,
 	}
-	updater, err := sh.contracts.ReviseContract(req.ContractID)
-	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to create contract revision updater: %w", err)
-	}
-	defer updater.Close()
 	revenue := contracts.Usage{
 		RPCRevenue:     pt.FundAccountCost,
 		AccountFunding: fundAmount,
 	}
-	if err := updater.Commit(signedRevision, revenue); err != nil {
+	if err := sh.contracts.ReviseContract(signedRevision, revenue); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to update stored contract revision: %w", err)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to revise contract: %w", err)
 	}
 
 	// send the updated host signature to the renter
