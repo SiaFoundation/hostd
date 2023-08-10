@@ -3,6 +3,7 @@ package rhp
 import (
 	"context"
 	"net"
+	"sync/atomic"
 
 	"golang.org/x/time/rate"
 )
@@ -26,13 +27,15 @@ type (
 
 // Usage returns the amount of data read and written by the connection.
 func (c *Conn) Usage() (read, written uint64) {
-	return c.r, c.w
+	read = atomic.LoadUint64(&c.r)
+	written = atomic.LoadUint64(&c.w)
+	return
 }
 
 // Read implements io.Reader
 func (c *Conn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
-	c.r += uint64(n)
+	atomic.AddUint64(&c.r, uint64(n))
 	c.monitor.ReadBytes(n)
 	if err := c.rl.WaitN(context.Background(), n); err != nil {
 		return n, err
@@ -43,7 +46,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 // Write implements io.Writer
 func (c *Conn) Write(b []byte) (int, error) {
 	n, err := c.Conn.Write(b)
-	c.w += uint64(n)
+	atomic.AddUint64(&c.w, uint64(n))
 	c.monitor.WriteBytes(n)
 	if err := c.wl.WaitN(context.Background(), n); err != nil {
 		return n, err
