@@ -335,14 +335,15 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 	}
 
 	start := time.Now()
-	// revise the contract
-	err := cu.store.ReviseContract(revision, usage, cu.sectors, cu.sectorActions)
-	if err == nil {
-		// clear the committed sector actions
-		cu.sectorActions = cu.sectorActions[:0]
+	// update the contract
+	err := cu.store.UpdateContract(revision, usage, cu.sectors, cu.sectorActions)
+	if err != nil {
+		return err
 	}
+	// clear the committed sector actions
+	cu.sectorActions = cu.sectorActions[:0]
 	// update the roots cache
 	cu.rootsCache.Add(revision.Revision.ParentID, cu.sectorRoots[:])
 	cu.log.Debug("contract update committed", zap.String("contractID", revision.Revision.ParentID.String()), zap.Uint64("revision", revision.Revision.RevisionNumber), zap.Duration("elapsed", time.Since(start)))
-	return err
+	return nil
 }

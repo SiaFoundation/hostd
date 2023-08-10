@@ -114,7 +114,7 @@ func TestContractUpdater(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			updater, err := c.ReviseContract(rev.Revision.ParentID)
+			updater, err := c.UpdateContract(rev.Revision.ParentID)
 			if err != nil {
 				t.Fatal(err)
 			}

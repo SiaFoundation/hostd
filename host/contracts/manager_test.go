@@ -267,7 +267,7 @@ func TestContractLifecycle(t *testing.T) {
 		rev.HostSignature = hostKey.SignHash(sigHash)
 		rev.RenterSignature = renterKey.SignHash(sigHash)
 
-		updater, err := c.ReviseContract(rev.Revision.ParentID)
+		updater, err := c.UpdateContract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -440,7 +440,7 @@ func TestContractLifecycle(t *testing.T) {
 		rev.HostSignature = hostKey.SignHash(sigHash)
 		rev.RenterSignature = renterKey.SignHash(sigHash)
 
-		updater, err := c.ReviseContract(rev.Revision.ParentID)
+		updater, err := c.UpdateContract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -614,7 +614,7 @@ func TestContractLifecycle(t *testing.T) {
 		rev.HostSignature = hostKey.SignHash(sigHash)
 		rev.RenterSignature = renterKey.SignHash(sigHash)
 
-		updater, err := c.ReviseContract(rev.Revision.ParentID)
+		updater, err := c.UpdateContract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -783,7 +783,7 @@ func TestContractLifecycle(t *testing.T) {
 		rev.HostSignature = hostKey.SignHash(sigHash)
 		rev.RenterSignature = renterKey.SignHash(sigHash)
 
-		updater, err := c.ReviseContract(rev.Revision.ParentID)
+		updater, err := c.UpdateContract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -963,7 +963,7 @@ func TestSectorRoots(t *testing.T) {
 		defer release()
 
 		// use the database method directly to avoid the sector cache
-		err = db.ReviseContract(rev, contracts.Usage{}, uint64(i), []contracts.SectorChange{
+		err = db.UpdateContract(rev, contracts.Usage{}, uint64(i), []contracts.SectorChange{
 			{Action: contracts.SectorActionAppend, Root: root},
 		})
 		if err != nil {

@@ -64,9 +64,10 @@ type (
 		// ContractAction calls contractFn on every contract in the store that
 		// needs a lifecycle action performed.
 		ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error
-		// ReviseContract atomically updates a contract and its associated
-		// sector roots.
-		ReviseContract(revision SignedRevision, usage Usage, oldSectors uint64, sectorChanges []SectorChange) error
+		// ReviseContract atomically updates a contract's revision
+		ReviseContract(revision SignedRevision, usage Usage) error
+		// UpdateContract atomically updates a contract's revision and sectors
+		UpdateContract(revision SignedRevision, usage Usage, oldSectors uint64, sectorChanges []SectorChange) error
 		// UpdateContractState atomically updates the contract manager's state.
 		UpdateContractState(modules.ConsensusChangeID, uint64, func(UpdateStateTransaction) error) error
 		// ExpireContractSectors removes sector roots for any contracts that are

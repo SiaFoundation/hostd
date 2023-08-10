@@ -449,8 +449,13 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}()
 }
 
-// ReviseContract initializes a new contract updater for the given contract.
-func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*ContractUpdater, error) {
+// ReviseContract updates the contract with the given revision.
+func (cm *ContractManager) ReviseContract(revision SignedRevision, usage Usage) error {
+	return cm.store.ReviseContract(revision, usage)
+}
+
+// UpdateContract initializes a new contract updater for the given contract.
+func (cm *ContractManager) UpdateContract(contractID types.FileContractID) (*ContractUpdater, error) {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return nil, err

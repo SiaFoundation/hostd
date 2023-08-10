@@ -129,7 +129,7 @@ func TestCheckIntegrity(t *testing.T) {
 		t.Fatal("expected contract to be active")
 	}
 
-	updater, err := c.ReviseContract(rev.Revision.ParentID)
+	updater, err := c.UpdateContract(rev.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	}
