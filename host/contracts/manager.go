@@ -22,11 +22,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// sectorRootCacheSize is the number of contracts' sector roots to cache.
-// Caching prevents frequently updated contracts from continuously hitting the
-// DB. This is left as a hard-coded small value to limit memory usage since
-// contracts can contain any number of sector roots
-const sectorRootCacheSize = 30
+const (
+	// sectorRootCacheSize is the number of contracts' sector roots to cache.
+	// Caching prevents frequently updated contracts from continuously hitting the
+	// DB. This is left as a hard-coded small value to limit memory usage since
+	// contracts can contain any number of sector roots
+	sectorRootCacheSize = 30
+
+	// the minimum interval between contract expiry checks
+	expireInterval = 5 * time.Minute
+)
 
 type (
 	contractChange struct {
@@ -96,6 +101,9 @@ type (
 
 		mu    sync.Mutex                       // guards the following fields
 		locks map[types.FileContractID]*locker // contracts must be locked while they are being modified
+
+		expireMu   sync.Mutex // guards the following fields
+		lastExpire time.Time
 	}
 )
 
