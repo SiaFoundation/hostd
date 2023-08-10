@@ -8,6 +8,12 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion12 adds an index to the contracts table to speed up sector pruning
+func migrateVersion12(tx txn) error {
+	_, err := tx.Exec(`CREATE INDEX contracts_window_end ON contracts(window_end);`)
+	return err
+}
+
 // migrateVersion11 recalculates the contract collateral metrics for existing contracts.
 func migrateVersion11(tx txn) error {
 	rows, err := tx.Query(`SELECT locked_collateral, risked_collateral FROM contracts WHERE contract_status IN (?, ?)`, contracts.ContractStatusPending, contracts.ContractStatusActive)
@@ -265,4 +271,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion9,
 	migrateVersion10,
 	migrateVersion11,
+	migrateVersion12,
 }

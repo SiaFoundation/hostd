@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -257,4 +258,9 @@ func setDBVersion(tx txn, version int64) error {
 	const query = `UPDATE global_settings SET db_version=$1 RETURNING id;`
 	var dbID int64
 	return tx.QueryRow(query, version).Scan(&dbID)
+}
+
+// jitterSleep sleeps for a random duration between t and t*1.5.
+func jitterSleep(t time.Duration) {
+	time.Sleep(t + time.Duration(rand.Int63n(int64(t/2))))
 }

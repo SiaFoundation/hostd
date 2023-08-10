@@ -12,8 +12,6 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const sqlBatchSize = 256 // 1 GiB
-
 type (
 	sectorRef struct {
 		ID   int64
@@ -21,49 +19,33 @@ type (
 	}
 )
 
-func (s *Store) batchExpireTempSectors(height uint64) (bool, error) {
-	var done bool
-	err := s.transaction(func(tx txn) error {
-		sectors, err := expiredTempSectors(tx, height, sqlBatchSize)
+func (s *Store) batchExpireTempSectors(height uint64) (removed int, err error) {
+	err = s.transaction(func(tx txn) error {
+		sectors, err := expiredTempSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
-			done = true
 			return nil
 		}
 
-		sectorIDs := make([]int64, 0, len(sectors))
-		for _, sector := range sectors {
-			sectorIDs = append(sectorIDs, sector.ID)
-		}
-
-		query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
-		if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
+		query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectors)) + `);`
+		if _, err := tx.Exec(query, queryArgs(sectors)...); err != nil {
 			return fmt.Errorf("failed to delete sectors: %w", err)
-		} else if err := incrementNumericStat(tx, metricTempSectors, -len(sectorIDs), time.Now()); err != nil {
+		} else if err := incrementNumericStat(tx, metricTempSectors, -len(sectors), time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-
-		s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-			for _, sector := range sectors {
-				enc.AppendString(sector.Root.String())
-			}
-			return nil
-		})))
+		removed = len(sectors)
 		return nil
 	})
-	return done, err
+	return
 }
 
-func (s *Store) batchPruneSectors() (int, bool, error) {
-	var count int
-	var done bool
-	err := s.transaction(func(tx txn) error {
-		sectors, err := sectorsForDeletion(tx, sqlBatchSize)
+func (s *Store) batchPruneSectors() (removed []sectorRef, err error) {
+	err = s.transaction(func(tx txn) error {
+		sectors, err := sectorsForDeletion(tx, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
-			done = true
 			return nil
 		}
 
@@ -99,20 +81,13 @@ func (s *Store) batchPruneSectors() (int, bool, error) {
 			}
 		}
 
-		s.log.Debug("deleted unreferenced sectors", zap.Int("deleted", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-			for _, sector := range sectors {
-				enc.AppendString(sector.Root.String())
-			}
-			return nil
-		})))
-
 		if err := incrementNumericStat(tx, metricPhysicalSectors, -len(sectors), time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-		count += len(sectors)
+		removed = sectors
 		return nil
 	})
-	return count, done, err
+	return
 }
 
 // unlockLocationFn returns a function that unlocks a sector when called.
@@ -191,33 +166,47 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 // ExpireTempSectors deletes the roots of sectors that are no longer
 // temporarily stored on the host.
 func (s *Store) ExpireTempSectors(height uint64) error {
+	var total int
+	defer func() {
+		s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", total))
+	}()
 	// delete in batches to avoid holding a lock on the table for too long
 	for {
-		done, err := s.batchExpireTempSectors(height)
+		removed, err := s.batchExpireTempSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if done {
+		} else if removed == 0 {
 			return nil
 		}
-		time.Sleep(time.Millisecond) // allow other transactions to run
+		total += removed
+		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
 // PruneSectors removes the metadata of any sectors that are not locked or referenced
 // by a contract.
 func (s *Store) PruneSectors() (int, error) {
+	var removedSectors []types.Hash256
+	defer func() {
+		s.log.Debug("deleted unreferenced sectors", zap.Int("deleted", len(removedSectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+			for _, root := range removedSectors {
+				enc.AppendString(root.String())
+			}
+			return nil
+		})))
+	}()
 	// delete in batches to avoid holding a lock on the table for too long
-	var total int
-	for {
-		count, done, err := s.batchPruneSectors()
+	for i := 0; ; i++ {
+		removed, err := s.batchPruneSectors()
 		if err != nil {
-			return total, fmt.Errorf("failed to prune sectors: %w", err)
+			return len(removedSectors), fmt.Errorf("failed to prune sectors: %w", err)
+		} else if len(removed) == 0 {
+			return len(removedSectors), nil
 		}
-		total += count
-		if done {
-			return total, nil
+		for _, sector := range removed {
+			removedSectors = append(removedSectors, sector.Root)
 		}
-		time.Sleep(time.Millisecond) // allow other transactions to run
+		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
@@ -244,9 +233,8 @@ func lockLocationBatch(tx txn, locations ...storage.SectorLocation) (locks []int
 	return
 }
 
-func expiredTempSectors(tx txn, height uint64, limit int) (sectors []sectorRef, _ error) {
-	const query = `SELECT ts.id, ss.sector_root FROM temp_storage_sector_roots ts
-INNER JOIN stored_sectors ss ON (ts.sector_id=ss.id)
+func expiredTempSectors(tx txn, height uint64, limit int) (sectors []int64, _ error) {
+	const query = `SELECT ts.id FROM temp_storage_sector_roots ts
 WHERE expiration_height <= $1 LIMIT $2;`
 	rows, err := tx.Query(query, height, limit)
 	if err != nil {
@@ -254,11 +242,11 @@ WHERE expiration_height <= $1 LIMIT $2;`
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var sector sectorRef
-		if err := rows.Scan(&sector.ID, (*sqlHash256)(&sector.Root)); err != nil {
+		var dbID int64
+		if err := rows.Scan(&dbID); err != nil {
 			return nil, fmt.Errorf("failed to scan sector id: %w", err)
 		}
-		sectors = append(sectors, sector)
+		sectors = append(sectors, dbID)
 	}
 	return
 }

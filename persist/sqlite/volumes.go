@@ -21,7 +21,7 @@ func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn f
 	var oldLocations, newLocations []storage.SectorLocation
 	var locks []int64
 	err := s.transaction(func(tx txn) (err error) {
-		oldLocations, err = sectorsForMigration(tx, volumeID, startIndex, sqlBatchSize)
+		oldLocations, err = sectorsForMigration(tx, volumeID, startIndex, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to get sectors for migration: %w", err)
 		} else if len(oldLocations) == 0 {
@@ -129,7 +129,7 @@ func (s *Store) batchRemoveVolume(id int, force bool) (bool, error) {
 			return fmt.Errorf("failed to check if volume is empty: %w", err)
 		}
 
-		locations, err := volumeSectorsForDeletion(tx, id, sqlBatchSize)
+		locations, err := volumeSectorsForDeletion(tx, id, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to get volume sectors: %w", err)
 		} else if len(locations) == 0 {
@@ -309,7 +309,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 		} else if done {
 			return nil
 		}
-		time.Sleep(time.Millisecond) // allow other transactions to run
+		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
@@ -335,7 +335,7 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 		} else if done {
 			break
 		}
-		time.Sleep(time.Millisecond)
+		jitterSleep(time.Millisecond)
 	}
 	if _, err := s.exec(`DELETE FROM storage_volumes WHERE id=?`, id); err != nil {
 		return fmt.Errorf("failed to remove volume: %w", err)
