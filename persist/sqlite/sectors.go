@@ -12,8 +12,6 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const sqlBatchSize = 256 // 1 GiB
-
 type (
 	sectorRef struct {
 		ID   int64
@@ -23,7 +21,7 @@ type (
 
 func (s *Store) batchExpireTempSectors(height uint64) (removed int, err error) {
 	err = s.transaction(func(tx txn) error {
-		sectors, err := expiredTempSectors(tx, height, sqlBatchSize)
+		sectors, err := expiredTempSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
@@ -46,7 +44,7 @@ func (s *Store) batchExpireTempSectors(height uint64) (removed int, err error) {
 
 func (s *Store) batchPruneSectors() (removed int, err error) {
 	err = s.transaction(func(tx txn) error {
-		sectors, err := sectorsForDeletion(tx, sqlBatchSize)
+		sectors, err := sectorsForDeletion(tx, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {

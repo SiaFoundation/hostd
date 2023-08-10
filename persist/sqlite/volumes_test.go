@@ -561,7 +561,7 @@ func TestMigrateSectors(t *testing.T) {
 }
 
 func TestPrune(t *testing.T) {
-	const sectors = 256
+	const sectors = 1024
 
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)

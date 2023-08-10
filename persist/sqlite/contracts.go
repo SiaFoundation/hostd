@@ -165,7 +165,7 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 
 func (s *Store) batchExpireContractSectors(height uint64) (removed int, err error) {
 	err = s.transaction(func(tx txn) error {
-		sectors, err := expiredContractSectors(tx, height, sqlBatchSize)
+		sectors, err := expiredContractSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
