@@ -144,7 +144,7 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
 		log: log,
 	}
 	if err = fn(ltx); err != nil {
-		return fmt.Errorf("transaction failed: %w", err)
+		return err
 	} else if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}

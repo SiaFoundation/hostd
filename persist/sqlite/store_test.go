@@ -11,21 +11,21 @@ import (
 )
 
 func TestTransactionRetry(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	err = db.transaction(func(tx txn) error { return nil }) // start a new empty transaction, should succeed immediately
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ch := make(chan struct{}, 1) // channel to synchronize the transaction goroutine
-
 	t.Run("transaction retry", func(t *testing.T) {
+		log := zaptest.NewLogger(t)
+		db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+
+		err = db.transaction(func(tx txn) error { return nil }) // start a new empty transaction, should succeed immediately
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ch := make(chan struct{}, 1) // channel to synchronize the transaction goroutine
+
 		// start a transaction in a goroutine and hold it open for 5 seconds
 		// this should allow for the next transaction to be retried a few times
 		go func() {
@@ -35,7 +35,7 @@ func TestTransactionRetry(t *testing.T) {
 					return err
 				}
 				ch <- struct{}{}
-				time.Sleep(time.Second)
+				time.Sleep(500 * time.Millisecond)
 				return nil
 			})
 			if err != nil {
@@ -47,7 +47,7 @@ func TestTransactionRetry(t *testing.T) {
 		<-ch // wait for the transaction to start
 
 		err = db.transaction(func(tx txn) error {
-			_, err := tx.Exec(`UPDATE global_settings SET host_key=?`, `bar`) // should fail and be retried
+			_, err = tx.Exec(`UPDATE global_settings SET host_key=?`, `bar`) // should fail and be retried
 			if err != nil {
 				return err
 			}
@@ -61,6 +61,20 @@ func TestTransactionRetry(t *testing.T) {
 	})
 
 	t.Run("transaction timeout", func(t *testing.T) {
+		log := zaptest.NewLogger(t)
+		db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+
+		err = db.transaction(func(tx txn) error { return nil }) // start a new empty transaction, should succeed immediately
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ch := make(chan struct{}, 1) // channel to synchronize the transaction goroutine
+
 		go func() {
 			err := db.transaction(func(tx txn) error {
 				_, err := tx.Exec(`UPDATE global_settings SET host_key=?`, `foo`) // upgrade the transaction to an exclusive lock;
