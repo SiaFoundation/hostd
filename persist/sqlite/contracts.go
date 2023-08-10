@@ -12,7 +12,6 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 type (
@@ -29,7 +28,6 @@ type (
 
 	contractSectorRef struct {
 		ID         int64
-		SectorRoot types.Hash256
 		ContractID types.FileContractID
 	}
 
@@ -165,14 +163,12 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 	return err == nil, err
 }
 
-func (s *Store) batchExpireContractSectors(height uint64) (bool, error) {
-	var done bool
-	err := s.transaction(func(tx txn) error {
+func (s *Store) batchExpireContractSectors(height uint64) (removed int, err error) {
+	err = s.transaction(func(tx txn) error {
 		sectors, err := expiredContractSectors(tx, height, sqlBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		} else if len(sectors) == 0 {
-			done = true
 			return nil
 		}
 
@@ -191,16 +187,12 @@ func (s *Store) batchExpireContractSectors(height uint64) (bool, error) {
 		}
 
 		for contractID, sectors := range contractSectors {
-			s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", len(sectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-				for _, sector := range sectors {
-					enc.AppendString(sector.SectorRoot.String())
-				}
-				return nil
-			})))
+			s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", len(sectors)))
 		}
+		removed += len(sectors)
 		return nil
 	})
-	return done, err
+	return
 }
 
 // Contracts returns a paginated list of contracts.
@@ -492,14 +484,14 @@ func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint6
 // active contract.
 func (s *Store) ExpireContractSectors(height uint64) error {
 	// delete in batches to avoid holding a lock on the database for too long
-	for {
-		done, err := s.batchExpireContractSectors(height)
+	for i := 0; ; i++ {
+		removed, err := s.batchExpireContractSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if done {
+		} else if removed == 0 {
 			return nil
 		}
-		time.Sleep(time.Millisecond) // allow other transactions to run
+		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
@@ -1081,7 +1073,7 @@ func setContractStatus(tx txn, id types.FileContractID, status contracts.Contrac
 }
 
 func expiredContractSectors(tx txn, height uint64, batchSize int64) (sectors []contractSectorRef, _ error) {
-	const query = `SELECT csr.id, s.sector_root, c.contract_id FROM contract_sector_roots csr 
+	const query = `SELECT csr.id, c.contract_id FROM contract_sector_roots csr 
 INNER JOIN contracts c ON (csr.contract_id=c.id)
 INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
 -- past proof window or not confirmed and past the rebroadcast height
@@ -1093,7 +1085,7 @@ WHERE c.window_end < $1 OR c.contract_status=$2 LIMIT $3;`
 	defer rows.Close()
 	for rows.Next() {
 		var sector contractSectorRef
-		if err := rows.Scan(&sector.ID, (*sqlHash256)(&sector.SectorRoot), (*sqlHash256)(&sector.ContractID)); err != nil {
+		if err := rows.Scan(&sector.ID, (*sqlHash256)(&sector.ContractID)); err != nil {
 			return nil, fmt.Errorf("failed to scan expired contract: %w", err)
 		}
 		sectors = append(sectors, sector)
