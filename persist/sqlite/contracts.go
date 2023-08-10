@@ -1078,7 +1078,6 @@ func setContractStatus(tx txn, id types.FileContractID, status contracts.Contrac
 func expiredContractSectors(tx txn, height uint64, batchSize int64) (sectors []contractSectorRef, _ error) {
 	const query = `SELECT csr.id, c.contract_id FROM contract_sector_roots csr 
 INNER JOIN contracts c ON (csr.contract_id=c.id)
-INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
 -- past proof window or not confirmed and past the rebroadcast height
 WHERE c.window_end < $1 OR c.contract_status=$2 LIMIT $3;`
 	rows, err := tx.Query(query, height, contracts.ContractStatusRejected, batchSize)
