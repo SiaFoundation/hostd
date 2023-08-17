@@ -521,6 +521,108 @@ func TestRemoveMissing(t *testing.T) {
 	}
 }
 
+func TestVolumeDistribution(t *testing.T) {
+	const initialSectors = 32
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+	defer cm.Close()
+
+	// initialize the storage manager
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	volumeIDs := make([]int, 5)
+	volumeDir := t.TempDir()
+	for i := range volumeIDs {
+		result := make(chan error, 1)
+		// add a few volumes
+		vol, err := vm.AddVolume(filepath.Join(volumeDir, fmt.Sprintf("vol%d.dat", i)), initialSectors, result)
+		if err != nil {
+			t.Fatal(err)
+		} else if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+		volumeIDs[i] = vol.ID
+	}
+
+	// helper func to check that both volumes have the correct number of sectors
+	checkSectorDistribution := func(vals ...uint64) error {
+		if len(vals) > len(volumeIDs) {
+			panic("not enough volumes")
+		}
+		for i, id := range volumeIDs {
+			stat, err := vm.Volume(id)
+			if err != nil {
+				return fmt.Errorf("failed to check volume %d: %w", volumeIDs[i], err)
+			}
+			var value uint64
+			if len(vals) > i {
+				value = vals[i]
+			}
+
+			if stat.UsedSectors != value {
+				return fmt.Errorf("volume %d: expected %d sectors, got %d", volumeIDs[i], value, stat.UsedSectors)
+			}
+		}
+		return nil
+	}
+
+	var sector [rhpv2.SectorSize]byte
+	frand.Read(sector[:1024])
+	root := rhpv2.SectorRoot(&sector)
+
+	release, err := vm.Write(root, &sector)
+	if err != nil {
+		t.Fatal("failed to store sector")
+	}
+	defer release()
+
+	if err := checkSectorDistribution(1); err != nil {
+		t.Fatal(err)
+	}
+
+	release, err = vm.Write(root, &sector)
+	if err != nil {
+		t.Fatal("failed to store sector")
+	}
+	defer release()
+
+	if err := checkSectorDistribution(1, 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestVolumeGrow(t *testing.T) {
 	const initialSectors = 32
 	dir := t.TempDir()
