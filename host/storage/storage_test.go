@@ -522,7 +522,7 @@ func TestRemoveMissing(t *testing.T) {
 }
 
 func TestVolumeDistribution(t *testing.T) {
-	const initialSectors = 32
+	const initialSectors = 10
 	dir := t.TempDir()
 
 	// create the database
@@ -598,28 +598,61 @@ func TestVolumeDistribution(t *testing.T) {
 		return nil
 	}
 
-	var sector [rhpv2.SectorSize]byte
-	frand.Read(sector[:1024])
-	root := rhpv2.SectorRoot(&sector)
+	writeSector := func() error {
+		var sector [rhpv2.SectorSize]byte
+		frand.Read(sector[:1024])
+		root := rhpv2.SectorRoot(&sector)
 
-	release, err := vm.Write(root, &sector)
-	if err != nil {
-		t.Fatal("failed to store sector")
+		_, err := vm.Write(root, &sector)
+		if err != nil {
+			t.Fatal("failed to store sector")
+		}
+		return nil
 	}
-	defer release()
 
-	if err := checkSectorDistribution(1); err != nil {
+	// write the first sector to the first volume
+	if err := writeSector(); err != nil {
+		t.Fatal(err)
+	} else if err := checkSectorDistribution(1); err != nil {
 		t.Fatal(err)
 	}
 
-	release, err = vm.Write(root, &sector)
-	if err != nil {
-		t.Fatal("failed to store sector")
-	}
-	defer release()
-
-	if err := checkSectorDistribution(1, 1); err != nil {
+	// write a sector to the sector volume
+	if err := writeSector(); err != nil {
 		t.Fatal(err)
+	} else if err := checkSectorDistribution(1, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedSectors := make([]uint64, len(volumeIDs))
+	// fill in the already written sectors
+	expectedSectors[0] = 1
+	expectedSectors[1] = 1
+	// fill the volumes
+	for i := 2; i < initialSectors*len(volumeIDs); i++ {
+		// write a random sector
+		if err := writeSector(); err != nil {
+			t.Fatal(err)
+		}
+		// increment the counter
+		expectedSectors[i%len(volumeIDs)]++
+		// check the distribution
+		if err := checkSectorDistribution(expectedSectors...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	volumes, err := vm.Volumes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(volumes) != len(volumeIDs) {
+		t.Fatal("unexpected number of volumes")
+	}
+	for i, v := range volumes {
+		if v.TotalSectors != v.UsedSectors {
+			t.Fatalf("volume %d should be full", i)
+		}
 	}
 }
 
