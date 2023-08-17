@@ -483,7 +483,7 @@ func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err
 
 func emptyLocation(tx txn) (storage.SectorLocation, error) {
 	var volumeID int64
-	err := tx.QueryRow(`SELECT id FROM storage_volumes WHERE available=true AND read_only=false ORDER BY total_sectors-used_sectors ASC LIMIT 1;`).Scan(&volumeID)
+	err := tx.QueryRow(`SELECT id FROM storage_volumes WHERE available=true AND read_only=false AND total_sectors-used_sectors > 0 ORDER BY used_sectors ASC LIMIT 1;`).Scan(&volumeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
 	} else if err != nil {
@@ -492,7 +492,8 @@ func emptyLocation(tx txn) (storage.SectorLocation, error) {
 
 	// note: there is a slight race here where all sectors in a volume could be
 	// locked, but not committed. This is unlikely to happen in practice, and
-	// the worst case is that the host fails to store a sector.
+	// the worst case is that the host fails to store a sector. The performance
+	// benefits of choosing a volume first far outweigh the downsides.
 	var loc storage.SectorLocation
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index FROM volume_sectors vs
 LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
