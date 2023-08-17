@@ -42,6 +42,7 @@ CREATE TABLE storage_volumes (
 	available BOOLEAN NOT NULL DEFAULT false
 );
 CREATE INDEX storage_volumes_read_only_available ON storage_volumes(read_only, available);
+CREATE INDEX storage_volumes_read_only_available_used_sectors ON storage_volumes(available, read_only, used_sectors);
 
 CREATE TABLE volume_sectors (
 	id INTEGER PRIMARY KEY,

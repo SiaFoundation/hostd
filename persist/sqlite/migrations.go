@@ -8,6 +8,12 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion13 adds an index to the storage table to speed up location selection
+func migrateVersion13(tx txn) error {
+	_, err := tx.Exec(`CREATE INDEX storage_volumes_read_only_available_used_sectors ON storage_volumes(available, read_only, used_sectors);`)
+	return err
+}
+
 // migrateVersion12 adds an index to the contracts table to speed up sector pruning
 func migrateVersion12(tx txn) error {
 	_, err := tx.Exec(`CREATE INDEX contracts_window_end ON contracts(window_end);`)
@@ -272,4 +278,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion10,
 	migrateVersion11,
 	migrateVersion12,
+	migrateVersion13,
 }
