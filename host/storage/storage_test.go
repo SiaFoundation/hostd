@@ -747,7 +747,7 @@ func TestVolumeGrow(t *testing.T) {
 }
 
 func TestVolumeShrink(t *testing.T) {
-	const sectors = 32
+	const sectors = 101
 	dir := t.TempDir()
 
 	// create the database

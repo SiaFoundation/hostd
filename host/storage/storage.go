@@ -353,34 +353,34 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 	})
 	log.Info("migrated sectors", zap.Int("count", migrated))
 	if err != nil {
-		return fmt.Errorf("failed to migrate sectors: %w", err)
+		return err
 	}
 
-	var batchSize uint64 = resizeBatchSize
-	for current := oldMaxSectors; current > newMaxSectors; current -= batchSize {
+	for current := oldMaxSectors; current > newMaxSectors; {
 		// stop early if the context is cancelled
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-
-		var target uint64
-		if current < batchSize {
-			target = newMaxSectors
-			batchSize = current - newMaxSectors
+		if current > resizeBatchSize {
+			current -= resizeBatchSize
 		} else {
-			target = current - batchSize
+			current = newMaxSectors
 		}
-		// shrink in chunks to prevent holding a lock for too long and to
-		// track progress.
-		if err := vm.vs.ShrinkVolume(id, target); err != nil {
-			return fmt.Errorf("failed to expand volume metadata: %w", err)
-		} else if err := volume.Resize(target); err != nil {
-			return fmt.Errorf("failed to shrink volume data to %v sectors: %w", target, err)
+
+		if current < newMaxSectors {
+			current = newMaxSectors
 		}
+
+		if err := vm.vs.ShrinkVolume(id, current); err != nil {
+			return fmt.Errorf("failed to shrink volume metadata: %w", err)
+		} else if err := volume.Resize(current); err != nil {
+			return fmt.Errorf("failed to shrink volume data to %v sectors: %w", current, err)
+		}
+
 		// update the alert
-		a.Data["currentSectors"] = target
+		a.Data["currentSectors"] = current
 		vm.a.Register(a)
 		// sleep to allow other operations to run
 		time.Sleep(time.Millisecond)
@@ -942,11 +942,9 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte)
 		} else if err := vol.WriteSector(data, loc.Index); err != nil {
 			return fmt.Errorf("failed to write sector %v: %w", root, err)
 		}
-
+		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		// Add newly written sector to cache
 		vm.cache.Add(root, data)
-
-		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		return nil
 	})
 	if err == nil {
