@@ -17,8 +17,9 @@ import (
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
-		db  *sql.DB
-		log *zap.Logger
+		db     *sql.DB
+		log    *zap.Logger
+		closed chan struct{}
 	}
 )
 
@@ -118,6 +119,7 @@ func sqliteFilepath(fp string) string {
 		"_journal_mode=WAL",
 		"_secure_delete=false",
 		"_cache_size=-65536", // 64MiB
+		"_auto_vacuum=incremental",
 	}
 	return "file:" + fp + "?" + strings.Join(params, "&")
 }

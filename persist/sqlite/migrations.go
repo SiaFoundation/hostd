@@ -8,6 +8,13 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion14 adds a no-op migration to ensure that VACUUM is triggered
+// after migrations are complete.
+func migrateVersion14(tx txn) error {
+	_, err := tx.Exec(`SELECT true;`)
+	return err
+}
+
 // migrateVersion13 adds an index to the storage table to speed up location selection
 func migrateVersion13(tx txn) error {
 	_, err := tx.Exec(`CREATE INDEX storage_volumes_read_only_available_used_sectors ON storage_volumes(available, read_only, used_sectors);`)
@@ -279,4 +286,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion11,
 	migrateVersion12,
 	migrateVersion13,
+	migrateVersion14,
 }
