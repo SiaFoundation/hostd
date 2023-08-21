@@ -279,6 +279,13 @@ func TestWalletReset(t *testing.T) {
 		t.Fatal("expected transactions")
 	}
 
+	m, err := w.Store().Metrics(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	} else if m.Balance.IsZero() {
+		t.Fatal("expected non-zero balance")
+	}
+
 	// close the wallet and trigger a reset by using a different private key
 	w.Close()
 
@@ -309,5 +316,12 @@ func TestWalletReset(t *testing.T) {
 		t.Fatal(err)
 	} else if len(txns) != 0 {
 		t.Fatal("expected no transactions")
+	}
+
+	m, err = w.Store().Metrics(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.IsZero() {
+		t.Fatal("expected zero balance")
 	}
 }

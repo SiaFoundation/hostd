@@ -189,6 +189,8 @@ func (s *Store) ResetWallet(seedHash types.Hash256) error {
 			return fmt.Errorf("failed to delete wallet utxos: %w", err)
 		} else if _, err := tx.Exec(`DELETE FROM wallet_transactions`); err != nil {
 			return fmt.Errorf("failed to delete wallet transactions: %w", err)
+		} else if _, err := tx.Exec(`DELETE FROM host_stats WHERE stat=$1`, metricWalletBalance); err != nil {
+			return fmt.Errorf("failed to delete wallet metrics: %w", err)
 		} else if _, err := tx.Exec(`UPDATE global_settings SET wallet_last_processed_change=NULL, wallet_height=NULL,  wallet_hash=?`, sqlHash256(seedHash)); err != nil {
 			return fmt.Errorf("failed to reset wallet settings: %w", err)
 		}
