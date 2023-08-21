@@ -109,6 +109,12 @@ func (s *Store) transaction(fn func(txn) error) error {
 
 // Close closes the underlying database.
 func (s *Store) Close() error {
+	select {
+	case <-s.closed:
+		break
+	default:
+		close(s.closed)
+	}
 	return s.db.Close()
 }
 
@@ -161,8 +167,9 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
-		db:  db,
-		log: log,
+		db:     db,
+		log:    log,
+		closed: make(chan struct{}),
 	}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
