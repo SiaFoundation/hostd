@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.20 AS builder
+FROM docker.io/library/golang:1.21 AS builder
 
 WORKDIR /hostd
 
@@ -19,6 +19,7 @@ ENV PGID=0
 
 ENV HOSTD_API_PASSWORD=
 ENV HOSTD_SEED=
+ENV HOSTD_CONFIG_FILE=/data/hostd.yml
 
 # copy binary and prepare data dir.
 COPY --from=builder /hostd/bin/* /usr/bin/
@@ -37,4 +38,4 @@ EXPOSE 9984/tcp
 
 USER ${PUID}:${PGID}
 
-ENTRYPOINT [ "hostd", "--log.stdout", "--env", "--dir", "/data", "--http", ":9980" ]
+ENTRYPOINT [ "hostd", "--env", "--dir", "/data", "--http", ":9980" ]
