@@ -19,6 +19,7 @@ ENV PGID=0
 
 ENV HOSTD_API_PASSWORD=
 ENV HOSTD_SEED=
+ENV HOSTD_CONFIG_FILE=/data/hostd.yml
 
 # copy binary and prepare data dir.
 COPY --from=builder /hostd/bin/* /usr/bin/

@@ -19,6 +19,7 @@ ENV PGID=0
 
 ENV HOSTD_ZEN_API_PASSWORD=
 ENV HOSTD_ZEN_SEED=
+ENV HOSTD_CONFIG_FILE=/data/hostd.yml
 
 COPY --from=builder /hostd/bin/* /usr/bin/
 VOLUME [ "/data" ]
