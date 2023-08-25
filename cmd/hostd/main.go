@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -56,6 +57,13 @@ var (
 	disableStdin bool
 )
 
+func readPasswordInput(context string) (string, error) {
+	fmt.Printf("%s: ", context)
+	input, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	return string(input), err
+}
+
 // mustSetAPIPassword prompts the user to enter an API password if one is not
 // already set via environment variable or config file.
 func mustSetAPIPassword(log *zap.Logger) {
@@ -65,15 +73,16 @@ func mustSetAPIPassword(log *zap.Logger) {
 		log.Fatal("API password must be set via environment variable or config file when --env flag is set")
 	}
 
-	fmt.Print("Enter API password: ")
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
+	fmt.Println("Please choose a password to unlock the UI and API. This password will be required to unlock the UI and API every time hostd is restarted.")
+	fmt.Println("(The password must be at least 4 characters.)")
+	pass, err := readPasswordInput("Enter password")
 	if err != nil {
-		log.Fatal("Could not read API password", zap.Error(err))
-	} else if len(pw) == 0 {
-		log.Fatal("API password cannot be empty")
+		log.Fatal("Could not read password", zap.Error(err))
+	} else if len(pass) < 4 {
+		log.Fatal("Password must be at least 4 characters")
 	}
-	cfg.HTTP.Password = string(pw)
+	fmt.Println("")
+	cfg.HTTP.Password = pass
 }
 
 // mustSetWalletkey prompts the user to enter a wallet seed phrase if one is not
@@ -86,15 +95,31 @@ func mustSetWalletkey(log *zap.Logger) {
 		os.Exit(1)
 	}
 
-	fmt.Print("Enter wallet seed: ")
-	phrase, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println("Type in your 12-word seed phrase and press enter. If you do not have a seed phrase yet, type 'seed' to generate one.")
+	phrase, err := readPasswordInput("Enter seed phrase")
 	if err != nil {
 		log.Fatal("Could not read seed phrase", zap.Error(err))
-	} else if len(phrase) == 0 || len(strings.Fields(string(phrase))) != 12 {
+	}
+
+	if strings.TrimSpace(phrase) == "seed" {
+		var seed [32]byte
+		phrase = wallet.NewSeedPhrase()
+		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
+			panic(err)
+		}
+		key := wallet.KeyFromSeed(&seed, 0)
+		fmt.Println("")
+		fmt.Println("A new seed phrase has been generated below. Write it down and keep it safe. You will need to re-enter this seed phrase every time you start hostd.")
+		fmt.Println("")
+		fmt.Println("Recovery Phrase:", phrase)
+		fmt.Println("Wallet Address:", key.PublicKey().StandardAddress())
+		fmt.Println("")
+		fmt.Println("Press enter to continue...")
+		bufio.NewReader(os.Stdin).ReadBytes('\n')
+	} else if phrase == "" || len(strings.Fields(phrase)) != 12 {
 		log.Fatal("Seed phrase must be 12 words")
 	}
-	fmt.Println()
-	cfg.RecoveryPhrase = string(phrase)
+	cfg.RecoveryPhrase = phrase
 }
 
 // tryLoadConfig loads the config file specified by the HOSTD_CONFIG_PATH. If
