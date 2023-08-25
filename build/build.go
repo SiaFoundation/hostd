@@ -1,6 +1,9 @@
+// Package build contains build-time information.
 package build
 
 //go:generate go run gen.go
+
+import "time"
 
 // NetworkName returns the human-readable name of the current network.
 func NetworkName() string {
@@ -13,4 +16,19 @@ func NetworkName() string {
 	default:
 		return n.Name
 	}
+}
+
+// Commit returns the commit hash of hostd
+func Commit() string {
+	return commit
+}
+
+// Version returns the version of hostd
+func Version() string {
+	return version
+}
+
+// BuildTime returns the time at which the binary was built.
+func BuildTime() time.Time {
+	return time.Unix(buildTime, 0)
 }
