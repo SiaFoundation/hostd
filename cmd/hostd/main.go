@@ -72,16 +72,77 @@ func mustSetAPIPassword(log *zap.Logger) {
 		log.Fatal("API password must be set via environment variable or config file when --env flag is set")
 	}
 
-	fmt.Println("Please choose a password to unlock the UI and API.")
-	fmt.Println("(The password must be at least 4 characters.)")
-	pass, err := readPasswordInput("Enter password")
-	if err != nil {
-		log.Fatal("Could not read password", zap.Error(err))
-	} else if len(pass) < 4 {
-		log.Fatal("Password must be at least 4 characters")
+	var pass string
+	for {
+		fmt.Println("Please choose a password to unlock the UI and API.")
+		fmt.Println("(The password must be at least 4 characters.)")
+		pass, err := readPasswordInput("Enter password")
+		if err != nil {
+			log.Fatal("Could not read password", zap.Error(err))
+		}
+
+		if len(pass) >= 4 {
+			break
+		}
+
+		fmt.Println("\033[31mPassword must be at least 4 characters!\033[0m")
+		fmt.Println("")
 	}
-	fmt.Println("")
 	cfg.HTTP.Password = pass
+}
+
+func mustGetSeedPhrase(log *zap.Logger) string {
+	// retry until a valid seed phrase is entered
+	for {
+		fmt.Println("")
+		fmt.Println("Type in your 12-word seed phrase and press enter. If you do not have a seed phrase yet, type 'seed' to generate one.")
+		phrase, err := readPasswordInput("Enter seed phrase")
+		if err != nil {
+			log.Fatal("Could not read seed phrase", zap.Error(err))
+		}
+
+		if strings.ToLower(strings.TrimSpace(phrase)) == "seed" {
+			// generate a new seed phrase
+			var seed [32]byte
+			phrase = wallet.NewSeedPhrase()
+			if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
+				panic(err)
+			}
+			key := wallet.KeyFromSeed(&seed, 0)
+			fmt.Println("")
+			fmt.Println("A new seed phrase has been generated below. \033[1mWrite it down and keep it safe.\033[0m")
+			fmt.Println("Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin.")
+			fmt.Println("You will need to re-enter this seed phrase every time you start hostd.")
+			fmt.Println("")
+			fmt.Println("\033[34;1mSeed Phrase:\033[0m", phrase)
+			fmt.Println("\033[34;1mWallet Address:\033[0m", key.PublicKey().StandardAddress())
+
+			// confirm seed phrase
+			for {
+				fmt.Println("")
+				fmt.Println("\033[1mPlease confirm your seed phrase to continue.\033[0m")
+				confirmPhrase, err := readPasswordInput("Enter seed phrase")
+				if err != nil {
+					log.Fatal("Could not read seed phrase", zap.Error(err))
+				} else if confirmPhrase == phrase {
+					return phrase
+				}
+
+				fmt.Println("\033[31mSeed phrases do not match!\033[0m")
+				fmt.Println("You entered:", confirmPhrase)
+				fmt.Println("Actual phrase:", phrase)
+			}
+		}
+
+		var seed [32]byte
+		err = wallet.SeedFromPhrase(&seed, phrase)
+		if err == nil {
+			// valid seed phrase
+			return phrase
+		}
+		fmt.Println("\033[31mInvalid seed phrase:\033[0m", err)
+		fmt.Println("You entered:", phrase)
+	}
 }
 
 // mustSetWalletkey prompts the user to enter a wallet seed phrase if one is not
@@ -90,50 +151,10 @@ func mustSetWalletkey(log *zap.Logger) {
 	if len(cfg.RecoveryPhrase) != 0 {
 		return
 	} else if disableStdin {
-		fmt.Println("Wallet seed must be set via environment variable or config file when --env flag is set")
-		os.Exit(1)
+		log.Fatal("Wallet seed must be set via environment variable or config file when --env flag is set")
 	}
 
-	fmt.Println("Type in your 12-word seed phrase and press enter. If you do not have a seed phrase yet, type 'seed' to generate one.")
-	phrase, err := readPasswordInput("Enter seed phrase")
-	if err != nil {
-		log.Fatal("Could not read seed phrase", zap.Error(err))
-	}
-
-	if strings.ToLower(strings.TrimSpace(phrase)) == "seed" {
-		var seed [32]byte
-		phrase = wallet.NewSeedPhrase()
-		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
-			panic(err)
-		}
-		key := wallet.KeyFromSeed(&seed, 0)
-		fmt.Println("")
-		fmt.Println("A new seed phrase has been generated below. Write it down and keep it safe.")
-		fmt.Println("Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin.")
-		fmt.Println("You will need to re-enter this seed phrase every time you start hostd.")
-		fmt.Println("")
-		fmt.Println("Seed Phrase:", phrase)
-		fmt.Println("Wallet Address:", key.PublicKey().StandardAddress())
-
-		// confirm seed phrase
-		for {
-			fmt.Println("")
-			fmt.Println("Please confirm your seed phrase to continue.")
-			confirmPhrase, err := readPasswordInput("Enter seed phrase")
-			if err != nil {
-				log.Fatal("Could not read seed phrase", zap.Error(err))
-			} else if confirmPhrase == phrase {
-				break
-			}
-
-			fmt.Println("Seed phrases do not match!")
-			fmt.Println("You entered:", confirmPhrase)
-			fmt.Println("Actual phrase:", phrase)
-		}
-	} else if phrase == "" || len(strings.Fields(phrase)) != 12 {
-		log.Fatal("Seed phrase must be 12 words")
-	}
-	cfg.RecoveryPhrase = phrase
+	cfg.RecoveryPhrase = mustGetSeedPhrase(log)
 }
 
 // tryLoadConfig loads the config file specified by the HOSTD_CONFIG_PATH. If
