@@ -72,7 +72,7 @@ func mustSetAPIPassword(log *zap.Logger) {
 		log.Fatal("API password must be set via environment variable or config file when --env flag is set")
 	}
 
-	fmt.Println("Please choose a password to unlock the UI and API. This password will be required to unlock the UI and API every time hostd is restarted.")
+	fmt.Println("Please choose a password to unlock the UI and API.")
 	fmt.Println("(The password must be at least 4 characters.)")
 	pass, err := readPasswordInput("Enter password")
 	if err != nil {
@@ -108,7 +108,9 @@ func mustSetWalletkey(log *zap.Logger) {
 		}
 		key := wallet.KeyFromSeed(&seed, 0)
 		fmt.Println("")
-		fmt.Println("A new seed phrase has been generated below. Write it down and keep it safe. Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin. You will need to re-enter this seed phrase every time you start hostd.")
+		fmt.Println("A new seed phrase has been generated below. Write it down and keep it safe.")
+		fmt.Println("Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin.")
+		fmt.Println("You will need to re-enter this seed phrase every time you start hostd.")
 		fmt.Println("")
 		fmt.Println("Seed Phrase:", phrase)
 		fmt.Println("Wallet Address:", key.PublicKey().StandardAddress())
@@ -117,7 +119,7 @@ func mustSetWalletkey(log *zap.Logger) {
 		for {
 			fmt.Println("")
 			fmt.Println("Please confirm your seed phrase to continue.")
-			confirmPhrase, err := readPasswordInput("Enter Seed")
+			confirmPhrase, err := readPasswordInput("Enter seed phrase")
 			if err != nil {
 				log.Fatal("Could not read seed phrase", zap.Error(err))
 			} else if confirmPhrase == phrase {
