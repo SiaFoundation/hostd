@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -101,7 +100,7 @@ func mustSetWalletkey(log *zap.Logger) {
 		log.Fatal("Could not read seed phrase", zap.Error(err))
 	}
 
-	if strings.TrimSpace(phrase) == "seed" {
+	if strings.ToLower(strings.TrimSpace(phrase)) == "seed" {
 		var seed [32]byte
 		phrase = wallet.NewSeedPhrase()
 		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
@@ -109,13 +108,26 @@ func mustSetWalletkey(log *zap.Logger) {
 		}
 		key := wallet.KeyFromSeed(&seed, 0)
 		fmt.Println("")
-		fmt.Println("A new seed phrase has been generated below. Write it down and keep it safe. You will need to re-enter this seed phrase every time you start hostd.")
+		fmt.Println("A new seed phrase has been generated below. Write it down and keep it safe. Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin. You will need to re-enter this seed phrase every time you start hostd.")
 		fmt.Println("")
-		fmt.Println("Recovery Phrase:", phrase)
+		fmt.Println("Seed Phrase:", phrase)
 		fmt.Println("Wallet Address:", key.PublicKey().StandardAddress())
-		fmt.Println("")
-		fmt.Println("Press enter to continue...")
-		bufio.NewReader(os.Stdin).ReadBytes('\n')
+
+		// confirm seed phrase
+		for {
+			fmt.Println("")
+			fmt.Println("Please confirm your seed phrase to continue.")
+			confirmPhrase, err := readPasswordInput("Enter Seed")
+			if err != nil {
+				log.Fatal("Could not read seed phrase", zap.Error(err))
+			} else if confirmPhrase == phrase {
+				break
+			}
+
+			fmt.Println("Seed phrases do not match!")
+			fmt.Println("You entered:", confirmPhrase)
+			fmt.Println("Actual phrase:", phrase)
+		}
 	} else if phrase == "" || len(strings.Fields(phrase)) != 12 {
 		log.Fatal("Seed phrase must be 12 words")
 	}
