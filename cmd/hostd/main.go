@@ -202,10 +202,6 @@ func main() {
 		level = zap.NewAtomicLevelAt(zap.WarnLevel)
 	case "error":
 		level = zap.NewAtomicLevelAt(zap.ErrorLevel)
-	case "fatal":
-		level = zap.NewAtomicLevelAt(zap.FatalLevel)
-	case "panic":
-		level = zap.NewAtomicLevelAt(zap.PanicLevel)
 	default:
 		log.Fatal("invalid log level", zap.String("level", cfg.Log.Level))
 	}
