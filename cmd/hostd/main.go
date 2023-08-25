@@ -170,7 +170,7 @@ func main() {
 		fmt.Println("hostd", build.Version())
 		fmt.Println("Network", build.NetworkName())
 		fmt.Println("Commit:", build.Commit())
-		fmt.Println("Build Date:", build.BuildTime())
+		fmt.Println("Build Date:", build.Time())
 		return
 	case "seed":
 		var seed [32]byte
@@ -189,7 +189,7 @@ func main() {
 	mustSetAPIPassword(log)
 	mustSetWalletkey(log)
 
-	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", build.NetworkName()), zap.String("commit", build.Commit()), zap.Time("buildDate", build.BuildTime()))
+	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", build.NetworkName()), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
 
 	// configure logging
 	var level zap.AtomicLevel

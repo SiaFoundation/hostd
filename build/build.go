@@ -28,7 +28,7 @@ func Version() string {
 	return version
 }
 
-// BuildTime returns the time at which the binary was built.
-func BuildTime() time.Time {
+// Time returns the time at which the binary was built.
+func Time() time.Time {
 	return time.Unix(buildTime, 0)
 }

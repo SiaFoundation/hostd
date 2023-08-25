@@ -47,7 +47,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 			Version:   build.Version(),
 			Commit:    build.Commit(),
 			OS:        runtime.GOOS,
-			BuildTime: build.BuildTime(),
+			BuildTime: build.Time(),
 		},
 	})
 }
