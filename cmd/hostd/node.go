@@ -162,27 +162,27 @@ func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhpv3.ChainManager, 
 }
 
 func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.PrivateKey, error) {
-	gatewayDir := filepath.Join(config.DataDir, "gateway")
+	gatewayDir := filepath.Join(cfg.Directory, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway dir: %w", err)
 	}
-	g, err := gateway.NewCustomGateway(config.Consensus.GatewayAddress, config.Consensus.Bootstrap, false, gatewayDir, modules.ProdDependencies)
+	g, err := gateway.NewCustomGateway(cfg.Consensus.GatewayAddress, cfg.Consensus.Bootstrap, false, gatewayDir, modules.ProdDependencies)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway: %w", err)
 	}
 
 	// connect to additional peers from the config file
 	go func() {
-		for _, peer := range config.Consensus.Peers {
+		for _, peer := range cfg.Consensus.Peers {
 			g.Connect(modules.NetAddress(peer))
 		}
 	}()
 
-	consensusDir := filepath.Join(config.DataDir, "consensus")
+	consensusDir := filepath.Join(cfg.Directory, "consensus")
 	if err := os.MkdirAll(consensusDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, err
 	}
-	cs, errCh := consensus.New(g, config.Consensus.Bootstrap, consensusDir)
+	cs, errCh := consensus.New(g, cfg.Consensus.Bootstrap, consensusDir)
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -195,7 +195,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 			}
 		}()
 	}
-	tpoolDir := filepath.Join(config.DataDir, "tpool")
+	tpoolDir := filepath.Join(cfg.Directory, "tpool")
 	if err := os.MkdirAll(tpoolDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create tpool dir: %w", err)
 	}
@@ -205,7 +205,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	}
 	tp := &txpool{stp}
 
-	db, err := sqlite.OpenDatabase(filepath.Join(config.DataDir, "hostd.db"), logger.Named("sqlite"))
+	db, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "hostd.db"), logger.Named("sqlite"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create sqlite store: %w", err)
 	}
@@ -223,24 +223,24 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	rhp2Listener, err := net.Listen("tcp", config.RHP2.Address)
+	rhp2Listener, err := net.Listen("tcp", cfg.RHP2.Address)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp2 addr: %w", err)
 	}
 
-	rhp3Listener, err := net.Listen("tcp", config.RHP3.TCPAddress)
+	rhp3Listener, err := net.Listen("tcp", cfg.RHP3.TCPAddress)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp3 addr: %w", err)
 	}
 
-	_, rhp2Port, err := net.SplitHostPort(config.RHP2.Address)
+	_, rhp2Port, err := net.SplitHostPort(cfg.RHP2.Address)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to parse rhp2 addr: %w", err)
 	}
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	sr, err := settings.NewConfigManager(config.DataDir, hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
+	sr, err := settings.NewConfigManager(cfg.Directory, hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
 	}

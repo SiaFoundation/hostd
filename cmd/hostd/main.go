@@ -5,89 +5,49 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	stdlog "log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"go.sia.tech/core/wallet"
 	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
+	"go.sia.tech/hostd/config"
 	"go.sia.tech/jape"
 	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
-type (
-	httpCfg struct {
-		Address  string `yaml:"address"`
-		Password string `yaml:"password"`
-	}
-
-	consensusCfg struct {
-		GatewayAddress string   `yaml:"gatewayAddress"`
-		Bootstrap      bool     `yaml:"bootstrap"`
-		Peers          []string `toml:"peers,omitempty"`
-	}
-
-	rhp2Cfg struct {
-		Address string `yaml:"address"`
-	}
-
-	rhp3Cfg struct {
-		TCPAddress       string `yaml:"tcp"`
-		WebSocketAddress string `yaml:"websocket"`
-		CertPath         string `yaml:"certPath"`
-		KeyPath          string `yaml:"keyPath"`
-	}
-
-	logCfg struct {
-		Path   string `yaml:"path"`
-		Level  string `yaml:"level"`
-		Stdout bool   `yaml:"stdout"`
-	}
-
-	cfg struct {
-		Name           string `yaml:"name"`
-		DataDir        string `yaml:"dataDir"`
-		RecoveryPhrase string `yaml:"recoveryPhrase"`
-
-		HTTP      httpCfg      `yaml:"http"`
-		Consensus consensusCfg `yaml:"consensus"`
-		RHP2      rhp2Cfg      `yaml:"rhp2"`
-		RHP3      rhp3Cfg      `yaml:"rhp3"`
-		Log       logCfg       `yaml:"log"`
-	}
-)
-
 var (
-	config = cfg{
-		DataDir:        ".",                              // default to current directory
+	cfg = config.Config{
+		Directory:      ".",                              // default to current directory
 		RecoveryPhrase: os.Getenv(walletSeedEnvVariable), // default to env variable
 
-		HTTP: httpCfg{
+		HTTP: config.HTTP{
 			Address:  defaultAPIAddr,
 			Password: os.Getenv(apiPasswordEnvVariable),
 		},
-		Consensus: consensusCfg{
+		Consensus: config.Consensus{
 			GatewayAddress: defaultGatewayAddr,
 			Bootstrap:      true,
 		},
-		RHP2: rhp2Cfg{
+		RHP2: config.RHP2{
 			Address: defaultRHPv2Addr,
 		},
-		RHP3: rhp3Cfg{
+		RHP3: config.RHP3{
 			TCPAddress:       defaultRHPv3TCPAddr,
 			WebSocketAddress: defaultRHPv3WSAddr,
 		},
-
-		Log: logCfg{
+		Log: config.Log{
 			Level: "info",
 			Path:  os.Getenv(logPathEnvVariable),
 		},
@@ -96,51 +56,50 @@ var (
 	disableStdin bool
 )
 
-func check(context string, err error) {
-	if err != nil {
-		log.Fatalf("%v: %v", context, err)
-	}
-}
-
 // mustSetAPIPassword prompts the user to enter an API password if one is not
 // already set via environment variable or config file.
-func mustSetAPIPassword() {
-	if len(config.HTTP.Password) != 0 {
+func mustSetAPIPassword(log *zap.Logger) {
+	if len(cfg.HTTP.Password) != 0 {
 		return
 	} else if disableStdin {
-		log.Fatalln("API password must be set via environment variable or config file when --env flag is set")
+		log.Fatal("API password must be set via environment variable or config file when --env flag is set")
 	}
 
 	fmt.Print("Enter API password: ")
 	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Could not read API password", zap.Error(err))
 	} else if len(pw) == 0 {
-		log.Fatalln("API password cannot be empty")
+		log.Fatal("API password cannot be empty")
 	}
-	config.HTTP.Password = string(pw)
+	cfg.HTTP.Password = string(pw)
 }
 
 // mustSetWalletkey prompts the user to enter a wallet seed phrase if one is not
 // already set via environment variable or config file.
-func mustSetWalletkey() {
-	if len(config.RecoveryPhrase) != 0 {
+func mustSetWalletkey(log *zap.Logger) {
+	if len(cfg.RecoveryPhrase) != 0 {
 		return
 	} else if disableStdin {
-		log.Fatalln("Wallet seed must be set via environment variable or config file when --env flag is set")
+		fmt.Println("Wallet seed must be set via environment variable or config file when --env flag is set")
+		os.Exit(1)
 	}
 
 	fmt.Print("Enter wallet seed: ")
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	check("Could not read seed phrase:", err)
+	phrase, err := term.ReadPassword(int(os.Stdin.Fd()))
+	if err != nil {
+		log.Fatal("Could not read seed phrase", zap.Error(err))
+	} else if len(phrase) == 0 || len(strings.Fields(string(phrase))) != 12 {
+		log.Fatal("Seed phrase must be 12 words")
+	}
 	fmt.Println()
-	config.RecoveryPhrase = string(pw)
+	cfg.RecoveryPhrase = string(phrase)
 }
 
-// mustLoadConfig loads the config file specified by the HOSTD_CONFIG_PATH. If
+// tryLoadConfig loads the config file specified by the HOSTD_CONFIG_PATH. If
 // the config file does not exist, it will not be loaded.
-func mustLoadConfig() {
+func tryLoadConfig(log *zap.Logger) {
 	configPath := "hostd.yml"
 	if str := os.Getenv(configPathEnvVariable); len(str) != 0 {
 		configPath = str
@@ -153,127 +112,168 @@ func mustLoadConfig() {
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		log.Fatal("failed to open config file:", err)
+		log.Fatal("failed to open config file", zap.Error(err))
 	}
 	defer f.Close()
 
 	dec := yaml.NewDecoder(f)
 	dec.KnownFields(true)
 
-	if err := dec.Decode(&config); err != nil {
-		log.Fatal("failed to decode config file:", err)
+	if err := dec.Decode(&cfg); err != nil {
+		log.Fatal("failed to decode config file", zap.Error(err))
 	}
 }
 
 func main() {
+	// configure console logging note: this is configured before anything else
+	// to have consistent logging. File logging will be added after the cli
+	// flags and config is parsed
+	consoleCfg := zap.NewProductionEncoderConfig()
+	consoleCfg.TimeKey = "" // prevent duplicate timestamps
+	consoleCfg.EncodeTime = zapcore.RFC3339TimeEncoder
+	consoleCfg.EncodeDuration = zapcore.StringDurationEncoder
+	consoleCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	consoleCfg.StacktraceKey = ""
+	consoleCfg.CallerKey = ""
+	consoleEncoder := zapcore.NewConsoleEncoder(consoleCfg)
+
+	// only log info messages to console unless stdout logging is enabled
+	consoleCore := zapcore.NewCore(consoleEncoder, zapcore.Lock(os.Stdout), zap.NewAtomicLevelAt(zap.InfoLevel))
+	log := zap.New(consoleCore, zap.AddCaller())
+	defer log.Sync()
+	// redirect stdlib log to zap
+	zap.RedirectStdLog(log.Named("stdlib"))
+
 	// attempt to load the config file first, command line flags will override
 	// any values set in the config file
-	mustLoadConfig()
+	tryLoadConfig(log)
 
 	// global
-	flag.StringVar(&config.Name, "name", config.Name, "a friendly name for the host, only used for display")
-	flag.StringVar(&config.DataDir, "dir", config.DataDir, "directory to store hostd metadata")
+	flag.StringVar(&cfg.Name, "name", cfg.Name, "a friendly name for the host, only used for display")
+	flag.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store hostd metadata")
 	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
 	// consensus
-	flag.StringVar(&config.Consensus.GatewayAddress, "rpc", config.Consensus.GatewayAddress, "address to listen on for peer connections")
-	flag.BoolVar(&config.Consensus.Bootstrap, "bootstrap", config.Consensus.Bootstrap, "bootstrap the gateway and consensus modules")
+	flag.StringVar(&cfg.Consensus.GatewayAddress, "rpc", cfg.Consensus.GatewayAddress, "address to listen on for peer connections")
+	flag.BoolVar(&cfg.Consensus.Bootstrap, "bootstrap", cfg.Consensus.Bootstrap, "bootstrap the gateway and consensus modules")
 	// rhp
-	flag.StringVar(&config.RHP2.Address, "rhp2", config.RHP2.Address, "address to listen on for RHP2 connections")
-	flag.StringVar(&config.RHP3.TCPAddress, "rhp3.tcp", config.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
-	flag.StringVar(&config.RHP3.WebSocketAddress, "rhp3.ws", config.RHP3.WebSocketAddress, "address to listen on for WebSocket RHP3 connections")
+	flag.StringVar(&cfg.RHP2.Address, "rhp2", cfg.RHP2.Address, "address to listen on for RHP2 connections")
+	flag.StringVar(&cfg.RHP3.TCPAddress, "rhp3.tcp", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
+	flag.StringVar(&cfg.RHP3.WebSocketAddress, "rhp3.ws", cfg.RHP3.WebSocketAddress, "address to listen on for WebSocket RHP3 connections")
 	// http
-	flag.StringVar(&config.HTTP.Address, "http", config.HTTP.Address, "address to serve API on")
+	flag.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	// log
-	flag.StringVar(&config.Log.Level, "log.level", config.Log.Level, "log level (debug, info, warn, error)")
-	flag.BoolVar(&config.Log.Stdout, "log.stdout", config.Log.Stdout, "log to stdout (default false)")
+	flag.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
 	flag.Parse()
 
-	log.Println("hostd", build.Version())
-	log.Println("Network", build.NetworkName())
 	switch flag.Arg(0) {
 	case "version":
-		log.Println("Commit:", build.Commit())
-		log.Println("Build Date:", build.BuildTime())
+		fmt.Println("hostd", build.Version())
+		fmt.Println("Network", build.NetworkName())
+		fmt.Println("Commit:", build.Commit())
+		fmt.Println("Build Date:", build.BuildTime())
 		return
 	case "seed":
 		var seed [32]byte
 		phrase := wallet.NewSeedPhrase()
 		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			os.Exit(1)
 		}
 		key := wallet.KeyFromSeed(&seed, 0)
-		log.Println("Recovery Phrase:", phrase)
-		log.Println("Address", key.PublicKey().StandardAddress())
+		fmt.Println("Recovery Phrase:", phrase)
+		fmt.Println("Address", key.PublicKey().StandardAddress())
 		return
 	}
 
 	// check that the API password and wallet seed are set
-	mustSetAPIPassword()
-	mustSetWalletkey()
+	mustSetAPIPassword(log)
+	mustSetWalletkey(log)
 
-	// set the log path to the data dir if it is not already set note: this
-	// musst happen after CLI flags are parsed so that the data directory can be
-	// specified via the command line
-	if len(config.Log.Path) == 0 {
-		config.Log.Path = config.DataDir
+	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", build.NetworkName()), zap.String("commit", build.Commit()), zap.Time("buildDate", build.BuildTime()))
+
+	// configure logging
+	var level zap.AtomicLevel
+	switch cfg.Log.Level {
+	case "debug":
+		level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	case "info":
+		level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	case "warn":
+		level = zap.NewAtomicLevelAt(zap.WarnLevel)
+	case "error":
+		level = zap.NewAtomicLevelAt(zap.ErrorLevel)
+	case "fatal":
+		level = zap.NewAtomicLevelAt(zap.FatalLevel)
+	case "panic":
+		level = zap.NewAtomicLevelAt(zap.PanicLevel)
+	default:
+		log.Fatal("invalid log level", zap.String("level", cfg.Log.Level))
 	}
 
+	// create the data directory if it does not already exist
+	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
+		log.Fatal("unable to create config directory", zap.Error(err))
+	}
+
+	// set the log path to the data dir if it is not already set note: this
+	// must happen after CLI flags are parsed so that the data directory can be
+	// specified via the command line and environment variable
+	if len(cfg.Log.Path) == 0 {
+		cfg.Log.Path = cfg.Directory
+	}
+
+	// configure file logging
+	fileCfg := zap.NewProductionEncoderConfig()
+	fileEncoder := zapcore.NewJSONEncoder(fileCfg)
+
+	fileWriter, closeFn, err := zap.Open(filepath.Join(cfg.Log.Path, "hostd.log"))
+	if err != nil {
+		fmt.Println("failed to open log file:", err)
+		os.Exit(1)
+	}
+	defer closeFn()
+
+	// wrap the logger to log to both stdout and the log file
+	log = log.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		// use a tee to log to both stdout and the log file
+		return zapcore.NewTee(
+			zapcore.NewCore(fileEncoder, zapcore.Lock(fileWriter), level),
+			zapcore.NewCore(consoleEncoder, zapcore.Lock(os.Stdout), level),
+		)
+	}))
+
 	var seed [32]byte
-	if err := wallet.SeedFromPhrase(&seed, config.RecoveryPhrase); err != nil {
-		log.Fatalln("failed to load wallet:", err)
+	if err := wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase); err != nil {
+		log.Fatal("failed to load wallet", zap.Error(err))
 	}
 	walletKey := wallet.KeyFromSeed(&seed, 0)
 
-	if err := os.MkdirAll(config.DataDir, 0700); err != nil {
-		log.Fatalln("unable to create config directory:", err)
+	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
+		log.Fatal("unable to create config directory", zap.Error(err))
 	}
 
-	cfg := zap.NewProductionConfig()
-	cfg.OutputPaths = []string{filepath.Join(config.Log.Path, "hostd.log")}
-	if config.Log.Stdout {
-		cfg.OutputPaths = append(cfg.OutputPaths, "stdout")
-	}
-	switch config.Log.Level {
-	case "debug":
-		cfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		cfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn":
-		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
-	default:
-		cfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	}
-	logger, err := cfg.Build()
+	apiListener, err := net.Listen("tcp", cfg.HTTP.Address)
 	if err != nil {
-		log.Fatalln("ERROR: failed to create logger:", err)
-	}
-	defer logger.Sync()
-	if config.Log.Stdout {
-		zap.RedirectStdLog(logger.Named("stdlog"))
-	}
-
-	apiListener, err := net.Listen("tcp", config.HTTP.Address)
-	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to listen on API address", zap.Error(err), zap.String("address", cfg.HTTP.Address))
 	}
 	defer apiListener.Close()
 
-	rhpv3WSListener, err := net.Listen("tcp", config.RHP3.WebSocketAddress)
+	rhp3WSListener, err := net.Listen("tcp", cfg.RHP3.WebSocketAddress)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to listen on RHP3 WebSocket address", zap.Error(err), zap.String("address", cfg.RHP3.WebSocketAddress))
 	}
-	defer rhpv3WSListener.Close()
+	defer rhp3WSListener.Close()
 
-	node, hostKey, err := newNode(walletKey, logger)
+	node, hostKey, err := newNode(walletKey, log)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to create node", zap.Error(err))
 	}
 	defer node.Close()
 
-	auth := jape.BasicAuth(config.HTTP.Password)
+	auth := jape.BasicAuth(cfg.HTTP.Password)
 	web := http.Server{
 		Handler: webRouter{
-			api: auth(api.NewServer(config.Name, hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.storage, node.metrics, node.settings, node.w, logger.Named("api"))),
+			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.storage, node.metrics, node.settings, node.w, log.Named("api"))),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,
@@ -284,52 +284,31 @@ func main() {
 		Handler:     node.rhp3.WebSocketHandler(),
 		ReadTimeout: 30 * time.Second,
 		TLSConfig:   node.settings.RHP3TLSConfig(),
-		ErrorLog:    log.New(io.Discard, "", 0),
+		ErrorLog:    stdlog.New(io.Discard, "", 0),
 	}
 	defer rhpv3WS.Close()
 
 	go func() {
-		err := rhpv3WS.ServeTLS(rhpv3WSListener, "", "")
+		err := rhpv3WS.ServeTLS(rhp3WSListener, "", "")
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			if config.Log.Stdout {
-				logger.Error("failed to serve rhpv3 websocket", zap.Error(err))
-				return
-			}
-			log.Println("ERROR: failed to serve rhpv3 websocket:", err)
+			log.Error("failed to serve rhpv3 websocket", zap.Error(err))
 		}
 	}()
 
-	if config.Log.Stdout {
-		logger.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
-	} else {
-		log.Println("api listening on:", apiListener.Addr().String())
-		log.Println("p2p listening on:", node.g.Address())
-		log.Println("rhp2 listening on:", node.rhp2.LocalAddr())
-		log.Println("rhp3 TCP listening on:", node.rhp3.LocalAddr())
-		log.Println("rhp3 WebSocket listening on:", rhpv3WSListener.Addr().String())
-		log.Println("host public key:", hostKey.PublicKey())
-	}
+	log.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
 
 	go func() {
 		err := web.Serve(apiListener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			if config.Log.Stdout {
-				logger.Error("failed to serve web", zap.Error(err))
-				return
-			}
-			log.Println("ERROR: failed to serve web:", err)
+			log.Error("failed to serve web", zap.Error(err))
 		}
 	}()
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	<-signalCh
-	if config.Log.Stdout {
-		logger.Info("shutdown initiated")
-	} else {
-		log.Println("Shutting down...")
-	}
+	log.Info("shutting down...")
 	time.AfterFunc(5*time.Minute, func() {
-		os.Exit(-1)
+		log.Fatal("failed to shut down within 5 minutes")
 	})
 }
