@@ -70,7 +70,7 @@ var DefaultSettings = settings.Settings{
 	EgressPrice:          types.Siacoins(100).Div64(1e12),
 	IngressPrice:         types.Siacoins(100).Div64(1e12),
 
-	PriceTableValidity: 30 * time.Second,
+	PriceTableValidity: 2 * time.Minute,
 
 	AccountExpiry:     30 * 24 * time.Hour, // 1 month
 	MaxAccountBalance: types.Siacoins(10),
