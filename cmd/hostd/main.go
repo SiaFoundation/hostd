@@ -72,23 +72,22 @@ func mustSetAPIPassword(log *zap.Logger) {
 		log.Fatal("API password must be set via environment variable or config file when --env flag is set")
 	}
 
-	var pass string
 	for {
 		fmt.Println("Please choose a password to unlock the UI and API.")
 		fmt.Println("(The password must be at least 4 characters.)")
-		pass, err := readPasswordInput("Enter password")
+		var err error
+		cfg.HTTP.Password, err = readPasswordInput("Enter password")
 		if err != nil {
 			log.Fatal("Could not read password", zap.Error(err))
 		}
 
-		if len(pass) >= 4 {
+		if len(cfg.HTTP.Password) >= 4 {
 			break
 		}
 
 		fmt.Println("\033[31mPassword must be at least 4 characters!\033[0m")
 		fmt.Println("")
 	}
-	cfg.HTTP.Password = pass
 }
 
 func mustGetSeedPhrase(log *zap.Logger) string {
