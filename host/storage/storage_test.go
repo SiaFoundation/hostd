@@ -1250,6 +1250,7 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 }
 
 func BenchmarkNewVolume(b *testing.B) {
+	const sectors = 100
 	dir := b.TempDir()
 
 	// create the database
@@ -1287,16 +1288,18 @@ func BenchmarkNewVolume(b *testing.B) {
 	defer vm.Close()
 
 	b.ResetTimer()
-	b.ReportMetric(float64(b.N), "sectors")
-	b.SetBytes(rhpv2.SectorSize)
+	b.ReportMetric(float64(sectors), "sectors")
+	b.SetBytes(sectors * rhpv2.SectorSize)
 
 	result := make(chan error, 1)
-	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
-	_, err = vm.AddVolume(volumeFilePath, uint64(b.N), result)
-	if err != nil {
-		b.Fatal(err)
-	} else if err := <-result; err != nil {
-		b.Fatal(err)
+	for i := 0; i < b.N; i++ {
+		volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
+		_, err = vm.AddVolume(volumeFilePath, sectors, result)
+		if err != nil {
+			b.Fatal(err)
+		} else if err := <-result; err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

@@ -144,7 +144,7 @@ func (v *volume) Sync() error {
 	return err
 }
 
-func (v *volume) Resize(old, new uint64) error {
+func (v *volume) Resize(oldSectors, newSectors uint64) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
@@ -152,16 +152,16 @@ func (v *volume) Resize(old, new uint64) error {
 		return ErrVolumeNotAvailable
 	}
 
-	if new > old {
+	if newSectors > oldSectors {
 		buf := make([]byte, rhpv2.SectorSize)
-		for i := old; i < new; i++ {
+		for i := oldSectors; i < newSectors; i++ {
 			frand.Read(buf)
 			if _, err := v.data.WriteAt(buf, int64(i*rhpv2.SectorSize)); err != nil {
 				return fmt.Errorf("failed to write sector to index %v: %w", i, err)
 			}
 		}
 	} else {
-		if err := v.data.Truncate(int64(new * rhpv2.SectorSize)); err != nil {
+		if err := v.data.Truncate(int64(newSectors * rhpv2.SectorSize)); err != nil {
 			return fmt.Errorf("failed to truncate volume: %w", err)
 		}
 	}
