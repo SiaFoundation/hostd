@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
+	"lukechampine.com/frand"
 )
 
 type (
@@ -143,14 +144,28 @@ func (v *volume) Sync() error {
 	return err
 }
 
-func (v *volume) Resize(sectors uint64) error {
+func (v *volume) Resize(old, new uint64) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
 	if v.data == nil {
 		return ErrVolumeNotAvailable
 	}
-	return v.data.Truncate(int64(sectors * rhpv2.SectorSize))
+
+	if new > old {
+		buf := make([]byte, rhpv2.SectorSize)
+		for i := old; i < new; i++ {
+			frand.Read(buf)
+			if _, err := v.data.WriteAt(buf, int64(i*rhpv2.SectorSize)); err != nil {
+				return fmt.Errorf("failed to write sector to index %v: %w", i, err)
+			}
+		}
+	} else {
+		if err := v.data.Truncate(int64(new * rhpv2.SectorSize)); err != nil {
+			return fmt.Errorf("failed to truncate volume: %w", err)
+		}
+	}
+	return nil
 }
 
 // Close closes the volume

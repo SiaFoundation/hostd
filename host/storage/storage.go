@@ -285,10 +285,11 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		if target > newMaxSectors {
 			target = newMaxSectors
 		}
+
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
 		// progress tracking.
-		if v.Resize(target); err != nil {
+		if v.Resize(current, target); err != nil {
 			return fmt.Errorf("failed to expand volume data: %w", err)
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
@@ -363,22 +364,23 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 			return ctx.Err()
 		default:
 		}
+		var target uint64
 		if current > resizeBatchSize {
-			current -= resizeBatchSize
+			target = current - resizeBatchSize
+			if target < newMaxSectors {
+				target = newMaxSectors
+			}
 		} else {
-			current = newMaxSectors
+			target = newMaxSectors
 		}
 
-		if current < newMaxSectors {
-			current = newMaxSectors
-		}
-
-		if err := vm.vs.ShrinkVolume(id, current); err != nil {
+		if err := vm.vs.ShrinkVolume(id, target); err != nil {
 			return fmt.Errorf("failed to shrink volume metadata: %w", err)
-		} else if err := volume.Resize(current); err != nil {
+		} else if err := volume.Resize(current, target); err != nil {
 			return fmt.Errorf("failed to shrink volume data to %v sectors: %w", current, err)
 		}
 
+		current = target
 		// update the alert
 		a.Data["currentSectors"] = current
 		vm.a.Register(a)
