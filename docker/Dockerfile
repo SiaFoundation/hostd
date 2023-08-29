@@ -2,9 +2,15 @@ FROM docker.io/library/golang:1.21 AS builder
 
 WORKDIR /hostd
 
+# get dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# copy source
 COPY . .
-# build
+# codegen
 RUN go generate ./...
+# build
 RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/hostd
 
 FROM docker.io/library/alpine:3
