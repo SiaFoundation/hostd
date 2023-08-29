@@ -2,13 +2,13 @@
 
 package disk
 
-import "syscall"
+import "golang.org/x/sys/unix"
 
 // Usage returns the free and total bytes on the filesystem containing the
 // specified path.
 func Usage(p string) (free, total uint64, err error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(p, &stat); err != nil {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(p, &stat); err != nil {
 		return 0, 0, err
 	}
 	return stat.Bfree * uint64(stat.Bsize), stat.Blocks * uint64(stat.Bsize), nil
