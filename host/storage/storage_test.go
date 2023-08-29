@@ -3,6 +3,7 @@ package storage_test
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -657,7 +658,7 @@ func TestVolumeDistribution(t *testing.T) {
 }
 
 func TestVolumeGrow(t *testing.T) {
-	const initialSectors = 32
+	const initialSectors = 20
 	dir := t.TempDir()
 
 	// create the database
@@ -722,14 +723,31 @@ func TestVolumeGrow(t *testing.T) {
 		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
 	}
 
+	// fill the volume
+	roots := make([]types.Hash256, 0, initialSectors)
+	for i := 0; i < int(initialSectors); i++ {
+		var sector [rhpv2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		root := rhpv2.SectorRoot(&sector)
+		release, err := vm.Write(root, &sector)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		defer release()
+		roots = append(roots, root)
+	}
+
 	// grow the volume
-	const newSectors = 64
+	const newSectors = 100
 	if err := vm.ResizeVolume(volume.ID, newSectors, result); err != nil {
 		t.Fatal(err)
 	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
+	// check the volume
 	if err := checkFileSize(volumeFilePath, int64(newSectors*rhpv2.SectorSize)); err != nil {
 		t.Fatal(err)
 	}
@@ -739,10 +757,25 @@ func TestVolumeGrow(t *testing.T) {
 		t.Fatal(err)
 	} else if meta.TotalSectors != newSectors {
 		t.Fatalf("expected %v total sectors, got %v", newSectors, meta.TotalSectors)
-	} else if meta.UsedSectors != 0 {
-		t.Fatalf("expected 0 used sectors, got %v", meta.UsedSectors)
+	} else if meta.UsedSectors != uint64(len(roots)) {
+		t.Fatalf("expected %v used sectors, got %v", len(roots), meta.UsedSectors)
 	} else if meta.Status != storage.VolumeStatusReady {
 		t.Fatalf("expected volume status to be ready, got %v", meta.Status)
+	}
+
+	f, err := os.Open(volumeFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	var sector [rhpv2.SectorSize]byte
+	for _, root := range roots {
+		if _, err := io.ReadFull(f, sector[:]); err != nil {
+			t.Fatal(err)
+		} else if rhpv2.SectorRoot(&sector) != root {
+			t.Fatal("sector was corrupted")
+		}
 	}
 }
 
@@ -853,7 +886,7 @@ func TestVolumeShrink(t *testing.T) {
 	}
 
 	// try to shrink the volume, should fail since no space is available
-	toRemove := sectors / 4
+	toRemove := sectors * 2 / 3
 	remainingSectors := uint64(sectors - toRemove)
 	if err := vm.ResizeVolume(volume.ID, remainingSectors, result); err != nil {
 		t.Fatal(err)
@@ -869,7 +902,7 @@ func TestVolumeShrink(t *testing.T) {
 	}
 	// when shrinking, the roots after the target size should be moved to
 	// the beginning of the volume
-	roots = append(roots[remainingSectors:], roots[toRemove:remainingSectors]...)
+	roots = append([]types.Hash256(nil), roots[toRemove:]...)
 
 	// shrink the volume by the number of sectors removed, should succeed
 	if err := vm.ResizeVolume(volume.ID, remainingSectors, result); err != nil {
@@ -1217,6 +1250,7 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 }
 
 func BenchmarkNewVolume(b *testing.B) {
+	const sectors = 100
 	dir := b.TempDir()
 
 	// create the database
@@ -1254,16 +1288,18 @@ func BenchmarkNewVolume(b *testing.B) {
 	defer vm.Close()
 
 	b.ResetTimer()
-	b.ReportMetric(float64(b.N), "sectors")
-	b.SetBytes(rhpv2.SectorSize)
+	b.ReportMetric(float64(sectors), "sectors")
+	b.SetBytes(sectors * rhpv2.SectorSize)
 
 	result := make(chan error, 1)
-	volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
-	_, err = vm.AddVolume(volumeFilePath, uint64(b.N), result)
-	if err != nil {
-		b.Fatal(err)
-	} else if err := <-result; err != nil {
-		b.Fatal(err)
+	for i := 0; i < b.N; i++ {
+		volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
+		_, err = vm.AddVolume(volumeFilePath, sectors, result)
+		if err != nil {
+			b.Fatal(err)
+		} else if err := <-result; err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
