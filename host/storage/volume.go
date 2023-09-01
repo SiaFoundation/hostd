@@ -156,7 +156,7 @@ func (v *volume) Resize(oldSectors, newSectors uint64) error {
 
 	if newSectors > oldSectors {
 		buf := make([]byte, rhpv2.SectorSize)
-		r := rand.New(rand.NewSource(int64(frand.Intn(math.MaxInt64))))
+		r := rand.New(rand.NewSource(int64(frand.Uint64n(math.MaxInt64))))
 		for i := oldSectors; i < newSectors; i++ {
 			r.Read(buf)
 			if _, err := v.data.WriteAt(buf, int64(i*rhpv2.SectorSize)); err != nil {
