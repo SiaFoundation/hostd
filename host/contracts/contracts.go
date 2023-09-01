@@ -16,10 +16,10 @@ import (
 const (
 	// RebroadcastBuffer is the number of blocks after the negotiation height to
 	// attempt to rebroadcast the contract.
-	RebroadcastBuffer = 18 // 3 hours
+	RebroadcastBuffer = 36 // 6 hours
 	// RevisionSubmissionBuffer number of blocks before the proof window to
 	// submit a revision and prevent modification of the contract.
-	RevisionSubmissionBuffer = 36 // 6 hours
+	RevisionSubmissionBuffer = 144 // 24 hours
 )
 
 // A SectorAction denotes the type of action to be performed on a
