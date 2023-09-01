@@ -368,6 +368,12 @@ func (pe *programExecutor) executeStoreSector(instr *rhpv3.InstrStoreSector) ([]
 		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
+	if instr.Duration == 0 {
+		return nil, fmt.Errorf("duration cannot be 0")
+	} else if instr.Duration > storage.MaxTempSectorBlocks {
+		return nil, fmt.Errorf("duration cannot be greater than %d", storage.MaxTempSectorBlocks)
+	}
+
 	// store the sector
 	release, err := pe.storage.Write(root, sector)
 	if err != nil {

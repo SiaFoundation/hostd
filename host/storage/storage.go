@@ -23,6 +23,10 @@ const (
 	resizeBatchSize = 64 // 256 MiB
 
 	cleanupInterval = 5 * time.Minute
+
+	// MaxTempSectorBlocks is the maximum number of blocks that a temp sector
+	// can be stored for.
+	MaxTempSectorBlocks = 144 * 7 // 7 days
 )
 
 // VolumeStatus is the status of a volume.

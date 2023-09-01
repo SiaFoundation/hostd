@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"os"
 	"sync"
 
@@ -154,8 +156,9 @@ func (v *volume) Resize(oldSectors, newSectors uint64) error {
 
 	if newSectors > oldSectors {
 		buf := make([]byte, rhpv2.SectorSize)
+		r := rand.New(rand.NewSource(int64(frand.Intn(math.MaxInt64))))
 		for i := oldSectors; i < newSectors; i++ {
-			frand.Read(buf)
+			r.Read(buf)
 			if _, err := v.data.WriteAt(buf, int64(i*rhpv2.SectorSize)); err != nil {
 				return fmt.Errorf("failed to write sector to index %v: %w", i, err)
 			}
