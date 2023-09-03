@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
+	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -46,6 +47,7 @@ type (
 	// A ChainManager is used to get the current consensus state.
 	ChainManager interface {
 		TipState() consensus.State
+		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
 	}
 
 	// A SectorLocation is a location of a sector within a volume.
@@ -77,8 +79,9 @@ type (
 
 		tg *threadgroup.ThreadGroup
 
-		mu      sync.Mutex // protects the following fields
-		volumes map[int]*volume
+		mu          sync.Mutex // protects the following fields
+		lastCleanup time.Time
+		volumes     map[int]*volume
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
 		cache          *lru.Cache[types.Hash256, *[rhpv2.SectorSize]byte] // Added cache
@@ -963,6 +966,23 @@ func (vm *VolumeManager) ResizeCache(size uint32) {
 	vm.cache.Resize(int(size))
 }
 
+func (vm *VolumeManager) ProcessConsensusChange(cc modules.ConsensusChange) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	delta := time.Since(vm.lastCleanup)
+	if delta < cleanupInterval {
+		return
+	}
+	vm.lastCleanup = time.Now()
+
+	go func() {
+		log := vm.log.Named("cleanup").With(zap.Uint64("height", uint64(cc.BlockHeight)))
+		if err := vm.vs.ExpireTempSectors(uint64(cc.BlockHeight)); err != nil {
+			log.Error("failed to expire temp sectors", zap.Error(err))
+		}
+	}()
+}
+
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger, sectorCacheSize uint32) (*VolumeManager, error) {
 	// Initialize cache with LRU eviction and a max capacity of 64
@@ -991,8 +1011,9 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 	}
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
+	} else if err := vm.cm.Subscribe(vm, modules.ConsensusChangeRecent, vm.tg.Done()); err != nil {
+		return nil, fmt.Errorf("failed to subscribe to consensus set: %w", err)
 	}
-
 	go vm.recorder.Run(vm.tg.Done())
 	return vm, nil
 }
