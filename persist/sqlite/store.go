@@ -151,6 +151,49 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
 	return nil
 }
 
+func clearLockedSectors(tx txn) (volumeSectors []int64, err error) {
+	included := make(map[int64]bool)
+	rows, err := tx.Query(`DELETE FROM locked_volume_sectors RETURNING volume_sector_id`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete locked volume sectors: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var volumeSectorID int64
+		if err := rows.Scan(&volumeSectorID); err != nil {
+			return nil, fmt.Errorf("failed to scan volume sector id: %w", err)
+		}
+		if included[volumeSectorID] {
+			continue
+		}
+		volumeSectors = append(volumeSectors, volumeSectorID)
+		included[volumeSectorID] = true
+	}
+	return
+}
+
+func (s *Store) clearLockedSectors() error {
+	return s.transaction(func(tx txn) error {
+		volumeSectors, err := clearLockedSectors(tx)
+		if err != nil {
+			return fmt.Errorf("failed to clear locked sectors: %w", err)
+		}
+
+		sectorIDs, err := volumeSectorIDs(tx, volumeSectors)
+		if err != nil {
+			return fmt.Errorf("failed to get sector ids: %w", err)
+		}
+
+		for _, sectorID := range sectorIDs {
+			if err := pruneSectorRef(tx, sectorID); err != nil {
+				return fmt.Errorf("failed to prune volume sector %d: %w", sectorID, err)
+			}
+		}
+		return nil
+	})
+}
+
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
 func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
@@ -164,7 +207,7 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	} else if _, err := db.Exec(clearLockedSectors); err != nil {
+	} else if err = store.clearLockedSectors(); err != nil {
 		// clear any locked sectors, metadata not synced to disk is safe to
 		// overwrite.
 		return nil, fmt.Errorf("failed to clear locked sectors table: %w", err)

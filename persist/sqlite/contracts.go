@@ -28,6 +28,7 @@ type (
 
 	contractSectorRef struct {
 		ID         int64
+		SectorID   int64
 		ContractID types.FileContractID
 	}
 
@@ -172,16 +173,35 @@ func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSec
 			return nil
 		}
 
-		sectorIDs := make([]int64, 0, len(sectors))
+		contractSectorIDs := make([]int64, 0, len(sectors))
 		for _, sector := range sectors {
-			sectorIDs = append(sectorIDs, sector.ID)
+			contractSectorIDs = append(contractSectorIDs, sector.ID)
+		}
+		// delete the sector roots
+		query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(contractSectorIDs)) + `);`
+		res, err := tx.Exec(query, queryArgs(contractSectorIDs)...)
+		if err != nil {
+			return fmt.Errorf("failed to delete sectors: %w", err)
+		} else if rows, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if rows != int64(len(contractSectorIDs)) {
+			return fmt.Errorf("failed to delete all sectors: %w", err)
 		}
 
-		query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `);`
-		if _, err := tx.Exec(query, queryArgs(sectorIDs)...); err != nil {
-			return fmt.Errorf("failed to delete sectors: %w", err)
-		} else if err := incrementNumericStat(tx, metricContractSectors, len(sectorIDs), time.Now()); err != nil {
+		// decrement the number of contract sectors
+		if err := incrementNumericStat(tx, metricContractSectors, -len(contractSectorIDs), time.Now()); err != nil {
 			return fmt.Errorf("failed to track contract sectors: %w", err)
+		}
+
+		checked := make(map[int64]bool)
+		for _, ref := range sectors {
+			if checked[ref.SectorID] {
+				continue
+			}
+			if err := pruneSectorRef(tx, ref.SectorID); err != nil {
+				return fmt.Errorf("failed to prune sector ref: %w", err)
+			}
+			checked[ref.SectorID] = true
 		}
 		removed = sectors
 		return nil
@@ -1076,7 +1096,7 @@ func setContractStatus(tx txn, id types.FileContractID, status contracts.Contrac
 }
 
 func expiredContractSectors(tx txn, height uint64, batchSize int64) (sectors []contractSectorRef, _ error) {
-	const query = `SELECT csr.id, c.contract_id FROM contract_sector_roots csr 
+	const query = `SELECT csr.id, c.contract_id, csr.sector_id FROM contract_sector_roots csr 
 INNER JOIN contracts c ON (csr.contract_id=c.id)
 -- past proof window or not confirmed and past the rebroadcast height
 WHERE c.window_end < $1 OR c.contract_status=$2 LIMIT $3;`
@@ -1086,11 +1106,11 @@ WHERE c.window_end < $1 OR c.contract_status=$2 LIMIT $3;`
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var sector contractSectorRef
-		if err := rows.Scan(&sector.ID, (*sqlHash256)(&sector.ContractID)); err != nil {
+		var ref contractSectorRef
+		if err := rows.Scan(&ref.ID, (*sqlHash256)(&ref.ContractID), &ref.SectorID); err != nil {
 			return nil, fmt.Errorf("failed to scan expired contract: %w", err)
 		}
-		sectors = append(sectors, sector)
+		sectors = append(sectors, ref)
 	}
-	return sectors, nil
+	return
 }

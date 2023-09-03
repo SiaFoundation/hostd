@@ -59,7 +59,7 @@ func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn f
 	} else if len(oldLocations) == 0 {
 		return true, nil // no more sectors to migrate
 	}
-	defer unlockLocationBatch(&dbTxn{s}, locks...)
+	defer unlockLocation(&dbTxn{s}, locks...)
 
 	// call migrateFn with the new locations, data should be copied to the
 	// new locations and synced to disk

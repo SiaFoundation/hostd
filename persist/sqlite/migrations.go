@@ -8,6 +8,15 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion14 recalculates the contract sectors metric due to a bug
+func migrateVersion14(tx txn) error {
+	var contractSectorCount int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&contractSectorCount); err != nil {
+		return fmt.Errorf("failed to query contract sector count: %w", err)
+	}
+	return setNumericStat(tx, metricContractSectors, uint64(contractSectorCount), time.Now())
+}
+
 // migrateVersion13 adds an index to the storage table to speed up location selection
 func migrateVersion13(tx txn) error {
 	_, err := tx.Exec(`CREATE INDEX storage_volumes_read_only_available_used_sectors ON storage_volumes(available, read_only, used_sectors);`)
@@ -279,4 +288,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion11,
 	migrateVersion12,
 	migrateVersion13,
+	migrateVersion14,
 }

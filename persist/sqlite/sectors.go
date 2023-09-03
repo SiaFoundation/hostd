@@ -9,82 +9,47 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
-type (
-	sectorRef struct {
-		ID   int64
-		Root types.Hash256
-	}
-)
-
-func (s *Store) batchExpireTempSectors(height uint64) (removed int, err error) {
-	err = s.transaction(func(tx txn) error {
-		sectors, err := expiredTempSectors(tx, height, sqlSectorBatchSize)
-		if err != nil {
-			return fmt.Errorf("failed to select sectors: %w", err)
-		} else if len(sectors) == 0 {
-			return nil
-		}
-
-		query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(sectors)) + `);`
-		if _, err := tx.Exec(query, queryArgs(sectors)...); err != nil {
-			return fmt.Errorf("failed to delete sectors: %w", err)
-		} else if err := incrementNumericStat(tx, metricTempSectors, -len(sectors), time.Now()); err != nil {
-			return fmt.Errorf("failed to update metric: %w", err)
-		}
-		removed = len(sectors)
-		return nil
-	})
-	return
+type tempSectorRef struct {
+	ID       int64
+	SectorID int64
 }
 
-func (s *Store) batchPruneSectors() (removed []sectorRef, err error) {
+func (s *Store) batchExpireTempSectors(height uint64) (refs []tempSectorRef, err error) {
 	err = s.transaction(func(tx txn) error {
-		sectors, err := sectorsForDeletion(tx, sqlSectorBatchSize)
+		refs, err = expiredTempSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
-		} else if len(sectors) == 0 {
+		} else if len(refs) == 0 {
 			return nil
 		}
 
-		// TODO: each sector is removed in individual queries to keep the
-		// volume counts accurate. There are more efficient ways to do this
-		updateVolumeStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE sector_id=$1 RETURNING volume_id;`)
+		var tempIDs []int64
+		for _, ref := range refs {
+			tempIDs = append(tempIDs, ref.ID)
+		}
+
+		// delete the sectors
+		query := `DELETE FROM temp_storage_sector_roots WHERE id IN (` + queryPlaceHolders(len(tempIDs)) + `);`
+		res, err := tx.Exec(query, queryArgs(tempIDs)...)
 		if err != nil {
-			return fmt.Errorf("failed to prepare query: %w", err)
+			return fmt.Errorf("failed to delete sectors: %w", err)
+		} else if rows, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if rows != int64(len(tempIDs)) {
+			return fmt.Errorf("failed to delete all sectors: %w", err)
 		}
-		defer updateVolumeStmt.Close()
-
-		deleteStmt, err := tx.Prepare(`DELETE FROM stored_sectors WHERE id=$1;`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare query: %w", err)
-		}
-		defer deleteStmt.Close()
-
-		// decrement volume usage
-		metaUpdateStmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1;`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare query: %w", err)
-		}
-		defer metaUpdateStmt.Close()
-
-		for _, sector := range sectors {
-			var volumeID int64
-			if err := updateVolumeStmt.QueryRow(sector.ID).Scan(&volumeID); err != nil {
-				return fmt.Errorf("failed to get volume id for sector: %w", err)
-			} else if _, err := deleteStmt.Exec(sector.ID); err != nil {
-				return fmt.Errorf("failed to delete sector: %w", err)
-			} else if _, err := metaUpdateStmt.Exec(volumeID); err != nil {
-				return fmt.Errorf("failed to update volume metadata: %w", err)
-			}
-		}
-
-		if err := incrementNumericStat(tx, metricPhysicalSectors, -len(sectors), time.Now()); err != nil {
+		// decrement the temp sectors metric
+		if err := incrementNumericStat(tx, metricTempSectors, -len(refs), time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-		removed = sectors
+
+		for _, ref := range refs {
+			if err := pruneSectorRef(tx, ref.SectorID); err != nil {
+				return fmt.Errorf("failed to prune sector: %w", err)
+			}
+		}
 		return nil
 	})
 	return
@@ -174,40 +139,56 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 	for {
 		removed, err := s.batchExpireTempSectors(height)
 		if err != nil {
-			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if removed == 0 {
+			return fmt.Errorf("failed to expire sectors: %w", err)
+		} else if len(removed) == 0 {
 			return nil
 		}
-		total += removed
+		total += len(removed)
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
 
-// PruneSectors removes the metadata of any sectors that are not locked or referenced
-// by a contract.
-func (s *Store) PruneSectors() (int, error) {
-	var removedSectors []types.Hash256
-	defer func() {
-		s.log.Debug("deleted unreferenced sectors", zap.Int("deleted", len(removedSectors)), zap.Array("sectors", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
-			for _, root := range removedSectors {
-				enc.AppendString(root.String())
-			}
-			return nil
-		})))
-	}()
-	// delete in batches to avoid holding a lock on the table for too long
-	for i := 0; ; i++ {
-		removed, err := s.batchPruneSectors()
-		if err != nil {
-			return len(removedSectors), fmt.Errorf("failed to prune sectors: %w", err)
-		} else if len(removed) == 0 {
-			return len(removedSectors), nil
-		}
-		for _, sector := range removed {
-			removedSectors = append(removedSectors, sector.Root)
-		}
-		jitterSleep(time.Millisecond) // allow other transactions to run
+func pruneSectorRef(tx txn, id int64) error {
+	var contractRef, tempRef, lockRef bool
+	// check if the sector is referenced by a contract
+	err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM contract_sector_roots WHERE sector_id=$1)`, id).Scan(&contractRef)
+	if err != nil {
+		return fmt.Errorf("failed to check contract references: %w", err)
 	}
+	// check if the sector is referenced by temp storage
+	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM temp_storage_sector_roots WHERE sector_id=$1)`, id).Scan(&tempRef)
+	if err != nil {
+		return fmt.Errorf("failed to check temp references: %w", err)
+	}
+	// check if the sector location is locked
+	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM locked_volume_sectors ls INNER JOIN volume_sectors vs ON (ls.volume_sector_id=vs.id) WHERE vs.sector_id=$1)`, id).Scan(&lockRef)
+	if err != nil {
+		return fmt.Errorf("failed to check lock references: %w", err)
+	}
+	// if the sector is referenced by a contract, temp storage, or locked, do
+	// not remove it
+	if contractRef || tempRef || lockRef {
+		return nil
+	}
+	// clear the volume sector reference
+	var volumeDBID int64
+	err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=NULL WHERE sector_id=$1 RETURNING volume_id`, id).Scan(&volumeDBID)
+	if err != nil {
+		return fmt.Errorf("failed to update volume sectors: %w", err)
+	}
+	// update the volume usage
+	if _, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1`, volumeDBID); err != nil {
+		return fmt.Errorf("failed to update volume: %w", err)
+	}
+	// decrement the physical sectors metric
+	if err = incrementNumericStat(tx, metricPhysicalSectors, -1, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric: %w", err)
+	}
+	// delete the sector
+	if _, err = tx.Exec(`DELETE FROM stored_sectors WHERE id=$1`, id); err != nil {
+		return fmt.Errorf("failed to delete sector: %w", err)
+	}
+	return nil
 }
 
 // lockLocationBatch locks multiple sector locations and returns a list of lock
@@ -233,8 +214,8 @@ func lockLocationBatch(tx txn, locations ...storage.SectorLocation) (locks []int
 	return
 }
 
-func expiredTempSectors(tx txn, height uint64, limit int) (sectors []int64, _ error) {
-	const query = `SELECT ts.id FROM temp_storage_sector_roots ts
+func expiredTempSectors(tx txn, height uint64, limit int) (sectors []tempSectorRef, _ error) {
+	const query = `SELECT ts.id, ts.sector_id FROM temp_storage_sector_roots ts
 WHERE expiration_height <= $1 LIMIT $2;`
 	rows, err := tx.Query(query, height, limit)
 	if err != nil {
@@ -242,33 +223,11 @@ WHERE expiration_height <= $1 LIMIT $2;`
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var dbID int64
-		if err := rows.Scan(&dbID); err != nil {
+		var ref tempSectorRef
+		if err := rows.Scan(&ref.ID, &ref.SectorID); err != nil {
 			return nil, fmt.Errorf("failed to scan sector id: %w", err)
 		}
-		sectors = append(sectors, dbID)
-	}
-	return
-}
-
-func sectorsForDeletion(tx txn, limit int) (sectors []sectorRef, _ error) {
-	rows, err := tx.Query(`SELECT id, sector_root FROM stored_sectors WHERE id NOT IN (
-SELECT sector_id FROM contract_sector_roots
-UNION
-SELECT vs.sector_id FROM locked_volume_sectors ls INNER JOIN volume_sectors vs ON (ls.volume_sector_id=vs.id)
-UNION
-SELECT sector_id FROM temp_storage_sector_roots
-) LIMIT $1;`, limit)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select sectors: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var sector sectorRef
-		if err := rows.Scan(&sector.ID, (*sqlHash256)(&sector.Root)); err != nil {
-			return nil, fmt.Errorf("failed to scan sector id: %w", err)
-		}
-		sectors = append(sectors, sector)
+		sectors = append(sectors, ref)
 	}
 	return
 }
@@ -282,21 +241,66 @@ func lockLocation(tx txn, locationID int64) (int64, error) {
 	return lockID, err
 }
 
-// unlockLocation unlocks a locked sector location. It is safe to call
-// multiple times.
-func unlockLocation(tx txn, id int64) error {
-	_, err := tx.Exec(`DELETE FROM locked_volume_sectors WHERE id=?;`, id)
-	return err
+func deleteLocks(tx txn, ids []int64) (volumeSectors []int64, err error) {
+	query := `DELETE FROM locked_volume_sectors WHERE id IN (` + queryPlaceHolders(len(ids)) + `) RETURNING volume_sector_id;`
+	rows, err := tx.Query(query, queryArgs(ids)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var volumeSectorID int64
+		if err := rows.Scan(&volumeSectorID); err != nil {
+			return nil, fmt.Errorf("failed to scan volume sector id: %w", err)
+		}
+		volumeSectors = append(volumeSectors, volumeSectorID)
+	}
+	return
 }
 
-// unlockLocationBatch unlocks multiple locked sector locations. It is safe to
+func volumeSectorIDs(tx txn, volumeSectors []int64) (sectorID []int64, err error) {
+	query := `SELECT sector_id FROM volume_sectors WHERE sector_id IS NOT NULL AND id IN (` + queryPlaceHolders(len(volumeSectors)) + `);`
+	rows, err := tx.Query(query, queryArgs(volumeSectors)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan sector id: %w", err)
+		}
+		sectorID = append(sectorID, id)
+	}
+	return
+}
+
+// unlockLocation unlocks multiple locked sector locations. It is safe to
 // call multiple times.
-func unlockLocationBatch(tx txn, ids ...int64) error {
+func unlockLocation(tx txn, ids ...int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
 
-	query := `DELETE FROM locked_volume_sectors WHERE id IN (` + queryPlaceHolders(len(ids)) + `);`
-	_, err := tx.Exec(query, queryArgs(ids)...)
-	return err
+	// unlock the volume locations
+	volumeSectors, err := deleteLocks(tx, ids)
+	if err != nil {
+		return fmt.Errorf("failed to delete locks: %w", err)
+	}
+
+	// get the sectors stored at the unlocked indices
+	sectorIDs, err := volumeSectorIDs(tx, volumeSectors)
+	if err != nil {
+		return fmt.Errorf("failed to get sector ids: %w", err)
+	}
+
+	// attempt to prune each of the sectors
+	for _, sectorID := range sectorIDs {
+		if err := pruneSectorRef(tx, sectorID); err != nil {
+			return fmt.Errorf("failed to prune sector: %w", err)
+		}
+	}
+	return nil
 }
