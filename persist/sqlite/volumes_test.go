@@ -336,12 +336,13 @@ func TestShrinkVolume(t *testing.T) {
 	}
 
 	// add a few sectors
+	var releaseFns []func() error
 	for i := 0; i < 5; i++ {
 		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
-				t.Fatalf("expected sector index 0, got %v", loc.Index)
+				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
 			} else if exists {
 				t.Fatal("sector exists")
 			}
@@ -349,9 +350,8 @@ func TestShrinkVolume(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
 		}
+		releaseFns = append(releaseFns, release)
 	}
 
 	// check that the volume cannot be shrunk below the used sectors
@@ -366,6 +366,12 @@ func TestShrinkVolume(t *testing.T) {
 		t.Fatal(err)
 	} else if m.Storage.TotalSectors != 5 {
 		t.Fatalf("expected %v total sectors, got %v", 5, m.Storage.TotalSectors)
+	}
+
+	for _, fn := range releaseFns {
+		if err := fn(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

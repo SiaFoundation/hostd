@@ -86,8 +86,11 @@ func TestVolumeLoad(t *testing.T) {
 	release, err := vm.Write(root, &sector)
 	if err != nil {
 		t.Fatal(err)
+	} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
+		t.Fatal(err)
+	} else if err := release(); err != nil {
+		t.Fatal(err)
 	}
-	release()
 
 	// close the volume manager
 	if err := vm.Close(); err != nil {
