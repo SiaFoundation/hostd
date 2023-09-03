@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
@@ -93,11 +94,28 @@ func TestReviseContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// verify the roots were added in the correct order
-	dbRoots, err := db.SectorRoots(contract.Revision.ParentID)
-	if err != nil {
-		t.Fatal(err)
-	} else if err = rootsEqual(roots, dbRoots); err != nil {
+	// checkConsistency is a helper function that verifies the expected sector
+	// roots are consistent with the database
+	checkConsistency := func() error {
+		// verify the roots were added in the correct order
+		dbRoots, err := db.SectorRoots(contract.Revision.ParentID)
+		if err != nil {
+			return fmt.Errorf("failed to get sector roots: %w", err)
+		} else if err = rootsEqual(roots, dbRoots); err != nil {
+			return fmt.Errorf("sector roots mismatch: %w", err)
+		}
+
+		m, err := db.Metrics(time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to get metrics: %w", err)
+		} else if m.Storage.ContractSectors != uint64(len(roots)) {
+			return fmt.Errorf("expected %v contract sectors, got %v", len(roots), m.Storage.ContractSectors)
+		}
+		return nil
+	}
+
+	// verify the roots were added
+	if err = checkConsistency(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,10 +131,7 @@ func TestReviseContract(t *testing.T) {
 	roots[i], roots[j] = roots[j], roots[i]
 
 	// verify the roots were swapped
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
-	if err != nil {
-		t.Fatal(err)
-	} else if err = rootsEqual(roots, dbRoots); err != nil {
+	if err = checkConsistency(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,10 +147,7 @@ func TestReviseContract(t *testing.T) {
 	roots = roots[:len(roots)-toRemove]
 
 	// verify the roots were removed
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
-	if err != nil {
-		t.Fatal(err)
-	} else if err = rootsEqual(roots, dbRoots); err != nil {
+	if err = checkConsistency(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,10 +161,7 @@ func TestReviseContract(t *testing.T) {
 	}
 
 	// verify the roots stayed the same
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
-	if err != nil {
-		t.Fatal(err)
-	} else if err = rootsEqual(roots, dbRoots); err != nil {
+	if err = checkConsistency(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -169,10 +178,7 @@ func TestReviseContract(t *testing.T) {
 	roots = roots[:0]
 
 	// verify the roots are gone
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
-	if err != nil {
-		t.Fatal(err)
-	} else if err = rootsEqual(roots, dbRoots); err != nil {
+	if err = checkConsistency(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,10 +234,7 @@ func TestReviseContract(t *testing.T) {
 	roots = roots[:len(roots)-toTrim]
 
 	// verify the roots match
-	dbRoots, err = db.SectorRoots(contract.Revision.ParentID)
-	if err != nil {
-		t.Fatal(err)
-	} else if err = rootsEqual(roots, dbRoots); err != nil {
+	if err = checkConsistency(); err != nil {
 		t.Fatal(err)
 	}
 }
