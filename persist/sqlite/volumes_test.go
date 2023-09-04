@@ -402,7 +402,8 @@ func TestRemoveVolume(t *testing.T) {
 
 	// add a few sectors
 	for i := 0; i < 5; i++ {
-		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
+		sectorRoot := frand.Entropy256()
+		release, err := db.StoreSector(sectorRoot, func(loc storage.SectorLocation, exists bool) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
@@ -412,6 +413,11 @@ func TestRemoveVolume(t *testing.T) {
 			}
 			return nil
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = db.AddTemporarySectors([]storage.TempSector{{Root: sectorRoot, Expiration: uint64(i)}})
 		if err != nil {
 			t.Fatal(err)
 		} else if err := release(); err != nil {
@@ -478,6 +484,10 @@ func TestMigrateSectors(t *testing.T) {
 			return nil
 		})
 		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: uint64(i)}}); err != nil {
 			t.Fatal(err)
 		} else if err := release(); err != nil {
 			t.Fatal(err)
