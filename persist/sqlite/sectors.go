@@ -11,12 +11,14 @@ import (
 	"go.uber.org/zap"
 )
 
+var errSectorHasRefs = errors.New("sector has references")
+
 type tempSectorRef struct {
 	ID       int64
 	SectorID int64
 }
 
-func (s *Store) batchExpireTempSectors(height uint64) (refs []tempSectorRef, err error) {
+func (s *Store) batchExpireTempSectors(height uint64) (refs []tempSectorRef, reclaimed int, err error) {
 	err = s.transaction(func(tx txn) error {
 		refs, err = expiredTempSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
@@ -46,9 +48,13 @@ func (s *Store) batchExpireTempSectors(height uint64) (refs []tempSectorRef, err
 		}
 
 		for _, ref := range refs {
-			if err := pruneSectorRef(tx, ref.SectorID); err != nil {
+			err := pruneSectorRef(tx, ref.SectorID)
+			if errors.Is(err, errSectorHasRefs) {
+				continue
+			} else if err != nil {
 				return fmt.Errorf("failed to prune sector: %w", err)
 			}
+			reclaimed++
 		}
 		return nil
 	})
@@ -131,19 +137,20 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 // ExpireTempSectors deletes the roots of sectors that are no longer
 // temporarily stored on the host.
 func (s *Store) ExpireTempSectors(height uint64) error {
-	var total int
+	var totalExpired, totalRemoved int
 	defer func() {
-		s.log.Debug("removed temp sectors", zap.Uint64("height", height), zap.Int("removed", total))
+		s.log.Debug("expired temp sectors", zap.Uint64("height", height), zap.Int("expired", totalExpired), zap.Int("removed", totalRemoved))
 	}()
 	// delete in batches to avoid holding a lock on the table for too long
 	for {
-		removed, err := s.batchExpireTempSectors(height)
+		expired, removed, err := s.batchExpireTempSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to expire sectors: %w", err)
-		} else if len(removed) == 0 {
+		} else if len(expired) == 0 {
 			return nil
 		}
-		total += len(removed)
+		totalExpired += len(expired)
+		totalRemoved += removed
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
@@ -168,7 +175,7 @@ func pruneSectorRef(tx txn, id int64) error {
 	// if the sector is referenced by a contract, temp storage, or locked, do
 	// not remove it
 	if contractRef || tempRef || lockRef {
-		return nil
+		return fmt.Errorf("failed to prune sector %d (contract=%t, temp=%t, lock=%t): %w", id, contractRef, tempRef, lockRef, errSectorHasRefs)
 	}
 	// clear the volume sector reference
 	var volumeDBID int64
@@ -298,7 +305,10 @@ func unlockLocation(tx txn, ids ...int64) error {
 
 	// attempt to prune each of the sectors
 	for _, sectorID := range sectorIDs {
-		if err := pruneSectorRef(tx, sectorID); err != nil {
+		err := pruneSectorRef(tx, sectorID)
+		if errors.Is(err, errSectorHasRefs) {
+			continue
+		} else if err != nil {
 			return fmt.Errorf("failed to prune sector: %w", err)
 		}
 	}

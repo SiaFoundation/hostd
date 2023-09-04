@@ -164,7 +164,7 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 	return err == nil, err
 }
 
-func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSectorRef, err error) {
+func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSectorRef, pruned int, err error) {
 	err = s.transaction(func(tx txn) error {
 		sectors, err := expiredContractSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
@@ -193,15 +193,14 @@ func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSec
 			return fmt.Errorf("failed to track contract sectors: %w", err)
 		}
 
-		checked := make(map[int64]bool)
 		for _, ref := range sectors {
-			if checked[ref.SectorID] {
+			err := pruneSectorRef(tx, ref.SectorID)
+			if errors.Is(err, errSectorHasRefs) {
 				continue
-			}
-			if err := pruneSectorRef(tx, ref.SectorID); err != nil {
+			} else if err != nil {
 				return fmt.Errorf("failed to prune sector ref: %w", err)
 			}
-			checked[ref.SectorID] = true
+			pruned++
 		}
 		removed = sectors
 		return nil
@@ -497,23 +496,26 @@ func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint6
 // ExpireContractSectors expires all sectors that are no longer covered by an
 // active contract.
 func (s *Store) ExpireContractSectors(height uint64) error {
-	total := make(map[types.FileContractID]int)
+	var totalRemoved int
+	contractExpired := make(map[types.FileContractID]int)
 	defer func() {
-		for contractID, removed := range total {
-			s.log.Debug("removed contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("removed", removed))
+		for contractID, removed := range contractExpired {
+			s.log.Debug("expired contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("expired", removed))
 		}
+		s.log.Debug("removed contract sectors", zap.Uint64("height", height), zap.Int("removed", totalRemoved))
 	}()
 	// delete in batches to avoid holding a lock on the database for too long
 	for i := 0; ; i++ {
-		removed, err := s.batchExpireContractSectors(height)
+		expired, removed, err := s.batchExpireContractSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if len(removed) == 0 {
+		} else if len(expired) == 0 {
 			return nil
 		}
-		for _, ref := range removed {
-			total[ref.ContractID]++
+		for _, ref := range expired {
+			contractExpired[ref.ContractID]++
 		}
+		totalRemoved += removed
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
