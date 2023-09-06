@@ -65,23 +65,29 @@ func (s *Store) batchExpireTempSectors(height uint64) (refs []tempSectorRef, rec
 // location in the volume.
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
 	return s.transaction(func(tx txn) error {
+		sectorID, err := sectorDBID(tx, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector: %w", err)
+		}
+
 		var volumeID int64
-		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=null WHERE sector_id IN (SELECT id FROM stored_sectors WHERE sector_root=$1) RETURNING volume_id;`, sqlHash256(root)).Scan(&volumeID)
+		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=null WHERE sector_id=$1 RETURNING volume_id;`, sectorID).Scan(&volumeID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrSectorNotFound
 		} else if err != nil {
 			return fmt.Errorf("failed to remove sector: %w", err)
 		}
 
-		// decrement volume usage
+		// decrement volume usage and metrics
 		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1;`, volumeID)
 		if err != nil {
 			return fmt.Errorf("failed to update volume: %w", err)
-		}
-
-		// decrement the physical sectors metric
-		if err = incrementNumericStat(tx, metricPhysicalSectors, -1, time.Now()); err != nil {
+		} else if err = incrementNumericStat(tx, metricPhysicalSectors, -1, time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
+		}
+		// attempt to prune the sector
+		if err := pruneSectorRef(tx, sectorID); err != nil && !errors.Is(err, errSectorHasRefs) {
+			return fmt.Errorf("failed to prune sector: %w", err)
 		}
 		return nil
 	})

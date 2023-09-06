@@ -480,6 +480,9 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 
 func sectorDBID(tx txn, root types.Hash256) (id int64, err error) {
 	err = tx.QueryRow(`INSERT INTO stored_sectors (sector_root, last_access_timestamp) VALUES ($1, $2) ON CONFLICT (sector_root) DO UPDATE SET last_access_timestamp=EXCLUDED.last_access_timestamp RETURNING id`, sqlHash256(root), sqlTime(time.Now())).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = storage.ErrSectorNotFound
+	}
 	return
 }
 
