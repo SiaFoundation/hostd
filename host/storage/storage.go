@@ -96,8 +96,6 @@ func (vm *VolumeManager) getVolume(v int) (*volume, error) {
 	vol, ok := vm.volumes[v]
 	if !ok {
 		return nil, fmt.Errorf("volume %v not found", v)
-	} else if vol.busy {
-		return nil, fmt.Errorf("volume %v is currently busy", v)
 	}
 	return vol, nil
 }
@@ -114,12 +112,14 @@ func (vm *VolumeManager) lockVolume(id int) (func(), error) {
 	} else if v.busy {
 		return nil, fmt.Errorf("volume %v is busy", id)
 	}
+	v.busy = true
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			vm.mu.Lock()
-			if vm.volumes[id] != nil {
-				vm.volumes[id].busy = false
+			v, ok := vm.volumes[id]
+			if ok {
+				v.busy = false
 			}
 			vm.mu.Unlock()
 		})
@@ -234,14 +234,9 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, 
 }
 
 // growVolume grows a volume by adding sectors to the end of the volume.
-func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
+func (vm *VolumeManager) growVolume(ctx context.Context, id int, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors > newMaxSectors {
 		return errors.New("old sectors must be less than new sectors")
-	}
-
-	v, err := vm.getVolume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
 	// register an alert
@@ -278,7 +273,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
 		// progress tracking.
-		if v.Resize(current, target); err != nil {
+		if err := volume.Resize(current, target); err != nil {
 			return fmt.Errorf("failed to expand volume data: %w", err)
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
@@ -294,15 +289,10 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 }
 
 // shrinkVolume shrinks a volume by removing sectors from the end of the volume.
-func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
+func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
 	log := vm.log.Named("shrinkVolume").With(zap.Int("volumeID", id), zap.Uint64("oldMaxSectors", oldMaxSectors), zap.Uint64("newMaxSectors", newMaxSectors))
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
-	}
-
-	volume, err := vm.getVolume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
 	// register the alert
@@ -327,7 +317,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 	// migrate any sectors outside of the target range. migrateSectors will be
 	// called on chunks of 64 sectors
 	var migrated int
-	err = vm.vs.MigrateSectors(id, newMaxSectors, func(newLocations []SectorLocation) error {
+	err := vm.vs.MigrateSectors(id, newMaxSectors, func(newLocations []SectorLocation) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -400,7 +390,7 @@ func (vm *VolumeManager) setVolumeStatus(id int, status string) {
 	v.stats.Status = status
 }
 
-func (vm *VolumeManager) doResize(volumeID int, current, target uint64) error {
+func (vm *VolumeManager) doResize(volumeID int, vol *volume, current, target uint64) error {
 	ctx, cancel, err := vm.tg.AddContext(context.Background())
 	if err != nil {
 		return err
@@ -410,10 +400,10 @@ func (vm *VolumeManager) doResize(volumeID int, current, target uint64) error {
 	switch {
 	case current > target:
 		// volume is shrinking
-		return vm.shrinkVolume(ctx, volumeID, current, target)
+		return vm.shrinkVolume(ctx, volumeID, vol, current, target)
 	case current < target:
 		// volume is growing
-		return vm.growVolume(ctx, volumeID, current, target)
+		return vm.growVolume(ctx, volumeID, vol, current, target)
 	}
 	return nil
 }
@@ -587,12 +577,13 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 
 	// add the new volume to the volume map
 	vm.mu.Lock()
-	vm.volumes[volumeID] = &volume{
+	vol := &volume{
 		data: f,
 		stats: VolumeStats{
 			Status: VolumeStatusCreating,
 		},
 	}
+	vm.volumes[volumeID] = vol
 	vm.mu.Unlock()
 
 	// lock the volume during grow operation
@@ -608,7 +599,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 			defer vm.vs.SetAvailable(volumeID, true)
 			defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
 			defer release()
-			return vm.doResize(volumeID, 0, maxSectors)
+			return vm.doResize(volumeID, vol, 0, maxSectors)
 		}()
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
@@ -730,19 +721,24 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 	}
 	defer done()
 
+	vol, err := vm.getVolume(id)
+	if err != nil {
+		return fmt.Errorf("failed to get volume: %w", err)
+	}
+
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
 	}
 	vm.setVolumeStatus(id, VolumeStatusResizing)
 
-	vol, err := vm.vs.Volume(id)
+	stat, err := vm.vs.Volume(id)
 	if err != nil {
 		release()
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
-	oldReadonly := vol.ReadOnly
+	oldReadonly := stat.ReadOnly
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		release()
@@ -761,7 +757,7 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 				vm.setVolumeStatus(id, VolumeStatusReady)
 			}()
 			defer release()
-			return vm.doResize(id, vol.TotalSectors, maxSectors)
+			return vm.doResize(id, vol, stat.TotalSectors, maxSectors)
 		}()
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
@@ -966,6 +962,7 @@ func (vm *VolumeManager) ResizeCache(size uint32) {
 	vm.cache.Resize(int(size))
 }
 
+// ProcessConsensusChange is called when the consensus set changes.
 func (vm *VolumeManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()

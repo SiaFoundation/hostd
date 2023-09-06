@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/mattn/go-sqlite3"
-	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -160,14 +159,18 @@ func TestClearLockedSectors(t *testing.T) {
 	}
 
 	// write temp sectors to the database
-	var roots []types.Hash256
-	for i := 0; i < sectors; i++ {
+	for i := 1; i <= sectors; i++ {
 		sectorRoot := frand.Entropy256()
-		commit, err := db.StoreSector(sectorRoot, func(storage.SectorLocation, bool) error {
+		_, err := db.StoreSector(sectorRoot, func(storage.SectorLocation, bool) error {
 			return nil
 		})
 		if err != nil {
 			t.Fatal("add sector", i, err)
+		}
+
+		// only store the first half of the sectors as temp sectors
+		if i > sectors/2 {
+			continue
 		}
 
 		err = db.AddTemporarySectors([]storage.TempSector{
@@ -175,81 +178,21 @@ func TestClearLockedSectors(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal("add temp sector", i, err)
-		} else if err = commit(); err != nil {
-			t.Fatal("commit sector", i, err)
 		}
-		roots = append(roots, sectorRoot)
 	}
 
-	// check that the sectors have been stored and unlocked
-	if err = checkConsistency(0, sectors); err != nil {
+	// check that the sectors have been stored and locked
+	if err = checkConsistency(sectors, sectors/2); err != nil {
 		t.Fatal(err)
 	}
 
 	// clear the locked sectors
-	if err = db.clearLockedSectors(); err != nil {
+	if err = db.clearLocks(); err != nil {
 		t.Fatal(err)
 	}
 
-	// check that no sectors were cleared
-	if err = checkConsistency(0, sectors); err != nil {
-		t.Fatal(err)
-	}
-
-	// lock half the sectors
-	locked, roots := roots[:sectors/2], roots[sectors/2:]
-	for _, root := range locked {
-		_, _, err = db.SectorLocation(root) // lock the sector, but don't release it
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// expire the locked temp sectors
-	if err = db.ExpireTempSectors(50); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that half the sectors were cleared
-	if err = checkConsistency(len(locked), len(roots)); err != nil {
-		t.Fatal(err)
-	}
-
-	// clear the locked sectors
-	if err = db.clearLockedSectors(); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that half the sectors were cleared
-	if err = checkConsistency(0, len(roots)); err != nil {
-		t.Fatal(err)
-	}
-
-	// lock the remaining sectors
-	for _, root := range roots {
-		_, _, err = db.SectorLocation(root) // lock the sector, but don't release it
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// expire the remaining temp sectors
-	if err = db.ExpireTempSectors(100); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that the locked sectors were not cleared
-	if err = checkConsistency(len(roots), 0); err != nil {
-		t.Fatal(err)
-	}
-
-	// clear the locked sectors
-	if err = db.clearLockedSectors(); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that all sectors were cleared
-	if err = checkConsistency(0, 0); err != nil {
+	// check that all the locks were removed and half the sectors deleted
+	if err = checkConsistency(0, sectors/2); err != nil {
 		t.Fatal(err)
 	}
 }
