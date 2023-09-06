@@ -48,7 +48,7 @@ func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn f
 		}
 
 		// lock the old and new locations
-		locks, err = lockLocationBatch(tx, append(oldLocations, newLocations...)...)
+		locks, err = lockLocations(tx, append(oldLocations, newLocations...))
 		if err != nil {
 			return fmt.Errorf("failed to lock sectors: %w", err)
 		}
@@ -59,7 +59,7 @@ func (s *Store) batchMigrateSectors(volumeID int, startIndex uint64, migrateFn f
 	} else if len(oldLocations) == 0 {
 		return true, nil // no more sectors to migrate
 	}
-	defer unlockLocationBatch(&dbTxn{s}, locks...)
+	defer unlockLocations(&dbTxn{s}, locks)
 
 	// call migrateFn with the new locations, data should be copied to the
 	// new locations and synced to disk
@@ -230,15 +230,27 @@ WHERE v.id=$1`
 // returned. The location is locked until release is called.
 //
 // The sector should be referenced by either a contract or temp store
-// before release is called to prevent Prune() from removing it.
+// before release is called to prevent it from being pruned
 func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation, exists bool) error) (func() error, error) {
-	var lockID int64
+	var sectorLockID int64
+	var locationLocks []int64
 	var location storage.SectorLocation
 	var exists bool
 
 	err := s.transaction(func(tx txn) error {
-		var err error
-		location, err = sectorLocation(tx, root)
+		sectorID, err := sectorDBID(tx, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+
+		// lock the sector
+		sectorLockID, err = lockSector(tx, sectorID)
+		if err != nil {
+			return fmt.Errorf("failed to lock sector: %w", err)
+		}
+
+		// check if the sector already exists
+		location, err = sectorLocation(tx, sectorID)
 		exists = err == nil
 		if errors.Is(err, storage.ErrSectorNotFound) {
 			location, err = emptyLocation(tx)
@@ -249,37 +261,23 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 			return fmt.Errorf("failed to check existing sector location: %w", err)
 		}
 
-		// lock the sector location
-		lockID, err = lockLocation(tx, location.ID)
+		// lock the location
+		locationLocks, err = lockLocations(tx, []storage.SectorLocation{location})
 		if err != nil {
 			return fmt.Errorf("failed to lock sector location: %w", err)
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	// call fn with the location
-	if err := fn(location, exists); err != nil {
-		unlockLocation(&dbTxn{s}, lockID)
-		return nil, fmt.Errorf("failed to store sector: %w", err)
-	} else if exists {
-		// if the sector is already stored in a volume, no need to update
-		// anything else
-		return s.unlockLocationFn(lockID), nil
-	}
-	// commit the sector location
-	err = s.transaction(func(tx txn) error {
-		sectorID, err := sectorDBID(tx, root)
-		if err != nil {
-			return fmt.Errorf("failed to get sector id: %w", err)
+
+		// if the sector already exists, return the existing location
+		if exists {
+			return nil
 		}
-		var updatedID int64
-		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING id`, sectorID, location.ID).Scan(&updatedID)
+		res, err := tx.Exec(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2`, sectorID, location.ID)
 		if err != nil {
 			return fmt.Errorf("failed to commit sector location: %w", err)
-		} else if updatedID != location.ID {
-			panic("sector location not updated correctly")
+		} else if rows, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to check rows affected: %w", err)
+		} else if rows == 0 {
+			return storage.ErrSectorNotFound
 		}
 
 		// increment the volume usage
@@ -292,10 +290,26 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		return nil
 	})
 	if err != nil {
-		unlockLocation(&dbTxn{s}, lockID)
 		return nil, err
 	}
-	return s.unlockLocationFn(lockID), nil
+
+	unlock := func() error {
+		return s.transaction(func(tx txn) error {
+			if err := unlockLocations(tx, locationLocks); err != nil {
+				return fmt.Errorf("failed to unlock sector location: %w", err)
+			} else if err := unlockSector(tx, sectorLockID); err != nil {
+				return fmt.Errorf("failed to unlock sector: %w", err)
+			}
+			return nil
+		})
+	}
+
+	// call fn with the location
+	if err := fn(location, exists); err != nil {
+		unlock()
+		return nil, fmt.Errorf("failed to store sector: %w", err)
+	}
+	return unlock, nil
 }
 
 // MigrateSectors migrates each occupied sector of a volume starting at
@@ -466,18 +480,21 @@ func sectorsForMigration(tx txn, volumeID int, startIndex uint64, batchSize int6
 
 func sectorDBID(tx txn, root types.Hash256) (id int64, err error) {
 	err = tx.QueryRow(`INSERT INTO stored_sectors (sector_root, last_access_timestamp) VALUES ($1, $2) ON CONFLICT (sector_root) DO UPDATE SET last_access_timestamp=EXCLUDED.last_access_timestamp RETURNING id`, sqlHash256(root), sqlTime(time.Now())).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = storage.ErrSectorNotFound
+	}
 	return
 }
 
-func sectorLocation(tx txn, root types.Hash256) (loc storage.SectorLocation, err error) {
-	const query = `SELECT v.id, v.volume_id, v.volume_index FROM volume_sectors v 
-	INNER JOIN stored_sectors s ON (s.id=v.sector_id)
-	WHERE s.sector_root=$1`
-	err = tx.QueryRow(query, (*sqlHash256)(&root)).Scan(&loc.ID, &loc.Volume, &loc.Index)
+func sectorLocation(tx txn, sectorID int64) (loc storage.SectorLocation, err error) {
+	const query = `SELECT v.id, v.volume_id, v.volume_index, s.sector_root
+FROM volume_sectors v 
+INNER JOIN stored_sectors s ON (s.id=v.sector_id)
+WHERE v.sector_id=$1`
+	err = tx.QueryRow(query, sectorID).Scan(&loc.ID, &loc.Volume, &loc.Index, (*sqlHash256)(&loc.Root))
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.SectorLocation{}, storage.ErrSectorNotFound
 	}
-	loc.Root = root
 	return
 }
 

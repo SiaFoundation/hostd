@@ -86,8 +86,11 @@ func TestVolumeLoad(t *testing.T) {
 	release, err := vm.Write(root, &sector)
 	if err != nil {
 		t.Fatal(err)
+	} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
+		t.Fatal(err)
+	} else if err := release(); err != nil {
+		t.Fatal(err)
 	}
-	release()
 
 	// close the volume manager
 	if err := vm.Close(); err != nil {
@@ -864,6 +867,14 @@ func TestVolumeShrink(t *testing.T) {
 		}
 		if volumes[0].UsedSectors != uint64(i+1) {
 			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
+		}
+
+		// add a temp sector to bind the location
+		err = vm.AddTemporarySectors([]storage.TempSector{
+			{Root: root, Expiration: uint64(i)},
+		})
+		if err != nil {
+			t.Fatal(err)
 		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
@@ -900,9 +911,10 @@ func TestVolumeShrink(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+
 	// when shrinking, the roots after the target size should be moved to
 	// the beginning of the volume
-	roots = append([]types.Hash256(nil), roots[toRemove:]...)
+	roots = roots[toRemove:]
 
 	// shrink the volume by the number of sectors removed, should succeed
 	if err := vm.ResizeVolume(volume.ID, remainingSectors, result); err != nil {
@@ -1015,7 +1027,11 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		if err != nil {
 			t.Fatal(i, err)
 		}
-		defer release()
+		defer func() {
+			if err := release(); err != nil {
+				t.Fatal(err)
+			}
+		}()
 		roots = append(roots, root)
 
 		// validate the volume stats are correct
@@ -1025,8 +1041,6 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		}
 		if volumes[0].UsedSectors != uint64(i+1) {
 			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
 		}
 	}
 
@@ -1121,15 +1135,19 @@ func TestSectorCache(t *testing.T) {
 		defer release()
 		roots = append(roots, root)
 
+		err = vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: uint64(i)}})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
+
 		// validate the volume stats are correct
 		volumes, err := vm.Volumes()
 		if err != nil {
 			t.Fatal(err)
-		}
-		if volumes[0].UsedSectors != uint64(i+1) {
+		} else if volumes[0].UsedSectors != uint64(i+1) {
 			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
 		}
 	}
 

@@ -217,13 +217,6 @@ func TestStoreSector(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond) // sync time
 
-	// prune the sectors
-	if removed, err := host.Storage().PruneSectors(); err != nil {
-		t.Fatal(err)
-	} else if removed != 1 {
-		t.Fatal("expected 1 sector to be removed")
-	}
-
 	// check that the sector was deleted
 	usage = pt.ReadSectorCost(rhpv2.SectorSize)
 	cost, _ = usage.Total()

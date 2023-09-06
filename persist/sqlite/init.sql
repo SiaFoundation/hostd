@@ -33,6 +33,12 @@ CREATE TABLE stored_sectors (
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
 CREATE INDEX stored_sectors_last_access ON stored_sectors(last_access_timestamp);
 
+CREATE TABLE locked_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
+	id INTEGER PRIMARY KEY,
+	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id)
+);
+CREATE INDEX locked_sectors_sector_id ON locked_sectors(sector_id);
+
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
 	disk_path TEXT UNIQUE NOT NULL,

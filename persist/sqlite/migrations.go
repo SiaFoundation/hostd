@@ -8,6 +8,38 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion14 adds the locked_sectors table, recalculates the contract
+// sectors metric, and recalculates the physical sectors metric.
+func migrateVersion14(tx txn) error {
+	// create the new locked sectors table
+	const lockedSectorsTableQuery = `CREATE TABLE locked_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
+	id INTEGER PRIMARY KEY,
+	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id)
+);
+CREATE INDEX locked_sectors_sector_id ON locked_sectors(sector_id);`
+
+	if _, err := tx.Exec(lockedSectorsTableQuery); err != nil {
+		return fmt.Errorf("failed to create locked_sectors table: %w", err)
+	}
+
+	// recalculate the contract sectors metric
+	var contractSectorCount int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&contractSectorCount); err != nil {
+		return fmt.Errorf("failed to query contract sector count: %w", err)
+	} else if err := setNumericStat(tx, metricContractSectors, uint64(contractSectorCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set contract sectors metric: %w", err)
+	}
+
+	// recalculate the physical sectors metric
+	var physicalSectorsCount int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM volume_sectors WHERE sector_id IS NOT NULL`).Scan(&physicalSectorsCount); err != nil {
+		return fmt.Errorf("failed to query contract sector count: %w", err)
+	} else if err := setNumericStat(tx, metricPhysicalSectors, uint64(physicalSectorsCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set contract sectors metric: %w", err)
+	}
+	return nil
+}
+
 // migrateVersion13 adds an index to the storage table to speed up location selection
 func migrateVersion13(tx txn) error {
 	_, err := tx.Exec(`CREATE INDEX storage_volumes_read_only_available_used_sectors ON storage_volumes(available, read_only, used_sectors);`)
@@ -279,4 +311,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion11,
 	migrateVersion12,
 	migrateVersion13,
+	migrateVersion14,
 }

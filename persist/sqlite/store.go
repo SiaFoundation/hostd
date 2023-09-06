@@ -151,6 +151,44 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
 	return nil
 }
 
+func clearLockedSectors(tx txn) error {
+	rows, err := tx.Query(`DELETE FROM locked_sectors RETURNING sector_id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var sectorIDs []int64
+	for rows.Next() {
+		var sectorID int64
+		if err := rows.Scan(&sectorID); err != nil {
+			return fmt.Errorf("failed to scan sector id: %w", err)
+		}
+	}
+
+	for _, sectorID := range sectorIDs {
+		if err := pruneSectorRef(tx, sectorID); err != nil && !errors.Is(err, errSectorHasRefs) {
+			return fmt.Errorf("failed to prune sector %d: %w", sectorID, err)
+		}
+	}
+	return nil
+}
+
+func clearLockedLocations(tx txn) error {
+	_, err := tx.Exec(`DELETE FROM locked_volume_sectors`)
+	return err
+}
+
+func (s *Store) clearLocks() error {
+	return s.transaction(func(tx txn) error {
+		if err := clearLockedLocations(tx); err != nil {
+			return fmt.Errorf("failed to clear locked locations: %w", err)
+		} else if err = clearLockedSectors(tx); err != nil {
+			return fmt.Errorf("failed to clear locked sectors: %w", err)
+		}
+		return nil
+	})
+}
+
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
 func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
@@ -164,7 +202,7 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	} else if _, err := db.Exec(clearLockedSectors); err != nil {
+	} else if err = store.clearLocks(); err != nil {
 		// clear any locked sectors, metadata not synced to disk is safe to
 		// overwrite.
 		return nil, fmt.Errorf("failed to clear locked sectors table: %w", err)

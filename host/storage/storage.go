@@ -15,14 +15,13 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
+	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
 const (
 	resizeBatchSize = 64 // 256 MiB
-
-	cleanupInterval = 5 * time.Minute
 
 	// MaxTempSectorBlocks is the maximum number of blocks that a temp sector
 	// can be stored for.
@@ -48,6 +47,7 @@ type (
 	// A ChainManager is used to get the current consensus state.
 	ChainManager interface {
 		TipState() consensus.State
+		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
 	}
 
 	// A SectorLocation is a location of a sector within a volume.
@@ -79,8 +79,9 @@ type (
 
 		tg *threadgroup.ThreadGroup
 
-		mu      sync.Mutex // protects the following fields
-		volumes map[int]*volume
+		mu          sync.Mutex // protects the following fields
+		lastCleanup time.Time
+		volumes     map[int]*volume
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
 		cache          *lru.Cache[types.Hash256, *[rhpv2.SectorSize]byte] // Added cache
@@ -95,8 +96,6 @@ func (vm *VolumeManager) getVolume(v int) (*volume, error) {
 	vol, ok := vm.volumes[v]
 	if !ok {
 		return nil, fmt.Errorf("volume %v not found", v)
-	} else if vol.busy {
-		return nil, fmt.Errorf("volume %v is currently busy", v)
 	}
 	return vol, nil
 }
@@ -113,12 +112,14 @@ func (vm *VolumeManager) lockVolume(id int) (func(), error) {
 	} else if v.busy {
 		return nil, fmt.Errorf("volume %v is busy", id)
 	}
+	v.busy = true
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			vm.mu.Lock()
-			if vm.volumes[id] != nil {
-				vm.volumes[id].busy = false
+			v, ok := vm.volumes[id]
+			if ok {
+				v.busy = false
 			}
 			vm.mu.Unlock()
 		})
@@ -138,22 +139,6 @@ func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLoc
 	vm.changedVolumes[loc.Volume] = true
 	vm.mu.Unlock()
 	return nil
-}
-
-// cleanup removes all sectors that are not referenced by a contract.
-// This function is called periodically by the cleanup timer.
-func (vm *VolumeManager) cleanup() {
-	t := time.NewTicker(cleanupInterval)
-	defer t.Stop()
-	for range t.C {
-		count, err := vm.PruneSectors()
-		if errors.Is(err, threadgroup.ErrClosed) {
-			return
-		} else if err != nil {
-			vm.log.Error("failed to expire temp sectors", zap.Error(err))
-		}
-		vm.log.Named("cleanup").Debug("deleted unused sectors", zap.Int("deleted", count))
-	}
 }
 
 // loadVolumes opens all volumes. Volumes that are already loaded are skipped.
@@ -249,14 +234,9 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, 
 }
 
 // growVolume grows a volume by adding sectors to the end of the volume.
-func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
+func (vm *VolumeManager) growVolume(ctx context.Context, id int, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors > newMaxSectors {
 		return errors.New("old sectors must be less than new sectors")
-	}
-
-	v, err := vm.getVolume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
 	// register an alert
@@ -293,7 +273,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
 		// progress tracking.
-		if v.Resize(current, target); err != nil {
+		if err := volume.Resize(current, target); err != nil {
 			return fmt.Errorf("failed to expand volume data: %w", err)
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
@@ -309,15 +289,10 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, oldMaxSectors, 
 }
 
 // shrinkVolume shrinks a volume by removing sectors from the end of the volume.
-func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors, newMaxSectors uint64) error {
+func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
 	log := vm.log.Named("shrinkVolume").With(zap.Int("volumeID", id), zap.Uint64("oldMaxSectors", oldMaxSectors), zap.Uint64("newMaxSectors", newMaxSectors))
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
-	}
-
-	volume, err := vm.getVolume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
 	// register the alert
@@ -342,7 +317,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, oldMaxSectors
 	// migrate any sectors outside of the target range. migrateSectors will be
 	// called on chunks of 64 sectors
 	var migrated int
-	err = vm.vs.MigrateSectors(id, newMaxSectors, func(newLocations []SectorLocation) error {
+	err := vm.vs.MigrateSectors(id, newMaxSectors, func(newLocations []SectorLocation) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -415,7 +390,7 @@ func (vm *VolumeManager) setVolumeStatus(id int, status string) {
 	v.stats.Status = status
 }
 
-func (vm *VolumeManager) doResize(volumeID int, current, target uint64) error {
+func (vm *VolumeManager) doResize(volumeID int, vol *volume, current, target uint64) error {
 	ctx, cancel, err := vm.tg.AddContext(context.Background())
 	if err != nil {
 		return err
@@ -425,10 +400,10 @@ func (vm *VolumeManager) doResize(volumeID int, current, target uint64) error {
 	switch {
 	case current > target:
 		// volume is shrinking
-		return vm.shrinkVolume(ctx, volumeID, current, target)
+		return vm.shrinkVolume(ctx, volumeID, vol, current, target)
 	case current < target:
 		// volume is growing
-		return vm.growVolume(ctx, volumeID, current, target)
+		return vm.growVolume(ctx, volumeID, vol, current, target)
 	}
 	return nil
 }
@@ -602,12 +577,13 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 
 	// add the new volume to the volume map
 	vm.mu.Lock()
-	vm.volumes[volumeID] = &volume{
+	vol := &volume{
 		data: f,
 		stats: VolumeStats{
 			Status: VolumeStatusCreating,
 		},
 	}
+	vm.volumes[volumeID] = vol
 	vm.mu.Unlock()
 
 	// lock the volume during grow operation
@@ -623,7 +599,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 			defer vm.vs.SetAvailable(volumeID, true)
 			defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
 			defer release()
-			return vm.doResize(volumeID, 0, maxSectors)
+			return vm.doResize(volumeID, vol, 0, maxSectors)
 		}()
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
@@ -745,19 +721,24 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 	}
 	defer done()
 
+	vol, err := vm.getVolume(id)
+	if err != nil {
+		return fmt.Errorf("failed to get volume: %w", err)
+	}
+
 	release, err := vm.lockVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to lock volume: %w", err)
 	}
 	vm.setVolumeStatus(id, VolumeStatusResizing)
 
-	vol, err := vm.vs.Volume(id)
+	stat, err := vm.vs.Volume(id)
 	if err != nil {
 		release()
 		return fmt.Errorf("failed to get volume: %w", err)
 	}
 
-	oldReadonly := vol.ReadOnly
+	oldReadonly := stat.ReadOnly
 	// set the volume to read-only to prevent new sectors from being added
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		release()
@@ -776,7 +757,7 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 				vm.setVolumeStatus(id, VolumeStatusReady)
 			}()
 			defer release()
-			return vm.doResize(id, vol.TotalSectors, maxSectors)
+			return vm.doResize(id, vol, stat.TotalSectors, maxSectors)
 		}()
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
@@ -975,25 +956,28 @@ func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
 	return vm.vs.AddTemporarySectors(sectors)
 }
 
-// PruneSectors removes expired sectors from the volume store.
-func (vm *VolumeManager) PruneSectors() (int, error) {
-	done, err := vm.tg.Add()
-	if err != nil {
-		return 0, err
-	}
-	defer done()
-	// expire temp sectors
-	currentHeight := vm.cm.TipState().Index.Height
-	if err := vm.vs.ExpireTempSectors(currentHeight); err != nil {
-		return 0, fmt.Errorf("failed to expire temp sectors: %w", err)
-	}
-	return vm.vs.PruneSectors()
-}
-
 // ResizeCache resizes the cache to the given size.
 func (vm *VolumeManager) ResizeCache(size uint32) {
 	// Resize the underlying cache data structure
 	vm.cache.Resize(int(size))
+}
+
+// ProcessConsensusChange is called when the consensus set changes.
+func (vm *VolumeManager) ProcessConsensusChange(cc modules.ConsensusChange) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	delta := time.Since(vm.lastCleanup)
+	if delta < cleanupInterval {
+		return
+	}
+	vm.lastCleanup = time.Now()
+
+	go func() {
+		log := vm.log.Named("cleanup").With(zap.Uint64("height", uint64(cc.BlockHeight)))
+		if err := vm.vs.ExpireTempSectors(uint64(cc.BlockHeight)); err != nil {
+			log.Error("failed to expire temp sectors", zap.Error(err))
+		}
+	}()
 }
 
 // NewVolumeManager creates a new VolumeManager.
@@ -1024,9 +1008,9 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 	}
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
+	} else if err := vm.cm.Subscribe(vm, modules.ConsensusChangeRecent, vm.tg.Done()); err != nil {
+		return nil, fmt.Errorf("failed to subscribe to consensus set: %w", err)
 	}
-
 	go vm.recorder.Run(vm.tg.Done())
-	go vm.cleanup()
 	return vm, nil
 }

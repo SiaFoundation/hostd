@@ -336,12 +336,13 @@ func TestShrinkVolume(t *testing.T) {
 	}
 
 	// add a few sectors
+	var releaseFns []func() error
 	for i := 0; i < 5; i++ {
 		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
-				t.Fatalf("expected sector index 0, got %v", loc.Index)
+				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
 			} else if exists {
 				t.Fatal("sector exists")
 			}
@@ -349,9 +350,8 @@ func TestShrinkVolume(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
 		}
+		releaseFns = append(releaseFns, release)
 	}
 
 	// check that the volume cannot be shrunk below the used sectors
@@ -366,6 +366,12 @@ func TestShrinkVolume(t *testing.T) {
 		t.Fatal(err)
 	} else if m.Storage.TotalSectors != 5 {
 		t.Fatalf("expected %v total sectors, got %v", 5, m.Storage.TotalSectors)
+	}
+
+	for _, fn := range releaseFns {
+		if err := fn(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -396,7 +402,8 @@ func TestRemoveVolume(t *testing.T) {
 
 	// add a few sectors
 	for i := 0; i < 5; i++ {
-		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
+		sectorRoot := frand.Entropy256()
+		release, err := db.StoreSector(sectorRoot, func(loc storage.SectorLocation, exists bool) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
@@ -406,6 +413,11 @@ func TestRemoveVolume(t *testing.T) {
 			}
 			return nil
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = db.AddTemporarySectors([]storage.TempSector{{Root: sectorRoot, Expiration: uint64(i)}})
 		if err != nil {
 			t.Fatal(err)
 		} else if err := release(); err != nil {
@@ -472,6 +484,10 @@ func TestMigrateSectors(t *testing.T) {
 			return nil
 		})
 		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: uint64(i)}}); err != nil {
 			t.Fatal(err)
 		} else if err := release(); err != nil {
 			t.Fatal(err)
@@ -576,10 +592,10 @@ func TestPrune(t *testing.T) {
 	}
 
 	// store enough sectors to fill the volume
-	roots := make([]types.Hash256, sectors)
-	for i := range roots {
+	roots := make([]types.Hash256, 0, sectors)
+	releaseFns := make([]func() error, 0, sectors)
+	for i := 0; i < sectors; i++ {
 		root := frand.Entropy256()
-		roots[i] = root
 		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
@@ -592,9 +608,9 @@ func TestPrune(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
 		}
+		roots = append(roots, root)
+		releaseFns = append(releaseFns, release)
 	}
 
 	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
@@ -648,54 +664,51 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// check that there are no locked sectors
-	var count int
-	err = db.queryRow(`SELECT COUNT(id) FROM locked_volume_sectors;`).Scan(&count)
-	if err != nil {
-		t.Fatal(err)
-	} else if count != 0 {
-		t.Fatalf("expected 0 locked sectors, got %v", count)
-	}
-
 	// lock the remaining sectors
 	var locks []int64
 	for _, root := range lockedSectors {
-		loc, err := sectorLocation(&dbTxn{db}, root)
+		err := db.transaction(func(tx txn) error {
+			sectorID, err := sectorDBID(tx, root)
+			if err != nil {
+				return err
+			}
+			lockID, err := lockSector(tx, sectorID)
+			if err != nil {
+				return err
+			}
+			locks = append(locks, lockID)
+			return nil
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		lockID, err := lockLocation(&dbTxn{db}, loc.ID)
-		if err != nil {
+	}
+
+	// remove the initial locks
+	for _, fn := range releaseFns {
+		if err := fn(); err != nil {
 			t.Fatal(err)
 		}
-		locks = append(locks, lockID)
 	}
 
-	err = db.queryRow(`SELECT COUNT(id) FROM locked_volume_sectors;`).Scan(&count)
-	if err != nil {
-		t.Fatal(err)
-	} else if count != len(locks) {
-		t.Fatalf("expected %v locked sectors, got %v", len(locks), count)
-	}
+	checkConsistency := func(contract, temp, locked, deleted []types.Hash256) error {
+		for _, root := range contract {
+			if _, release, err := db.SectorLocation(root); err != nil {
+				return fmt.Errorf("sector %v not found: %w", root, err)
+			} else if err := release(); err != nil {
+				return fmt.Errorf("failed to release sector %v: %w", root, err)
+			}
+		}
 
-	// prune the sectors
-	count, err = db.PruneSectors()
-	if err != nil {
-		t.Fatal(err)
-	} else if count != len(deletedSectors) {
-		t.Fatalf("expected to prune %v sectors, got %v", len(deletedSectors), count)
-	}
+		for _, root := range temp {
+			if _, release, err := db.SectorLocation(root); err != nil {
+				return fmt.Errorf("sector %v not found: %w", root, err)
+			} else if err := release(); err != nil {
+				return fmt.Errorf("failed to release sector %v: %w", root, err)
+			}
+		}
 
-	// next prune should be a no-op
-	count, err = db.PruneSectors()
-	if err != nil {
-		t.Fatal(err)
-	} else if count != 0 {
-		t.Fatalf("expected to prune %v sectors, got %v", 0, count)
-	}
-
-	checkConsistency := func(stored, deleted []types.Hash256) error {
-		for _, root := range stored {
+		for _, root := range locked {
 			if _, release, err := db.SectorLocation(root); err != nil {
 				return fmt.Errorf("sector %v not found: %w", root, err)
 			} else if err := release(); err != nil {
@@ -709,33 +722,39 @@ func TestPrune(t *testing.T) {
 			}
 		}
 
+		// check the volume usage
+		expectedSectors := uint64(len(contract) + len(temp) + len(locked))
 		used, _, err := db.StorageUsage()
 		if err != nil {
 			return fmt.Errorf("failed to get storage usage: %w", err)
-		} else if used != uint64(len(stored)) {
-			return fmt.Errorf("expected %v sectors, got %v", len(stored), used)
+		} else if used != expectedSectors {
+			return fmt.Errorf("expected %v sectors, got %v", expectedSectors, used)
+		}
+
+		// check the metrics
+		m, err := db.Metrics(time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to get metrics: %w", err)
+		} else if m.Storage.PhysicalSectors != expectedSectors {
+			return fmt.Errorf("expected %v total sectors, got %v", expectedSectors, m.Storage.PhysicalSectors)
+		} else if m.Storage.ContractSectors != uint64(len(contract)) {
+			return fmt.Errorf("expected %v contract sectors, got %v", len(contract), m.Storage.ContractSectors)
+		} else if m.Storage.TempSectors != uint64(len(temp)) {
+			return fmt.Errorf("expected %v temporary sectors, got %v", len(temp), m.Storage.TempSectors)
 		}
 		return nil
 	}
 
-	if err := checkConsistency(roots[:60], deletedSectors); err != nil {
+	if err := checkConsistency(contractSectors, tempSectors, lockedSectors, deletedSectors); err != nil {
 		t.Fatal(err)
 	}
 
 	// unlock locked sectors
-	if err := unlockLocationBatch(&dbTxn{db}, locks...); err != nil {
+	if err := unlockSector(&dbTxn{db}, locks...); err != nil {
 		t.Fatal(err)
 	}
 
-	// prune the unlocked sectors
-	count, err = db.PruneSectors()
-	if err != nil {
-		t.Fatal(err)
-	} else if count != len(lockedSectors) {
-		t.Fatalf("expected to prune %v sectors, got %v", len(lockedSectors), count)
-	}
-
-	if err := checkConsistency(roots[:40], roots[40:]); err != nil {
+	if err := checkConsistency(contractSectors, tempSectors, nil, roots[60:]); err != nil {
 		t.Fatal(err)
 	}
 
@@ -744,15 +763,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// prune the temp sectors
-	count, err = db.PruneSectors()
-	if err != nil {
-		t.Fatal(err)
-	} else if count != len(tempSectors) {
-		t.Fatalf("expected to prune %v sectors, got %v", len(tempSectors), count)
-	}
-
-	if err := checkConsistency(roots[:20], roots[20:]); err != nil {
+	if err := checkConsistency(contractSectors, nil, nil, roots[40:]); err != nil {
 		t.Fatal(err)
 	}
 
@@ -761,15 +772,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// prune the contract sectors
-	count, err = db.PruneSectors()
-	if err != nil {
-		t.Fatal(err)
-	} else if count != len(contractSectors) {
-		t.Fatalf("expected to prune %v sectors, got %v", len(contractSectors), count)
-	}
-
-	if err := checkConsistency(nil, roots); err != nil {
+	if err := checkConsistency(nil, nil, nil, roots); err != nil {
 		t.Fatal(err)
 	}
 }
