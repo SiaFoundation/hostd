@@ -32,6 +32,8 @@ func (s *Store) init() error {
 				return fmt.Errorf("failed to generate host key: %w", err)
 			}
 			return nil
+		} else if version > target {
+			return fmt.Errorf("database version %v is newer than expected %v. database downgrades are not supported", version, target)
 		} else if version == target {
 			return nil
 		}
