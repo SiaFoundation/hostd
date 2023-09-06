@@ -85,10 +85,6 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 		} else if err = incrementNumericStat(tx, metricPhysicalSectors, -1, time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-		// attempt to prune the sector
-		if err := pruneSectorRef(tx, sectorID); err != nil && !errors.Is(err, errSectorHasRefs) {
-			return fmt.Errorf("failed to prune sector: %w", err)
-		}
 		return nil
 	})
 }
