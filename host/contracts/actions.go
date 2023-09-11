@@ -222,9 +222,28 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		log.Info("contract rejected", zap.Uint64("negotiationHeight", contract.NegotiationHeight))
 	case ActionExpire:
 		validPayout, missedPayout := contract.Revision.ValidHostPayout(), contract.Revision.MissedHostPayout()
-		if validPayout.Cmp(missedPayout) > 0 {
-			// if the host valid payout is greater than the missed payout, the
-			// host lost potential revenue.
+		switch {
+		case !contract.FormationConfirmed:
+			// if the contract was never confirmed, nothing was ever lost or
+			// gained
+			if err := cm.store.ExpireContract(id, ContractStatusRejected); err != nil {
+				log.Error("failed to set contract status", zap.Error(err))
+			}
+		case validPayout.Cmp(missedPayout) <= 0 || contract.ResolutionHeight != 0:
+			// if the host valid payout is less than or equal to the missed
+			// payout or if a resolution was confirmed, the contract was
+			// successful
+			if err := cm.store.ExpireContract(id, ContractStatusSuccessful); err != nil {
+				log.Error("failed to set contract status", zap.Error(err))
+			}
+			payout := validPayout
+			if contract.ResolutionHeight != 0 {
+				payout = missedPayout
+			}
+			log.Info("contract successful", zap.String("payout", payout.ExactString()))
+		case validPayout.Cmp(missedPayout) > 0 && contract.ResolutionHeight == 0:
+			// if the host valid payout is greater than the missed payout and a
+			// proof was not broadcast, the contract failed
 			if err := cm.store.ExpireContract(id, ContractStatusFailed); err != nil {
 				log.Error("failed to set contract status", zap.Error(err))
 			}
@@ -239,12 +258,9 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 				Timestamp: time.Now(),
 			})
 			log.Error("contract failed, revenue lost", zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
-			return
+		default:
+			log.Panic("unrecognized contract state", zap.Stack("stack"), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()), zap.Uint64("resolutionHeight", contract.ResolutionHeight), zap.Bool("formationConfirmed", contract.FormationConfirmed))
 		}
-		if err := cm.store.ExpireContract(id, ContractStatusSuccessful); err != nil {
-			log.Error("failed to set contract status", zap.Error(err))
-		}
-		log.Info("contract successful", zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
 	default:
 		log.Panic("unrecognized contract action", zap.Stack("stack"))
 	}

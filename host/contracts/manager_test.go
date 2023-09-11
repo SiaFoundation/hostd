@@ -5,16 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
+	crhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/test"
+	rhp3 "go.sia.tech/hostd/internal/test/rhp/v3"
 	"go.sia.tech/hostd/persist/sqlite"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap/zaptest"
@@ -30,9 +34,9 @@ func hashRevision(rev types.FileContractRevision) types.Hash256 {
 }
 
 func formContract(renterKey, hostKey types.PrivateKey, start, end uint64, renterPayout, hostPayout types.Currency, c *contracts.ContractManager, w contracts.Wallet, cm contracts.ChainManager, tp contracts.TransactionPool) (contracts.SignedRevision, error) {
-	contract := rhpv2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterPayout, hostPayout, start, rhpv2.HostSettings{WindowSize: end - start}, w.Address())
+	contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterPayout, hostPayout, start, rhp2.HostSettings{WindowSize: end - start}, w.Address())
 	state := cm.TipState()
-	formationCost := rhpv2.ContractFormationCost(state, contract, types.ZeroCurrency)
+	formationCost := rhp2.ContractFormationCost(state, contract, types.ZeroCurrency)
 	contractUnlockConditions := types.UnlockConditions{
 		PublicKeys: []types.UnlockKey{
 			renterKey.PublicKey().UnlockKey(),
@@ -241,9 +245,9 @@ func TestContractLifecycle(t *testing.T) {
 
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
-			var sector [rhpv2.SectorSize]byte
+			var sector [rhp2.SectorSize]byte
 			frand.Read(sector[:256])
-			root := rhpv2.SectorRoot(&sector)
+			root := rhp2.SectorRoot(&sector)
 			release, err := s.Write(root, &sector)
 			if err != nil {
 				t.Fatal(err)
@@ -256,8 +260,8 @@ func TestContractLifecycle(t *testing.T) {
 		amount := types.NewCurrency64(100)
 		collateral := types.NewCurrency64(200)
 		rev.Revision.RevisionNumber++
-		rev.Revision.Filesize = rhpv2.SectorSize * uint64(len(roots))
-		rev.Revision.FileMerkleRoot = rhpv2.MetaRoot(roots)
+		rev.Revision.Filesize = rhp2.SectorSize * uint64(len(roots))
+		rev.Revision.FileMerkleRoot = rhp2.MetaRoot(roots)
 		rev.Revision.ValidProofOutputs[0].Value = rev.Revision.ValidProofOutputs[0].Value.Sub(amount)
 		rev.Revision.ValidProofOutputs[1].Value = rev.Revision.ValidProofOutputs[1].Value.Add(amount)
 		rev.Revision.MissedProofOutputs[0].Value = rev.Revision.MissedProofOutputs[0].Value.Sub(amount)
@@ -325,6 +329,35 @@ func TestContractLifecycle(t *testing.T) {
 		time.Sleep(time.Second) // sync time
 		proofHeight := rev.Revision.WindowStart + 1
 
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatal("expected contract to be active")
+		} else if contract.ResolutionHeight != proofHeight {
+			t.Fatalf("expected resolution height %v, got %v", proofHeight, contract.ResolutionHeight)
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Active != 1 {
+			t.Fatal("expected 1 active contracts")
+		} else if m.Contracts.Successful != 0 {
+			t.Fatal("expected 0 successful contract")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
+			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.Equals(collateral) {
+			t.Fatalf("expected %v risked collateral, got %v", collateral, m.Contracts.RiskedCollateral)
+		}
+
+		// mine until the end of the proof window
+		remainingBlocks = rev.Revision.WindowEnd - node.TipState().Index.Height + 1
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		// check that the contract was marked successful
 		contract, err = c.Contract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
@@ -646,7 +679,7 @@ func TestContractLifecycle(t *testing.T) {
 		}
 
 		// mine until the proof window
-		remainingBlocks = rev.Revision.WindowStart - node.TipState().Index.Height
+		remainingBlocks = rev.Revision.WindowStart - node.TipState().Index.Height + 1
 		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
 			t.Fatal(err)
 		}
@@ -656,21 +689,42 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(time.Second) // sync time
-		proofHeight := rev.Revision.WindowStart + 1
+
+		contract, err = c.Contract(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if contract.Status != contracts.ContractStatusActive {
+			t.Fatalf("expected contract to be active, got %v", contract.Status)
+		} else if contract.ResolutionHeight == 0 {
+			t.Fatal("expected contract to have resolution")
+		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Active != 1 {
+			t.Fatal("expected 1 active contracts")
+		} else if m.Contracts.Successful != 0 {
+			t.Fatal("expected 0 successful contracts")
+		}
+
+		// mine until the proof window ends -- contract should be successful
+		remainingBlocks = rev.Revision.WindowEnd - node.TipState().Index.Height + 1
+		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
 
 		contract, err = c.Contract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
 		} else if contract.Status != contracts.ContractStatusSuccessful {
-			t.Fatal("expected contract to be successful")
-		} else if contract.ResolutionHeight != proofHeight {
-			t.Fatalf("expected resolution height %v, got %v", proofHeight, contract.ResolutionHeight)
+			t.Fatalf("expected contract to be active, got %v", contract.Status)
+		} else if contract.ResolutionHeight == 0 {
+			t.Fatal("expected contract to have resolution")
 		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
 			t.Fatal(err)
 		} else if m.Contracts.Active != 0 {
 			t.Fatal("expected 0 active contracts")
 		} else if m.Contracts.Successful != 1 {
-			t.Fatal("expected 1 successful contract")
+			t.Fatal("expected 1 successful contracts")
 		}
 	})
 
@@ -757,9 +811,9 @@ func TestContractLifecycle(t *testing.T) {
 
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
-			var sector [rhpv2.SectorSize]byte
+			var sector [rhp2.SectorSize]byte
 			frand.Read(sector[:256])
-			root := rhpv2.SectorRoot(&sector)
+			root := rhp2.SectorRoot(&sector)
 			release, err := s.Write(root, &sector)
 			if err != nil {
 				t.Fatal(err)
@@ -772,7 +826,7 @@ func TestContractLifecycle(t *testing.T) {
 		amount := types.NewCurrency64(100)
 		collateral := types.NewCurrency64(200)
 		rev.Revision.RevisionNumber++
-		rev.Revision.Filesize = rhpv2.SectorSize * uint64(len(roots))
+		rev.Revision.Filesize = rhp2.SectorSize * uint64(len(roots))
 		rev.Revision.FileMerkleRoot = frand.Entropy256() // corrupt the file merkle root so the blockchain rejects the proof
 		rev.Revision.ValidProofOutputs[0].Value = rev.Revision.ValidProofOutputs[0].Value.Sub(amount)
 		rev.Revision.ValidProofOutputs[1].Value = rev.Revision.ValidProofOutputs[1].Value.Add(amount)
@@ -997,4 +1051,377 @@ func TestSectorRoots(t *testing.T) {
 			t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
 		}
 	}
+}
+
+func TestRevenueMetrics(t *testing.T) {
+	t.Run("successful", func(t *testing.T) {
+		renter, host, err := test.NewTestingPair(t.TempDir(), zaptest.NewLogger(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer host.Close()
+		defer renter.Close()
+
+		checkConsistency := func(potential, earned metrics.Revenue) error {
+			time.Sleep(100 * time.Millisecond) // commit time
+
+			m, err := host.Store().Metrics(time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
+			expPotentialValue := reflect.ValueOf(potential)
+			for i := 0; i < actualPotentialValue.NumField(); i++ {
+				name := actualPotentialValue.Type().Field(i).Name
+				fa, fb := actualPotentialValue.Field(i), expPotentialValue.Field(i)
+				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
+
+				if !a.Equals(b) {
+					return fmt.Errorf("potential revenue field %s does not match: %d != %d", name, a, b)
+				}
+			}
+
+			actualEarnedValue := reflect.ValueOf(m.Revenue.Earned)
+			expEarnedValue := reflect.ValueOf(earned)
+			for i := 0; i < actualEarnedValue.NumField(); i++ {
+				name := actualEarnedValue.Type().Field(i).Name
+				fa, fb := actualEarnedValue.Field(i), expEarnedValue.Field(i)
+				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
+
+				if !a.Equals(b) {
+					return fmt.Errorf("earned revenue field %s does not match: %d != %d", name, a, b)
+				}
+			}
+
+			return nil
+		}
+
+		var expectedPotential, expectedEarned metrics.Revenue
+		// check that the host has no revenue
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		settings, err := host.RHPv2Settings()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the contract is active
+		if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		// start an RHP3 session
+		sess, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sess.Close()
+
+		accountID := crhp3.Account(renter.PublicKey())
+		contractPayment := rhp3.ContractPayment(&revision, renter.PrivateKey(), accountID)
+		// register a price table
+		pt, err := sess.RegisterPriceTable(contractPayment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.UpdatePriceTableCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// fund an account
+		if _, err := sess.FundAccount(accountID, contractPayment, types.Siacoins(1)); err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// fund the account again
+		if _, err := sess.FundAccount(accountID, contractPayment, types.Siacoins(2)); err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		accountPayment := rhp3.AccountPayment(accountID, renter.PrivateKey())
+		// upload a sector
+		var sector [rhp2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhp2.SectorRoot(&sector)
+		usage := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - pt.HostBlockHeight))
+		budget, _ := usage.Total()
+		_, err = sess.AppendSector(&sector, &revision, renter.PrivateKey(), accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(usage.Base)
+		expectedPotential.Storage = expectedPotential.Storage.Add(usage.Storage)
+		expectedPotential.Ingress = expectedPotential.Ingress.Add(usage.Ingress)
+		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
+		time.Sleep(100 * time.Millisecond) // commit time
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// read a sector
+		usage = pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize))
+		budget, _ = usage.Total()
+		_, _, err = sess.ReadSector(root, 0, rhp2.SectorSize, accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(usage.Base)
+		expectedPotential.Ingress = expectedPotential.Ingress.Add(usage.Ingress)
+		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
+
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the contract is successful
+		if err := host.MineBlocks(host.WalletAddress(), int(revision.Revision.WindowEnd-host.TipState().Index.Height+1)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		// check that the revenue metrics were updated
+		expectedEarned = expectedPotential
+		expectedPotential = metrics.Revenue{}
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// register a new price table using the account funding after the
+		// contract has expired
+		pt, err = sess.RegisterPriceTable(accountPayment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedEarned.RPC = expectedEarned.RPC.Add(pt.UpdatePriceTableCost)
+
+		// check that the earned revenue metrics were updated since the contract
+		// was successful
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// read a sector using the account funding after the contract has expired
+		usage = pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize))
+		budget, _ = usage.Total()
+		_, _, err = sess.ReadSector(root, 0, rhp2.SectorSize, accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedEarned.RPC = expectedEarned.RPC.Add(usage.Base)
+		expectedEarned.Ingress = expectedEarned.Ingress.Add(usage.Ingress)
+		expectedEarned.Egress = expectedEarned.Egress.Add(usage.Egress)
+
+		// check that the earned revenue metrics were updated since the contract
+		// was successful
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("failed", func(t *testing.T) {
+		renter, host, err := test.NewTestingPair(t.TempDir(), zaptest.NewLogger(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer host.Close()
+		defer renter.Close()
+
+		checkConsistency := func(potential, earned metrics.Revenue) error {
+			time.Sleep(100 * time.Millisecond) // commit time
+
+			m, err := host.Store().Metrics(time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
+			expPotentialValue := reflect.ValueOf(potential)
+			for i := 0; i < actualPotentialValue.NumField(); i++ {
+				name := actualPotentialValue.Type().Field(i).Name
+				fa, fb := actualPotentialValue.Field(i), expPotentialValue.Field(i)
+				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
+
+				if !a.Equals(b) {
+					return fmt.Errorf("potential revenue field %s does not match: %d != %d", name, a, b)
+				}
+			}
+
+			actualEarnedValue := reflect.ValueOf(m.Revenue.Earned)
+			expEarnedValue := reflect.ValueOf(earned)
+			for i := 0; i < actualEarnedValue.NumField(); i++ {
+				name := actualEarnedValue.Type().Field(i).Name
+				fa, fb := actualEarnedValue.Field(i), expEarnedValue.Field(i)
+				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
+
+				if !a.Equals(b) {
+					return fmt.Errorf("earned revenue field %s does not match: %d != %d", name, a, b)
+				}
+			}
+
+			return nil
+		}
+
+		var expectedPotential, expectedEarned metrics.Revenue
+		// check that the host has no revenue
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		settings, err := host.RHPv2Settings()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the contract is active
+		if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		// start an RHP3 session
+		sess, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sess.Close()
+
+		accountID := crhp3.Account(renter.PublicKey())
+		contractPayment := rhp3.ContractPayment(&revision, renter.PrivateKey(), accountID)
+		// register a price table
+		pt, err := sess.RegisterPriceTable(contractPayment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.UpdatePriceTableCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// fund an account
+		if _, err := sess.FundAccount(accountID, contractPayment, types.Siacoins(1)); err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// fund the account again
+		if _, err := sess.FundAccount(accountID, contractPayment, types.Siacoins(2)); err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		accountPayment := rhp3.AccountPayment(accountID, renter.PrivateKey())
+		// upload a sector
+		var sector [rhp2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhp2.SectorRoot(&sector)
+		usage := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - pt.HostBlockHeight))
+		budget, _ := usage.Total()
+		_, err = sess.AppendSector(&sector, &revision, renter.PrivateKey(), accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(usage.Base)
+		expectedPotential.Storage = expectedPotential.Storage.Add(usage.Storage)
+		expectedPotential.Ingress = expectedPotential.Ingress.Add(usage.Ingress)
+		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
+		time.Sleep(100 * time.Millisecond) // commit time
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// read the sector
+		usage = pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize))
+		budget, _ = usage.Total()
+		_, _, err = sess.ReadSector(root, 0, rhp2.SectorSize, accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(usage.Base)
+		expectedPotential.Ingress = expectedPotential.Ingress.Add(usage.Ingress)
+		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
+
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// force remove the sector so a proof can't be submitted
+		if err := host.Storage().RemoveSector(root); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the contract is expired
+		if err := host.MineBlocks(host.WalletAddress(), int(revision.Revision.WindowEnd-host.TipState().Index.Height+1)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		// check that the revenue metrics were updated
+		expectedEarned = metrics.Revenue{} // failed contracts do not earn revenue
+		expectedPotential = metrics.Revenue{}
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// register a new price table using the account funding after the
+		// contract has expired
+		pt, err = sess.RegisterPriceTable(accountPayment)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// check that the earned revenue metrics were not updated since the
+		// contract failed
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+	})
 }

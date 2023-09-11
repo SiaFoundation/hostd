@@ -15,8 +15,8 @@ import (
 	"go.sia.tech/core/consensus"
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/alerts"
+	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
@@ -435,10 +435,10 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	atomic.StoreUint64(&cm.blockHeight, scanHeight)
 	log.Debug("consensus change applied", zap.Uint64("height", scanHeight), zap.String("changeID", cc.ID.String()))
 
-	// if the last block is more than 12 hours old, skip action processing until
+	// if the last block is more than 3 days old, skip action processing until
 	// consensus is caught up
 	blockTime := time.Unix(int64(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp), 0)
-	if time.Since(blockTime) > 6*time.Hour {
+	if time.Since(blockTime) > 72*time.Hour {
 		return
 	}
 
