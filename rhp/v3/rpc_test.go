@@ -345,6 +345,7 @@ func TestRenew(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 
+		expectedRevenue := pt.ContractPrice.Add(pt.UpdatePriceTableCost)
 		old, err := host.Contracts().Contract(origin.ID())
 		if err != nil {
 			t.Fatal(err)
@@ -354,8 +355,8 @@ func TestRenew(t *testing.T) {
 			t.Fatal("merkle root mismatch")
 		} else if old.RenewedTo != renewal.ID() {
 			t.Fatal("renewed to mismatch")
-		} else if !old.Usage.RPCRevenue.Equals(pt.ContractPrice) {
-			t.Fatalf("expected old contract rpc revenue to equal contract price %d, got %d", pt.ContractPrice, old.Usage.RPCRevenue)
+		} else if !old.Usage.RPCRevenue.Equals(expectedRevenue) {
+			t.Fatalf("expected old contract rpc revenue to equal %d, got %d", expectedRevenue, old.Usage.RPCRevenue)
 		}
 
 		contract, err := host.Contracts().Contract(renewal.ID())
@@ -426,7 +427,8 @@ func TestRenew(t *testing.T) {
 
 		// upload the sector
 		remainingDuration = contractExpiration - currentHeight
-		cost, _ := rhpv2.RPCAppendCost(settings, remainingDuration)
+		usage := pt.BaseCost().Add(pt.AppendSectorCost(remainingDuration))
+		cost, _ := usage.Total()
 		if _, err := session.AppendSector(&sector, &origin, renter.PrivateKey(), payment, cost); err != nil {
 			t.Fatal(err)
 		}
@@ -450,7 +452,7 @@ func TestRenew(t *testing.T) {
 		baseStorageRevenue := pt.RenewContractCost.Add(pt.WriteStoreCost.Mul64(origin.Revision.Filesize).Mul64(extension)) // renew contract cost is included because it is burned on failure
 		baseRiskedCollateral := settings.Collateral.Mul64(extension).Mul64(origin.Revision.Filesize)
 
-		expectedExchange := pt.ContractPrice.Add(pt.FundAccountCost)
+		expectedExchange := pt.ContractPrice.Add(pt.FundAccountCost).Add(pt.UpdatePriceTableCost).Add(usage.Base)
 		old, err := host.Contracts().Contract(origin.ID())
 		if err != nil {
 			t.Fatal(err)
