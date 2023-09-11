@@ -151,6 +151,14 @@ func (h *Host) PublicKey() types.PublicKey {
 	return h.privKey.PublicKey()
 }
 
+func (h *Host) Accounts() *accounts.AccountManager {
+	return h.accounts
+}
+
+func (h *Host) Store() *sqlite.Store {
+	return h.store
+}
+
 // NewHost initializes a new test host
 func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) (*Host, error) {
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))

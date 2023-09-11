@@ -10,7 +10,7 @@ import (
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/chain"
+	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/siad/modules"
 	mconsensus "go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
@@ -39,82 +39,20 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 	}
 }
 
-// TXPool wraps a siad transaction pool with core types.
-type TXPool struct {
-	tp modules.TransactionPool
-}
-
-// RecommendedFee returns the recommended fee for a transaction.
-func (tp TXPool) RecommendedFee() (fee types.Currency) {
-	_, max := tp.tp.FeeEstimation()
-	convertToCore(&max, &fee)
-	return
-}
-
-// Transactions returns all transactions in the pool.
-func (tp TXPool) Transactions() []types.Transaction {
-	stxns := tp.tp.Transactions()
-	txns := make([]types.Transaction, len(stxns))
-	for i := range txns {
-		convertToCore(&stxns[i], &txns[i])
-	}
-	return txns
-}
-
-// AcceptTransactionSet adds a transaction set to the pool.
-func (tp TXPool) AcceptTransactionSet(txns []types.Transaction) error {
-	stxns := make([]stypes.Transaction, len(txns))
-	for i := range stxns {
-		convertToSiad(&txns[i], &stxns[i])
-	}
-	err := tp.tp.AcceptTransactionSet(stxns)
-	if err == modules.ErrDuplicateTransactionSet {
-		err = nil
-	}
-	return err
-}
-
-// UnconfirmedParents returns the parents of a transaction in the pool.
-func (tp TXPool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error) {
-	pool := tp.Transactions()
-	outputToParent := make(map[types.SiacoinOutputID]*types.Transaction)
-	for i, txn := range pool {
-		for j := range txn.SiacoinOutputs {
-			outputToParent[txn.SiacoinOutputID(j)] = &pool[i]
-		}
-	}
-	var parents []types.Transaction
-	seen := make(map[types.TransactionID]bool)
-	for _, sci := range txn.SiacoinInputs {
-		if parent, ok := outputToParent[sci.ParentID]; ok {
-			if txid := parent.ID(); !seen[txid] {
-				seen[txid] = true
-				parents = append(parents, *parent)
-			}
-		}
-	}
-	return parents, nil
-}
-
-// Subscribe subscribes to the transaction pool.
-func (tp TXPool) Subscribe(subscriber modules.TransactionPoolSubscriber) {
-	tp.tp.TransactionPoolSubscribe(subscriber)
-}
-
 type (
 	// A Node is a base Sia node that can be extended by a Renter or Host
 	Node struct {
 		g  modules.Gateway
 		cs modules.ConsensusSet
 		cm *chain.Manager
-		tp *TXPool
+		tp *chain.TransactionPool
 		m  *Miner
 	}
 )
 
 // Close closes the node
 func (n *Node) Close() error {
-	n.tp.tp.Close()
+	n.tp.Close()
 	n.cs.Close()
 	n.g.Close()
 	return nil
@@ -146,7 +84,7 @@ func (n *Node) ChainManager() *chain.Manager {
 }
 
 // TPool returns the transaction pool
-func (n *Node) TPool() *TXPool {
+func (n *Node) TPool() *chain.TransactionPool {
 	return n.tp
 }
 
@@ -178,7 +116,7 @@ func NewNode(dir string) (*Node, error) {
 		g:  g,
 		cs: cs,
 		cm: cm,
-		tp: &TXPool{tp},
+		tp: chain.NewTPool(tp),
 		m:  m,
 	}, nil
 }
