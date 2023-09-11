@@ -55,6 +55,22 @@ const (
 	// wallet
 	metricWalletBalance = "walletBalance"
 
+	// potential revenue
+	metricPotentialRPCRevenue           = "potentialRPCRevenue"
+	metricPotentialStorageRevenue       = "potentialStorageRevenue"
+	metricPotentialIngressRevenue       = "potentialIngressRevenue"
+	metricPotentialEgressRevenue        = "potentialEgressRevenue"
+	metricPotentialRegistryReadRevenue  = "potentialRegistryReadRevenue"
+	metricPotentialRegistryWriteRevenue = "potentialRegistryWriteRevenue"
+
+	// earned revenue
+	metricEarnedRPCRevenue           = "earnedRPCRevenue"
+	metricEarnedStorageRevenue       = "earnedStorageRevenue"
+	metricEarnedIngressRevenue       = "earnedIngressRevenue"
+	metricEarnedEgressRevenue        = "earnedEgressRevenue"
+	metricEarnedRegistryReadRevenue  = "earnedRegistryReadRevenue"
+	metricEarnedRegistryWriteRevenue = "earnedRegistryWriteRevenue"
+
 	statInterval = 5 * time.Minute
 )
 
@@ -372,6 +388,32 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Data.RHP3.Ingress = mustScanUint64(buf)
 	case metricRHP3Egress:
 		m.Data.RHP3.Egress = mustScanUint64(buf)
+	// potential revenue
+	case metricPotentialRPCRevenue:
+		m.Revenue.Potential.RPC = mustScanCurrency(buf)
+	case metricPotentialStorageRevenue:
+		m.Revenue.Potential.Storage = mustScanCurrency(buf)
+	case metricPotentialIngressRevenue:
+		m.Revenue.Potential.Ingress = mustScanCurrency(buf)
+	case metricPotentialEgressRevenue:
+		m.Revenue.Potential.Egress = mustScanCurrency(buf)
+	case metricPotentialRegistryReadRevenue:
+		m.Revenue.Potential.RegistryRead = mustScanCurrency(buf)
+	case metricPotentialRegistryWriteRevenue:
+		m.Revenue.Potential.RegistryWrite = mustScanCurrency(buf)
+	// earnedRevenue
+	case metricEarnedRPCRevenue:
+		m.Revenue.Earned.RPC = mustScanCurrency(buf)
+	case metricEarnedStorageRevenue:
+		m.Revenue.Earned.Storage = mustScanCurrency(buf)
+	case metricEarnedIngressRevenue:
+		m.Revenue.Earned.Ingress = mustScanCurrency(buf)
+	case metricEarnedEgressRevenue:
+		m.Revenue.Earned.Egress = mustScanCurrency(buf)
+	case metricEarnedRegistryReadRevenue:
+		m.Revenue.Earned.RegistryRead = mustScanCurrency(buf)
+	case metricEarnedRegistryWriteRevenue:
+		m.Revenue.Earned.RegistryWrite = mustScanCurrency(buf)
 	// wallet
 	case metricWalletBalance:
 		m.Balance = mustScanCurrency(buf)
@@ -383,6 +425,9 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 // incrementNumericStat tracks a numeric stat, incrementing the current value by
 // delta. If the resulting value is negative, the function panics.
 func incrementNumericStat(tx txn, stat string, delta int, timestamp time.Time) error {
+	if delta == 0 {
+		return nil
+	}
 	timestamp = timestamp.Truncate(statInterval)
 	var current uint64
 	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
@@ -409,6 +454,9 @@ func incrementNumericStat(tx txn, stat string, delta int, timestamp time.Time) e
 // value is incremented by delta. Otherwise, the value is decremented. If the
 // resulting value would be negative, the function panics.
 func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative bool, timestamp time.Time) error {
+	if delta.IsZero() {
+		return nil
+	}
 	timestamp = timestamp.Truncate(statInterval)
 	var current types.Currency
 	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlCurrency)(&current))
