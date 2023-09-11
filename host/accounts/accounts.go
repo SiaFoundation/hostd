@@ -26,10 +26,10 @@ type (
 		// AccountBalance returns the balance of the account with the given ID.
 		AccountBalance(accountID rhpv3.Account) (types.Currency, error)
 		// CreditAccount adds the specified amount to the account with the given ID.
-		CreditAccount(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (types.Currency, error)
+		CreditAccount(accountID rhpv3.Account, amount types.Currency, fundingSource types.FileContractID, expiration time.Time) (types.Currency, error)
 		// DebitAccount subtracts the specified amount from the account with the given
 		// ID. Returns the remaining balance of the account.
-		DebitAccount(accountID rhpv3.Account, amount types.Currency) (types.Currency, error)
+		DebitAccount(accountID rhpv3.Account, usage Usage) (types.Currency, error)
 	}
 
 	// Settings returns the host's current settings.
@@ -72,7 +72,7 @@ func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, erro
 
 // Credit adds the specified amount to the account with the given ID. Credits
 // are synced to the underlying store immediately.
-func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time, refund bool) (types.Currency, error) {
+func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency, fundingSource types.FileContractID, expiration time.Time, refund bool) (types.Currency, error) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -87,7 +87,7 @@ func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency,
 	}
 
 	// credit the account
-	if _, err = am.store.CreditAccount(accountID, amount, expiration); err != nil {
+	if _, err = am.store.CreditAccount(accountID, amount, fundingSource, expiration); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to credit account: %w", err)
 	}
 	// increment the balance in memory, if it exists
