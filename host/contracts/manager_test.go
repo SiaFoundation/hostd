@@ -1424,4 +1424,234 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("multi-contract", func(t *testing.T) {
+		renter, host, err := test.NewTestingPair(t.TempDir(), zaptest.NewLogger(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer host.Close()
+		defer renter.Close()
+
+		checkConsistency := func(potential, earned metrics.Revenue) error {
+			time.Sleep(100 * time.Millisecond) // commit time
+
+			m, err := host.Store().Metrics(time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
+			expPotentialValue := reflect.ValueOf(potential)
+			for i := 0; i < actualPotentialValue.NumField(); i++ {
+				name := actualPotentialValue.Type().Field(i).Name
+				fa, fb := actualPotentialValue.Field(i), expPotentialValue.Field(i)
+				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
+
+				if !a.Equals(b) {
+					return fmt.Errorf("potential revenue field %s does not match: %d != %d", name, a, b)
+				}
+			}
+
+			actualEarnedValue := reflect.ValueOf(m.Revenue.Earned)
+			expEarnedValue := reflect.ValueOf(earned)
+			for i := 0; i < actualEarnedValue.NumField(); i++ {
+				name := actualEarnedValue.Type().Field(i).Name
+				fa, fb := actualEarnedValue.Field(i), expEarnedValue.Field(i)
+				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
+
+				if !a.Equals(b) {
+					return fmt.Errorf("earned revenue field %s does not match: %d != %d", name, a, b)
+				}
+			}
+
+			return nil
+		}
+
+		var expectedPotential, expectedEarned metrics.Revenue
+		// check that the host has no revenue
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		settings, err := host.RHPv2Settings()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		r1, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the contract is active
+		if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		// form a second contract
+		r2, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the contract is active
+		if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond) // sync time
+
+		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// start an RHP3 session
+		sess, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sess.Close()
+
+		accountID := crhp3.Account(renter.PublicKey())
+		contractPayment := rhp3.ContractPayment(&r1, renter.PrivateKey(), accountID)
+		// register a price table
+		pt, err := sess.RegisterPriceTable(contractPayment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.UpdatePriceTableCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// fund an account using the first contract
+		if _, err := sess.FundAccount(accountID, contractPayment, types.NewCurrency64(1)); err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// fund the account again using the second contract
+		if _, err := sess.FundAccount(accountID, rhp3.ContractPayment(&r2, renter.PrivateKey(), accountID), types.Siacoins(1)); err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		accountPayment := rhp3.AccountPayment(accountID, renter.PrivateKey())
+		// upload a sector
+		var sector [rhp2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhp2.SectorRoot(&sector)
+		usage := pt.BaseCost().Add(pt.AppendSectorCost(r1.Revision.WindowEnd - pt.HostBlockHeight))
+		budget, _ := usage.Total()
+		_, err = sess.AppendSector(&sector, &r1, renter.PrivateKey(), accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(usage.Base)
+		expectedPotential.Storage = expectedPotential.Storage.Add(usage.Storage)
+		expectedPotential.Ingress = expectedPotential.Ingress.Add(usage.Ingress)
+		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
+		time.Sleep(100 * time.Millisecond) // commit time
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// read a sector
+		usage = pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize))
+		budget, _ = usage.Total()
+		_, _, err = sess.ReadSector(root, 0, rhp2.SectorSize, accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(usage.Base)
+		expectedPotential.Ingress = expectedPotential.Ingress.Add(usage.Ingress)
+		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
+
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the first contract is successful
+		if err := host.MineBlocks(host.WalletAddress(), int(r1.Revision.WindowEnd-host.TipState().Index.Height+1)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		contract, err := host.Contracts().Contract(r1.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// subtract the successful contract's revenue from the expected potential revenue
+		expectedPotential.RPC = expectedPotential.RPC.Sub(contract.Usage.RPCRevenue)
+		expectedPotential.Storage = expectedPotential.Storage.Sub(contract.Usage.StorageRevenue)
+		expectedPotential.Ingress = expectedPotential.Ingress.Sub(contract.Usage.IngressRevenue)
+		expectedPotential.Egress = expectedPotential.Egress.Sub(contract.Usage.EgressRevenue)
+		expectedEarned.RPC = contract.Usage.RPCRevenue
+		expectedEarned.Storage = contract.Usage.StorageRevenue
+		expectedEarned.Ingress = contract.Usage.IngressRevenue
+		expectedEarned.Egress = contract.Usage.EgressRevenue
+		// check that the revenue metrics were updated
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// register a new price table using the account funding after the
+		// contract has expired. All revenue should be going to the second
+		// contract.
+		pt, err = sess.RegisterPriceTable(accountPayment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPotential.RPC = expectedPotential.RPC.Add(pt.UpdatePriceTableCost)
+
+		// check that the earned revenue metrics were updated since the contract
+		// was successful
+		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine until the second contract is successful
+		if err := host.MineBlocks(host.WalletAddress(), int(r2.Revision.WindowEnd-host.TipState().Index.Height+1)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second) // sync time
+
+		// all revenue should now be earned
+		expectedEarned.RPC = expectedEarned.RPC.Add(expectedPotential.RPC)
+		expectedEarned.Storage = expectedEarned.Storage.Add(expectedPotential.Storage)
+		expectedEarned.Ingress = expectedEarned.Ingress.Add(expectedPotential.Ingress)
+		expectedEarned.Egress = expectedEarned.Egress.Add(expectedPotential.Egress)
+		expectedPotential = metrics.Revenue{}
+
+		// read a sector using the account funding after the second contract has
+		// expired. All revenue should be earned
+		usage = pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize))
+		budget, _ = usage.Total()
+		_, _, err = sess.ReadSector(root, 0, rhp2.SectorSize, accountPayment, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedEarned.RPC = expectedEarned.RPC.Add(usage.Base)
+		expectedEarned.Ingress = expectedEarned.Ingress.Add(usage.Ingress)
+		expectedEarned.Egress = expectedEarned.Egress.Add(usage.Egress)
+	})
 }

@@ -143,7 +143,7 @@ func updateContractUsage(tx txn, accountID int64, usage accounts.Usage) error {
 
 		v := *usage
 		if usage.Cmp(*remainder) > 0 {
-			v = usage.Sub(*remainder)
+			v = *remainder
 		}
 		*usage = usage.Sub(v)
 		*remainder = remainder.Sub(v)
