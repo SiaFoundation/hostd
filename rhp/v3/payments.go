@@ -66,7 +66,7 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	}
 
 	// credit the account with the deposit
-	if _, err := sh.accounts.Credit(req.RefundAccount, fundAmount, time.Now().Add(settings.AccountExpiry), true); err != nil {
+	if _, err := sh.accounts.Credit(req.RefundAccount, fundAmount, revision.ParentID, time.Now().Add(settings.AccountExpiry), true); err != nil {
 		if errors.Is(err, accounts.ErrBalanceExceeded) {
 			s.WriteResponseErr(accounts.ErrBalanceExceeded)
 		} else {
@@ -222,7 +222,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	// subtract the cost of the RPC from the total amount
 	fundAmount = totalAmount.Sub(pt.FundAccountCost)
 	// credit the account with the deposit
-	balance, err = sh.accounts.Credit(accountID, fundAmount, time.Now().Add(settings.AccountExpiry), false)
+	balance, err = sh.accounts.Credit(accountID, fundAmount, revision.ParentID, time.Now().Add(settings.AccountExpiry), false)
 	if err != nil {
 		if errors.Is(err, accounts.ErrBalanceExceeded) {
 			s.WriteResponseErr(accounts.ErrBalanceExceeded)

@@ -26,7 +26,7 @@ type (
 	// An AccountManager manages deposits and withdrawals for accounts.
 	AccountManager interface {
 		Balance(accountID rhpv3.Account) (types.Currency, error)
-		Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time, refund bool) (balance types.Currency, err error)
+		Credit(accountID rhpv3.Account, amount types.Currency, fundingContract types.FileContractID, expiration time.Time, refund bool) (balance types.Currency, err error)
 		Budget(accountID rhpv3.Account, amount types.Currency) (*accounts.Budget, error)
 	}
 

@@ -38,6 +38,7 @@ type (
 
 		budget *accounts.Budget
 		cost   rhpv3.ResourceCost
+		usage  accounts.Usage
 
 		revision          *contracts.SignedRevision
 		remainingDuration uint64
@@ -79,12 +80,12 @@ func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash25
 	return resp
 }
 
-func (pe *programExecutor) payForExecution(cost rhpv3.ResourceCost) error {
-	executeCost, _ := cost.Total()
-	if err := pe.budget.Spend(executeCost); err != nil {
+func (pe *programExecutor) payForExecution(cost rhpv3.ResourceCost, usage accounts.Usage) error {
+	if err := pe.budget.Spend(usage); err != nil {
 		return err
 	}
 	pe.cost = pe.cost.Add(cost)
+	pe.usage = pe.usage.Add(usage)
 	return nil
 }
 
@@ -94,7 +95,8 @@ func (pe *programExecutor) executeAppendSector(instr *rhpv3.InstrAppendSector) (
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.AppendSectorCost(pe.remainingDuration)); err != nil {
+	cost := pe.priceTable.AppendSectorCost(pe.remainingDuration)
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -119,7 +121,8 @@ func (pe *programExecutor) executeAppendSectorRoot(instr *rhpv3.InstrAppendSecto
 		return nil, nil, fmt.Errorf("failed to read sector root: %w", err)
 	}
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.AppendSectorRootCost(pe.remainingDuration)); err != nil {
+	cost := pe.priceTable.AppendSectorRootCost(pe.remainingDuration)
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -144,7 +147,8 @@ func (pe *programExecutor) executeDropSectors(instr *rhpv3.InstrDropSectors) ([]
 		return nil, nil, fmt.Errorf("failed to read sector count: %w", err)
 	}
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.DropSectorsCost(count)); err != nil {
+	cost := pe.priceTable.DropSectorsCost(count)
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -167,7 +171,8 @@ func (pe *programExecutor) executeHasSector(instr *rhpv3.InstrHasSector) ([]byte
 		return nil, nil, fmt.Errorf("failed to read sector root: %w", err)
 	}
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.HasSectorCost()); err != nil {
+	cost := pe.priceTable.HasSectorCost()
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -197,7 +202,8 @@ func (pe *programExecutor) executeReadOffset(instr *rhpv3.InstrReadOffset) ([]by
 		return nil, nil, fmt.Errorf("failed to read length: %w", err)
 	}
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.ReadOffsetCost(length)); err != nil {
+	cost := pe.priceTable.ReadOffsetCost(length)
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -250,7 +256,8 @@ func (pe *programExecutor) executeReadSector(instr *rhpv3.InstrReadSector) ([]by
 	}
 
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.ReadSectorCost(length)); err != nil {
+	cost := pe.priceTable.ReadSectorCost(length)
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -283,7 +290,8 @@ func (pe *programExecutor) executeSwapSector(instr *rhpv3.InstrSwapSector) ([]by
 	}
 
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.SwapSectorCost()); err != nil {
+	cost := pe.priceTable.SwapSectorCost()
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -321,7 +329,8 @@ func (pe *programExecutor) executeUpdateSector(instr *rhpv3.InstrUpdateSector) (
 	}
 
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.UpdateSectorCost(instr.Length)); err != nil {
+	cost := pe.priceTable.UpdateSectorCost(instr.Length)
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -364,7 +373,8 @@ func (pe *programExecutor) executeStoreSector(instr *rhpv3.InstrStoreSector) ([]
 	}
 
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.StoreSectorCost(instr.Duration)); err != nil {
+	cost := pe.priceTable.StoreSectorCost(instr.Duration)
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -391,7 +401,8 @@ func (pe *programExecutor) executeStoreSector(instr *rhpv3.InstrStoreSector) ([]
 
 func (pe *programExecutor) executeRevision(instr *rhpv3.InstrRevision) ([]byte, error) {
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.RevisionCost()); err != nil {
+	cost := pe.priceTable.RevisionCost()
+	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -429,7 +440,14 @@ func (pe *programExecutor) executeReadRegistry(instr *rhpv3.InstrReadRegistry) (
 	}
 
 	// pay for execution
-	if err := pe.payForExecution(pe.priceTable.ReadRegistryCost()); err != nil {
+	cost := pe.priceTable.ReadRegistryCost()
+	usage := accounts.Usage{
+		RPCRevenue:     cost.Base,
+		RegistryRead:   cost.Storage,
+		IngressRevenue: cost.Ingress,
+		EgressRevenue:  cost.Egress,
+	}
+	if err := pe.payForExecution(cost, usage); err != nil {
 		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
@@ -483,6 +501,18 @@ func (pe *programExecutor) executeUpdateRegistry(instr *rhpv3.InstrUpdateRegistr
 	data, err := pe.programData.Bytes(instr.DataOffset, instr.DataLength)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read data: %w", err)
+	}
+
+	// pay for execution
+	cost := pe.priceTable.ReadRegistryCost()
+	usage := accounts.Usage{
+		RPCRevenue:     cost.Base,
+		RegistryWrite:  cost.Storage,
+		IngressRevenue: cost.Ingress,
+		EgressRevenue:  cost.Egress,
+	}
+	if err := pe.payForExecution(cost, usage); err != nil {
+		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
 	value := rhpv3.RegistryEntry{
@@ -602,8 +632,8 @@ func (pe *programExecutor) rollback() error {
 		pe.updater.Close()
 	}
 
-	// refund the storage spending
-	pe.budget.Refund(pe.cost.Storage)
+	// refund only the storage spending
+	pe.budget.Refund(accounts.Usage{StorageRevenue: pe.usage.StorageRevenue})
 	if err := pe.budget.Commit(); err != nil {
 		return fmt.Errorf("failed to commit budget: %w", err)
 	}
@@ -623,11 +653,6 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			pe.log.Error("failed to release sectors", zap.Error(err))
 		}
 	}()
-
-	// commit the renter's spending
-	if err := pe.budget.Commit(); err != nil {
-		return fmt.Errorf("failed to commit budget: %w", err)
-	}
 
 	if err := pe.storage.Sync(); err != nil {
 		s.WriteResponseErr(fmt.Errorf("failed to commit storage: %w", ErrHostInternalError))
@@ -658,7 +683,7 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			return err
 		}
 
-		burn, err := rhp.ValidateProgramRevision(existing, revision, pe.cost.Storage, pe.cost.Collateral)
+		_, err = rhp.ValidateProgramRevision(existing, revision, pe.cost.Storage, pe.cost.Collateral)
 		if err != nil {
 			err = fmt.Errorf("failed to validate program revision: %w", err)
 			s.WriteResponseErr(err)
@@ -683,18 +708,10 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			HostSignature:   pe.hostKey.SignHash(sigHash),
 			RenterSignature: req.Signature,
 		}
-		// adjust the contract's revenue to account for the storage and
-		// collateral. Bandwidth revenue will be credited separately to the
-		// account
+		// adjust the contract's usage to include the risked collateral. Storage
+		// and bandwidth revenue will be credited to the account
 		usage := contracts.Usage{
-			StorageRevenue:   pe.cost.Storage,
 			RiskedCollateral: pe.cost.Collateral,
-		}
-		// adjust the contract's storage revenue to account for the full
-		// transfer by the renter.
-		excess, underflow := burn.SubWithUnderflow(pe.cost.Storage.Add(pe.cost.Collateral))
-		if !underflow {
-			usage.StorageRevenue = usage.StorageRevenue.Add(excess)
 		}
 
 		if err := pe.updater.Commit(signedRevision, usage); err != nil {
@@ -710,6 +727,11 @@ func (pe *programExecutor) commit(s *rhpv3.Stream) error {
 			return fmt.Errorf("failed to write finalize response: %w", err)
 		}
 		pe.log.Debug("finalized contract", zap.String("contract", revision.ParentID.String()), zap.Duration("elapsed", time.Since(start)))
+	}
+
+	// commit the renter's spending
+	if err := pe.budget.Commit(); err != nil {
+		return fmt.Errorf("failed to commit budget: %w", err)
 	}
 
 	// commit the temporary sectors
@@ -858,5 +880,14 @@ func instrLabel(instr rhpv3.Instruction) string {
 		return "UpdateRegistry"
 	default:
 		panic(fmt.Sprintf("unknown instruction type %T", instr))
+	}
+}
+
+func costToAccountUsage(cost rhpv3.ResourceCost) accounts.Usage {
+	return accounts.Usage{
+		RPCRevenue:     cost.Base,
+		StorageRevenue: cost.Storage,
+		IngressRevenue: cost.Ingress,
+		EgressRevenue:  cost.Egress,
 	}
 }

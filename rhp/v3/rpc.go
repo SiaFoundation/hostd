@@ -12,6 +12,7 @@ import (
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/renterd/wallet"
@@ -73,7 +74,7 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) 
 	}
 	defer budget.Rollback()
 
-	if err := budget.Spend(pt.UpdatePriceTableCost); err != nil {
+	if err := budget.Spend(accounts.Usage{RPCRevenue: pt.UpdatePriceTableCost}); err != nil {
 		err = fmt.Errorf("failed to pay %v for price table: %w", pt.UpdatePriceTableCost, err)
 		s.WriteResponseErr(err)
 		return err
@@ -155,7 +156,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 	defer budget.Rollback()
 
 	// subtract the cost of the RPC
-	if err := budget.Spend(pt.AccountBalanceCost); err != nil {
+	if err := budget.Spend(accounts.Usage{RPCRevenue: pt.AccountBalanceCost}); err != nil {
 		err = fmt.Errorf("failed to pay %v for account balance: %w", pt.AccountBalanceCost, err)
 		s.WriteResponseErr(err)
 		return err
@@ -225,7 +226,7 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 	}
 	defer budget.Rollback()
 
-	if err := budget.Spend(pt.LatestRevisionCost); err != nil {
+	if err := budget.Spend(accounts.Usage{RPCRevenue: pt.LatestRevisionCost}); err != nil {
 		err = fmt.Errorf("failed to pay %v for latest revision: %w", pt.LatestRevisionCost, err)
 		s.WriteResponseErr(err)
 		return err
@@ -467,7 +468,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 
 	// pay for the execution
 	executeCost, _ := pt.BaseCost().Total()
-	if err := budget.Spend(executeCost); err != nil {
+	if err := budget.Spend(accounts.Usage{RPCRevenue: executeCost}); err != nil {
 		err = fmt.Errorf("failed to pay program init cost: %w", err)
 		s.WriteResponseErr(err)
 		return err
