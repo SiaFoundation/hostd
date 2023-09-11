@@ -819,6 +819,9 @@ func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 	} else if err := vol.Sync(); err != nil {
 		return fmt.Errorf("failed to sync volume %v: %w", loc.Volume, err)
 	}
+
+	// eject the sector from the cache
+	vm.cache.Remove(root)
 	return nil
 }
 
