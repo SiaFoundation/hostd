@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
@@ -40,6 +41,7 @@ func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract)
 	err = s.transaction(func(tx txn) error {
 		// get current balance
 		accountID, balance, err := accountBalance(tx, fund.Account)
+		exists := err == nil
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to query balance: %w", err)
 		}
@@ -49,6 +51,18 @@ func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract)
 		err = tx.QueryRow(query, sqlHash256(fund.Account), sqlCurrency(balance), sqlTime(fund.Expiration)).Scan(&accountID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
+		}
+
+		// update balance metric
+		if err := incrementCurrencyStat(tx, metricAccountBalance, fund.Amount, false, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment balance metric: %w", err)
+		}
+
+		// update the number of active accounts
+		if !exists {
+			if err := incrementNumericStat(tx, metricActiveAccounts, 1, time.Now()); err != nil {
+				return fmt.Errorf("failed to increment active accounts metric: %w", err)
+			}
 		}
 
 		// revise the contract and update the usage
@@ -98,6 +112,12 @@ func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) (bala
 		} else if err := updateContractUsage(tx, dbID, usage, s.log); err != nil {
 			return fmt.Errorf("failed to update contract usage: %w", err)
 		}
+
+		// update balance metric
+		if err := incrementCurrencyStat(tx, metricAccountBalance, amount, true, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment balance metric: %w", err)
+		}
+
 		return nil
 	})
 	return

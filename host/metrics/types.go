@@ -49,6 +49,12 @@ type (
 		RiskedCollateral types.Currency `json:"riskedCollateral"`
 	}
 
+	// Accounts is a collection of metrics related to ephemeral accounts.
+	Accounts struct {
+		Active  uint64         `json:"active"`
+		Balance types.Currency `json:"balance"`
+	}
+
 	// Pricing is a collection of metrics related to the host's pricing settings.
 	Pricing struct {
 		ContractPrice        types.Currency `json:"contractPrice"`
@@ -97,6 +103,7 @@ type (
 
 	// Metrics is a collection of metrics for the host.
 	Metrics struct {
+		Accounts  Accounts       `json:"accounts"`
 		Revenue   RevenueMetrics `json:"revenue"`
 		Pricing   Pricing        `json:"pricing"`
 		Contracts Contracts      `json:"contracts"`

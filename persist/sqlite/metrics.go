@@ -21,6 +21,10 @@ const (
 	metricLockedCollateral    = "lockedCollateral"
 	metricRiskedCollateral    = "riskedCollateral"
 
+	// accounts
+	metricActiveAccounts = "activeAccounts"
+	metricAccountBalance = "accountBalance"
+
 	// storage
 	metricTotalSectors    = "totalSectors"
 	metricPhysicalSectors = "physicalSectors"
@@ -353,6 +357,11 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Contracts.LockedCollateral = mustScanCurrency(buf)
 	case metricRiskedCollateral:
 		m.Contracts.RiskedCollateral = mustScanCurrency(buf)
+	// accounts
+	case metricActiveAccounts:
+		m.Accounts.Active = mustScanUint64(buf)
+	case metricAccountBalance:
+		m.Accounts.Balance = mustScanCurrency(buf)
 	// storage
 	case metricTotalSectors:
 		m.Storage.TotalSectors = mustScanUint64(buf)
