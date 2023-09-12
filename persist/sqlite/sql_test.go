@@ -16,15 +16,8 @@ func TestInit(t *testing.T) {
 	}
 	defer db.Close()
 
-	var version int64
-
-	err = db.transaction(func(tx txn) error {
-		version = getDBVersion(tx)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	} else if version == 0 {
+	version := getDBVersion(db.db)
+	if version == 0 {
 		t.Fatalf("expected non-zero version, got %v", version)
 	}
 }
