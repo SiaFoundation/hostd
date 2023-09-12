@@ -23,6 +23,10 @@ var (
 type (
 	// An AccountStore stores and updates account balances.
 	AccountStore interface {
+		// AccountFunding returns the remaining funding sources for an account.
+		AccountFunding(accountID rhpv3.Account) ([]FundingSource, error)
+		// Accounts returns a list of active ephemeral accounts
+		Accounts(limit, offset int) ([]Account, error)
 		// AccountBalance returns the balance of the account with the given ID.
 		AccountBalance(accountID rhpv3.Account) (types.Currency, error)
 		// CreditAccount adds the specified amount to the account with the given ID.
@@ -40,6 +44,20 @@ type (
 	accountState struct {
 		balance  types.Currency
 		openTxns int
+	}
+
+	// FundingSource tracks a funding source for an account.
+	FundingSource struct {
+		ContractID types.FileContractID `json:"contractID"`
+		AccountID  rhpv3.Account        `json:"accountID"`
+		Amount     types.Currency       `json:"amount"`
+	}
+
+	// An Account holds the balance and expiration of an ephemeral account.
+	Account struct {
+		ID         rhpv3.Account  `json:"ID"`
+		Balance    types.Currency `json:"balance"`
+		Expiration time.Time      `json:"expiration"`
 	}
 
 	// An AccountManager manages deposits and withdrawals for accounts. It is
@@ -68,6 +86,16 @@ func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, erro
 	am.mu.Lock()
 	defer am.mu.Unlock()
 	return am.getBalance(accountID)
+}
+
+// Accounts returns a list of active ephemeral accounts
+func (am *AccountManager) Accounts(limit, offset int) (acc []Account, err error) {
+	return am.store.Accounts(limit, offset)
+}
+
+// AccountFunding returns the remaining funding sources for an account.
+func (am *AccountManager) AccountFunding(account rhpv3.Account) (srcs []FundingSource, err error) {
+	return am.store.AccountFunding(account)
 }
 
 // Credit adds the specified amount to the account with the given ID. Credits

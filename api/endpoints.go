@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/host/contracts"
@@ -558,6 +559,27 @@ func (a *api) handlePUTSystemDir(c jape.Context) {
 
 func (a *api) handleGETTPoolFee(c jape.Context) {
 	c.Encode(a.tpool.RecommendedFee())
+}
+
+func (a *api) handleGETAccounts(c jape.Context) {
+	limit, offset := parseLimitParams(c, 100, 500)
+	accounts, err := a.accounts.Accounts(limit, offset)
+	if !a.checkServerError(c, "failed to get accounts", err) {
+		return
+	}
+	c.Encode(accounts)
+}
+
+func (a *api) handleGETAccountFunding(c jape.Context) {
+	var account rhp3.Account
+	if err := c.DecodeParam("account", &account); err != nil {
+		return
+	}
+	funding, err := a.accounts.AccountFunding(account)
+	if !a.checkServerError(c, "failed to get account funding", err) {
+		return
+	}
+	c.Encode(funding)
 }
 
 func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset int) {

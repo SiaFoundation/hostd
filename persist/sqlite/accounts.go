@@ -92,6 +92,48 @@ func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) (bala
 	return
 }
 
+// Accounts returns all accounts in the database paginated.
+func (s *Store) Accounts(limit, offset int) (acc []accounts.Account, err error) {
+	rows, err := s.query(`SELECT account_id, balance, expiration_timestamp FROM accounts LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var a accounts.Account
+		if err := rows.Scan((*sqlHash256)(&a.ID), (*sqlCurrency)(&a.Balance), (*sqlTime)(&a.Expiration)); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		acc = append(acc, a)
+	}
+	return
+}
+
+// AccountFunding returns all contracts that were used to fund the account.
+func (s *Store) AccountFunding(account rhp3.Account) (srcs []accounts.FundingSource, err error) {
+	const query = `SELECT a.account_id, c.contract_id, caf.amount
+FROM contract_account_funding caf
+INNER JOIN accounts a ON a.id=caf.account_id
+INNER JOIN contracts c ON c.id=caf.contract_id
+WHERE a.account_id=$1`
+
+	rows, err := s.query(query, sqlHash256(account))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var src accounts.FundingSource
+		if err := rows.Scan((*sqlHash256)(&src.AccountID), (*sqlHash256)(&src.ContractID), (*sqlCurrency)(&src.Amount)); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		srcs = append(srcs, src)
+	}
+	return
+}
+
 // PruneAccounts removes all accounts that have expired
 func (s *Store) PruneAccounts(height uint64) error {
 	_, err := s.exec(`DELETE FROM accounts WHERE expiration_height<$1`, height)
