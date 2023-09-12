@@ -205,21 +205,23 @@ func updateContractUsage(tx txn, accountID int64, usage accounts.Usage, log *zap
 		distributeFunds(&usage.RegistryWrite, &additionalUsage.RegistryWrite, &remainder)
 		distributeFunds(&usage.RPCRevenue, &additionalUsage.RPCRevenue, &remainder)
 
-		if remainder.IsZero() {
-			if err := deleteFunding(tx, f.ID); err != nil {
-				return fmt.Errorf("failed to delete funding: %w", err)
-			}
-		}
-
+		// add the additional usage to the contract
 		if err := incrementContractUsage(tx, f.ContractID, additionalUsage); err != nil {
 			return fmt.Errorf("failed to increment contract usage: %w", err)
-		} else if err := decrementAccountFunding(tx, f.ContractID, f.Amount.Sub(remainder)); err != nil {
-			return fmt.Errorf("failed to decrement account funding: %w", err)
+		}
+		// update the remaining value for the funding source
+		if err := setContractAccountFunding(tx, f.ID, remainder); err != nil {
+			return fmt.Errorf("failed to set account funding: %w", err)
 		}
 
 		contract, err := getContract(tx, f.ContractID)
 		if err != nil {
 			return fmt.Errorf("failed to get contract: %w", err)
+		}
+		// subtract the spending from the contract's account funding
+		unspentContractFunds := contract.Usage.AccountFunding.Sub(f.Amount.Sub(remainder))
+		if err := setContractRemainingFunds(tx, f.ContractID, unspentContractFunds); err != nil {
+			return fmt.Errorf("failed to decrement account funding: %w", err)
 		}
 
 		if contract.Status == contracts.ContractStatusActive || contract.Status == contracts.ContractStatusPending {
@@ -243,18 +245,16 @@ func updateContractUsage(tx txn, accountID int64, usage accounts.Usage, log *zap
 	return nil
 }
 
-func decrementAccountFunding(tx txn, contractID int64, amount types.Currency) error {
-	var value types.Currency
-	err := tx.QueryRow(`SELECT account_funding FROM contracts WHERE id=$1`, contractID).Scan((*sqlCurrency)(&value))
-	if err != nil {
-		return fmt.Errorf("failed to get current funding: %w", err)
-	}
-	value = value.Sub(amount)
-	err = tx.QueryRow(`UPDATE contracts SET account_funding=$1 WHERE id=$2 RETURNING id`, sqlCurrency(value), contractID).Scan(&contractID)
-	return err
+func setContractRemainingFunds(tx txn, contractID int64, amount types.Currency) error {
+	return tx.QueryRow(`UPDATE contracts SET account_funding=$1 WHERE id=$2 RETURNING id`, sqlCurrency(amount), contractID).Scan(&contractID)
 }
 
-func deleteFunding(tx txn, id int64) error {
-	_, err := tx.Exec(`DELETE FROM contract_account_funding WHERE id=$1`, id)
+func setContractAccountFunding(tx txn, fundingID int64, amount types.Currency) error {
+	if amount.IsZero() {
+		_, err := tx.Exec(`DELETE FROM contract_account_funding WHERE id=$1`, fundingID)
+		return err
+	}
+
+	_, err := tx.Exec(`UPDATE contract_account_funding SET amount=$1 WHERE id=$2`, sqlCurrency(amount), fundingID)
 	return err
 }
