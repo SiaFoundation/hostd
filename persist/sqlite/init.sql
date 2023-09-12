@@ -113,7 +113,7 @@ CREATE INDEX contracts_contract_status ON contracts(contract_status);
 CREATE INDEX contracts_formation_confirmed_resolution_height_window_start ON contracts(formation_confirmed, resolution_height, window_start);
 CREATE INDEX contracts_formation_confirmed_resolution_height_window_end ON contracts(formation_confirmed, resolution_height, window_end);
 CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
-CREATE INDEX contracts_formation_confirmed_negotation_height ON contracts(formation_confirmed, negotiation_height);
+CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(formation_confirmed, negotiation_height);
 
 CREATE TABLE contract_sector_roots (
 	id INTEGER PRIMARY KEY,
