@@ -11,7 +11,7 @@ import (
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/chain"
+	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"

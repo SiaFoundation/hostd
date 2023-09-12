@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
@@ -72,6 +74,12 @@ type (
 		CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan contracts.IntegrityResult, uint64, error)
 	}
 
+	// An AccountManager manages ephemeral accounts
+	AccountManager interface {
+		Accounts(limit, offset int) ([]accounts.Account, error)
+		AccountFunding(accountID rhp3.Account) ([]accounts.FundingSource, error)
+	}
+
 	// Alerts retrieves and dismisses notifications
 	Alerts interface {
 		Active() []alerts.Alert
@@ -109,6 +117,7 @@ type (
 		syncer    Syncer
 		chain     ChainManager
 		tpool     TPool
+		accounts  AccountManager
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
@@ -120,7 +129,7 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
 		name:    name,
@@ -135,6 +144,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		chain:     chain,
 		tpool:     tp,
 		contracts: cm,
+		accounts:  am,
 		volumes:   vm,
 		metrics:   m,
 		settings:  s,
@@ -167,6 +177,9 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"GET /contracts/:id/integrity":    api.handleGETContractCheck,
 		"PUT /contracts/:id/integrity":    api.handlePUTContractCheck,
 		"DELETE /contracts/:id/integrity": api.handleDeleteContractCheck,
+		// account endpoints
+		"GET /accounts":                  api.handleGETAccounts,
+		"GET /accounts/:account/funding": api.handleGETAccountFunding,
 		// sector endpoints
 		"DELETE /sectors/:root": api.handleDeleteSector,
 		// volume endpoints

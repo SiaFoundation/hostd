@@ -247,9 +247,9 @@ func queryArgs[T any](args []T) []any {
 }
 
 // getDBVersion returns the current version of the database.
-func getDBVersion(tx txn) (version int64) {
+func getDBVersion(db *sql.DB) (version int64) {
 	// error is ignored -- the database may not have been initialized yet.
-	tx.QueryRow(`SELECT db_version FROM global_settings;`).Scan(&version)
+	db.QueryRow(`SELECT db_version FROM global_settings;`).Scan(&version)
 	return
 }
 

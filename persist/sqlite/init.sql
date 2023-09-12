@@ -88,6 +88,8 @@ CREATE TABLE contracts (
 	ingress_revenue BLOB NOT NULL,
 	egress_revenue BLOB NOT NULL,
 	account_funding BLOB NOT NULL,
+	registry_read BLOB NOT NULL,
+	registry_write BLOB NOT NULL,
 	risked_collateral BLOB NOT NULL,
 	confirmed_revision_number BLOB, -- stored as BLOB to support uint64_max on clearing revisions
 	host_sig BLOB NOT NULL,
@@ -111,7 +113,7 @@ CREATE INDEX contracts_contract_status ON contracts(contract_status);
 CREATE INDEX contracts_formation_confirmed_resolution_height_window_start ON contracts(formation_confirmed, resolution_height, window_start);
 CREATE INDEX contracts_formation_confirmed_resolution_height_window_end ON contracts(formation_confirmed, resolution_height, window_end);
 CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
-CREATE INDEX contracts_formation_confirmed_negotation_height ON contracts(formation_confirmed, negotiation_height);
+CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(formation_confirmed, negotiation_height);
 
 CREATE TABLE contract_sector_roots (
 	id INTEGER PRIMARY KEY,
@@ -149,36 +151,12 @@ CREATE TABLE accounts (
 );
 CREATE INDEX accounts_expiration_timestamp ON accounts(expiration_timestamp);
 
-CREATE TABLE account_financial_records (
-	id INTEGER PRIMARY KEY,
-	account_id INTEGER NOT NULL REFERENCES accounts(id),
-	rpc_revenue BLOB NOT NULL,
-	storage_revenue BLOB NOT NULL,
-	ingress_revenue BLOB NOT NULL,
-	egress_revenue BLOB NOT NULL,
-	date_created INTEGER UNIQUE NOT NULL -- unique to limit growth
-);
-CREATE INDEX account_financial_records_account_id ON account_financial_records(account_id);
-CREATE INDEX account_financial_records_date_created ON account_financial_records(date_created);
-
-CREATE TABLE contract_financial_records (
-	id INTEGER PRIMARY KEY,
-	contract_id INTEGER NOT NULL REFERENCES contracts(id),
-	rpc_revenue BLOB NOT NULL,
-	storage_revenue BLOB NOT NULL,
-	ingress_revenue BLOB NOT NULL,
-	egress_revenue BLOB NOT NULL,
-	date_created INTEGER UNIQUE NOT NULL -- unique to limit growth
-);
-CREATE INDEX contract_financial_records_contract_id ON contract_financial_records(contract_id);
-CREATE INDEX contract_financial_records_date_created ON contract_financial_records(date_created);
-
-CREATE TABLE contract_account_funding ( -- tracks the funding of accounts from contracts, necessary to reduce account revenue during reorgs
+CREATE TABLE contract_account_funding (
 	id INTEGER PRIMARY KEY,
 	contract_id INTEGER NOT NULL REFERENCES contracts(id),
 	account_id INTEGER NOT NULL REFERENCES accounts(id),
 	amount BLOB NOT NULL,
-	date_created INTEGER NOT NULL
+	UNIQUE (contract_id, account_id)
 );
 
 CREATE TABLE host_stats (

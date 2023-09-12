@@ -8,50 +8,84 @@ import (
 )
 
 type (
+	// Usage tracks the usage of an account's funds.
+	Usage struct {
+		RPCRevenue     types.Currency `json:"rpc"`
+		StorageRevenue types.Currency `json:"storage"`
+		EgressRevenue  types.Currency `json:"egress"`
+		IngressRevenue types.Currency `json:"ingress"`
+		RegistryRead   types.Currency `json:"registryRead"`
+		RegistryWrite  types.Currency `json:"registryWrite"`
+	}
+
 	// A Budget transactionally manages an account's balance. It is not safe for
 	// concurrent use.
 	Budget struct {
 		accountID rhpv3.Account
 		max       types.Currency
-		spent     types.Currency
+		usage     Usage
 		committed bool
 		am        *AccountManager
 	}
 )
 
-// Remaining returns the amount remaining in the budget
-func (b *Budget) Remaining() types.Currency {
-	return b.max.Sub(b.spent)
+// Total returns the total of all revenue types.
+func (u Usage) Total() types.Currency {
+	return u.RPCRevenue.
+		Add(u.StorageRevenue).
+		Add(u.EgressRevenue).
+		Add(u.IngressRevenue).
+		Add(u.RegistryRead).
+		Add(u.RegistryWrite)
 }
 
-// Empty spends all of the remaining budget and returns the amount spent
-func (b *Budget) Empty() (spent types.Currency) {
-	if b.committed {
-		panic("budget already committed")
+// Add returns the sum of two Usages.
+func (a Usage) Add(b Usage) Usage {
+	return Usage{
+		RPCRevenue:     a.RPCRevenue.Add(b.RPCRevenue),
+		StorageRevenue: a.StorageRevenue.Add(b.StorageRevenue),
+		EgressRevenue:  a.EgressRevenue.Add(b.EgressRevenue),
+		IngressRevenue: a.IngressRevenue.Add(b.IngressRevenue),
+		RegistryRead:   a.RegistryRead.Add(b.RegistryRead),
+		RegistryWrite:  a.RegistryWrite.Add(b.RegistryWrite),
 	}
-	spent, b.spent = b.spent, b.max
-	return
+}
+
+// Sub returns the difference of two Usages.
+func (a Usage) Sub(b Usage) Usage {
+	return Usage{
+		RPCRevenue:     a.RPCRevenue.Sub(b.RPCRevenue),
+		StorageRevenue: a.StorageRevenue.Sub(b.StorageRevenue),
+		EgressRevenue:  a.EgressRevenue.Sub(b.EgressRevenue),
+		IngressRevenue: a.IngressRevenue.Sub(b.IngressRevenue),
+		RegistryRead:   a.RegistryRead.Sub(b.RegistryRead),
+		RegistryWrite:  a.RegistryWrite.Sub(b.RegistryWrite),
+	}
+}
+
+// Remaining returns the amount remaining in the budget
+func (b *Budget) Remaining() types.Currency {
+	return b.max.Sub(b.usage.Total())
 }
 
 // Refund returns amount back to the budget. Refund will panic if the budget has
 // already been committed or the refund is greater than the amount spent.
-func (b *Budget) Refund(amount types.Currency) {
+func (b *Budget) Refund(usage Usage) {
 	if b.committed {
 		panic("budget already committed")
-	} else if amount.Cmp(b.spent) > 0 {
-		panic("cannot refund more than spent")
 	}
-	b.spent = b.spent.Sub(amount)
+	b.usage = b.usage.Sub(usage)
 }
 
 // Spend subtracts amount from the remaining budget. An error is returned if
 // their are insufficient funds.
-func (b *Budget) Spend(amount types.Currency) error {
-	spent := b.spent.Add(amount)
+func (b *Budget) Spend(usage Usage) error {
+	newUsage := b.usage.Add(usage)
+	spent := newUsage.Total()
 	if b.max.Cmp(spent) < 0 {
-		return fmt.Errorf("unable to spend %v, %v remaining: %w", amount, b.max.Sub(b.spent), ErrInsufficientFunds)
+		return fmt.Errorf("unable to spend %v, %v remaining: %w", usage.Total(), b.max.Sub(spent), ErrInsufficientFunds)
 	}
-	b.spent = spent
+	b.usage = newUsage
 	return nil
 }
 
@@ -93,14 +127,16 @@ func (b *Budget) Commit() error {
 		return nil
 	}
 	// debit the account
-	_, err := b.am.store.DebitAccount(b.accountID, b.spent)
+	_, err := b.am.store.DebitAccount(b.accountID, b.usage)
 	if err != nil {
 		return fmt.Errorf("failed to debit account: %w", err)
 	}
 	// calculate the remainder and zero out the budget
-	rem := b.max.Sub(b.spent)
+	spent := b.usage.Total()
+	rem := b.max.Sub(spent)
 	// zero the budget
-	b.max, b.spent = types.ZeroCurrency, types.ZeroCurrency
+	b.max = types.ZeroCurrency
+	b.usage = Usage{}
 	b.committed = true
 
 	// update the balance in memory

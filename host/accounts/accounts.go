@@ -8,6 +8,7 @@ import (
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
 )
 
@@ -23,13 +24,17 @@ var (
 type (
 	// An AccountStore stores and updates account balances.
 	AccountStore interface {
+		// AccountFunding returns the remaining funding sources for an account.
+		AccountFunding(accountID rhpv3.Account) ([]FundingSource, error)
+		// Accounts returns a list of active ephemeral accounts
+		Accounts(limit, offset int) ([]Account, error)
 		// AccountBalance returns the balance of the account with the given ID.
 		AccountBalance(accountID rhpv3.Account) (types.Currency, error)
-		// CreditAccount adds the specified amount to the account with the given ID.
-		CreditAccount(accountID rhpv3.Account, amount types.Currency, expiration time.Time) (types.Currency, error)
+		// CreditAccountWithContract adds the specified amount to the account with the given ID.
+		CreditAccountWithContract(FundAccountWithContract) (types.Currency, error)
 		// DebitAccount subtracts the specified amount from the account with the given
 		// ID. Returns the remaining balance of the account.
-		DebitAccount(accountID rhpv3.Account, amount types.Currency) (types.Currency, error)
+		DebitAccount(accountID rhpv3.Account, usage Usage) (types.Currency, error)
 	}
 
 	// Settings returns the host's current settings.
@@ -40,6 +45,30 @@ type (
 	accountState struct {
 		balance  types.Currency
 		openTxns int
+	}
+
+	// FundingSource tracks a funding source for an account.
+	FundingSource struct {
+		ContractID types.FileContractID `json:"contractID"`
+		AccountID  rhpv3.Account        `json:"accountID"`
+		Amount     types.Currency       `json:"amount"`
+	}
+
+	// An Account holds the balance and expiration of an ephemeral account.
+	Account struct {
+		ID         rhpv3.Account  `json:"ID"`
+		Balance    types.Currency `json:"balance"`
+		Expiration time.Time      `json:"expiration"`
+	}
+
+	// FundAccountWithContract is a helper struct for funding an account with a
+	// contract.
+	FundAccountWithContract struct {
+		Account    rhpv3.Account
+		Cost       types.Currency
+		Amount     types.Currency
+		Revision   contracts.SignedRevision
+		Expiration time.Time
 	}
 
 	// An AccountManager manages deposits and withdrawals for accounts. It is
@@ -70,30 +99,44 @@ func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, erro
 	return am.getBalance(accountID)
 }
 
+// Accounts returns a list of active ephemeral accounts
+func (am *AccountManager) Accounts(limit, offset int) (acc []Account, err error) {
+	return am.store.Accounts(limit, offset)
+}
+
+// AccountFunding returns the remaining funding sources for an account.
+func (am *AccountManager) AccountFunding(account rhpv3.Account) (srcs []FundingSource, err error) {
+	return am.store.AccountFunding(account)
+}
+
 // Credit adds the specified amount to the account with the given ID. Credits
 // are synced to the underlying store immediately.
-func (am *AccountManager) Credit(accountID rhpv3.Account, amount types.Currency, expiration time.Time, refund bool) (types.Currency, error) {
+func (am *AccountManager) Credit(req FundAccountWithContract, refund bool) (types.Currency, error) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
-	balance, err := am.getBalance(accountID)
+	if req.Expiration.Before(time.Now()) {
+		return types.ZeroCurrency, fmt.Errorf("account expiration cannot be in the past")
+	}
+
+	balance, err := am.getBalance(req.Account)
 	if err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to get account balance: %w", err)
 	}
 
-	creditBalance := balance.Add(amount)
+	creditBalance := balance.Add(req.Amount)
 	if !refund && creditBalance.Cmp(am.settings.Settings().MaxAccountBalance) > 0 {
 		return types.ZeroCurrency, ErrBalanceExceeded
 	}
 
 	// credit the account
-	if _, err = am.store.CreditAccount(accountID, amount, expiration); err != nil {
+	if _, err = am.store.CreditAccountWithContract(req); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to credit account: %w", err)
 	}
 	// increment the balance in memory, if it exists
-	if state, ok := am.balances[accountID]; ok {
+	if state, ok := am.balances[req.Account]; ok {
 		state.balance = creditBalance
-		am.balances[accountID] = state
+		am.balances[req.Account] = state
 	}
 	return creditBalance, nil
 }

@@ -1,12 +1,118 @@
 package sqlite
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 )
+
+// migrateVersion15 adds the registry usage fields to the contracts table,
+// removes the usage fields from the accounts table, and refactors the
+// contract_account_funding table.
+func migrateVersion15(tx txn) error {
+	const query = `
+-- drop the tables that are being removed or refactored
+DROP TABLE account_financial_records;
+DROP TABLE contract_financial_records;
+DROP TABLE contract_account_funding;
+
+-- create the new tables
+CREATE TABLE contract_account_funding (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts(id),
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
+	amount BLOB NOT NULL,
+	UNIQUE (contract_id, account_id)
+);
+
+CREATE TABLE contracts_new (
+	id INTEGER PRIMARY KEY,
+	renter_id INTEGER NOT NULL REFERENCES contract_renters(id),
+	renewed_to INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
+	renewed_from INTEGER REFERENCES contracts(id) ON DELETE SET NULL,
+	contract_id BLOB UNIQUE NOT NULL,
+	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max on clearing revisions
+	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
+	locked_collateral BLOB NOT NULL,
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	account_funding BLOB NOT NULL,
+	registry_read BLOB NOT NULL,
+	registry_write BLOB NOT NULL,
+	risked_collateral BLOB NOT NULL,
+	confirmed_revision_number BLOB, -- stored as BLOB to support uint64_max on clearing revisions
+	host_sig BLOB NOT NULL,
+	renter_sig BLOB NOT NULL,
+	raw_revision BLOB NOT NULL, -- binary serialized contract revision
+	formation_confirmed BOOLEAN NOT NULL, -- true if the contract has been confirmed on the blockchain
+	resolution_height INTEGER, -- null if the storage proof/resolution has not been confirmed on the blockchain, otherwise the height of the block containing the storage proof/resolution
+	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
+	window_start INTEGER NOT NULL,
+	window_end INTEGER NOT NULL,
+	contract_status INTEGER NOT NULL
+);
+
+-- copy the data from the old contracts table to the new contracts table
+INSERT INTO contracts_new (id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write, risked_collateral, confirmed_revision_number, host_sig, renter_sig, raw_revision, formation_confirmed, resolution_height, negotiation_height, window_start, window_end, contract_status) 
+	SELECT id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, locked_collateral, $1, $1, $1, $1, $1, $1, $1, risked_collateral, confirmed_revision_number, host_sig, renter_sig, raw_revision, formation_confirmed, resolution_height, negotiation_height, window_start, window_end, contract_status FROM contracts;
+
+-- drop the old contracts table and rename the new contracts table
+DROP TABLE contracts;
+ALTER TABLE contracts_new RENAME TO contracts;
+
+-- recreate the indexes on the contracts table
+CREATE INDEX contracts_contract_id ON contracts(contract_id);
+CREATE INDEX contracts_renter_id ON contracts(renter_id);
+CREATE INDEX contracts_renewed_to ON contracts(renewed_to);
+CREATE INDEX contracts_renewed_from ON contracts(renewed_from);
+CREATE INDEX contracts_negotiation_height ON contracts(negotiation_height);
+CREATE INDEX contracts_window_start ON contracts(window_start);
+CREATE INDEX contracts_window_end ON contracts(window_end);
+CREATE INDEX contracts_contract_status ON contracts(contract_status);
+CREATE INDEX contracts_formation_confirmed_resolution_height_window_start ON contracts(formation_confirmed, resolution_height, window_start);
+CREATE INDEX contracts_formation_confirmed_resolution_height_window_end ON contracts(formation_confirmed, resolution_height, window_end);
+CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
+CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(formation_confirmed, negotiation_height);`
+
+	// one query parameter to reset the contract's tracked revenue to zero
+	if _, err := tx.Exec(query, sqlCurrency(types.ZeroCurrency)); err != nil {
+		return fmt.Errorf("failed to migrate contracts table: %w", err)
+	}
+
+	// set the initial account metrics
+	var accountCount int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&accountCount); err != nil {
+		return fmt.Errorf("failed to query account count: %w", err)
+	} else if err := setNumericStat(tx, metricActiveAccounts, uint64(accountCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set active accounts metric: %w", err)
+	}
+
+	var accountBalance types.Currency
+	rows, err := tx.Query(`SELECT balance FROM accounts`)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to query account balance: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var balance types.Currency
+		if err := rows.Scan((*sqlCurrency)(&balance)); err != nil {
+			return fmt.Errorf("failed to scan account balance: %w", err)
+		}
+		accountBalance = accountBalance.Add(balance)
+	}
+
+	if err := setCurrencyStat(tx, metricAccountBalance, accountBalance, time.Now()); err != nil {
+		return fmt.Errorf("failed to set account balance metric: %w", err)
+	}
+
+	return nil
+}
 
 // migrateVersion14 adds the locked_sectors table, recalculates the contract
 // sectors metric, and recalculates the physical sectors metric.
@@ -312,4 +418,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion12,
 	migrateVersion13,
 	migrateVersion14,
+	migrateVersion15,
 }

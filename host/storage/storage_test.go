@@ -10,9 +10,9 @@ import (
 
 	rhpv2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/chain"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
