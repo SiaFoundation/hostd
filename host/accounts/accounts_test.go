@@ -104,23 +104,49 @@ func TestCredit(t *testing.T) {
 
 	// attempt to credit the account
 	amount := types.NewCurrency64(50)
+	expectedFunding := amount
 	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), false); err != nil {
 		t.Fatal("expected successful credit", err)
 	} else if balance, err := db.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(amount) != 0 {
 		t.Fatalf("expected balance %v to be equal to amount %v", balance, amount)
+	} else if sources, err := am.AccountFunding(accountID); err != nil {
+		t.Fatal("expected successful funding", err)
+	} else if len(sources) != 1 {
+		t.Fatalf("expected 1 funding source, got %v", len(sources))
+	} else if sources[0].ContractID != rev.Revision.ParentID {
+		t.Fatalf("expected funding source to be %v, got %v", rev.Revision.ParentID, sources[0].ContractID)
+	} else if sources[0].Amount.Cmp(expectedFunding) != 0 {
+		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
 	// attempt to credit the account over the max balance
 	amount = types.NewCurrency64(100)
 	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), false); err != accounts.ErrBalanceExceeded {
 		t.Fatalf("expected ErrBalanceExceeded, got %v", err)
+	} else if sources, err := am.AccountFunding(accountID); err != nil {
+		t.Fatal("expected successful funding", err)
+	} else if len(sources) != 1 {
+		t.Fatalf("expected 1 funding source, got %v", len(sources))
+	} else if sources[0].ContractID != rev.Revision.ParentID {
+		t.Fatalf("expected funding source to be %v, got %v", rev.Revision.ParentID, sources[0].ContractID)
+	} else if sources[0].Amount.Cmp(expectedFunding) != 0 {
+		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
 	// refund the account over the max balance
+	expectedFunding = expectedFunding.Add(amount)
 	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), true); err != nil {
 		t.Fatal("expected successful credit", err)
+	} else if sources, err := am.AccountFunding(accountID); err != nil {
+		t.Fatal("expected successful funding", err)
+	} else if len(sources) != 1 {
+		t.Fatalf("expected 1 funding source, got %v", len(sources))
+	} else if sources[0].ContractID != rev.Revision.ParentID {
+		t.Fatalf("expected funding source to be %v, got %v", rev.Revision.ParentID, sources[0].ContractID)
+	} else if sources[0].Amount.Cmp(expectedFunding) != 0 {
+		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 }
 
@@ -195,9 +221,18 @@ func TestBudget(t *testing.T) {
 
 	am := accounts.NewManager(db, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
 	accountID := frand.Entropy256()
+	expectedFunding := amount
 	// credit the account
 	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), false); err != nil {
 		t.Fatal("expected successful credit", err)
+	} else if sources, err := am.AccountFunding(accountID); err != nil {
+		t.Fatal("expected successful funding", err)
+	} else if len(sources) != 1 {
+		t.Fatalf("expected 1 funding source, got %v", len(sources))
+	} else if sources[0].ContractID != rev.Revision.ParentID {
+		t.Fatalf("expected funding source to be %v, got %v", rev.Revision.ParentID, sources[0].ContractID)
+	} else if sources[0].Amount.Cmp(expectedFunding) != 0 {
+		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
 	expectedBalance := amount
@@ -241,8 +276,17 @@ func TestBudget(t *testing.T) {
 	defer b2.Rollback()
 
 	// commit the budget
+	expectedFunding = expectedFunding.Sub(spendAmount)
 	if err := budget.Commit(); err != nil {
 		t.Fatal(err)
+	} else if sources, err := am.AccountFunding(accountID); err != nil {
+		t.Fatal("expected successful funding", err)
+	} else if len(sources) != 1 {
+		t.Fatalf("expected 1 funding source, got %v", len(sources))
+	} else if sources[0].ContractID != rev.Revision.ParentID {
+		t.Fatalf("expected funding source to be %v, got %v", rev.Revision.ParentID, sources[0].ContractID)
+	} else if sources[0].Amount.Cmp(expectedFunding) != 0 {
+		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
 	expectedBalance = amount.Sub(spendAmount)
@@ -260,5 +304,22 @@ func TestBudget(t *testing.T) {
 		t.Fatal("expected successful balance", err)
 	} else if !balance.Equals(expectedBalance) {
 		t.Fatalf("expected balance to be equal to %d, got %d", expectedBalance, balance)
+	}
+
+	// spend the remainder of the account balance
+	budget, err = am.Budget(accountID, expectedBalance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer budget.Rollback()
+
+	if err := budget.Spend(accounts.Usage{RPCRevenue: expectedBalance}); err != nil {
+		t.Fatal(err)
+	} else if err := budget.Commit(); err != nil {
+		t.Fatal(err)
+	} else if sources, err := am.AccountFunding(accountID); err != nil {
+		t.Fatal("expected successful funding", err)
+	} else if len(sources) != 0 { // exhausted funding source should be deleted
+		t.Fatalf("expected no funding sources, got %v", len(sources))
 	}
 }
