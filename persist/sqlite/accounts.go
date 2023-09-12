@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
@@ -22,44 +21,56 @@ func (s *Store) AccountBalance(accountID rhp3.Account) (balance types.Currency, 
 	return
 }
 
-func incrementContractAccountFunding(tx txn, accountID int64, fundingSource types.FileContractID, amount types.Currency) error {
-	var contractDBID int64
+func incrementContractAccountFunding(tx txn, accountID, contractID int64, amount types.Currency) error {
 	var fundingValue types.Currency
-	err := tx.QueryRow(`SELECT id FROM contracts WHERE contract_id=$1`, sqlHash256(fundingSource)).Scan(&contractDBID)
-	if err != nil {
-		return fmt.Errorf("failed to get funding source: %w", err)
-	}
-	err = tx.QueryRow(`SELECT amount FROM contract_account_funding WHERE contract_id=$1 AND account_id=$2`, contractDBID, accountID).Scan((*sqlCurrency)(&fundingValue))
+	err := tx.QueryRow(`SELECT amount FROM contract_account_funding WHERE contract_id=$1 AND account_id=$2`, contractID, accountID).Scan((*sqlCurrency)(&fundingValue))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to get fund amount: %w", err)
 	}
 	fundingValue = fundingValue.Add(amount)
-	_, err = tx.Exec(`INSERT INTO contract_account_funding (contract_id, account_id, amount) VALUES ($1, $2, $3) ON CONFLICT (contract_id, account_id) DO UPDATE SET amount=EXCLUDED.amount`, contractDBID, accountID, sqlCurrency(fundingValue))
+	_, err = tx.Exec(`INSERT INTO contract_account_funding (contract_id, account_id, amount) VALUES ($1, $2, $3) ON CONFLICT (contract_id, account_id) DO UPDATE SET amount=EXCLUDED.amount`, contractID, accountID, sqlCurrency(fundingValue))
 	if err != nil {
 		return fmt.Errorf("failed to update funding source: %w", err)
 	}
 	return nil
 }
 
-// CreditAccount adds the specified amount to the account with the given ID.
-func (s *Store) CreditAccount(account rhp3.Account, amount types.Currency, fundingSource types.FileContractID, expiration time.Time) (balance types.Currency, err error) {
+// CreditAccountWithContract adds the specified amount to the account with the given ID.
+func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract) (balance types.Currency, err error) {
 	err = s.transaction(func(tx txn) error {
 		// get current balance
-		accountID, balance, err := accountBalance(tx, account)
+		accountID, balance, err := accountBalance(tx, fund.Account)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to query balance: %w", err)
 		}
 		// update balance
-		balance = balance.Add(amount)
+		balance = balance.Add(fund.Amount)
 		const query = `INSERT INTO accounts (account_id, balance, expiration_timestamp) VALUES ($1, $2, $3) ON CONFLICT (account_id) DO UPDATE SET balance=EXCLUDED.balance, expiration_timestamp=EXCLUDED.expiration_timestamp RETURNING id`
-		err = tx.QueryRow(query, sqlHash256(account), sqlCurrency(balance), sqlTime(expiration)).Scan(&accountID)
+		err = tx.QueryRow(query, sqlHash256(fund.Account), sqlCurrency(balance), sqlTime(fund.Expiration)).Scan(&accountID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
 		}
 
+		// revise the contract and update the usage
+		usage := contracts.Usage{
+			RPCRevenue:     fund.Cost,
+			AccountFunding: fund.Amount,
+		}
+		contractID, err := reviseContract(tx, fund.Revision)
+		if err != nil {
+			return fmt.Errorf("failed to revise contract: %w", err)
+		}
+
 		// update the funding source
-		if err := incrementContractAccountFunding(tx, accountID, fundingSource, amount); err != nil {
+		if err := incrementContractAccountFunding(tx, accountID, contractID, fund.Amount); err != nil {
 			return fmt.Errorf("failed to update funding source: %w", err)
+		}
+
+		// update the contract usage and potential revenue metrics
+		if err := incrementContractUsage(tx, contractID, usage); err != nil {
+			return fmt.Errorf("failed to update contract usage: %w", err)
+		} else if err := incrementPotentialRevenueMetrics(tx, usage, false); err != nil {
+			return fmt.Errorf("failed to increment contract potential revenue: %w", err)
 		}
 		return nil
 	})

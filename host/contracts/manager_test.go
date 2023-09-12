@@ -1053,6 +1053,41 @@ func TestSectorRoots(t *testing.T) {
 	}
 }
 
+func checkRevenueConsistency(s *sqlite.Store, potential, earned metrics.Revenue) error {
+	time.Sleep(time.Second) // commit time
+
+	m, err := s.Metrics(time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to get metrics: %v", err)
+	}
+
+	actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
+	expPotentialValue := reflect.ValueOf(potential)
+	for i := 0; i < actualPotentialValue.NumField(); i++ {
+		name := actualPotentialValue.Type().Field(i).Name
+		fa, fe := actualPotentialValue.Field(i), expPotentialValue.Field(i)
+		av, ev := fa.Interface().(types.Currency), fe.Interface().(types.Currency)
+
+		if !av.Equals(ev) {
+			return fmt.Errorf("potential revenue field %q does not match. expected %d, got %d", name, ev, av)
+		}
+	}
+
+	actualEarnedValue := reflect.ValueOf(m.Revenue.Earned)
+	expEarnedValue := reflect.ValueOf(earned)
+	for i := 0; i < actualEarnedValue.NumField(); i++ {
+		name := actualEarnedValue.Type().Field(i).Name
+		fa, fe := actualEarnedValue.Field(i), expEarnedValue.Field(i)
+		av, ev := fa.Interface().(types.Currency), fe.Interface().(types.Currency)
+
+		if !av.Equals(ev) {
+			return fmt.Errorf("earned revenue field %q does not match. expected %d, got %d", name, ev, av)
+		}
+	}
+
+	return nil
+}
+
 func TestRevenueMetrics(t *testing.T) {
 	t.Run("successful", func(t *testing.T) {
 		renter, host, err := test.NewTestingPair(t.TempDir(), zaptest.NewLogger(t))
@@ -1062,44 +1097,9 @@ func TestRevenueMetrics(t *testing.T) {
 		defer host.Close()
 		defer renter.Close()
 
-		checkConsistency := func(potential, earned metrics.Revenue) error {
-			time.Sleep(100 * time.Millisecond) // commit time
-
-			m, err := host.Store().Metrics(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
-			expPotentialValue := reflect.ValueOf(potential)
-			for i := 0; i < actualPotentialValue.NumField(); i++ {
-				name := actualPotentialValue.Type().Field(i).Name
-				fa, fb := actualPotentialValue.Field(i), expPotentialValue.Field(i)
-				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
-
-				if !a.Equals(b) {
-					return fmt.Errorf("potential revenue field %s does not match: %d != %d", name, a, b)
-				}
-			}
-
-			actualEarnedValue := reflect.ValueOf(m.Revenue.Earned)
-			expEarnedValue := reflect.ValueOf(earned)
-			for i := 0; i < actualEarnedValue.NumField(); i++ {
-				name := actualEarnedValue.Type().Field(i).Name
-				fa, fb := actualEarnedValue.Field(i), expEarnedValue.Field(i)
-				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
-
-				if !a.Equals(b) {
-					return fmt.Errorf("earned revenue field %s does not match: %d != %d", name, a, b)
-				}
-			}
-
-			return nil
-		}
-
 		var expectedPotential, expectedEarned metrics.Revenue
 		// check that the host has no revenue
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1114,7 +1114,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1140,7 +1140,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.UpdatePriceTableCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1150,7 +1150,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1160,7 +1160,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1181,7 +1181,7 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
 		time.Sleep(100 * time.Millisecond) // commit time
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1197,7 +1197,7 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
 
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1210,7 +1210,7 @@ func TestRevenueMetrics(t *testing.T) {
 		// check that the revenue metrics were updated
 		expectedEarned = expectedPotential
 		expectedPotential = metrics.Revenue{}
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1224,7 +1224,7 @@ func TestRevenueMetrics(t *testing.T) {
 
 		// check that the earned revenue metrics were updated since the contract
 		// was successful
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1241,7 +1241,7 @@ func TestRevenueMetrics(t *testing.T) {
 
 		// check that the earned revenue metrics were updated since the contract
 		// was successful
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -1254,44 +1254,9 @@ func TestRevenueMetrics(t *testing.T) {
 		defer host.Close()
 		defer renter.Close()
 
-		checkConsistency := func(potential, earned metrics.Revenue) error {
-			time.Sleep(100 * time.Millisecond) // commit time
-
-			m, err := host.Store().Metrics(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
-			expPotentialValue := reflect.ValueOf(potential)
-			for i := 0; i < actualPotentialValue.NumField(); i++ {
-				name := actualPotentialValue.Type().Field(i).Name
-				fa, fb := actualPotentialValue.Field(i), expPotentialValue.Field(i)
-				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
-
-				if !a.Equals(b) {
-					return fmt.Errorf("potential revenue field %s does not match: %d != %d", name, a, b)
-				}
-			}
-
-			actualEarnedValue := reflect.ValueOf(m.Revenue.Earned)
-			expEarnedValue := reflect.ValueOf(earned)
-			for i := 0; i < actualEarnedValue.NumField(); i++ {
-				name := actualEarnedValue.Type().Field(i).Name
-				fa, fb := actualEarnedValue.Field(i), expEarnedValue.Field(i)
-				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
-
-				if !a.Equals(b) {
-					return fmt.Errorf("earned revenue field %s does not match: %d != %d", name, a, b)
-				}
-			}
-
-			return nil
-		}
-
 		var expectedPotential, expectedEarned metrics.Revenue
 		// check that the host has no revenue
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1306,7 +1271,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1332,7 +1297,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.UpdatePriceTableCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1342,7 +1307,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1352,7 +1317,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1373,7 +1338,7 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
 		time.Sleep(100 * time.Millisecond) // commit time
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1389,7 +1354,7 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
 
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1407,7 +1372,7 @@ func TestRevenueMetrics(t *testing.T) {
 		// check that the revenue metrics were updated
 		expectedEarned = metrics.Revenue{} // failed contracts do not earn revenue
 		expectedPotential = metrics.Revenue{}
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1420,7 +1385,7 @@ func TestRevenueMetrics(t *testing.T) {
 
 		// check that the earned revenue metrics were not updated since the
 		// contract failed
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -1433,44 +1398,9 @@ func TestRevenueMetrics(t *testing.T) {
 		defer host.Close()
 		defer renter.Close()
 
-		checkConsistency := func(potential, earned metrics.Revenue) error {
-			time.Sleep(100 * time.Millisecond) // commit time
-
-			m, err := host.Store().Metrics(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
-			expPotentialValue := reflect.ValueOf(potential)
-			for i := 0; i < actualPotentialValue.NumField(); i++ {
-				name := actualPotentialValue.Type().Field(i).Name
-				fa, fb := actualPotentialValue.Field(i), expPotentialValue.Field(i)
-				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
-
-				if !a.Equals(b) {
-					return fmt.Errorf("potential revenue field %s does not match: %d != %d", name, a, b)
-				}
-			}
-
-			actualEarnedValue := reflect.ValueOf(m.Revenue.Earned)
-			expEarnedValue := reflect.ValueOf(earned)
-			for i := 0; i < actualEarnedValue.NumField(); i++ {
-				name := actualEarnedValue.Type().Field(i).Name
-				fa, fb := actualEarnedValue.Field(i), expEarnedValue.Field(i)
-				a, b := fa.Interface().(types.Currency), fb.Interface().(types.Currency)
-
-				if !a.Equals(b) {
-					return fmt.Errorf("earned revenue field %s does not match: %d != %d", name, a, b)
-				}
-			}
-
-			return nil
-		}
-
 		var expectedPotential, expectedEarned metrics.Revenue
 		// check that the host has no revenue
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1485,7 +1415,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1509,7 +1439,7 @@ func TestRevenueMetrics(t *testing.T) {
 
 		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1529,7 +1459,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.UpdatePriceTableCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1539,7 +1469,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1549,7 +1479,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(pt.FundAccountCost)
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1570,7 +1500,7 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
 		time.Sleep(100 * time.Millisecond) // commit time
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1586,7 +1516,7 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedPotential.Egress = expectedPotential.Egress.Add(usage.Egress)
 
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1610,7 +1540,7 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedEarned.Ingress = contract.Usage.IngressRevenue
 		expectedEarned.Egress = contract.Usage.EgressRevenue
 		// check that the revenue metrics were updated
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1625,7 +1555,7 @@ func TestRevenueMetrics(t *testing.T) {
 
 		// check that the earned revenue metrics were updated since the contract
 		// was successful
-		if err := checkConsistency(expectedPotential, expectedEarned); err != nil {
+		if err := checkRevenueConsistency(host.Store(), expectedPotential, expectedEarned); err != nil {
 			t.Fatal(err)
 		}
 

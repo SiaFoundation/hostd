@@ -65,35 +65,26 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
+	hostSig := sh.privateKey.SignHash(sigHash)
+	fundReq := accounts.FundAccountWithContract{
+		Account: req.RefundAccount,
+		Revision: contracts.SignedRevision{
+			Revision:        revision,
+			HostSignature:   hostSig,
+			RenterSignature: req.Signature,
+		},
+		Amount:     fundAmount,
+		Expiration: time.Now().Add(settings.AccountExpiry),
+	}
 	// credit the account with the deposit
-	if _, err := sh.accounts.Credit(req.RefundAccount, fundAmount, revision.ParentID, time.Now().Add(settings.AccountExpiry), true); err != nil {
+	_, err = sh.accounts.Credit(fundReq, true)
+	if err != nil {
 		if errors.Is(err, accounts.ErrBalanceExceeded) {
 			s.WriteResponseErr(accounts.ErrBalanceExceeded)
 		} else {
 			s.WriteResponseErr(ErrHostInternalError)
 		}
 		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to credit refund account: %w", err)
-	}
-
-	// update the host signature and the contract
-	hostSig := sh.privateKey.SignHash(sigHash)
-	signedRevision := contracts.SignedRevision{
-		Revision:        revision,
-		HostSignature:   hostSig,
-		RenterSignature: req.Signature,
-	}
-	updater, err := sh.contracts.ReviseContract(req.ContractID)
-	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to create contract revision updater: %w", err)
-	}
-	defer updater.Close()
-	revenue := contracts.Usage{
-		AccountFunding: fundAmount, // funds were transferred from the contract to the account
-	}
-	if err := updater.Commit(signedRevision, revenue); err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to update stored contract revision: %w", err)
 	}
 
 	// send the updated host signature to the renter
@@ -219,39 +210,28 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
-	// subtract the cost of the RPC from the total amount
-	fundAmount = totalAmount.Sub(pt.FundAccountCost)
 	// credit the account with the deposit
-	balance, err = sh.accounts.Credit(accountID, fundAmount, revision.ParentID, time.Now().Add(settings.AccountExpiry), false)
+	hostSig := sh.privateKey.SignHash(sigHash)
+	fundReq := accounts.FundAccountWithContract{
+		Account: accountID,
+		Revision: contracts.SignedRevision{
+			Revision:        revision,
+			HostSignature:   hostSig,
+			RenterSignature: req.Signature,
+		},
+		Cost:       pt.FundAccountCost,
+		Amount:     totalAmount.Sub(pt.FundAccountCost),
+		Expiration: time.Now().Add(settings.AccountExpiry),
+	}
+	// credit the account with the deposit
+	balance, err = sh.accounts.Credit(fundReq, false)
 	if err != nil {
 		if errors.Is(err, accounts.ErrBalanceExceeded) {
 			s.WriteResponseErr(accounts.ErrBalanceExceeded)
 		} else {
 			s.WriteResponseErr(ErrHostInternalError)
 		}
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to credit refund account: %w", err)
-	}
-
-	// update the host signature and the contract
-	hostSig := sh.privateKey.SignHash(sigHash)
-	signedRevision := contracts.SignedRevision{
-		Revision:        revision,
-		HostSignature:   hostSig,
-		RenterSignature: req.Signature,
-	}
-	updater, err := sh.contracts.ReviseContract(req.ContractID)
-	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to create contract revision updater: %w", err)
-	}
-	defer updater.Close()
-	revenue := contracts.Usage{
-		RPCRevenue:     pt.FundAccountCost,
-		AccountFunding: fundAmount,
-	}
-	if err := updater.Commit(signedRevision, revenue); err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to update stored contract revision: %w", err)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to credit account: %w", err)
 	}
 
 	// send the updated host signature to the renter
@@ -261,5 +241,5 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	if err != nil {
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to send host signature response: %w", err)
 	}
-	return fundAmount, balance, nil
+	return fundReq.Amount, balance, nil
 }

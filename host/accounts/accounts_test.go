@@ -105,7 +105,14 @@ func TestCredit(t *testing.T) {
 	// attempt to credit the account
 	amount := types.NewCurrency64(50)
 	expectedFunding := amount
-	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), false); err != nil {
+	req := accounts.FundAccountWithContract{
+		Account:    accountID,
+		Amount:     amount,
+		Cost:       types.NewCurrency64(1),
+		Revision:   rev,
+		Expiration: time.Now().Add(time.Minute),
+	}
+	if _, err := am.Credit(req, false); err != nil {
 		t.Fatal("expected successful credit", err)
 	} else if balance, err := db.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
@@ -121,9 +128,23 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
+	contract, err := com.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
+		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
+	}
+
 	// attempt to credit the account over the max balance
 	amount = types.NewCurrency64(100)
-	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), false); err != accounts.ErrBalanceExceeded {
+	req = accounts.FundAccountWithContract{
+		Account:    accountID,
+		Amount:     amount,
+		Cost:       types.NewCurrency64(1),
+		Revision:   rev,
+		Expiration: time.Now().Add(time.Minute),
+	}
+	if _, err := am.Credit(req, false); err != accounts.ErrBalanceExceeded {
 		t.Fatalf("expected ErrBalanceExceeded, got %v", err)
 	} else if sources, err := am.AccountFunding(accountID); err != nil {
 		t.Fatal("expected successful funding", err)
@@ -135,9 +156,16 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
+	contract, err = com.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
+		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
+	}
+
 	// refund the account over the max balance
 	expectedFunding = expectedFunding.Add(amount)
-	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), true); err != nil {
+	if _, err := am.Credit(req, true); err != nil {
 		t.Fatal("expected successful credit", err)
 	} else if sources, err := am.AccountFunding(accountID); err != nil {
 		t.Fatal("expected successful funding", err)
@@ -147,6 +175,13 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected funding source to be %v, got %v", rev.Revision.ParentID, sources[0].ContractID)
 	} else if sources[0].Amount.Cmp(expectedFunding) != 0 {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
+	}
+
+	contract, err = com.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
+		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
 	}
 }
 
@@ -215,15 +250,22 @@ func TestBudget(t *testing.T) {
 		},
 	}
 	amount := types.NewCurrency64(100)
-	if err := com.AddContract(rev, []types.Transaction{{}}, types.Siacoins(1), contracts.Usage{AccountFunding: amount}); err != nil {
+	if err := com.AddContract(rev, []types.Transaction{{}}, types.Siacoins(1), contracts.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 
 	am := accounts.NewManager(db, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
 	accountID := frand.Entropy256()
 	expectedFunding := amount
+	req := accounts.FundAccountWithContract{
+		Account:    accountID,
+		Amount:     amount,
+		Cost:       types.NewCurrency64(1),
+		Revision:   rev,
+		Expiration: time.Now().Add(time.Minute),
+	}
 	// credit the account
-	if _, err := am.Credit(accountID, amount, rev.Revision.ParentID, time.Now().Add(time.Minute), false); err != nil {
+	if _, err := am.Credit(req, false); err != nil {
 		t.Fatal("expected successful credit", err)
 	} else if sources, err := am.AccountFunding(accountID); err != nil {
 		t.Fatal("expected successful funding", err)
@@ -233,6 +275,13 @@ func TestBudget(t *testing.T) {
 		t.Fatalf("expected funding source to be %v, got %v", rev.Revision.ParentID, sources[0].ContractID)
 	} else if sources[0].Amount.Cmp(expectedFunding) != 0 {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
+	}
+
+	contract, err := com.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
+		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
 	}
 
 	expectedBalance := amount
@@ -289,6 +338,14 @@ func TestBudget(t *testing.T) {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
+	// check that the contract's usage has been updated
+	contract, err = com.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
+		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
+	}
+
 	expectedBalance = amount.Sub(spendAmount)
 	// check that the in-memory state has been updated
 	balance, err = am.Balance(accountID)
@@ -321,5 +378,13 @@ func TestBudget(t *testing.T) {
 		t.Fatal("expected successful funding", err)
 	} else if len(sources) != 0 { // exhausted funding source should be deleted
 		t.Fatalf("expected no funding sources, got %v", len(sources))
+	}
+
+	// check that the contract's usage has been updated
+	contract, err = com.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !contract.Usage.AccountFunding.IsZero() {
+		t.Fatalf("expected contract usage to be %v, got %v", types.ZeroCurrency, contract.Usage.AccountFunding)
 	}
 }
