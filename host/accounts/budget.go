@@ -29,6 +29,7 @@ type (
 	}
 )
 
+// Total returns the total of all revenue types.
 func (u Usage) Total() types.Currency {
 	return u.RPCRevenue.
 		Add(u.StorageRevenue).
@@ -38,6 +39,7 @@ func (u Usage) Total() types.Currency {
 		Add(u.RegistryWrite)
 }
 
+// Add returns the sum of two Usages.
 func (a Usage) Add(b Usage) Usage {
 	return Usage{
 		RPCRevenue:     a.RPCRevenue.Add(b.RPCRevenue),
@@ -49,6 +51,7 @@ func (a Usage) Add(b Usage) Usage {
 	}
 }
 
+// Sub returns the difference of two Usages.
 func (a Usage) Sub(b Usage) Usage {
 	return Usage{
 		RPCRevenue:     a.RPCRevenue.Sub(b.RPCRevenue),
