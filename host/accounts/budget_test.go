@@ -168,6 +168,14 @@ func TestBudget(t *testing.T) {
 
 	expectedBalance := amount
 
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Accounts.Balance.Equals(expectedBalance) {
+		t.Fatalf("expected account balance to be %v, got %v", expectedBalance, m.Accounts.Balance)
+	} else if m.Accounts.Active != 1 {
+		t.Fatalf("expected 1 active account, got %v", m.Accounts.Active)
+	}
+
 	// initialize a new budget for half the account balance
 	budgetAmount := amount.Div64(2)
 	budget, err := am.Budget(accountID, budgetAmount)
@@ -237,6 +245,14 @@ func TestBudget(t *testing.T) {
 		t.Fatalf("expected in-memory balance to be %d, got %d", expectedBalance, balance)
 	}
 
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Accounts.Balance.Equals(expectedBalance) {
+		t.Fatalf("expected account balance to be %v, got %v", expectedBalance, m.Accounts.Balance)
+	} else if m.Accounts.Active != 1 {
+		t.Fatalf("expected 1 active account, got %v", m.Accounts.Active)
+	}
+
 	// check that the account balance has been updated and only the spent
 	// amount has been deducted
 	if balance, err := db.AccountBalance(accountID); err != nil {
@@ -268,5 +284,13 @@ func TestBudget(t *testing.T) {
 		t.Fatal(err)
 	} else if !contract.Usage.AccountFunding.IsZero() {
 		t.Fatalf("expected contract usage to be %v, got %v", types.ZeroCurrency, contract.Usage.AccountFunding)
+	}
+
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Accounts.Balance.IsZero() {
+		t.Fatalf("expected account balance to be %v, got %v", types.ZeroCurrency, m.Accounts.Balance)
+	} else if m.Accounts.Active != 1 {
+		t.Fatalf("expected 1 active accounts, got %v", m.Accounts.Active)
 	}
 }

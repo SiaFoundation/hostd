@@ -135,6 +135,14 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
 	}
 
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Accounts.Balance.Equals(expectedFunding) {
+		t.Fatalf("expected account balance to be %v, got %v", expectedFunding, m.Accounts.Balance)
+	} else if m.Accounts.Active != 1 {
+		t.Fatalf("expected 1 active account, got %v", m.Accounts.Active)
+	}
+
 	// attempt to credit the account over the max balance
 	amount = types.NewCurrency64(100)
 	req = accounts.FundAccountWithContract{
@@ -163,6 +171,14 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
 	}
 
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Accounts.Balance.Equals(expectedFunding) {
+		t.Fatalf("expected account balance to be %v, got %v", expectedFunding, m.Accounts.Balance)
+	} else if m.Accounts.Active != 1 {
+		t.Fatalf("expected 1 active account, got %v", m.Accounts.Active)
+	}
+
 	// refund the account over the max balance
 	expectedFunding = expectedFunding.Add(amount)
 	if _, err := am.Credit(req, true); err != nil {
@@ -182,5 +198,13 @@ func TestCredit(t *testing.T) {
 		t.Fatal(err)
 	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
 		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
+	}
+
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Accounts.Balance.Equals(expectedFunding) {
+		t.Fatalf("expected account balance to be %v, got %v", expectedFunding, m.Accounts.Balance)
+	} else if m.Accounts.Active != 1 {
+		t.Fatalf("expected 1 active account, got %v", m.Accounts.Active)
 	}
 }
