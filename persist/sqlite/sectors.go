@@ -151,7 +151,9 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 func (s *Store) ExpireTempSectors(height uint64) error {
 	var totalExpired, totalRemoved int
 	defer func() {
-		s.log.Debug("expired temp sectors", zap.Uint64("height", height), zap.Int("expired", totalExpired), zap.Int("removed", totalRemoved))
+		if totalExpired > 0 || totalRemoved > 0 {
+			s.log.Debug("expired temp sectors", zap.Uint64("height", height), zap.Int("expired", totalExpired), zap.Int("removed", totalRemoved))
+		}
 	}()
 	// delete in batches to avoid holding a lock on the table for too long
 	for {

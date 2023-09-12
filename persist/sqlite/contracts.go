@@ -512,7 +512,9 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 		for contractID, removed := range contractExpired {
 			s.log.Debug("expired contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("expired", removed))
 		}
-		s.log.Debug("removed contract sectors", zap.Uint64("height", height), zap.Int("removed", totalRemoved))
+		if totalRemoved > 0 {
+			s.log.Debug("removed contract sectors", zap.Uint64("height", height), zap.Int("removed", totalRemoved))
+		}
 	}()
 	// delete in batches to avoid holding a lock on the database for too long
 	for i := 0; ; i++ {
