@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -79,8 +80,38 @@ CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_c
 CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(formation_confirmed, negotiation_height);`
 
 	// one query parameter to reset the contract's tracked revenue to zero
-	_, err := tx.Exec(query, sqlCurrency(types.ZeroCurrency))
-	return err
+	if _, err := tx.Exec(query, sqlCurrency(types.ZeroCurrency)); err != nil {
+		return fmt.Errorf("failed to migrate contracts table: %w", err)
+	}
+
+	// set the initial account metrics
+	var accountCount int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&accountCount); err != nil {
+		return fmt.Errorf("failed to query account count: %w", err)
+	} else if err := setNumericStat(tx, metricActiveAccounts, uint64(accountCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set active accounts metric: %w", err)
+	}
+
+	var accountBalance types.Currency
+	rows, err := tx.Query(`SELECT balance FROM accounts`)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to query account balance: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var balance types.Currency
+		if err := rows.Scan((*sqlCurrency)(&balance)); err != nil {
+			return fmt.Errorf("failed to scan account balance: %w", err)
+		}
+		accountBalance = accountBalance.Add(balance)
+	}
+
+	if err := setCurrencyStat(tx, metricAccountBalance, accountBalance, time.Now()); err != nil {
+		return fmt.Errorf("failed to set account balance metric: %w", err)
+	}
+
+	return nil
 }
 
 // migrateVersion14 adds the locked_sectors table, recalculates the contract
