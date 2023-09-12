@@ -10,6 +10,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
+	"go.uber.org/zap"
 )
 
 // AccountBalance returns the balance of the account with the given ID.
@@ -83,7 +84,7 @@ func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) (bala
 		err = tx.QueryRow(query, sqlCurrency(balance), dbID).Scan(&dbID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
-		} else if err := updateContractUsage(tx, dbID, usage); err != nil {
+		} else if err := updateContractUsage(tx, dbID, usage, s.log); err != nil {
 			return fmt.Errorf("failed to update contract usage: %w", err)
 		}
 		return nil
@@ -130,7 +131,7 @@ func contractFunding(tx txn, accountID int64) (fund []fundAmount, err error) {
 
 // updateContractUsage distributes account usage to the contracts that funded
 // the account.
-func updateContractUsage(tx txn, accountID int64, usage accounts.Usage) error {
+func updateContractUsage(tx txn, accountID int64, usage accounts.Usage, log *zap.Logger) error {
 	funding, err := contractFunding(tx, accountID)
 	if err != nil {
 		return fmt.Errorf("failed to get contract funding: %w", err)
@@ -193,7 +194,9 @@ func updateContractUsage(tx txn, accountID int64, usage accounts.Usage) error {
 	}
 
 	if !usage.Total().IsZero() {
-		panic("usage greater than funding")
+		// note: any accounts funded before the v0.2.0 upgrade will have
+		// unallocated usage.
+		log.Debug("account usage not fully distributed", zap.Int64("account", accountID), zap.String("remainder", usage.Total().ExactString()))
 	}
 	return nil
 }
