@@ -55,9 +55,9 @@ type (
 		Usage() (usedSectors uint64, totalSectors uint64, err error)
 		Volumes() ([]storage.VolumeMeta, error)
 		Volume(id int) (storage.VolumeMeta, error)
-		AddVolume(localPath string, maxSectors uint64, result chan<- error) (storage.Volume, error)
-		RemoveVolume(id int, force bool, result chan<- error) error
-		ResizeVolume(id int, maxSectors uint64, result chan<- error) error
+		AddVolume(ctx context.Context, localPath string, maxSectors uint64, result chan<- error) (storage.Volume, error)
+		RemoveVolume(ctx context.Context, id int, force bool, result chan<- error) error
+		ResizeVolume(ctx context.Context, id int, maxSectors uint64, result chan<- error) error
 		SetReadOnly(id int, readOnly bool) error
 		RemoveSector(root types.Hash256) error
 		ResizeCache(size uint32)
@@ -124,7 +124,8 @@ type (
 		metrics   Metrics
 		settings  Settings
 
-		checks integrityCheckJobs
+		volumeJobs volumeJobs
+		checks     integrityCheckJobs
 	}
 )
 
@@ -133,11 +134,6 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 	api := &api{
 		hostKey: hostKey,
 		name:    name,
-
-		checks: integrityCheckJobs{
-			contracts: cm,
-			checks:    make(map[types.FileContractID]IntegrityCheckResult),
-		},
 
 		alerts:    a,
 		syncer:    g,
@@ -150,6 +146,15 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		settings:  s,
 		wallet:    w,
 		log:       log,
+
+		checks: integrityCheckJobs{
+			contracts: cm,
+			checks:    make(map[types.FileContractID]IntegrityCheckResult),
+		},
+		volumeJobs: volumeJobs{
+			volumes: vm,
+			jobs:    make(map[int]context.CancelFunc),
+		},
 	}
 	return jape.Mux(map[string]jape.Handler{
 		// state endpoints
@@ -183,12 +188,13 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		// sector endpoints
 		"DELETE /sectors/:root": api.handleDeleteSector,
 		// volume endpoints
-		"GET /volumes":            api.handleGETVolumes,
-		"POST /volumes":           api.handlePOSTVolume,
-		"GET /volumes/:id":        api.handleGETVolume,
-		"PUT /volumes/:id":        api.handlePUTVolume,
-		"DELETE /volumes/:id":     api.handleDeleteVolume,
-		"PUT /volumes/:id/resize": api.handlePUTVolumeResize,
+		"GET /volumes":               api.handleGETVolumes,
+		"POST /volumes":              api.handlePOSTVolume,
+		"GET /volumes/:id":           api.handleGETVolume,
+		"PUT /volumes/:id":           api.handlePUTVolume,
+		"DELETE /volumes/:id":        api.handleDeleteVolume,
+		"DELETE /volumes/:id/cancel": api.handleDELETEVolumeCancelOp,
+		"PUT /volumes/:id/resize":    api.handlePUTVolumeResize,
 		// tpool endpoints
 		"GET /tpool/fee": api.handleGETTPoolFee,
 		// wallet endpoints

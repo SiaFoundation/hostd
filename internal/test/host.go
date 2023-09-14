@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -110,7 +111,7 @@ func (h *Host) RHPv3WSAddr() string {
 // AddVolume adds a new volume to the host
 func (h *Host) AddVolume(path string, size uint64) error {
 	result := make(chan error, 1)
-	if _, err := h.storage.AddVolume(path, size, result); err != nil {
+	if _, err := h.storage.AddVolume(context.Background(), path, size, result); err != nil {
 		return err
 	}
 	return <-result
@@ -179,7 +180,7 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 	result := make(chan error, 1)
-	if _, err := storage.AddVolume(filepath.Join(dir, "storage.dat"), 64, result); err != nil {
+	if _, err := storage.AddVolume(context.Background(), filepath.Join(dir, "storage.dat"), 64, result); err != nil {
 		return nil, fmt.Errorf("failed to add storage volume: %w", err)
 	} else if err := <-result; err != nil {
 		return nil, fmt.Errorf("failed to add storage volume: %w", err)
