@@ -390,8 +390,8 @@ func (vm *VolumeManager) setVolumeStatus(id int, status string) {
 	v.stats.Status = status
 }
 
-func (vm *VolumeManager) doResize(volumeID int, vol *volume, current, target uint64) error {
-	ctx, cancel, err := vm.tg.AddContext(context.Background())
+func (vm *VolumeManager) doResize(ctx context.Context, volumeID int, vol *volume, current, target uint64) error {
+	ctx, cancel, err := vm.tg.AddContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -408,8 +408,8 @@ func (vm *VolumeManager) doResize(volumeID int, vol *volume, current, target uin
 	return nil
 }
 
-func (vm *VolumeManager) migrateForRemoval(id int, localPath string, force bool, log *zap.Logger) (int, error) {
-	ctx, cancel, err := vm.tg.AddContext(context.Background())
+func (vm *VolumeManager) migrateForRemoval(ctx context.Context, id int, localPath string, force bool, log *zap.Logger) (int, error) {
+	ctx, cancel, err := vm.tg.AddContext(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -547,7 +547,7 @@ func (vm *VolumeManager) Volume(id int) (VolumeMeta, error) {
 }
 
 // AddVolume adds a new volume to the storage manager
-func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result chan<- error) (Volume, error) {
+func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSectors uint64, result chan<- error) (Volume, error) {
 	if maxSectors == 0 {
 		return Volume{}, errors.New("max sectors must be greater than 0")
 	}
@@ -599,7 +599,7 @@ func (vm *VolumeManager) AddVolume(localPath string, maxSectors uint64, result c
 			defer vm.vs.SetAvailable(volumeID, true)
 			defer vm.setVolumeStatus(volumeID, VolumeStatusReady)
 			defer release()
-			return vm.doResize(volumeID, vol, 0, maxSectors)
+			return vm.doResize(ctx, volumeID, vol, 0, maxSectors)
 		}()
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
@@ -650,7 +650,7 @@ func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
 }
 
 // RemoveVolume removes a volume from the manager.
-func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) error {
+func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int, force bool, result chan<- error) error {
 	log := vm.log.Named("remove").With(zap.Int("volumeID", id))
 	done, err := vm.tg.Add()
 	if err != nil {
@@ -682,7 +682,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) e
 			vm.setVolumeStatus(id, VolumeStatusRemoving)
 			defer vm.setVolumeStatus(id, VolumeStatusReady)
 			defer release()
-			return vm.migrateForRemoval(id, vol.LocalPath, force, log)
+			return vm.migrateForRemoval(ctx, id, vol.LocalPath, force, log)
 		}()
 
 		alert := alerts.Alert{
@@ -714,7 +714,7 @@ func (vm *VolumeManager) RemoveVolume(id int, force bool, result chan<- error) e
 }
 
 // ResizeVolume resizes a volume to the specified size.
-func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- error) error {
+func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int, maxSectors uint64, result chan<- error) error {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return err
@@ -757,7 +757,7 @@ func (vm *VolumeManager) ResizeVolume(id int, maxSectors uint64, result chan<- e
 				vm.setVolumeStatus(id, VolumeStatusReady)
 			}()
 			defer release()
-			return vm.doResize(id, vol, stat.TotalSectors, maxSectors)
+			return vm.doResize(ctx, id, vol, stat.TotalSectors, maxSectors)
 		}()
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
