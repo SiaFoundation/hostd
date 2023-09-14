@@ -177,7 +177,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer s.Close()
 
 		result := make(chan error, 1)
-		if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
+		if _, err := s.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
 			t.Fatal(err)
 		} else if err := <-result; err != nil {
 			t.Fatal(err)
@@ -395,7 +395,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer s.Close()
 
 		result := make(chan error, 1)
-		if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
+		if _, err := s.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
 			t.Fatal(err)
 		} else if err := <-result; err != nil {
 			t.Fatal(err)
@@ -582,7 +582,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer s.Close()
 
 		result := make(chan error, 1)
-		if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
+		if _, err := s.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
 			t.Fatal(err)
 		} else if err := <-result; err != nil {
 			t.Fatal(err)
@@ -743,7 +743,7 @@ func TestContractLifecycle(t *testing.T) {
 		defer s.Close()
 
 		result := make(chan error, 1)
-		if _, err := s.AddVolume(filepath.Join(dir, "data.dat"), 10, result); err != nil {
+		if _, err := s.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
 			t.Fatal(err)
 		} else if err := <-result; err != nil {
 			t.Fatal(err)
