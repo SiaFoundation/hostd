@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -15,16 +16,16 @@ type (
 		volumes VolumeManager
 
 		mu   sync.Mutex // protects jobs
-		jobs map[int]context.CancelCauseFunc
+		jobs map[int]context.CancelFunc
 	}
 )
 
 func (vj *volumeJobs) AddVolume(path string, maxSectors uint64) (storage.Volume, error) {
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	complete := make(chan error, 1)
 	volume, err := vj.volumes.AddVolume(ctx, path, maxSectors, complete)
 	if err != nil {
-		cancel(err)
+		cancel()
 		return storage.Volume{}, err
 	}
 
@@ -33,7 +34,7 @@ func (vj *volumeJobs) AddVolume(path string, maxSectors uint64) (storage.Volume,
 	vj.jobs[volume.ID] = cancel
 
 	go func() {
-		defer cancel(nil)
+		defer cancel()
 
 		select {
 		case <-ctx.Done():
@@ -54,16 +55,17 @@ func (vj *volumeJobs) RemoveVolume(id int, force bool) error {
 		return errors.New("volume is busy")
 	}
 
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	complete := make(chan error, 1)
 	err := vj.volumes.RemoveVolume(ctx, id, force, complete)
 	if err != nil {
-		cancel(err)
+		cancel()
 		return err
 	}
 
+	vj.jobs[id] = cancel
 	go func() {
-		defer cancel(nil)
+		defer cancel()
 
 		select {
 		case <-ctx.Done():
@@ -84,16 +86,17 @@ func (vj *volumeJobs) ResizeVolume(id int, newSize uint64) error {
 		return errors.New("volume is busy")
 	}
 
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	complete := make(chan error, 1)
 	err := vj.volumes.ResizeVolume(ctx, id, newSize, complete)
 	if err != nil {
-		cancel(err)
+		cancel()
 		return err
 	}
 
+	vj.jobs[id] = cancel
 	go func() {
-		defer cancel(nil)
+		defer cancel()
 
 		select {
 		case <-ctx.Done():
@@ -112,9 +115,9 @@ func (vj *volumeJobs) Cancel(id int) error {
 	defer vj.mu.Unlock()
 	cancel, exists := vj.jobs[id]
 	if !exists {
-		return errors.New("no job with that id")
+		return fmt.Errorf("no job for volume %d", id)
 	}
-	cancel(errors.New("user canceled"))
+	cancel()
 	delete(vj.jobs, id)
 	return nil
 }

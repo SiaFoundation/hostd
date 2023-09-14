@@ -153,7 +153,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		},
 		volumeJobs: volumeJobs{
 			volumes: vm,
-			jobs:    make(map[int]context.CancelCauseFunc),
+			jobs:    make(map[int]context.CancelFunc),
 		},
 	}
 	return jape.Mux(map[string]jape.Handler{
