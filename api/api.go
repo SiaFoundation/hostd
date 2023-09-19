@@ -109,7 +109,9 @@ type (
 
 	// A RHPSessionReporter reports on RHP session lifecycle events
 	RHPSessionReporter interface {
-		Subscribe(sub rhp.SessionSubscriber)
+		Subscribe(rhp.SessionSubscriber)
+		Unsubscribe(rhp.SessionSubscriber)
+
 		Active() []rhp.Session
 	}
 
@@ -205,7 +207,8 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"DELETE /volumes/:id/cancel": api.handleDELETEVolumeCancelOp,
 		"PUT /volumes/:id/resize":    api.handlePUTVolumeResize,
 		// session endpoints
-		"GET /sessions": api.handleGETSessions,
+		"GET /sessions":           api.handleGETSessions,
+		"GET /sessions/subscribe": api.handleGETSessionsSubscribe,
 		// tpool endpoints
 		"GET /tpool/fee": api.handleGETTPoolFee,
 		// wallet endpoints

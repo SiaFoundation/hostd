@@ -317,10 +317,6 @@ func (a *api) handlePUTVolume(c jape.Context) {
 	a.checkServerError(c, "failed to update volume", err)
 }
 
-func (a *api) handleGETSessions(c jape.Context) {
-	c.Encode(a.sessions.Active())
-}
-
 func (a *api) handleDeleteSector(c jape.Context) {
 	var root types.Hash256
 	if err := c.DecodeParam("root", &root); err != nil {
