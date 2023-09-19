@@ -2,7 +2,6 @@ package rhp
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -20,7 +19,6 @@ import (
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
-	"lukechampine.com/frand"
 )
 
 type (
@@ -109,9 +107,10 @@ type (
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 
-	// MetricReporter records metrics from the host
-	MetricReporter interface {
-		Report(any) error
+	// SessionReporter reports session metrics
+	SessionReporter interface {
+		StartSession(conn *rhp.Conn) (sessionID rhp.UID, end func())
+		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(error))
 	}
 
 	// A SessionHandler handles the host side of the renter-host protocol and
@@ -125,7 +124,7 @@ type (
 
 		accounts  AccountManager
 		contracts ContractManager
-		metrics   MetricReporter
+		sessions  SessionReporter
 		registry  RegistryManager
 		storage   StorageManager
 		log       *zap.Logger
@@ -172,7 +171,7 @@ var (
 )
 
 // handleHostStream handles streams routed to the "host" subscriber
-func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream, log *zap.Logger) {
+func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream, sessionID rhp.UID, log *zap.Logger) {
 	defer s.Close() // close the stream when the RPC has completed
 
 	done, err := sh.tg.Add() // add the RPC to the threadgroup
@@ -201,10 +200,14 @@ func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream, log *zap.Logger) {
 		return
 	}
 
-	log = log.Named(rpc.String())
 	rpcStart := time.Now()
 	s.SetDeadline(time.Now().Add(time.Minute)) // set the initial deadline, may be overwritten by the handler
-	if err = rpcFn(s, log); err != nil {
+
+	rpcID, end := sh.sessions.StartRPC(sessionID, rpc)
+	log = log.Named(rpc.String()).With(zap.Stringer("rpcID", rpcID))
+	err = rpcFn(s, log)
+	end(err)
+	if err != nil {
 		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(rpcStart)))
 		return
 	}
@@ -232,13 +235,22 @@ func (sh *SessionHandler) Serve() error {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 
-		sessionID := frand.Bytes(6)
-		log := sh.log.With(zap.String("sessionID", hex.EncodeToString(sessionID)), zap.String("peerAddress", conn.RemoteAddr().String()))
-
 		go func() {
 			defer conn.Close()
+
+			// wrap the conn with the bandwidth limiters
 			ingress, egress := sh.settings.BandwidthLimiters()
-			t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, sh.monitor, ingress, egress), sh.privateKey)
+			rhpConn := rhp.NewConn(conn, sh.monitor, ingress, egress)
+			defer rhpConn.Close()
+
+			// initiate the session
+			sessionID, end := sh.sessions.StartSession(rhpConn)
+			defer end()
+
+			log := sh.log.With(zap.Stringer("sessionID", sessionID), zap.String("peerAddress", conn.RemoteAddr().String()))
+
+			// upgrade the connection to RHP3
+			t, err := rhpv3.NewHostTransport(rhpConn, sh.privateKey)
 			if err != nil {
 				log.Debug("failed to upgrade conn", zap.Error(err))
 				return
@@ -254,9 +266,7 @@ func (sh *SessionHandler) Serve() error {
 					return
 				}
 
-				rpcID := frand.Bytes(6)
-				log := sh.log.With(zap.String("rpcID", hex.EncodeToString(rpcID)))
-				go sh.handleHostStream(stream, log)
+				go sh.handleHostStream(stream, sessionID, log)
 			}
 		}()
 	}
@@ -268,7 +278,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, sessions SessionReporter, log *zap.Logger) (*SessionHandler, error) {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
@@ -282,7 +292,7 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainMana
 
 		accounts:  accounts,
 		contracts: contracts,
-		metrics:   metrics,
+		sessions:  sessions,
 		registry:  registry,
 		settings:  settings,
 		storage:   storage,

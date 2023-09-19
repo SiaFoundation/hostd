@@ -2,20 +2,17 @@ package rhp
 
 import (
 	"context"
-	"encoding/hex"
 	"net/http"
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
-	"lukechampine.com/frand"
 	"nhooyr.io/websocket"
 )
 
 // handleWebSockets handles websocket connections to the host.
 func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Request) {
-	sessionID := frand.Bytes(8)
-	log := sh.log.Named("websockets").With(zap.String("peerAddr", r.RemoteAddr), zap.String("sessionID", hex.EncodeToString(sessionID)))
+	log := sh.log.Named("websockets").With(zap.String("peerAddr", r.RemoteAddr))
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	})
@@ -25,9 +22,23 @@ func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Reques
 	}
 	defer wsConn.Close(websocket.StatusNormalClosure, "")
 
+	// wrap the websocket connection
 	conn := websocket.NetConn(context.Background(), wsConn, websocket.MessageBinary)
+	defer conn.Close()
+
+	// wrap the connection with a rate limiter
 	ingress, egress := sh.settings.BandwidthLimiters()
-	t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, sh.monitor, ingress, egress), sh.privateKey)
+	rhpConn := rhp.NewConn(conn, sh.monitor, ingress, egress)
+	defer rhpConn.Close()
+
+	// initiate the session
+	sessionID, end := sh.sessions.StartSession(rhpConn)
+	defer end()
+
+	log = log.With(zap.String("sessionID", sessionID.String()))
+
+	// upgrade the connection
+	t, err := rhpv3.NewHostTransport(rhpConn, sh.privateKey)
 	if err != nil {
 		sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
 		return
@@ -41,9 +52,7 @@ func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		rpcID := frand.Bytes(6)
-		log := sh.log.With(zap.String("rpcID", hex.EncodeToString(rpcID)))
-		go sh.handleHostStream(stream, log)
+		go sh.handleHostStream(stream, sessionID, log)
 	}
 }
 
