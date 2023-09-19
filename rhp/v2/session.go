@@ -16,14 +16,11 @@ const minMessageSize = 4096
 
 // A session is an ongoing exchange of RPCs via the renter-host protocol.
 type session struct {
+	id   rhp.UID
 	conn *rhp.Conn
 	t    *rhpv2.Transport
 
 	contract contracts.SignedRevision
-
-	uid     UniqueID
-	spent   types.Currency
-	metrics MetricReporter
 }
 
 func (s *session) readRequest(req rhpv2.ProtocolObject, maxSize uint64, timeout time.Duration) error {
@@ -39,11 +36,6 @@ func (s *session) readResponse(req rhpv2.ProtocolObject, maxSize uint64, timeout
 func (s *session) writeResponse(resp rhpv2.ProtocolObject, timeout time.Duration) error {
 	s.conn.SetWriteDeadline(time.Now().Add(timeout))
 	return s.t.WriteResponse(resp)
-}
-
-// spend increments the session's spent amount
-func (s *session) Spend(n types.Currency) {
-	s.spent = s.spent.Add(n)
 }
 
 // ContractRevisable returns an error if a contract is not locked or can't be

@@ -216,15 +216,6 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 		return fmt.Errorf("failed to add contract to store: %w", err)
 	}
 
-	// add the contract fee to the amount spent by the renter
-	s.Spend(settings.ContractPrice)
-	// log the formation event
-	sh.metrics.Report(EventContractFormed{
-		SessionUID: s.uid,
-		ContractID: formationTxn.FileContractID(0),
-		Contract:   initialRevision,
-	})
-
 	// send the host signatures to the renter
 	hostSignaturesResp := &rhpv2.RPCFormContractSignatures{
 		ContractSignatures: formationTxn.Signatures[renterTxnSigs:],
@@ -517,8 +508,6 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 	if err := s.writeResponse(sectorRootsResp, 2*time.Minute); err != nil {
 		return fmt.Errorf("failed to write sector roots response: %w", err)
 	}
-
-	s.Spend(cost)
 	return nil
 }
 
@@ -795,8 +784,6 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 	}
 	// update the session contract
 	s.contract = signedRevision
-	// add the cost to the amount spent
-	s.Spend(cost)
 
 	// listen for RPCLoopReadStop
 	stopSignal := make(chan error, 1)

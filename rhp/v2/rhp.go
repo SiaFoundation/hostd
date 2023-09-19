@@ -87,9 +87,10 @@ type (
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 
-	// MetricReporter records metrics from the host
-	MetricReporter interface {
-		Report(any) error
+	// SessionReporter reports session metrics
+	SessionReporter interface {
+		StartSession(conn *rhp.Conn, proto string, version int) (sessionID rhp.UID, end func())
+		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(error))
 	}
 
 	// A SessionHandler handles the host side of the renter-host protocol and
@@ -107,14 +108,14 @@ type (
 		wallet Wallet
 
 		contracts ContractManager
-		metrics   MetricReporter
+		sessions  SessionReporter
 		settings  SettingsReporter
 		storage   StorageManager
 		log       *zap.Logger
 	}
 )
 
-func (sh *SessionHandler) rpcLoop(sess *session) error {
+func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 	done, err := sh.tg.Add()
 	if err != nil {
 		return err
@@ -143,11 +144,11 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 		return err
 	}
 	start := time.Now()
-	recordEnd := sh.recordRPC(id, sess)
-	log := sh.log.Named(id.String()).With(zap.String("peerAddr", sess.conn.RemoteAddr().String()))
+	rpcID, end := sh.sessions.StartRPC(sess.id, id)
+	log = log.Named(id.String()).With(zap.Stringer("rpcID", rpcID))
 	log.Debug("RPC start")
 	err = rpcFn(sess, log)
-	recordEnd(err)
+	end(err)
 	if err != nil {
 		log.Warn("RPC error", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
 		return fmt.Errorf("RPC %q error: %w", id, err)
@@ -160,30 +161,33 @@ func (sh *SessionHandler) rpcLoop(sess *session) error {
 func (sh *SessionHandler) upgrade(conn net.Conn) error {
 	// wrap the conn with the bandwidth limiters
 	ingressLimiter, egressLimiter := sh.settings.BandwidthLimiters()
-	conn = rhp.NewConn(conn, sh.monitor, ingressLimiter, egressLimiter)
+	rhpConn := rhp.NewConn(conn, sh.monitor, ingressLimiter, egressLimiter)
 
-	t, err := rhpv2.NewHostTransport(conn, sh.privateKey)
+	t, err := rhpv2.NewHostTransport(rhpConn, sh.privateKey)
 	if err != nil {
 		return err
 	}
 
+	sessionID, end := sh.sessions.StartSession(rhpConn, rhp.SessionProtocolTCP, 2)
+	defer end()
+
 	sess := &session{
-		conn:    conn.(*rhp.Conn),
-		t:       t,
-		metrics: sh.metrics,
+		id:   sessionID,
+		conn: rhpConn,
+		t:    t,
 	}
 	defer t.Close()
 
-	recordEnd := sh.recordSessionStart(sess)
-	defer recordEnd()
 	defer func() {
 		if sess.contract.Revision.ParentID != (types.FileContractID{}) {
 			sh.contracts.Unlock(sess.contract.Revision.ParentID)
 		}
 	}()
 
+	log := sh.log.With(zap.Stringer("sessionID", sessionID), zap.Stringer("peerAddr", conn.RemoteAddr()))
+
 	for {
-		if err := sh.rpcLoop(sess); err != nil {
+		if err := sh.rpcLoop(sess, log); err != nil {
 			return err
 		}
 	}
@@ -279,7 +283,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, monitor rhp.DataMonitor, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, monitor rhp.DataMonitor, sessions SessionReporter, log *zap.Logger) (*SessionHandler, error) {
 	_, rhp3Port, err := net.SplitHostPort(rhp3Addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse rhp3 addr: %w", err)
@@ -297,7 +301,7 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string
 		wallet:   wallet,
 
 		contracts: contracts,
-		metrics:   metrics,
+		sessions:  sessions,
 		settings:  settings,
 		storage:   storage,
 		log:       log,
