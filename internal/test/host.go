@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/rhp"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
@@ -220,7 +221,7 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 	}
 	go rhpv2.Serve()
 
-	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, stubMetricReporter{}, log.Named("rhpv3"))
+	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, rhp.NewSessionReporter(), log.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}
