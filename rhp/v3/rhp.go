@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/threadgroup"
@@ -111,11 +110,6 @@ type (
 	// MetricReporter records metrics from the host
 	MetricReporter interface {
 		Report(any) error
-	}
-
-	// A FinancialReporter records financial transactions on the host.
-	FinancialReporter interface {
-		Add(financials.Record) error
 	}
 
 	// A SessionHandler handles the host side of the renter-host protocol and
