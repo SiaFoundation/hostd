@@ -17,7 +17,7 @@ func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Reques
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {
-		log.Error("failed to accept websocket connection", zap.Error(err))
+		log.Warn("failed to accept websocket connection", zap.Error(err))
 		return
 	}
 	defer wsConn.Close(websocket.StatusNormalClosure, "")
