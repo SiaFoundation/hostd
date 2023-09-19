@@ -109,7 +109,7 @@ type (
 
 	// SessionReporter reports session metrics
 	SessionReporter interface {
-		StartSession(conn *rhp.Conn) (sessionID rhp.UID, end func())
+		StartSession(conn *rhp.Conn, proto string, version int) (sessionID rhp.UID, end func())
 		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(error))
 	}
 
@@ -244,7 +244,7 @@ func (sh *SessionHandler) Serve() error {
 			defer rhpConn.Close()
 
 			// initiate the session
-			sessionID, end := sh.sessions.StartSession(rhpConn)
+			sessionID, end := sh.sessions.StartSession(rhpConn, rhp.SessionProtocolTCP, 3)
 			defer end()
 
 			log := sh.log.With(zap.Stringer("sessionID", sessionID), zap.String("peerAddress", conn.RemoteAddr().String()))

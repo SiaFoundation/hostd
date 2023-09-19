@@ -32,7 +32,7 @@ func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Reques
 	defer rhpConn.Close()
 
 	// initiate the session
-	sessionID, end := sh.sessions.StartSession(rhpConn)
+	sessionID, end := sh.sessions.StartSession(rhpConn, rhp.SessionProtocolWS, 3)
 	defer end()
 
 	log = log.With(zap.String("sessionID", sessionID.String()))
