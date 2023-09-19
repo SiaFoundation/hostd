@@ -41,7 +41,7 @@ jobs:
         name: generate tags
         id: meta
         with:
-          images: ghcr.io/SiaFoundation/hostd
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
             type=sha,prefix=

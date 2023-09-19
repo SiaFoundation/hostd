@@ -41,7 +41,7 @@ jobs:
         name: generate tags
         id: meta
         with:
-          images: ghcr.io/SiaFoundation/hostd
+          images: ghcr.io/${{ github.repository }}
           flavor: |
             suffix=-testnet,onlatest=true
           tags: |
