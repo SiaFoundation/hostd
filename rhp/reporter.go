@@ -10,10 +10,13 @@ import (
 )
 
 const (
-	EventTypeSessionStart = "sessionStart"
-	EventTypeSessionEnd   = "sessionEnd"
-	EventTypeRPCStart     = "rpcStart"
-	EventTypeRPCEnd       = "rpcEnd"
+	SessionEventTypeStart    = "sessionStart"
+	SessionEventTypeEnd      = "sessionEnd"
+	SessionEventTypeRPCStart = "rpcStart"
+	SessionEventTypeRPCEnd   = "rpcEnd"
+
+	SessionProtocolTCP = "tcp"
+	SessionProtocolWS  = "websocket"
 )
 
 type (
@@ -23,6 +26,8 @@ type (
 		conn *Conn
 
 		ID             UID    `json:"id"`
+		Protocol       string `json:"protocol"`
+		RHPVersion     int    `json:"rhpVersion"`
 		PeerAddress    string `json:"peerAddress"`
 		Ingress        uint64 `json:"ingress"`
 		Egress         uint64 `json:"egress"`
@@ -90,7 +95,7 @@ func (sr *SessionReporter) Subscribe(sub SessionSubscriber) {
 
 // StartSession starts a new session and returns a function that should be
 // called when the session ends.
-func (sr *SessionReporter) StartSession(conn *Conn) (sessionID UID, end func()) {
+func (sr *SessionReporter) StartSession(conn *Conn, proto string, version int) (sessionID UID, end func()) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
@@ -99,15 +104,17 @@ func (sr *SessionReporter) StartSession(conn *Conn) (sessionID UID, end func()) 
 		conn: conn,
 
 		ID:          sessionID,
+		RHPVersion:  version,
+		Protocol:    proto,
 		PeerAddress: conn.RemoteAddr().String(),
 		Timestamp:   time.Now(),
 	}
-	sr.updateSubscribers(sessionID, EventTypeSessionStart, nil)
+	sr.updateSubscribers(sessionID, SessionEventTypeStart, nil)
 	return sessionID, func() {
 		sr.mu.Lock()
 		defer sr.mu.Unlock()
 
-		sr.updateSubscribers(sessionID, EventTypeSessionEnd, nil)
+		sr.updateSubscribers(sessionID, SessionEventTypeEnd, nil)
 		delete(sr.sessions, sessionID)
 	}
 }
@@ -130,7 +137,7 @@ func (sr *SessionReporter) StartRPC(sessionID UID, rpc types.Specifier) (rpcID U
 		RPC:       rpc,
 		Timestamp: time.Now(),
 	}
-	sr.updateSubscribers(sessionID, EventTypeRPCStart, event)
+	sr.updateSubscribers(sessionID, SessionEventTypeRPCStart, event)
 	return rpcID, func(err error) {
 		sr.mu.Lock()
 		defer sr.mu.Unlock()
@@ -151,7 +158,7 @@ func (sr *SessionReporter) StartRPC(sessionID UID, rpc types.Specifier) (rpcID U
 		}
 		sr.sessions[sessionID] = sess
 		// update subscribers
-		sr.updateSubscribers(sessionID, EventTypeRPCEnd, event)
+		sr.updateSubscribers(sessionID, SessionEventTypeRPCEnd, event)
 	}
 }
 
