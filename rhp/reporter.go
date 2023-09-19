@@ -65,7 +65,7 @@ type (
 	SessionReporter struct {
 		mu          sync.Mutex
 		sessions    map[UID]Session
-		subscribers []SessionSubscriber
+		subscribers map[SessionSubscriber]struct{}
 	}
 
 	// A SessionEvent is an event that occurs during a session.
@@ -90,7 +90,7 @@ func (sr *SessionReporter) updateSubscribers(sessionID UID, eventType string, rp
 	sess.Ingress, sess.Egress = sess.conn.Usage()
 	sr.sessions[sessionID] = sess
 
-	for _, sub := range sr.subscribers {
+	for sub := range sr.subscribers {
 		sub.ReceiveSessionEvent(SessionEvent{
 			Type:    eventType,
 			Session: sess,
@@ -104,7 +104,15 @@ func (sr *SessionReporter) Subscribe(sub SessionSubscriber) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
-	sr.subscribers = append(sr.subscribers, sub)
+	sr.subscribers[sub] = struct{}{}
+}
+
+// Unsubscribe unsubscribes from session events.
+func (sr *SessionReporter) Unsubscribe(sub SessionSubscriber) {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+
+	delete(sr.subscribers, sub)
 }
 
 // StartSession starts a new session and returns a function that should be
