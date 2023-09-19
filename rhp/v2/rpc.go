@@ -36,33 +36,33 @@ var (
 	ErrNotAcceptingContracts = errors.New("host is not accepting contracts")
 )
 
-func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) (contracts.Usage, error) {
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get host settings: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 	js, err := json.Marshal(settings)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to marshal settings: %v", err)
+		return contracts.Usage{}, fmt.Errorf("failed to marshal settings: %v", err)
 	}
-	return s.writeResponse(&rhpv2.RPCSettingsResponse{
+	return contracts.Usage{}, s.writeResponse(&rhpv2.RPCSettingsResponse{
 		Settings: js,
 	}, 30*time.Second)
 }
 
-func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) (contracts.Usage, error) {
 	var req rhpv2.RPCLockRequest
 	if err := s.readRequest(&req, minMessageSize, 30*time.Second); err != nil {
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// Check if a contract is already locked.
 	if s.contract.Revision.ParentID != (types.FileContractID{}) {
 		err := ErrContractAlreadyLocked
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -72,7 +72,7 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 	if err != nil {
 		err := fmt.Errorf("failed to lock contract: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// verify the renter's challenge signature
@@ -81,7 +81,7 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 		sh.contracts.Unlock(contract.Revision.ParentID)
 		err := fmt.Errorf("challenge failed: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// set the contract
@@ -95,32 +95,32 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) error {
 	// avoid holding lock during network round trip
 	if err := s.writeResponse(lockResp, 30*time.Second); err != nil {
 		sh.contracts.Unlock(contract.Revision.ParentID)
-		return fmt.Errorf("failed to write lock response: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to write lock response: %w", err)
 	}
-	return nil
+	return contracts.Usage{}, nil
 }
 
 // rpcUnlock unlocks the contract associated with the session.
-func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) (contracts.Usage, error) {
 	// check if a contract is locked
 	if s.contract.Revision.ParentID == (types.FileContractID{}) {
-		return ErrNoContractLocked
+		return contracts.Usage{}, ErrNoContractLocked
 	}
 	sh.contracts.Unlock(s.contract.Revision.ParentID)
 	s.contract = contracts.SignedRevision{}
-	return nil
+	return contracts.Usage{}, nil
 }
 
 // rpcFormContract is an RPC that forms a contract between a renter and the
 // host.
-func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contracts.Usage, error) {
 	if !sh.settings.Settings().AcceptingContracts {
 		s.t.WriteResponseErr(ErrNotAcceptingContracts)
-		return ErrNotAcceptingContracts
+		return contracts.Usage{}, ErrNotAcceptingContracts
 	}
 	var req rhpv2.RPCFormContractRequest
 	if err := s.readRequest(&req, 10*minMessageSize, time.Minute); err != nil {
-		return err
+		return contracts.Usage{}, err
 	}
 	formationTxnSet := req.Transactions
 	// if the transaction set does not contain any transaction or if the
@@ -128,11 +128,11 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 	if len(formationTxnSet) == 0 || len(formationTxnSet[len(formationTxnSet)-1].FileContracts) != 1 {
 		err := ErrTxnMissingContract
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	} else if req.RenterKey.Algorithm != types.SpecifierEd25519 {
 		err := errors.New("unsupported renter key algorithm")
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	renterPub := *(*types.PublicKey)(req.RenterKey.Key)
 	// get the host's public key, current block height, and settings
@@ -140,7 +140,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get host settings: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 	currentHeight := sh.cm.TipState().Index.Height
 	// get the contract from the transaction set
@@ -152,7 +152,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 	if err != nil {
 		err := fmt.Errorf("contract rejected: validation failed: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// calculate the host's collateral and add the inputs to the transaction
@@ -160,7 +160,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 	toSign, discard, err := sh.wallet.FundTransaction(formationTxn, hostCollateral)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to fund formation transaction: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to fund formation transaction: %w", err)
 	}
 	defer discard()
 
@@ -175,17 +175,17 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 		Outputs: formationTxn.SiacoinOutputs[renterOutputs:],
 	}
 	if err := s.writeResponse(hostAdditionsResp, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to write host additions: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	// read and validate the renter's signatures
 	var renterSignaturesResp rhpv2.RPCFormContractSignatures
 	if err := s.readResponse(&renterSignaturesResp, 10*minMessageSize, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to read renter signatures: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	} else if err := validateRenterRevisionSignature(renterSignaturesResp.RevisionSignature, initialRevision.ParentID, sigHash, renterPub); err != nil {
 		err := fmt.Errorf("contract rejected: validation failed: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	// add the renter's signatures to the transaction and contract revision
 	renterTxnSigs := len(renterSignaturesResp.ContractSignatures)
@@ -194,13 +194,13 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 	// sign and broadcast the formation transaction
 	if err = sh.wallet.SignTransaction(sh.cm.TipState(), formationTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to sign formation transaction: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to sign formation transaction: %w", err)
 	} else if err = sh.tpool.AcceptTransactionSet(formationTxnSet); err != nil {
 		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
 		buf, _ := json.Marshal(formationTxnSet)
 		log.Error("failed to broadcast formation transaction", zap.Error(err), zap.String("txnset", string(buf)))
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	signedRevision := contracts.SignedRevision{
@@ -213,7 +213,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 	}
 	if err := sh.contracts.AddContract(signedRevision, formationTxnSet, hostCollateral, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to add contract to store: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to add contract to store: %w", err)
 	}
 
 	// send the host signatures to the renter
@@ -225,23 +225,20 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) error {
 			CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
 		},
 	}
-	if err := s.writeResponse(hostSignaturesResp, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to write host signatures: %w", err)
-	}
-	return nil
+	return usage, s.writeResponse(hostSignaturesResp, 30*time.Second)
 }
 
 // rpcRenewAndClearContract is an RPC that renews a contract and clears the
 // existing contract
-func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) (contracts.Usage, error) {
 	state := sh.cm.TipState()
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get host settings: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
 	} else if !settings.AcceptingContracts {
 		s.t.WriteResponseErr(ErrNotAcceptingContracts)
-		return ErrNotAcceptingContracts
+		return contracts.Usage{}, ErrNotAcceptingContracts
 	}
 
 	hostUnlockKey := sh.privateKey.PublicKey().UnlockKey()
@@ -250,26 +247,26 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if err := s.ContractRevisable(state.Index.Height); err != nil {
 		err := fmt.Errorf("contract not revisable: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	var req rhpv2.RPCRenewAndClearContractRequest
 	if err := s.readRequest(&req, 10*minMessageSize, time.Minute); err != nil {
-		return fmt.Errorf("failed to read renew request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read renew request: %w", err)
 	}
 
 	renterKey, err := convertToPublicKey(req.RenterKey)
 	if err != nil {
 		err = fmt.Errorf("failed to convert renter key: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	renewalTxnSet := req.Transactions
 	if len(renewalTxnSet) == 0 || len(renewalTxnSet[len(renewalTxnSet)-1].FileContracts) != 1 {
 		err := ErrTxnMissingContract
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	renewalParents := renewalTxnSet[:len(renewalTxnSet)-1]
 	renewalTxn := renewalTxnSet[len(renewalTxnSet)-1]
@@ -280,7 +277,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if err != nil {
 		err = fmt.Errorf("failed to create clearing revision: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	expectedExchange := settings.BaseRPCPrice
 	// if the contract has less than the host's current base RPC price, cap
@@ -292,7 +289,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if err != nil {
 		err = fmt.Errorf("invalid clearing revision: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	clearingUsage := contracts.Usage{
 		RPCRevenue: finalPayment,
@@ -314,7 +311,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if err != nil {
 		err = fmt.Errorf("invalid contract renewal: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	renewalUsage := contracts.Usage{
 		RPCRevenue:       settings.ContractPrice,
@@ -326,7 +323,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	toSign, discard, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to fund renewal transaction: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to fund renewal transaction: %w", err)
 	}
 	defer discard()
 
@@ -336,15 +333,15 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 		Outputs: renewalTxn.SiacoinOutputs[renterOutputs:],
 	}
 	if err = s.writeResponse(hostAdditionsResp, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to write host additions: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	// read the renter's signatures for the renewal
 	var renterSigsResp rhpv2.RPCRenewAndClearContractSignatures
 	if err = s.readResponse(&renterSigsResp, minMessageSize, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to read renter signatures: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	} else if len(renterSigsResp.RevisionSignature.Signature) != 64 {
-		return fmt.Errorf("invalid renter signature length: %w", ErrInvalidRenterSignature)
+		return contracts.Usage{}, fmt.Errorf("invalid renter signature length: %w", ErrInvalidRenterSignature)
 	}
 
 	// add the renter's signatures to the formation transaction
@@ -352,7 +349,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	// sign the transaction
 	if err = sh.wallet.SignTransaction(state, &renewalTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to sign renewal transaction: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to sign renewal transaction: %w", err)
 	}
 
 	// create the initial revision
@@ -364,7 +361,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if !s.contract.RenterKey().VerifyHash(clearingRevSigHash, renterSigsResp.FinalRevisionSignature) {
 		err := fmt.Errorf("failed to verify clearing revision signature: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// verify the renewal revision signature
@@ -373,7 +370,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if !renterKey.VerifyHash(renewalSigHash, renterRenewalSig) {
 		err := fmt.Errorf("failed to verify renewal revision signature: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	signedClearing := contracts.SignedRevision{
@@ -392,12 +389,12 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	if err = sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
 		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	// update the existing contract and add the renewed contract to the store
 	if err := sh.contracts.RenewContract(signedRenewal, signedClearing, renewalTxnSet, lockedCollateral, clearingUsage, renewalUsage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to renew contract: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to renew contract: %w", err)
 	}
 
 	// send the host signatures to the renter
@@ -406,30 +403,27 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 		RevisionSignature:      signedRenewal.Signatures()[0],
 		FinalRevisionSignature: signedClearing.HostSignature,
 	}
-	if err := s.writeResponse(hostSigsResp, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to write host signatures: %w", err)
-	}
-	return nil
+	return clearingUsage.Add(renewalUsage), s.writeResponse(hostSigsResp, 30*time.Second)
 }
 
 // rpcSectorRoots returns the Merkle roots of the sectors in a contract
-func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts.Usage, error) {
 	currentHeight := sh.cm.TipState().Index.Height
 	if err := s.ContractRevisable(currentHeight); err != nil {
 		err := fmt.Errorf("contract not revisable: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	var req rhpv2.RPCSectorRootsRequest
 	if err := s.readRequest(&req, minMessageSize, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to read sector roots request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read sector roots request: %w", err)
 	}
 
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get host settings: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
 	costs := rpcSectorRootsCost(req.NumRoots, req.RootOffset, settings)
@@ -440,14 +434,14 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 	if err != nil {
 		err := fmt.Errorf("failed to revise contract: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	payment, _, err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency)
 	if err != nil {
 		err := fmt.Errorf("failed to validate revision: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// validate the renter's signature
@@ -455,24 +449,24 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 	if !s.contract.RenterKey().VerifyHash(sigHash, req.Signature) {
 		err := fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	hostSig := sh.privateKey.SignHash(sigHash)
 
 	if req.NumRoots > math.MaxInt {
 		err := errors.New("too many requested sector roots")
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	} else if req.RootOffset > math.MaxInt {
 		err := errors.New("sector root offset is too large")
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID, int(req.NumRoots), int(req.RootOffset))
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get sector roots: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get sector roots: %w", err)
 	}
 
 	// commit the revision
@@ -484,7 +478,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 	updater, err := sh.contracts.ReviseContract(revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to revise contract: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to revise contract: %w", err)
 	}
 	defer updater.Close()
 
@@ -494,9 +488,10 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 		costs.Egress = costs.Egress.Add(excess)
 	}
 
-	if err := updater.Commit(signedRevision, costs.ToUsage()); err != nil {
+	usage := costs.ToUsage()
+	if err := updater.Commit(signedRevision, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to commit contract revision: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to commit contract revision: %w", err)
 	}
 	s.contract = signedRevision
 
@@ -505,29 +500,26 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) error {
 		MerkleProof: rhpv2.BuildSectorRangeProof(roots, req.RootOffset, req.RootOffset+req.NumRoots),
 		Signature:   hostSig,
 	}
-	if err := s.writeResponse(sectorRootsResp, 2*time.Minute); err != nil {
-		return fmt.Errorf("failed to write sector roots response: %w", err)
-	}
-	return nil
+	return usage, s.writeResponse(sectorRootsResp, 2*time.Minute)
 }
 
-func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage, error) {
 	currentHeight := sh.cm.TipState().Index.Height
 	// get the locked contract and check that it is revisable
 	if err := s.ContractRevisable(currentHeight); err != nil {
 		err := fmt.Errorf("contract not revisable: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get settings: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get settings: %w", err)
 	}
 
 	var req rhpv2.RPCWriteRequest
 	if err := s.readRequest(&req, 5*rhpv2.SectorSize, 5*time.Minute); err != nil {
-		return fmt.Errorf("failed to read write request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read write request: %w", err)
 	}
 
 	remainingDuration := uint64(s.contract.Revision.WindowEnd) - currentHeight
@@ -537,7 +529,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 	if err != nil {
 		err := fmt.Errorf("failed to validate write actions: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	cost, collateral := costs.Total()
 
@@ -546,20 +538,20 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 	if err != nil {
 		err := fmt.Errorf("failed to revise contract: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	payment, risked, err := rhp.ValidateRevision(s.contract.Revision, revision, cost, collateral)
 	if err != nil {
 		err := fmt.Errorf("failed to validate revision: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	contractUpdater, err := sh.contracts.ReviseContract(revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to revise contract: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to revise contract: %w", err)
 	}
 	defer contractUpdater.Close()
 
@@ -570,7 +562,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 			if len(action.Data) != rhpv2.SectorSize {
 				err := fmt.Errorf("append action: invalid sector size: %v", len(action.Data))
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 			sector := (*[rhpv2.SectorSize]byte)(action.Data)
 			root := rhpv2.SectorRoot(sector)
@@ -578,7 +570,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 			defer release()
 			contractUpdater.AppendSector(root)
@@ -586,37 +578,37 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 			if err := contractUpdater.TrimSectors(action.A); err != nil {
 				err := fmt.Errorf("trim action: failed to trim sectors: %w", err)
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 		case rhpv2.RPCWriteActionSwap:
 			if err := contractUpdater.SwapSectors(action.A, action.B); err != nil {
 				err := fmt.Errorf("swap action: failed to swap sectors: %w", err)
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 		case rhpv2.RPCWriteActionUpdate:
 			root, err := contractUpdater.SectorRoot(action.A)
 			if err != nil {
 				err := fmt.Errorf("update action: failed to get sector root: %w", err)
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 
 			sector, err := sh.storage.Read(root)
 			if err != nil {
 				s.t.WriteResponseErr(ErrHostInternalError)
-				return fmt.Errorf("failed to read sector %v: %w", root, err)
+				return contracts.Usage{}, fmt.Errorf("failed to read sector %v: %w", root, err)
 			}
 
 			i, offset := action.A, action.B
 			if offset > rhpv2.SectorSize {
 				err := fmt.Errorf("update action: invalid offset %v bytes", offset)
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			} else if offset+uint64(len(action.Data)) > rhpv2.SectorSize {
 				err := errors.New("update action: offset + data exceeds sector size")
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 
 			copy(sector[offset:], action.Data)
@@ -625,13 +617,13 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 			if err := contractUpdater.UpdateSector(newRoot, i); err != nil {
 				err := fmt.Errorf("update action: failed to update sector: %w", err)
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 			release, err := sh.storage.Write(root, sector)
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
 				s.t.WriteResponseErr(err)
-				return err
+				return contracts.Usage{}, err
 			}
 			defer release()
 		}
@@ -645,7 +637,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = rhpv2.BuildDiffProof(req.Actions, oldRoots)
 	}
 	if err := s.writeResponse(writeResp, time.Minute); err != nil {
-		return fmt.Errorf("failed to write merkle proof: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to write merkle proof: %w", err)
 	}
 
 	// apply the new merkle root and file size to the revision
@@ -655,7 +647,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 	// read the renter's signature
 	var renterSigResponse rhpv2.RPCWriteResponse
 	if err := s.readResponse(&renterSigResponse, minMessageSize, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to read renter signature: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read renter signature: %w", err)
 	}
 
 	// validate the contract signature
@@ -664,7 +656,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 	if !s.contract.RenterKey().VerifyHash(sigHash, renterSigResponse.Signature) {
 		err := fmt.Errorf("failed to verify renter signature: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	hostSig := sh.privateKey.SignHash(sigHash)
 	signedRevision := contracts.SignedRevision{
@@ -676,7 +668,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 	// sync the storage manager
 	if err := sh.storage.Sync(); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to sync storage manager: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to sync storage manager: %w", err)
 	}
 
 	// adjust the revenue to account for the full transfer by the renter
@@ -689,48 +681,46 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) error {
 	costs.Collateral = risked
 
 	// commit the contract modifications
-	if err := contractUpdater.Commit(signedRevision, costs.ToUsage()); err != nil {
+	usage := costs.ToUsage()
+	if err := contractUpdater.Commit(signedRevision, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to commit contract modifications: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to commit contract modifications: %w", err)
 	}
 	// update the session contract
 	s.contract = signedRevision
 
 	// send the host signature
 	hostSigResp := &rhpv2.RPCWriteResponse{Signature: hostSig}
-	if err := s.writeResponse(hostSigResp, 30*time.Second); err != nil {
-		return fmt.Errorf("failed to write host signature: %w", err)
-	}
-	return nil
+	return usage, s.writeResponse(hostSigResp, 30*time.Second)
 }
 
-func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
+func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage, error) {
 	currentHeight := sh.cm.TipState().Index.Height
 	// get the locked contract and check that it is revisable
 	if err := s.ContractRevisable(currentHeight); err != nil {
 		err := fmt.Errorf("contract not revisable: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// get the host's current settings
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get host settings: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
 	// read the read request
 	var req rhpv2.RPCReadRequest
 	if err := s.readRequest(&req, 4*minMessageSize, time.Minute); err != nil {
-		return fmt.Errorf("failed to read read request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read read request: %w", err)
 	}
 
 	// validate the request sections and calculate the cost
 	costs, err := validateReadActions(req.Sections, req.MerkleProof, settings)
 	if err != nil {
 		s.t.WriteResponseErr(err)
-		return fmt.Errorf("failed to validate read request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to validate read request: %w", err)
 	}
 	cost, _ := costs.Total()
 
@@ -739,7 +729,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 	if err != nil {
 		err := fmt.Errorf("failed to revise contract: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// validate the renter's signature and transfer
@@ -747,14 +737,14 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 	if !s.contract.RenterKey().VerifyHash(sigHash, req.Signature) {
 		err := fmt.Errorf("failed to validate revision: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	payment, _, err := rhp.ValidateRevision(s.contract.Revision, revision, cost, types.ZeroCurrency)
 	if err != nil {
 		err := fmt.Errorf("failed to validate revision: %w", err)
 		s.t.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// sign and commit the new revision
@@ -768,7 +758,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 	updater, err := sh.contracts.ReviseContract(revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to revise contract: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to revise contract: %w", err)
 	}
 	defer updater.Close()
 
@@ -777,10 +767,11 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 	if !underflow {
 		costs.Egress = costs.Egress.Add(excess)
 	}
+	usage := costs.ToUsage()
 	// commit the contract revision
-	if err := updater.Commit(signedRevision, costs.ToUsage()); err != nil {
+	if err := updater.Commit(signedRevision, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to commit contract revision: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to commit contract revision: %w", err)
 	}
 	// update the session contract
 	s.contract = signedRevision
@@ -806,7 +797,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 		if err != nil {
 			err := fmt.Errorf("failed to get sector: %w", err)
 			s.t.WriteResponseErr(err)
-			return err
+			return usage, err
 		}
 
 		resp := &rhpv2.RPCReadResponse{
@@ -822,10 +813,10 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 		select {
 		case err := <-stopSignal:
 			if err != nil {
-				return err
+				return usage, err
 			}
 			resp.Signature = hostSig
-			return s.writeResponse(resp, 30*time.Second)
+			return usage, s.writeResponse(resp, 30*time.Second)
 		default:
 		}
 
@@ -833,10 +824,10 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) error {
 			resp.Signature = hostSig
 		}
 		if err := s.writeResponse(resp, 30*time.Second); err != nil {
-			return fmt.Errorf("failed to write read response: %w", err)
+			return usage, fmt.Errorf("failed to write read response: %w", err)
 		}
 	}
-	return <-stopSignal
+	return usage, <-stopSignal
 }
 
 func convertToPublicKey(uc types.UnlockKey) (types.PublicKey, error) {

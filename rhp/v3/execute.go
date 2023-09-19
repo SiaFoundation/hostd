@@ -653,6 +653,9 @@ func (pe *programExecutor) rollback() error {
 	if err := pe.budget.Commit(); err != nil {
 		return fmt.Errorf("failed to commit budget: %w", err)
 	}
+	// zero out the usage
+	pe.usage.StorageRevenue = types.ZeroCurrency
+	pe.cost.Collateral = types.ZeroCurrency
 	return nil
 }
 
@@ -834,8 +837,19 @@ func (pe *programExecutor) Execute(ctx context.Context, s *rhpv3.Stream) error {
 	if err := pe.commit(s); err != nil {
 		return fmt.Errorf("failed to commit program: %w", err)
 	}
-
 	return nil
+}
+
+// Usage returns the program's usage.
+func (pe *programExecutor) Usage() (usage contracts.Usage) {
+	usage.RPCRevenue = pe.usage.RPCRevenue
+	usage.StorageRevenue = pe.usage.StorageRevenue
+	usage.IngressRevenue = pe.usage.IngressRevenue
+	usage.EgressRevenue = pe.usage.EgressRevenue
+	usage.RegistryRead = pe.usage.RegistryRead
+	usage.RegistryWrite = pe.usage.RegistryWrite
+	usage.RiskedCollateral = pe.cost.Collateral
+	return usage
 }
 
 func (sh *SessionHandler) newExecutor(instructions []rhpv3.Instruction, data []byte, pt rhpv3.HostPriceTable, budget *accounts.Budget, revision *contracts.SignedRevision, finalize bool, log *zap.Logger) (*programExecutor, error) {

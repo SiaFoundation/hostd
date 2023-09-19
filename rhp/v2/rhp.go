@@ -90,7 +90,7 @@ type (
 	// SessionReporter reports session metrics
 	SessionReporter interface {
 		StartSession(conn *rhp.Conn, proto string, version int) (sessionID rhp.UID, end func())
-		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(error))
+		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(contracts.Usage, error))
 	}
 
 	// A SessionHandler handles the host side of the renter-host protocol and
@@ -127,8 +127,7 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 		return fmt.Errorf("failed to read RPC ID: %w", err)
 	}
 
-	var rpcFn func(*session, *zap.Logger) error
-	rpcFn, ok := map[types.Specifier]func(*session, *zap.Logger) error{
+	rpcFn, ok := map[types.Specifier]func(*session, *zap.Logger) (contracts.Usage, error){
 		rhpv2.RPCFormContractID:       sh.rpcFormContract,
 		rhpv2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
 		rhpv2.RPCLockID:               sh.rpcLock,
@@ -147,8 +146,8 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 	rpcID, end := sh.sessions.StartRPC(sess.id, id)
 	log = log.Named(id.String()).With(zap.Stringer("rpcID", rpcID))
 	log.Debug("RPC start")
-	err = rpcFn(sess, log)
-	end(err)
+	usage, err := rpcFn(sess, log)
+	end(usage, err)
 	if err != nil {
 		log.Warn("RPC error", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
 		return fmt.Errorf("RPC %q error: %w", id, err)

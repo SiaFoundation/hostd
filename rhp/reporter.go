@@ -6,59 +6,73 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 	"lukechampine.com/frand"
 )
 
+// SessionEventType is the type of a session event.
 const (
 	SessionEventTypeStart    = "sessionStart"
 	SessionEventTypeEnd      = "sessionEnd"
 	SessionEventTypeRPCStart = "rpcStart"
 	SessionEventTypeRPCEnd   = "rpcEnd"
+)
 
+// SessionProtocol is the protocol used by a session.
+const (
 	SessionProtocolTCP = "tcp"
 	SessionProtocolWS  = "websocket"
 )
 
 type (
-	UID [8]byte // unique identifier
+	// UID is a unique identifier for a session or RPC.
+	UID [8]byte
 
+	// A Session is an open connection between a host and a renter.
 	Session struct {
 		conn *Conn
 
-		ID             UID    `json:"id"`
-		Protocol       string `json:"protocol"`
-		RHPVersion     int    `json:"rhpVersion"`
-		PeerAddress    string `json:"peerAddress"`
-		Ingress        uint64 `json:"ingress"`
-		Egress         uint64 `json:"egress"`
-		SuccessfulRPCs uint64 `json:"successfulRPCs"`
-		FailedRPCs     uint64 `json:"failedRPCs"`
+		ID             UID             `json:"id"`
+		Protocol       string          `json:"protocol"`
+		RHPVersion     int             `json:"rhpVersion"`
+		PeerAddress    string          `json:"peerAddress"`
+		Ingress        uint64          `json:"ingress"`
+		Egress         uint64          `json:"egress"`
+		Usage          contracts.Usage `json:"usage"`
+		SuccessfulRPCs uint64          `json:"successfulRPCs"`
+		FailedRPCs     uint64          `json:"failedRPCs"`
 
 		Timestamp time.Time `json:"timestamp"`
 	}
 
+	// An RPC is an RPC call made by a renter to a host.
 	RPC struct {
 		ID        UID             `json:"ID"`
 		SessionID UID             `json:"sessionID"`
 		RPC       types.Specifier `json:"rpc"`
+		Usage     contracts.Usage `json:"usage"`
 		Error     error           `json:"error,omitempty"`
-		Timestamp time.Time       `json:"timestamp"`
+		Elapsed   time.Duration   `json:"timestamp"`
 	}
 
+	// A SessionSubscriber receives session events.
+	SessionSubscriber interface {
+		ReceiveSessionEvent(SessionEvent)
+	}
+
+	// A SessionReporter manages open sessions and reports session events to
+	// subscribers.
 	SessionReporter struct {
 		mu          sync.Mutex
 		sessions    map[UID]Session
 		subscribers []SessionSubscriber
 	}
 
+	// A SessionEvent is an event that occurs during a session.
 	SessionEvent struct {
 		Type    string  `json:"type"`
 		Session Session `json:"session"`
 		RPC     any     `json:"rpc,omitempty"`
-	}
-
-	SessionSubscriber interface {
-		ReceiveSessionEvent(SessionEvent)
 	}
 )
 
@@ -121,24 +135,29 @@ func (sr *SessionReporter) StartSession(conn *Conn, proto string, version int) (
 
 // StartRPC starts a new RPC and returns a function that should be called when
 // the RPC ends.
-func (sr *SessionReporter) StartRPC(sessionID UID, rpc types.Specifier) (rpcID UID, end func(error)) {
+func (sr *SessionReporter) StartRPC(sessionID UID, rpc types.Specifier) (rpcID UID, end func(contracts.Usage, error)) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
 	copy(rpcID[:], frand.Bytes(8))
 	_, ok := sr.sessions[sessionID]
 	if !ok {
-		return rpcID, func(error) {}
+		return rpcID, func(contracts.Usage, error) {}
 	}
 
 	event := RPC{
 		ID:        rpcID,
 		SessionID: sessionID,
 		RPC:       rpc,
-		Timestamp: time.Now(),
 	}
+	rpcStart := time.Now()
 	sr.updateSubscribers(sessionID, SessionEventTypeRPCStart, event)
-	return rpcID, func(err error) {
+	return rpcID, func(usage contracts.Usage, err error) {
+		// update event
+		event.Error = err
+		event.Elapsed = time.Since(rpcStart)
+		event.Usage = usage
+
 		sr.mu.Lock()
 		defer sr.mu.Unlock()
 
@@ -147,15 +166,13 @@ func (sr *SessionReporter) StartRPC(sessionID UID, rpc types.Specifier) (rpcID U
 			return
 		}
 
-		// update event
-		event.Error = err
-
 		// update session
 		if err == nil {
 			sess.SuccessfulRPCs++
 		} else {
 			sess.FailedRPCs++
 		}
+		sess.Usage = sess.Usage.Add(usage)
 		sr.sessions[sessionID] = sess
 		// update subscribers
 		sr.updateSubscribers(sessionID, SessionEventTypeRPCEnd, event)

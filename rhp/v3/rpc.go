@@ -43,69 +43,67 @@ var (
 )
 
 // handleRPCPriceTable sends the host's price table to the renter.
-func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) error {
+func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	pt, err := sh.PriceTable()
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get price table: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get price table: %w", err)
 	}
 	buf, err := json.Marshal(pt)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to marshal price table: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to marshal price table: %w", err)
 	}
 
 	resp := &rhpv3.RPCUpdatePriceTableResponse{
 		PriceTableJSON: buf,
 	}
 	if err := s.WriteResponse(resp); err != nil {
-		return fmt.Errorf("failed to send price table: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to send price table: %w", err)
 	}
 
 	// process the payment, catch connection closed errors since the renter
 	// likely did not intend to pay
 	budget, err := sh.processPayment(s, &pt)
 	if isNonPaymentErr(err) {
-		return nil
+		return contracts.Usage{}, nil
 	} else if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	defer budget.Rollback()
 
 	if err := budget.Spend(accounts.Usage{RPCRevenue: pt.UpdatePriceTableCost}); err != nil {
 		err = fmt.Errorf("failed to pay %v for price table: %w", pt.UpdatePriceTableCost, err)
 		s.WriteResponseErr(err)
-		return err
-	}
-
-	if err := budget.Commit(); err != nil {
+		return contracts.Usage{}, err
+	} else if err := budget.Commit(); err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to commit payment: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to commit payment: %w", err)
 	}
 	// register the price table for future use
 	sh.priceTables.Register(pt)
-	if err := s.WriteResponse(&rhpv3.RPCPriceTableResponse{}); err != nil {
-		return fmt.Errorf("failed to send tracking response: %w", err)
+	usage := contracts.Usage{
+		RPCRevenue: pt.UpdatePriceTableCost,
 	}
-	return nil
+	return usage, s.WriteResponse(&rhpv3.RPCPriceTableResponse{})
 }
 
-func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger) error {
+func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(time.Minute))
 	// read the price table ID from the stream
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
 		err = fmt.Errorf("failed to read price table: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// read the fund request from the stream
 	var fundReq rhpv3.RPCFundAccountRequest
 	if err := s.ReadRequest(&fundReq, 32); err != nil {
-		return fmt.Errorf("failed to read fund account request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read fund account request: %w", err)
 	}
 
 	// process the payment for funding the account
@@ -113,7 +111,7 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger)
 	if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	fundResp := &rhpv3.RPCFundAccountResponse{
@@ -129,21 +127,21 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger)
 	fundResp.Receipt.EncodeTo(h.E)
 	fundResp.Signature = sh.privateKey.SignHash(h.Sum())
 
-	// send the response
-	if err := s.WriteResponse(fundResp); err != nil {
-		return fmt.Errorf("failed to send fund account response: %w", err)
+	usage := contracts.Usage{
+		RPCRevenue:     pt.FundAccountCost,
+		AccountFunding: fundAmount,
 	}
-	return nil
+	return usage, s.WriteResponse(fundResp)
 }
 
-func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logger) error {
+func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(time.Minute))
 	// get the price table to use for payment
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
 		err = fmt.Errorf("failed to read price table: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// read the payment from the stream
@@ -151,7 +149,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 	if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	defer budget.Rollback()
 
@@ -159,88 +157,92 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 	if err := budget.Spend(accounts.Usage{RPCRevenue: pt.AccountBalanceCost}); err != nil {
 		err = fmt.Errorf("failed to pay %v for account balance: %w", pt.AccountBalanceCost, err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// read the account balance request from the stream
 	var req rhpv3.RPCAccountBalanceRequest
 	if err := s.ReadRequest(&req, 32); err != nil {
-		return fmt.Errorf("failed to read account balance request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read account balance request: %w", err)
 	}
 
 	// get the account balance
 	balance, err := sh.accounts.Balance(req.Account)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to get account balance: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to get account balance: %w", err)
 	}
 
 	resp := &rhpv3.RPCAccountBalanceResponse{
 		Balance: balance,
 	}
 	if err := budget.Commit(); err != nil {
-		return fmt.Errorf("failed to commit payment: %w", err)
-	} else if err := s.WriteResponse(resp); err != nil {
-		return fmt.Errorf("failed to send account balance response: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to commit payment: %w", err)
 	}
-	return nil
+	usage := contracts.Usage{
+		RPCRevenue: pt.AccountBalanceCost,
+	}
+	return usage, s.WriteResponse(resp)
 }
 
-func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logger) error {
+func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(time.Minute))
 	var req rhpv3.RPCLatestRevisionRequest
 	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
-		return fmt.Errorf("failed to read latest revision request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read latest revision request: %w", err)
 	}
 
 	contract, err := sh.contracts.Contract(req.ContractID)
 	if err != nil {
 		err := fmt.Errorf("failed to get contract %q: %w", req.ContractID, err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	resp := &rhpv3.RPCLatestRevisionResponse{
 		Revision: contract.Revision,
 	}
 	if err := s.WriteResponse(resp); err != nil {
-		return fmt.Errorf("failed to send latest revision response: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to send latest revision response: %w", err)
 	}
 
 	pt, err := sh.readPriceTable(s)
 	if isNonPaymentErr(err) {
-		return nil
+		return contracts.Usage{}, nil
 	} else if err != nil {
 		err = fmt.Errorf("failed to read price table: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	budget, err := sh.processPayment(s, &pt)
 	if isNonPaymentErr(err) {
-		return nil
+		return contracts.Usage{}, nil
 	} else if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	defer budget.Rollback()
 
 	if err := budget.Spend(accounts.Usage{RPCRevenue: pt.LatestRevisionCost}); err != nil {
 		err = fmt.Errorf("failed to pay %v for latest revision: %w", pt.LatestRevisionCost, err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	} else if err := budget.Commit(); err != nil {
-		return fmt.Errorf("failed to commit payment: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to commit payment: %w", err)
 	}
-	return nil
+	usage := contracts.Usage{
+		RPCRevenue: pt.LatestRevisionCost,
+	}
+	return usage, nil
 }
 
-func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error {
+func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(2 * time.Minute))
 	if !sh.settings.Settings().AcceptingContracts {
 		s.WriteResponseErr(ErrNotAcceptingContracts)
-		return ErrNotAcceptingContracts
+		return contracts.Usage{}, ErrNotAcceptingContracts
 	}
 	pt, err := sh.readPriceTable(s)
 	if errors.Is(err, ErrNoPriceTable) {
@@ -248,34 +250,34 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 		pt, err = sh.PriceTable()
 		if err != nil {
 			s.WriteResponseErr(ErrHostInternalError)
-			return fmt.Errorf("failed to get price table: %w", err)
+			return contracts.Usage{}, fmt.Errorf("failed to get price table: %w", err)
 		}
 		buf, err := json.Marshal(pt)
 		if err != nil {
 			s.WriteResponseErr(ErrHostInternalError)
-			return fmt.Errorf("failed to marshal price table: %w", err)
+			return contracts.Usage{}, fmt.Errorf("failed to marshal price table: %w", err)
 		}
 		ptResp := &rhpv3.RPCUpdatePriceTableResponse{
 			PriceTableJSON: buf,
 		}
 		if err := s.WriteResponse(ptResp); err != nil {
-			return fmt.Errorf("failed to send price table response: %w", err)
+			return contracts.Usage{}, fmt.Errorf("failed to send price table response: %w", err)
 		}
 	} else if err != nil {
-		return fmt.Errorf("failed to read price table: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read price table: %w", err)
 	}
 
 	var req rhpv3.RPCRenewContractRequest
 	if err := s.ReadRequest(&req, 10*maxRequestSize); err != nil {
-		return fmt.Errorf("failed to read renew contract request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read renew contract request: %w", err)
 	} else if err := validRenewalTxnSet(req.TransactionSet); err != nil {
 		err = fmt.Errorf("invalid renewal transaction set: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	} else if req.RenterKey.Algorithm != types.SpecifierEd25519 || len(req.RenterKey.Key) != ed25519.PublicKeySize {
 		err = errors.New("renter key must be an ed25519 public key")
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	renterKey := *(*types.PublicKey)(req.RenterKey.Key)
@@ -293,7 +295,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	if err != nil {
 		err := fmt.Errorf("failed to lock contract %v: %w", clearingRevision.ParentID, err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	defer sh.contracts.Unlock(clearingRevision.ParentID)
 
@@ -302,13 +304,13 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	if err != nil {
 		err := fmt.Errorf("failed to validate clearing revision: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	finalRevisionSigHash := hashFinalRevision(clearingRevision, renewal)
 	if !existing.RenterKey().VerifyHash(finalRevisionSigHash, req.FinalRevisionSignature) { // important to verify using the existing contract's renter key
 		err := fmt.Errorf("failed to verify final revision signature: %w", ErrInvalidRenterSignature)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	// sign the clearing revision
 	signedClearingRevision := contracts.SignedRevision{
@@ -332,13 +334,13 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	if err != nil {
 		err := fmt.Errorf("failed to validate renewal: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
 	toSign, release, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
 	if err != nil {
 		s.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", ErrHostInternalError))
-		return fmt.Errorf("failed to fund renewal transaction: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to fund renewal transaction: %w", err)
 	}
 	defer release()
 
@@ -348,12 +350,12 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 		FinalRevisionSignature: signedClearingRevision.HostSignature,
 	}
 	if err := s.WriteResponse(hostAdditions); err != nil {
-		return fmt.Errorf("failed to write host additions: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	var renterSigsResp rhpv3.RPCRenewSignatures
 	if err := s.ReadRequest(&renterSigsResp, 10*maxRequestSize); err != nil {
-		return fmt.Errorf("failed to read renter signatures: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	}
 
 	// create the initial revision and verify the renter's signature
@@ -362,7 +364,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	if err := validateRenterRevisionSignature(renterSigsResp.RevisionSignature, renewalRevision.ParentID, renewalSigHash, renterKey); err != nil {
 		err := fmt.Errorf("failed to verify renter revision signature: %w", ErrInvalidRenterSignature)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	signedRenewal := contracts.SignedRevision{
 		Revision:        renewalRevision,
@@ -395,13 +397,13 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	// sign and broadcast the transaction
 	if err := sh.wallet.SignTransaction(sh.chain.TipState(), &renewalTxn, toSign, wallet.ExplicitCoveredFields(renewalTxn)); err != nil {
 		s.WriteResponseErr(fmt.Errorf("failed to sign renewal transaction: %w", ErrHostInternalError))
-		return fmt.Errorf("failed to sign renewal transaction: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to sign renewal transaction: %w", err)
 	}
 	renewalTxnSet := append(parents, renewalTxn)
 	if err := sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
 		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// calculate the usage
@@ -417,7 +419,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 	err = sh.contracts.RenewContract(signedRenewal, signedClearingRevision, renewalTxnSet, lockedCollateral, finalRevisionUsage, renewalUsage)
 	if err != nil {
 		s.WriteResponseErr(fmt.Errorf("failed to renew contract: %w", ErrHostInternalError))
-		return fmt.Errorf("failed to renew contract: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to renew contract: %w", err)
 	}
 
 	// send the signatures to the renter
@@ -432,21 +434,18 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) error
 			Signature: signedRenewal.HostSignature[:],
 		},
 	}
-	if err := s.WriteResponse(hostSigs); err != nil {
-		return fmt.Errorf("failed to write host signatures: %w", err)
-	}
-	return nil
+	return finalRevisionUsage.Add(renewalUsage), s.WriteResponse(hostSigs)
 }
 
 // handleRPCExecute handles an RPCExecuteProgram request.
-func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) error {
+func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(5 * time.Minute))
 	// read the price table
 	pt, err := sh.readPriceTable(s)
 	if err != nil {
 		err = fmt.Errorf("failed to read price table: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	// create the program budget
@@ -454,7 +453,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	if err != nil {
 		err = fmt.Errorf("failed to process payment: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 	// note: the budget is committed by the executor, no need to commit it in the handler.
 	defer budget.Rollback()
@@ -463,7 +462,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	readReqStart := time.Now()
 	var executeReq rhpv3.RPCExecuteProgramRequest
 	if err := s.ReadRequest(&executeReq, maxProgramRequestSize); err != nil {
-		return fmt.Errorf("failed to read execute request: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to read execute request: %w", err)
 	}
 	instructions := executeReq.Program
 	log.Debug("read program request", zap.Duration("elapsed", time.Since(readReqStart)))
@@ -473,7 +472,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	if err := budget.Spend(accounts.Usage{RPCRevenue: executeCost}); err != nil {
 		err = fmt.Errorf("failed to pay program init cost: %w", err)
 		s.WriteResponseErr(err)
-		return err
+		return contracts.Usage{}, err
 	}
 
 	var requiresContract, requiresFinalization bool
@@ -488,7 +487,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 		if executeReq.FileContractID == (types.FileContractID{}) {
 			err = ErrContractRequired
 			s.WriteResponseErr(err)
-			return err
+			return contracts.Usage{}, err
 		}
 
 		contractLockStart := time.Now()
@@ -499,7 +498,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 		if err != nil {
 			err = fmt.Errorf("failed to lock contract %v: %w", executeReq.FileContractID, err)
 			s.WriteResponseErr(err)
-			return err
+			return contracts.Usage{}, err
 		}
 		defer sh.contracts.Unlock(contract.Revision.ParentID)
 		revision = &contract
@@ -511,7 +510,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	// a placeholder.
 	cancelToken := types.Specifier(frand.Entropy128())
 	if err := s.WriteResponse(&cancelToken); err != nil {
-		return fmt.Errorf("failed to write cancel token: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to write cancel token: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -523,12 +522,11 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, revision, requiresFinalization, log)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return fmt.Errorf("failed to create program executor: %w", err)
-	} else if err := executor.Execute(ctx, s); err != nil {
-		return fmt.Errorf("failed to execute program: %w", err)
+		return contracts.Usage{}, fmt.Errorf("failed to create program executor: %w", err)
 	}
-
-	return nil
+	err = executor.Execute(ctx, s)
+	usage := executor.Usage()
+	return usage, err
 }
 
 // isStreamClosedErr is a helper function that returns true if the stream was
