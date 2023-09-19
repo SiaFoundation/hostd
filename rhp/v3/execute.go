@@ -89,7 +89,7 @@ func (pe *programExecutor) payForExecution(cost rhpv3.ResourceCost, usage accoun
 	return nil
 }
 
-func (pe *programExecutor) executeAppendSector(instr *rhpv3.InstrAppendSector) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeAppendSector(instr *rhpv3.InstrAppendSector, log *zap.Logger) ([]byte, []types.Hash256, error) {
 	root, sector, err := pe.programData.Sector(instr.SectorDataOffset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
@@ -110,12 +110,15 @@ func (pe *programExecutor) executeAppendSector(instr *rhpv3.InstrAppendSector) (
 	if !instr.ProofRequired {
 		return nil, nil, nil
 	}
+
+	proofStart := time.Now()
 	roots := pe.updater.SectorRoots()
 	proof, _ := rhpv2.BuildDiffProof([]rhpv2.RPCWriteAction{{Type: rhpv2.RPCWriteActionAppend}}, roots[:len(roots)-1]) // TODO: add rhp3 proof methods
+	log.Debug("built proof", zap.Duration("duration", time.Since(proofStart)))
 	return nil, proof, nil
 }
 
-func (pe *programExecutor) executeAppendSectorRoot(instr *rhpv3.InstrAppendSectorRoot) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeAppendSectorRoot(instr *rhpv3.InstrAppendSectorRoot, log *zap.Logger) ([]byte, []types.Hash256, error) {
 	root, err := pe.programData.Hash(instr.MerkleRootOffset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector root: %w", err)
@@ -136,12 +139,14 @@ func (pe *programExecutor) executeAppendSectorRoot(instr *rhpv3.InstrAppendSecto
 	if !instr.ProofRequired {
 		return nil, nil, nil
 	}
+	proofStart := time.Now()
 	roots := pe.updater.SectorRoots()
 	proof, _ := rhpv2.BuildDiffProof([]rhpv2.RPCWriteAction{{Type: rhpv2.RPCWriteActionAppend}}, roots[:len(roots)-1]) // TODO: add rhp3 proof methods
+	log.Debug("built proof", zap.Duration("duration", time.Since(proofStart)))
 	return nil, proof, nil
 }
 
-func (pe *programExecutor) executeDropSectors(instr *rhpv3.InstrDropSectors) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeDropSectors(instr *rhpv3.InstrDropSectors, log *zap.Logger) ([]byte, []types.Hash256, error) {
 	count, err := pe.programData.Uint64(instr.SectorCountOffset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector count: %w", err)
@@ -155,7 +160,9 @@ func (pe *programExecutor) executeDropSectors(instr *rhpv3.InstrDropSectors) ([]
 	// construct the proof before updating the roots
 	var proof []types.Hash256
 	if instr.ProofRequired {
+		proofStart := time.Now()
 		proof = rhpv2.BuildSectorRangeProof(pe.updater.SectorRoots(), pe.updater.SectorCount()-count, pe.updater.SectorCount()) // TODO: add rhp3 proof methods
+		log.Debug("built proof", zap.Duration("duration", time.Since(proofStart)))
 	}
 
 	// trim the sectors
@@ -192,7 +199,7 @@ func (pe *programExecutor) executeHasSector(instr *rhpv3.InstrHasSector) ([]byte
 	return output, nil, nil
 }
 
-func (pe *programExecutor) executeReadOffset(instr *rhpv3.InstrReadOffset) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeReadOffset(instr *rhpv3.InstrReadOffset, log *zap.Logger) ([]byte, []types.Hash256, error) {
 	offset, err := pe.programData.Uint64(instr.OffsetOffset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read offset: %w", err)
@@ -225,13 +232,15 @@ func (pe *programExecutor) executeReadOffset(instr *rhpv3.InstrReadOffset) ([]by
 		return sector[relOffset : relOffset+length], nil, nil
 	}
 
+	proofStartTime := time.Now()
 	proofStart := relOffset / rhpv2.LeafSize
 	proofEnd := (relOffset + length) / rhpv2.LeafSize
 	proof := rhpv2.BuildProof(sector, proofStart, proofEnd, nil)
+	log.Debug("built proof", zap.Duration("duration", time.Since(proofStartTime)))
 	return sector[relOffset : relOffset+length], proof, nil
 }
 
-func (pe *programExecutor) executeReadSector(instr *rhpv3.InstrReadSector) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeReadSector(instr *rhpv3.InstrReadSector, log *zap.Logger) ([]byte, []types.Hash256, error) {
 	root, err := pe.programData.Hash(instr.MerkleRootOffset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector root: %w", err)
@@ -270,13 +279,16 @@ func (pe *programExecutor) executeReadSector(instr *rhpv3.InstrReadSector) ([]by
 	if !instr.ProofRequired {
 		return sector[offset : offset+length], nil, nil
 	}
+
+	proofStartTime := time.Now()
 	proofStart := offset / rhpv2.LeafSize
 	proofEnd := (offset + length) / rhpv2.LeafSize
 	proof := rhpv2.BuildProof(sector, proofStart, proofEnd, nil)
+	log.Debug("built proof", zap.Duration("duration", time.Since(proofStartTime)))
 	return sector[offset : offset+length], proof, nil
 }
 
-func (pe *programExecutor) executeSwapSector(instr *rhpv3.InstrSwapSector) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeSwapSector(instr *rhpv3.InstrSwapSector, log *zap.Logger) ([]byte, []types.Hash256, error) {
 	// read the swap params
 	a, err := pe.programData.Uint64(instr.Sector1Offset)
 	if err != nil {
@@ -298,6 +310,7 @@ func (pe *programExecutor) executeSwapSector(instr *rhpv3.InstrSwapSector) ([]by
 	var output []byte
 	var proof []types.Hash256
 	if instr.ProofRequired {
+		proofStart := time.Now()
 		var oldLeafHashes []types.Hash256
 		// build the proof before updating the roots
 		proof, oldLeafHashes = rhpv2.BuildDiffProof([]rhpv2.RPCWriteAction{{Type: rhpv2.RPCWriteActionSwap, A: a, B: b}}, pe.updater.SectorRoots()) // TODO: add rhp3 proof methods
@@ -312,6 +325,7 @@ func (pe *programExecutor) executeSwapSector(instr *rhpv3.InstrSwapSector) ([]by
 			return nil, nil, fmt.Errorf("failed to encode old leaf hashes: %w", err)
 		}
 		output = buf.Bytes()
+		log.Debug("built proof", zap.Duration("duration", time.Since(proofStart)))
 	}
 
 	if err := pe.updater.SwapSectors(a, b); err != nil {
@@ -547,7 +561,7 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 		var output []byte
 		var proof []types.Hash256
 		var err error
-		for _, instruction := range pe.instructions {
+		for i, instruction := range pe.instructions {
 			select {
 			case <-ctx.Done():
 				outputs <- pe.instructionOutput(nil, nil, ctx.Err())
@@ -555,23 +569,25 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 			default:
 			}
 
+			log := pe.log.Named(instrLabel(instruction)).With(zap.Int("instruction", i+1), zap.Int("total", len(pe.instructions)))
+
 			start := time.Now()
 			// execute the instruction
 			switch instr := instruction.(type) {
 			case *rhpv3.InstrAppendSector:
-				output, proof, err = pe.executeAppendSector(instr)
+				output, proof, err = pe.executeAppendSector(instr, log)
 			case *rhpv3.InstrAppendSectorRoot:
-				output, proof, err = pe.executeAppendSectorRoot(instr)
+				output, proof, err = pe.executeAppendSectorRoot(instr, log)
 			case *rhpv3.InstrDropSectors:
-				output, proof, err = pe.executeDropSectors(instr)
+				output, proof, err = pe.executeDropSectors(instr, log)
 			case *rhpv3.InstrHasSector:
 				output, proof, err = pe.executeHasSector(instr)
 			case *rhpv3.InstrReadOffset:
-				output, proof, err = pe.executeReadOffset(instr)
+				output, proof, err = pe.executeReadOffset(instr, log)
 			case *rhpv3.InstrReadSector:
-				output, proof, err = pe.executeReadSector(instr)
+				output, proof, err = pe.executeReadSector(instr, log)
 			case *rhpv3.InstrSwapSector:
-				output, proof, err = pe.executeSwapSector(instr)
+				output, proof, err = pe.executeSwapSector(instr, log)
 			case *rhpv3.InstrUpdateSector:
 				output, proof, err = pe.executeUpdateSector(instr)
 			case *rhpv3.InstrStoreSector:
@@ -596,7 +612,7 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhpv3.RPCE
 				outputs <- pe.instructionOutput(nil, nil, fmt.Errorf("failed to execute instruction %q: %w", instrLabel(instruction), err))
 				return
 			}
-			pe.log.Debug("executed instruction", zap.String("instruction", instrLabel(instruction)), zap.Duration("elapsed", time.Since(start)))
+			log.Debug("executed instruction", zap.Duration("elapsed", time.Since(start)))
 			outputs <- pe.instructionOutput(output, proof, err)
 		}
 	}()

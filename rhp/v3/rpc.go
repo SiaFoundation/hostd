@@ -460,11 +460,13 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 	defer budget.Rollback()
 
 	// read the program request
+	readReqStart := time.Now()
 	var executeReq rhpv3.RPCExecuteProgramRequest
 	if err := s.ReadRequest(&executeReq, maxProgramRequestSize); err != nil {
 		return fmt.Errorf("failed to read execute request: %w", err)
 	}
 	instructions := executeReq.Program
+	log.Debug("read program request", zap.Duration("elapsed", time.Since(readReqStart)))
 
 	// pay for the execution
 	executeCost, _ := pt.BaseCost().Total()
@@ -489,6 +491,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 			return err
 		}
 
+		contractLockStart := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
@@ -501,6 +504,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) err
 		defer sh.contracts.Unlock(contract.Revision.ParentID)
 		revision = &contract
 		log = log.With(zap.String("contractID", contract.Revision.ParentID.String())) // attach the contract ID to the logger
+		log.Debug("locked contract", zap.Duration("elapsed", time.Since(contractLockStart)))
 	}
 
 	// generate a cancellation token and write it to the stream. Currently just
