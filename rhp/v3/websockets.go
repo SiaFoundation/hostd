@@ -2,17 +2,20 @@ package rhp
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 
 	rhpv3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 	"nhooyr.io/websocket"
 )
 
 // handleWebSockets handles websocket connections to the host.
 func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Request) {
-	log := sh.log.Named("websockets").With(zap.String("remoteAddr", r.RemoteAddr))
+	sessionID := frand.Bytes(8)
+	log := sh.log.Named("websockets").With(zap.String("peerAddr", r.RemoteAddr), zap.String("sessionID", hex.EncodeToString(sessionID)))
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	})
@@ -37,7 +40,10 @@ func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Reques
 			log.Debug("failed to accept stream", zap.Error(err))
 			return
 		}
-		go sh.handleHostStream(conn.RemoteAddr().String(), stream)
+
+		rpcID := frand.Bytes(6)
+		log := sh.log.With(zap.String("rpcID", hex.EncodeToString(rpcID)))
+		go sh.handleHostStream(stream, log)
 	}
 }
 

@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+	"lukechampine.com/frand"
 )
 
 type (
@@ -170,7 +172,7 @@ var (
 )
 
 // handleHostStream handles streams routed to the "host" subscriber
-func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
+func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream, log *zap.Logger) {
 	defer s.Close() // close the stream when the RPC has completed
 
 	done, err := sh.tg.Add() // add the RPC to the threadgroup
@@ -180,12 +182,11 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 	defer done()
 
 	s.SetDeadline(time.Now().Add(30 * time.Second)) // set an initial timeout
-	rpcID, err := s.ReadID()
+	rpc, err := s.ReadID()
 	if err != nil {
-		sh.log.Debug("failed to read RPC ID", zap.Error(err))
+		log.Debug("failed to read RPC ID", zap.Error(err))
 		return
 	}
-
 	rpcs := map[types.Specifier]func(*rhpv3.Stream, *zap.Logger) error{
 		rhpv3.RPCAccountBalanceID:   sh.handleRPCAccountBalance,
 		rhpv3.RPCUpdatePriceTableID: sh.handleRPCPriceTable,
@@ -194,20 +195,20 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 		rhpv3.RPCLatestRevisionID:   sh.handleRPCLatestRevision,
 		rhpv3.RPCRenewContractID:    sh.handleRPCRenew,
 	}
-	rpcFn, ok := rpcs[rpcID]
+	rpcFn, ok := rpcs[rpc]
 	if !ok {
-		sh.log.Debug("unrecognized RPC ID", zap.String("rpc", rpcID.String()))
+		log.Debug("unrecognized RPC ID", zap.String("rpc", rpc.String()))
 		return
 	}
 
-	log := sh.log.Named(rpcID.String()).With(zap.String("peerAddr", remoteAddr))
-	start := time.Now()
+	log = log.Named(rpc.String())
+	rpcStart := time.Now()
 	s.SetDeadline(time.Now().Add(time.Minute)) // set the initial deadline, may be overwritten by the handler
 	if err = rpcFn(s, log); err != nil {
-		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
+		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(rpcStart)))
 		return
 	}
-	log.Info("RPC success", zap.Duration("elapsed", time.Since(start)))
+	log.Info("RPC success", zap.Duration("elapsed", time.Since(rpcStart)))
 }
 
 // HostKey returns the host's ed25519 public key
@@ -231,12 +232,15 @@ func (sh *SessionHandler) Serve() error {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 
+		sessionID := frand.Bytes(6)
+		log := sh.log.With(zap.String("sessionID", hex.EncodeToString(sessionID)), zap.String("peerAddress", conn.RemoteAddr().String()))
+
 		go func() {
 			defer conn.Close()
 			ingress, egress := sh.settings.BandwidthLimiters()
 			t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, sh.monitor, ingress, egress), sh.privateKey)
 			if err != nil {
-				sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
+				log.Debug("failed to upgrade conn", zap.Error(err))
 				return
 			}
 			defer t.Close()
@@ -245,11 +249,14 @@ func (sh *SessionHandler) Serve() error {
 				stream, err := t.AcceptStream()
 				if err != nil {
 					if !isStreamClosedErr(err) {
-						sh.log.Debug("failed to accept stream", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
+						log.Debug("failed to accept stream", zap.Error(err))
 					}
 					return
 				}
-				go sh.handleHostStream(conn.RemoteAddr().String(), stream)
+
+				rpcID := frand.Bytes(6)
+				log := sh.log.With(zap.String("rpcID", hex.EncodeToString(rpcID)))
+				go sh.handleHostStream(stream, log)
 			}
 		}()
 	}
