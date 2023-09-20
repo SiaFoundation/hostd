@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"lukechampine.com/frand"
 )
 
@@ -90,12 +90,12 @@ func (v *volume) OpenVolume(localPath string, reload bool) error {
 }
 
 // ReadSector reads the sector at index from the volume
-func (v *volume) ReadSector(index uint64) (*[rhpv2.SectorSize]byte, error) {
+func (v *volume) ReadSector(index uint64) (*[rhp2.SectorSize]byte, error) {
 	if v.data == nil {
 		return nil, ErrVolumeNotAvailable
 	}
-	var sector [rhpv2.SectorSize]byte
-	_, err := v.data.ReadAt(sector[:], int64(index*rhpv2.SectorSize))
+	var sector [rhp2.SectorSize]byte
+	_, err := v.data.ReadAt(sector[:], int64(index*rhp2.SectorSize))
 	v.mu.Lock()
 	if err != nil {
 		v.stats.FailedReads++
@@ -108,11 +108,11 @@ func (v *volume) ReadSector(index uint64) (*[rhpv2.SectorSize]byte, error) {
 }
 
 // WriteSector writes a sector to the volume at index
-func (v *volume) WriteSector(data *[rhpv2.SectorSize]byte, index uint64) error {
+func (v *volume) WriteSector(data *[rhp2.SectorSize]byte, index uint64) error {
 	if v.data == nil {
 		panic("volume not open") // developer error
 	}
-	_, err := v.data.WriteAt(data[:], int64(index*rhpv2.SectorSize))
+	_, err := v.data.WriteAt(data[:], int64(index*rhp2.SectorSize))
 	v.mu.Lock()
 	if err != nil {
 		v.stats.FailedWrites++
@@ -155,16 +155,16 @@ func (v *volume) Resize(oldSectors, newSectors uint64) error {
 	}
 
 	if newSectors > oldSectors {
-		buf := make([]byte, rhpv2.SectorSize)
+		buf := make([]byte, rhp2.SectorSize)
 		r := rand.New(rand.NewSource(int64(frand.Uint64n(math.MaxInt64))))
 		for i := oldSectors; i < newSectors; i++ {
 			r.Read(buf)
-			if _, err := v.data.WriteAt(buf, int64(i*rhpv2.SectorSize)); err != nil {
+			if _, err := v.data.WriteAt(buf, int64(i*rhp2.SectorSize)); err != nil {
 				return fmt.Errorf("failed to write sector to index %v: %w", i, err)
 			}
 		}
 	} else {
-		if err := v.data.Truncate(int64(newSectors * rhpv2.SectorSize)); err != nil {
+		if err := v.data.Truncate(int64(newSectors * rhp2.SectorSize)); err != nil {
 			return fmt.Errorf("failed to truncate volume: %w", err)
 		}
 	}

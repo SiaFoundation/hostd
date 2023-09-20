@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
@@ -14,10 +14,10 @@ import (
 	"lukechampine.com/frand"
 )
 
-func randomValue(key types.PrivateKey) (value rhpv3.RegistryEntry) {
+func randomValue(key types.PrivateKey) (value rhp3.RegistryEntry) {
 	value.Tweak = frand.Entropy256()
 	value.Data = frand.Bytes(32)
-	value.Type = rhpv3.EntryTypeArbitrary
+	value.Type = rhp3.EntryTypeArbitrary
 	value.PublicKey = key.PublicKey()
 	value.Signature = key.SignHash(value.Hash())
 	return
@@ -72,15 +72,15 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// test updating the value's revision number and data; should succeed
-	entry := rhpv3.RegistryEntry{
-		RegistryKey: rhpv3.RegistryKey{
+	entry := rhp3.RegistryEntry{
+		RegistryKey: rhp3.RegistryKey{
 			PublicKey: renterPriv.PublicKey(),
 			Tweak:     original.Tweak,
 		},
-		RegistryValue: rhpv3.RegistryValue{
+		RegistryValue: rhp3.RegistryValue{
 			Data:     original.Data,
 			Revision: 1,
-			Type:     rhpv3.EntryTypeArbitrary,
+			Type:     rhp3.EntryTypeArbitrary,
 		},
 	}
 	entry.Signature = renterPriv.SignHash(entry.Hash())
@@ -92,19 +92,19 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// test updating the value's work; should succeed
-	updatedEntry := rhpv3.RegistryEntry{
+	updatedEntry := rhp3.RegistryEntry{
 		RegistryKey:   entry.RegistryKey,
 		RegistryValue: updated,
 	}
-	entry = rhpv3.RegistryEntry{
+	entry = rhp3.RegistryEntry{
 		RegistryKey: original.RegistryKey,
-		RegistryValue: rhpv3.RegistryValue{
+		RegistryValue: rhp3.RegistryValue{
 			Data:     make([]byte, 32),
 			Revision: 1,
-			Type:     rhpv3.EntryTypeArbitrary,
+			Type:     rhp3.EntryTypeArbitrary,
 		},
 	}
-	for rhpv3.CompareRegistryWork(entry, updatedEntry) <= 0 {
+	for rhp3.CompareRegistryWork(entry, updatedEntry) <= 0 {
 		frand.Read(entry.Data)
 	}
 	entry.Signature = renterPriv.SignHash(entry.Hash())
@@ -116,13 +116,13 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// test setting the value to a primary value; should succeed
-	hostID := rhpv3.RegistryHostID(hostPriv.PublicKey())
-	entry = rhpv3.RegistryEntry{
+	hostID := rhp3.RegistryHostID(hostPriv.PublicKey())
+	entry = rhp3.RegistryEntry{
 		RegistryKey: original.RegistryKey,
-		RegistryValue: rhpv3.RegistryValue{
+		RegistryValue: rhp3.RegistryValue{
 			Data:     append([]byte(hostID[:20]), updated.Data...),
 			Revision: 1,
-			Type:     rhpv3.EntryTypePubKey,
+			Type:     rhp3.EntryTypePubKey,
 		},
 	}
 	entry.Signature = renterPriv.SignHash(entry.Hash())

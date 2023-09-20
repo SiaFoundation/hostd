@@ -11,7 +11,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"go.sia.tech/core/consensus"
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
@@ -84,7 +84,7 @@ type (
 		volumes     map[int]*volume
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int]bool
-		cache          *lru.Cache[types.Hash256, *[rhpv2.SectorSize]byte] // Added cache
+		cache          *lru.Cache[types.Hash256, *[rhp2.SectorSize]byte] // Added cache
 	}
 )
 
@@ -128,7 +128,7 @@ func (vm *VolumeManager) lockVolume(id int) (func(), error) {
 
 // writeSector writes a sector to a volume. The volume is not synced after the
 // sector is written. The location is assumed to be empty and locked.
-func (vm *VolumeManager) writeSector(data *[rhpv2.SectorSize]byte, loc SectorLocation) error {
+func (vm *VolumeManager) writeSector(data *[rhp2.SectorSize]byte, loc SectorLocation) error {
 	vol, err := vm.getVolume(loc.Volume)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
@@ -212,7 +212,7 @@ func (vm *VolumeManager) migrateSectors(locations []SectorLocation, force bool, 
 				return fmt.Errorf("failed to read sector: %w", err)
 			}
 			// calculate the returned root
-			root := rhpv2.SectorRoot(sector)
+			root := rhp2.SectorRoot(sector)
 			if root != loc.Root {
 				return fmt.Errorf("sector corrupt: %v != %v", loc.Root, root)
 			}
@@ -813,7 +813,7 @@ func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 	}
 
 	// zero the sector and immediately sync the volume
-	var zeroes [rhpv2.SectorSize]byte
+	var zeroes [rhp2.SectorSize]byte
 	if err := vol.WriteSector(&zeroes, loc.Index); err != nil {
 		return fmt.Errorf("failed to zero sector %v: %w", root, err)
 	} else if err := vol.Sync(); err != nil {
@@ -844,7 +844,7 @@ func (vm *VolumeManager) CacheStats() (hits, misses uint64) {
 }
 
 // Read reads the sector with the given root
-func (vm *VolumeManager) Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error) {
+func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
@@ -915,7 +915,7 @@ func (vm *VolumeManager) Sync() error {
 
 // Write writes a sector to a volume. release should only be called after the
 // contract roots have been committed to prevent the sector from being deleted.
-func (vm *VolumeManager) Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (func() error, error) {
+func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) (func() error, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
@@ -986,7 +986,7 @@ func (vm *VolumeManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger, sectorCacheSize uint32) (*VolumeManager, error) {
 	// Initialize cache with LRU eviction and a max capacity of 64
-	cache, err := lru.New[types.Hash256, *[rhpv2.SectorSize]byte](64)
+	cache, err := lru.New[types.Hash256, *[rhp2.SectorSize]byte](64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cache: %w", err)
 	}

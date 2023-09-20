@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 )
@@ -78,33 +78,33 @@ var (
 
 // validateWriteActions validates the actions received by the renter for the
 // write RPC and estimates the cost of completing the actions.
-func validateWriteActions(actions []rhpv2.RPCWriteAction, oldSectors uint64, proof bool, remainingDuration uint64, settings rhpv2.HostSettings) (rpcCost, error) {
+func validateWriteActions(actions []rhp2.RPCWriteAction, oldSectors uint64, proof bool, remainingDuration uint64, settings rhp2.HostSettings) (rpcCost, error) {
 	var uploadBytes uint64
 	newSectors := oldSectors
 	for _, action := range actions {
 		switch action.Type {
-		case rhpv2.RPCWriteActionAppend:
-			if len(action.Data) != rhpv2.SectorSize {
+		case rhp2.RPCWriteActionAppend:
+			if len(action.Data) != rhp2.SectorSize {
 				return rpcCost{}, fmt.Errorf("invalid sector size: %v: %w", len(action.Data), ErrInvalidSectorLength)
 			}
 			newSectors++
-			uploadBytes += rhpv2.SectorSize
-		case rhpv2.RPCWriteActionTrim:
+			uploadBytes += rhp2.SectorSize
+		case rhp2.RPCWriteActionTrim:
 			if action.A > newSectors {
 				return rpcCost{}, ErrTrimOutOfBounds
 			}
 			newSectors -= action.A
-		case rhpv2.RPCWriteActionSwap:
+		case rhp2.RPCWriteActionSwap:
 			if action.A >= newSectors || action.B >= newSectors {
 				return rpcCost{}, ErrSwapOutOfBounds
 			}
-		case rhpv2.RPCWriteActionUpdate:
+		case rhp2.RPCWriteActionUpdate:
 			idx, offset := action.A, action.B
 			if idx >= newSectors {
 				return rpcCost{}, ErrUpdateOutOfBounds
-			} else if offset+uint64(len(action.Data)) > rhpv2.SectorSize {
+			} else if offset+uint64(len(action.Data)) > rhp2.SectorSize {
 				return rpcCost{}, ErrOffsetOutOfBounds
-			} else if proof && (offset%rhpv2.LeafSize != 0) || len(action.Data)%rhpv2.LeafSize != 0 {
+			} else if proof && (offset%rhp2.LeafSize != 0) || len(action.Data)%rhp2.LeafSize != 0 {
 				return rpcCost{}, ErrUpdateProofSize
 			}
 		default:
@@ -119,8 +119,8 @@ func validateWriteActions(actions []rhpv2.RPCWriteAction, oldSectors uint64, pro
 
 	if newSectors > oldSectors {
 		additionalSectors := (newSectors - oldSectors)
-		cost.Storage = settings.StoragePrice.Mul64(rhpv2.SectorSize * additionalSectors * remainingDuration)  // cost of storing the new sectors
-		cost.Collateral = settings.Collateral.Mul64(rhpv2.SectorSize * additionalSectors * remainingDuration) // collateral for the new sectors
+		cost.Storage = settings.StoragePrice.Mul64(rhp2.SectorSize * additionalSectors * remainingDuration)  // cost of storing the new sectors
+		cost.Collateral = settings.Collateral.Mul64(rhp2.SectorSize * additionalSectors * remainingDuration) // collateral for the new sectors
 	}
 
 	if proof {
@@ -131,24 +131,24 @@ func validateWriteActions(actions []rhpv2.RPCWriteAction, oldSectors uint64, pro
 	return cost, nil
 }
 
-func validateReadActions(sections []rhpv2.RPCReadRequestSection, proof bool, settings rhpv2.HostSettings) (rpcCost, error) {
+func validateReadActions(sections []rhp2.RPCReadRequestSection, proof bool, settings rhp2.HostSettings) (rpcCost, error) {
 	// validate the request sections and calculate the cost
 	var bandwidth uint64
 	for _, sec := range sections {
 		switch {
-		case uint64(sec.Offset)+uint64(sec.Length) > rhpv2.SectorSize:
+		case uint64(sec.Offset)+uint64(sec.Length) > rhp2.SectorSize:
 			return rpcCost{}, ErrOffsetOutOfBounds
 		case sec.Length == 0:
 			return rpcCost{}, errors.New("length cannot be zero")
-		case proof && (sec.Offset%rhpv2.LeafSize != 0 || sec.Length%rhpv2.LeafSize != 0):
+		case proof && (sec.Offset%rhp2.LeafSize != 0 || sec.Length%rhp2.LeafSize != 0):
 			return rpcCost{}, errors.New("offset and length must be multiples of SegmentSize when requesting a Merkle proof")
 		}
 
 		bandwidth += uint64(sec.Length)
 		if proof {
-			start := sec.Offset / rhpv2.LeafSize
-			end := (sec.Offset + sec.Length) / rhpv2.LeafSize
-			proofSize := rhpv2.RangeProofSize(rhpv2.LeavesPerSector, start, end)
+			start := sec.Offset / rhp2.LeafSize
+			end := (sec.Offset + sec.Length) / rhp2.LeafSize
+			proofSize := rhp2.RangeProofSize(rhp2.LeavesPerSector, start, end)
 			bandwidth += proofSize * 32
 		}
 	}
@@ -159,8 +159,8 @@ func validateReadActions(sections []rhpv2.RPCReadRequestSection, proof bool, set
 	}, nil
 }
 
-func rpcSectorRootsCost(count, offset uint64, settings rhpv2.HostSettings) rpcCost {
-	proofSize := rhpv2.RangeProofSize(rhpv2.LeavesPerSector, offset, offset+count)
+func rpcSectorRootsCost(count, offset uint64, settings rhp2.HostSettings) rpcCost {
+	proofSize := rhp2.RangeProofSize(rhp2.LeavesPerSector, offset, offset+count)
 	return rpcCost{
 		Base:   settings.BaseRPCPrice,
 		Egress: settings.DownloadBandwidthPrice.Mul64((count + proofSize) * 32),
@@ -176,7 +176,7 @@ func contractUnlockConditions(hostKey, renterKey types.UnlockKey) types.UnlockCo
 
 // validateContractFormation verifies that the new contract is valid given the
 // host's settings.
-func validateContractFormation(fc types.FileContract, hostKey, renterKey types.UnlockKey, currentHeight uint64, settings rhpv2.HostSettings) (types.Currency, error) {
+func validateContractFormation(fc types.FileContract, hostKey, renterKey types.UnlockKey, currentHeight uint64, settings rhp2.HostSettings) (types.Currency, error) {
 	switch {
 	case fc.Filesize != 0:
 		return types.ZeroCurrency, errors.New("initial filesize should be 0")
@@ -217,7 +217,7 @@ func validateContractFormation(fc types.FileContract, hostKey, renterKey types.U
 // validateContractRenewal verifies that the renewed contract is valid given the
 // old contract. A renewal is valid if the contract fields match and the
 // revision number is 0.
-func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, baseHostRevenue, baseRiskedCollateral types.Currency, currentHeight uint64, settings rhpv2.HostSettings) (storageRevenue, riskedCollateral, lockedCollateral types.Currency, err error) {
+func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, baseHostRevenue, baseRiskedCollateral types.Currency, currentHeight uint64, settings rhp2.HostSettings) (storageRevenue, riskedCollateral, lockedCollateral types.Currency, err error) {
 	switch {
 	case renewal.RevisionNumber != 0:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("revision number must be zero")

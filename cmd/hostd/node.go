@@ -18,8 +18,8 @@ import (
 	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/rhp"
-	rhpv2 "go.sia.tech/hostd/rhp/v2"
-	rhpv3 "go.sia.tech/hostd/rhp/v3"
+	rhp2 "go.sia.tech/hostd/rhp/v2"
+	rhp3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/modules/consensus"
@@ -45,9 +45,9 @@ type node struct {
 
 	sessions    *rhp.SessionReporter
 	rhp2Monitor *rhp.DataRecorder
-	rhp2        *rhpv2.SessionHandler
+	rhp2        *rhp2.SessionHandler
 	rhp3Monitor *rhp.DataRecorder
-	rhp3        *rhpv3.SessionHandler
+	rhp3        *rhp3.SessionHandler
 }
 
 func (n *node) Close() error {
@@ -65,8 +65,8 @@ func (n *node) Close() error {
 	return nil
 }
 
-func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhpv2.ChainManager, tp rhpv2.TransactionPool, w rhpv2.Wallet, cm rhpv2.ContractManager, sr rhpv2.SettingsReporter, sm rhpv2.StorageManager, monitor rhp.DataMonitor, sessions *rhp.SessionReporter, log *zap.Logger) (*rhpv2.SessionHandler, error) {
-	rhp2, err := rhpv2.NewSessionHandler(l, hostKey, rhp3Addr, cs, tp, w, cm, sr, sm, monitor, sessions, log)
+func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhp2.ChainManager, tp rhp2.TransactionPool, w rhp2.Wallet, cm rhp2.ContractManager, sr rhp2.SettingsReporter, sm rhp2.StorageManager, monitor rhp.DataMonitor, sessions *rhp.SessionReporter, log *zap.Logger) (*rhp2.SessionHandler, error) {
+	rhp2, err := rhp2.NewSessionHandler(l, hostKey, rhp3Addr, cs, tp, w, cm, sr, sm, monitor, sessions, log)
 	if err != nil {
 		return nil, err
 	}
@@ -74,8 +74,8 @@ func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhp
 	return rhp2, nil
 }
 
-func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhpv3.ChainManager, tp rhpv3.TransactionPool, w rhpv3.Wallet, am rhpv3.AccountManager, cm rhpv3.ContractManager, rm rhpv3.RegistryManager, sr rhpv3.SettingsReporter, sm rhpv3.StorageManager, monitor rhp.DataMonitor, sessions *rhp.SessionReporter, log *zap.Logger) (*rhpv3.SessionHandler, error) {
-	rhp3, err := rhpv3.NewSessionHandler(l, hostKey, cs, tp, w, am, cm, rm, sm, sr, monitor, sessions, log)
+func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhp3.ChainManager, tp rhp3.TransactionPool, w rhp3.Wallet, am rhp3.AccountManager, cm rhp3.ContractManager, rm rhp3.RegistryManager, sr rhp3.SettingsReporter, sm rhp3.StorageManager, monitor rhp.DataMonitor, sessions *rhp.SessionReporter, log *zap.Logger) (*rhp3.SessionHandler, error) {
+	rhp3, err := rhp3.NewSessionHandler(l, hostKey, cs, tp, w, am, cm, rm, sm, sr, monitor, sessions, log)
 	if err != nil {
 		return nil, err
 	}
@@ -183,13 +183,13 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	sessions := rhp.NewSessionReporter()
 
 	rhp2Monitor := rhp.NewDataRecorder(&rhp2MonitorStore{db}, logger.Named("rhp2Monitor"))
-	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, tp, w, contractManager, sr, sm, rhp2Monitor, sessions, logger.Named("rhpv2"))
+	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, tp, w, contractManager, sr, sm, rhp2Monitor, sessions, logger.Named("rhp2"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
 	rhp3Monitor := rhp.NewDataRecorder(&rhp3MonitorStore{db}, logger.Named("rhp3Monitor"))
-	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, tp, w, accountManager, contractManager, registryManager, sr, sm, rhp3Monitor, sessions, logger.Named("rhpv3"))
+	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, tp, w, accountManager, contractManager, registryManager, sr, sm, rhp3Monitor, sessions, logger.Named("rhp3"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}

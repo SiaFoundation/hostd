@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
@@ -55,9 +55,9 @@ type (
 		// Write writes a sector to persistent storage. release should only be
 		// called after the contract roots have been committed to prevent the
 		// sector from being deleted.
-		Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (release func() error, _ error)
+		Write(root types.Hash256, data *[rhp2.SectorSize]byte) (release func() error, _ error)
 		// Read reads the sector with the given root from the manager.
-		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
+		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 	}
@@ -128,14 +128,14 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 	}
 
 	rpcFn, ok := map[types.Specifier]func(*session, *zap.Logger) (contracts.Usage, error){
-		rhpv2.RPCFormContractID:       sh.rpcFormContract,
-		rhpv2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
-		rhpv2.RPCLockID:               sh.rpcLock,
-		rhpv2.RPCUnlockID:             sh.rpcUnlock,
-		rhpv2.RPCSectorRootsID:        sh.rpcSectorRoots,
-		rhpv2.RPCReadID:               sh.rpcRead,
-		rhpv2.RPCSettingsID:           sh.rpcSettings,
-		rhpv2.RPCWriteID:              sh.rpcWrite,
+		rhp2.RPCFormContractID:       sh.rpcFormContract,
+		rhp2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
+		rhp2.RPCLockID:               sh.rpcLock,
+		rhp2.RPCUnlockID:             sh.rpcUnlock,
+		rhp2.RPCSectorRootsID:        sh.rpcSectorRoots,
+		rhp2.RPCReadID:               sh.rpcRead,
+		rhp2.RPCSettingsID:           sh.rpcSettings,
+		rhp2.RPCWriteID:              sh.rpcWrite,
 	}[id]
 	if !ok {
 		err = fmt.Errorf("unknown RPC ID %q", id)
@@ -162,7 +162,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 	ingressLimiter, egressLimiter := sh.settings.BandwidthLimiters()
 	rhpConn := rhp.NewConn(conn, sh.monitor, ingressLimiter, egressLimiter)
 
-	t, err := rhpv2.NewHostTransport(rhpConn, sh.privateKey)
+	t, err := rhp2.NewHostTransport(rhpConn, sh.privateKey)
 	if err != nil {
 		return err
 	}
@@ -199,11 +199,11 @@ func (sh *SessionHandler) Close() error {
 }
 
 // Settings returns the host's current settings
-func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
+func (sh *SessionHandler) Settings() (rhp2.HostSettings, error) {
 	settings := sh.settings.Settings()
 	usedSectors, totalSectors, err := sh.storage.Usage()
 	if err != nil {
-		return rhpv2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
+		return rhp2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
 	}
 
 	netaddr := settings.NetAddress
@@ -212,10 +212,10 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 	}
 	// if the net address is still empty, return an error
 	if len(netaddr) == 0 {
-		return rhpv2.HostSettings{}, errors.New("no net address found")
+		return rhp2.HostSettings{}, errors.New("no net address found")
 	}
 
-	return rhpv2.HostSettings{
+	return rhp2.HostSettings{
 		// protocol version
 		Version: Version,
 
@@ -223,13 +223,13 @@ func (sh *SessionHandler) Settings() (rhpv2.HostSettings, error) {
 		Address:          sh.wallet.Address(),
 		SiaMuxPort:       sh.rhp3Port,
 		NetAddress:       netaddr,
-		TotalStorage:     totalSectors * rhpv2.SectorSize,
-		RemainingStorage: (totalSectors - usedSectors) * rhpv2.SectorSize,
+		TotalStorage:     totalSectors * rhp2.SectorSize,
+		RemainingStorage: (totalSectors - usedSectors) * rhp2.SectorSize,
 
 		// network defaults
 		MaxDownloadBatchSize: defaultBatchSize,
 		MaxReviseBatchSize:   defaultBatchSize,
-		SectorSize:           rhpv2.SectorSize,
+		SectorSize:           rhp2.SectorSize,
 		WindowSize:           settings.WindowSize,
 
 		// contract formation
@@ -266,7 +266,7 @@ func (sh *SessionHandler) Serve() error {
 		go func() {
 			defer conn.Close()
 			if err := sh.upgrade(conn); err != nil {
-				if errors.Is(err, rhpv2.ErrRenterClosed) || errors.Is(err, io.EOF) {
+				if errors.Is(err, rhp2.ErrRenterClosed) || errors.Is(err, io.EOF) {
 					// skip logging graceful close and EOF errors
 					return
 				}

@@ -41,11 +41,11 @@ var (
 			Bootstrap:      true,
 		},
 		RHP2: config.RHP2{
-			Address: defaultRHPv2Addr,
+			Address: defaultRHP2Addr,
 		},
 		RHP3: config.RHP3{
-			TCPAddress:       defaultRHPv3TCPAddr,
-			WebSocketAddress: defaultRHPv3WSAddr,
+			TCPAddress:       defaultRHP3TCPAddr,
+			WebSocketAddress: defaultRHP3WSAddr,
 		},
 		Log: config.Log{
 			Level: "info",
@@ -335,18 +335,18 @@ func main() {
 	}
 	defer web.Close()
 
-	rhpv3WS := http.Server{
+	rhp3WS := http.Server{
 		Handler:     node.rhp3.WebSocketHandler(),
 		ReadTimeout: 30 * time.Second,
 		TLSConfig:   node.settings.RHP3TLSConfig(),
 		ErrorLog:    stdlog.New(io.Discard, "", 0),
 	}
-	defer rhpv3WS.Close()
+	defer rhp3WS.Close()
 
 	go func() {
-		err := rhpv3WS.ServeTLS(rhp3WSListener, "", "")
+		err := rhp3WS.ServeTLS(rhp3WSListener, "", "")
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("failed to serve rhpv3 websocket", zap.Error(err))
+			log.Error("failed to serve rhp3 websocket", zap.Error(err))
 		}
 	}()
 

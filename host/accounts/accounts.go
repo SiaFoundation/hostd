@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
@@ -25,16 +25,16 @@ type (
 	// An AccountStore stores and updates account balances.
 	AccountStore interface {
 		// AccountFunding returns the remaining funding sources for an account.
-		AccountFunding(accountID rhpv3.Account) ([]FundingSource, error)
+		AccountFunding(accountID rhp3.Account) ([]FundingSource, error)
 		// Accounts returns a list of active ephemeral accounts
 		Accounts(limit, offset int) ([]Account, error)
 		// AccountBalance returns the balance of the account with the given ID.
-		AccountBalance(accountID rhpv3.Account) (types.Currency, error)
+		AccountBalance(accountID rhp3.Account) (types.Currency, error)
 		// CreditAccountWithContract adds the specified amount to the account with the given ID.
 		CreditAccountWithContract(FundAccountWithContract) (types.Currency, error)
 		// DebitAccount subtracts the specified amount from the account with the given
 		// ID. Returns the remaining balance of the account.
-		DebitAccount(accountID rhpv3.Account, usage Usage) (types.Currency, error)
+		DebitAccount(accountID rhp3.Account, usage Usage) (types.Currency, error)
 	}
 
 	// Settings returns the host's current settings.
@@ -50,13 +50,13 @@ type (
 	// FundingSource tracks a funding source for an account.
 	FundingSource struct {
 		ContractID types.FileContractID `json:"contractID"`
-		AccountID  rhpv3.Account        `json:"accountID"`
+		AccountID  rhp3.Account         `json:"accountID"`
 		Amount     types.Currency       `json:"amount"`
 	}
 
 	// An Account holds the balance and expiration of an ephemeral account.
 	Account struct {
-		ID         rhpv3.Account  `json:"ID"`
+		ID         rhp3.Account   `json:"ID"`
 		Balance    types.Currency `json:"balance"`
 		Expiration time.Time      `json:"expiration"`
 	}
@@ -64,7 +64,7 @@ type (
 	// FundAccountWithContract is a helper struct for funding an account with a
 	// contract.
 	FundAccountWithContract struct {
-		Account    rhpv3.Account
+		Account    rhp3.Account
 		Cost       types.Currency
 		Amount     types.Currency
 		Revision   contracts.SignedRevision
@@ -81,11 +81,11 @@ type (
 		// balances is a map of account IDs to their current balance. It
 		// is used for consistency before a budget is synced to the underlying
 		// store.
-		balances map[rhpv3.Account]accountState
+		balances map[rhp3.Account]accountState
 	}
 )
 
-func (am *AccountManager) getBalance(accountID rhpv3.Account) (types.Currency, error) {
+func (am *AccountManager) getBalance(accountID rhp3.Account) (types.Currency, error) {
 	if state, ok := am.balances[accountID]; ok {
 		return state.balance, nil
 	}
@@ -93,7 +93,7 @@ func (am *AccountManager) getBalance(accountID rhpv3.Account) (types.Currency, e
 }
 
 // Balance returns the balance of the account with the given ID.
-func (am *AccountManager) Balance(accountID rhpv3.Account) (types.Currency, error) {
+func (am *AccountManager) Balance(accountID rhp3.Account) (types.Currency, error) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 	return am.getBalance(accountID)
@@ -105,7 +105,7 @@ func (am *AccountManager) Accounts(limit, offset int) (acc []Account, err error)
 }
 
 // AccountFunding returns the remaining funding sources for an account.
-func (am *AccountManager) AccountFunding(account rhpv3.Account) (srcs []FundingSource, err error) {
+func (am *AccountManager) AccountFunding(account rhp3.Account) (srcs []FundingSource, err error) {
 	return am.store.AccountFunding(account)
 }
 
@@ -143,7 +143,7 @@ func (am *AccountManager) Credit(req FundAccountWithContract, refund bool) (type
 
 // Budget creates a new budget for an account limited by amount. The spent
 // amount will not be synced to the underlying store until Commit is called.
-func (am *AccountManager) Budget(accountID rhpv3.Account, amount types.Currency) (*Budget, error) {
+func (am *AccountManager) Budget(accountID rhp3.Account, amount types.Currency) (*Budget, error) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -188,6 +188,6 @@ func NewManager(store AccountStore, settings Settings) *AccountManager {
 		store:    store,
 		settings: settings,
 
-		balances: make(map[rhpv3.Account]accountState),
+		balances: make(map[rhp3.Account]accountState),
 	}
 }

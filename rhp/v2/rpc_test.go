@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/renterd/wallet"
@@ -26,12 +26,12 @@ func TestSettings(t *testing.T) {
 	defer renter.Close()
 	defer host.Close()
 
-	hostSettings, err := host.RHPv2Settings()
+	hostSettings, err := host.RHP2Settings()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	renterSettings, err := renter.Settings(context.Background(), host.RHPv2Addr(), host.PublicKey())
+	renterSettings, err := renter.Settings(context.Background(), host.RHP2Addr(), host.PublicKey())
 	if err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(hostSettings, renterSettings) {
@@ -49,21 +49,21 @@ func TestUploadDownload(t *testing.T) {
 	defer host.Close()
 
 	// form a contract
-	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
+	contract, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), contract.ID())
+	session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), contract.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
 
 	// generate a sector
-	var sector [rhpv2.SectorSize]byte
+	var sector [rhp2.SectorSize]byte
 	frand.Read(sector[:256])
-	sectorRoot := rhpv2.SectorRoot(&sector)
+	sectorRoot := rhp2.SectorRoot(&sector)
 
 	// calculate the remaining duration of the contract
 	var remainingDuration uint64
@@ -74,7 +74,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 	// upload the sector
 	remainingDuration = contractExpiration - currentHeight
-	price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+	price, collateral := rhp2.RPCAppendCost(session.Settings(), remainingDuration)
 	writtenRoot, err := session.Append(context.Background(), &sector, price, collateral)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 
 	// check the host's sector roots matches the sector we just uploaded
-	price = rhpv2.RPCSectorRootsCost(session.Settings(), 1)
+	price = rhp2.RPCSectorRootsCost(session.Settings(), 1)
 	roots, err := session.SectorRoots(context.Background(), 0, 1, price)
 	if err != nil {
 		t.Fatal(err)
@@ -94,21 +94,21 @@ func TestUploadDownload(t *testing.T) {
 	// check that the revision fields are correct
 	revision := session.Revision().Revision
 	switch {
-	case revision.Filesize != rhpv2.SectorSize:
+	case revision.Filesize != rhp2.SectorSize:
 		t.Fatal("wrong filesize")
 	case revision.FileMerkleRoot != sectorRoot:
 		t.Fatal("wrong merkle root")
 	}
 
-	sections := []rhpv2.RPCReadRequestSection{
+	sections := []rhp2.RPCReadRequestSection{
 		{
 			MerkleRoot: writtenRoot,
 			Offset:     0,
-			Length:     rhpv2.SectorSize,
+			Length:     rhp2.SectorSize,
 		},
 	}
 
-	price = rhpv2.RPCReadCost(session.Settings(), sections)
+	price = rhp2.RPCReadCost(session.Settings(), sections)
 
 	var buf bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -134,12 +134,12 @@ func TestRenew(t *testing.T) {
 	t.Run("empty contract", func(t *testing.T) {
 		state := renter.TipState()
 		// form a contract
-		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		origin, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), origin.ID())
+		session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), origin.ID())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -154,13 +154,13 @@ func TestRenew(t *testing.T) {
 		renewHeight := origin.Revision.WindowEnd + 10
 		settings := session.Settings()
 		current := session.Revision().Revision
-		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhpv2.PrepareContractRenewal(current, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		additionalCollateral := rhp2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
+		renewed, basePrice := rhp2.PrepareContractRenewal(current, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
 
-		cost := rhpv2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
+		cost := rhp2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
 		toSign, discard, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
 		if err != nil {
 			t.Fatal(err)
@@ -216,21 +216,21 @@ func TestRenew(t *testing.T) {
 	t.Run("drained contract", func(t *testing.T) {
 		// form a contract
 		state := renter.TipState()
-		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		origin, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), origin.ID())
+		session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), origin.ID())
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer session.Close()
 
 		// generate a sector
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
-		sectorRoot := rhpv2.SectorRoot(&sector)
+		sectorRoot := rhp2.SectorRoot(&sector)
 
 		// calculate the remaining duration of the contract
 		var remainingDuration uint64
@@ -241,7 +241,7 @@ func TestRenew(t *testing.T) {
 		}
 		// upload the sector
 		remainingDuration = contractExpiration - currentHeight
-		_, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+		_, collateral := rhp2.RPCAppendCost(session.Settings(), remainingDuration)
 		// overpay for the sector, leaving a few hastings for the renewal
 		remainingValue := types.NewCurrency64(25)
 		price := origin.Revision.ValidRenterPayout().Sub(remainingValue)
@@ -261,13 +261,13 @@ func TestRenew(t *testing.T) {
 		settings := session.Settings()
 		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
-		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		additionalCollateral := rhp2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
+		renewed, basePrice := rhp2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
 
-		cost := rhpv2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
+		cost := rhp2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
 		toSign, discard, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
 		if err != nil {
 			t.Fatal(err)
@@ -286,7 +286,7 @@ func TestRenew(t *testing.T) {
 		}
 
 		// previous session was closed by the RPC failure, create a new one
-		session, err = renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), origin.ID())
+		session, err = renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), origin.ID())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,21 +330,21 @@ func TestRenew(t *testing.T) {
 	t.Run("non-empty contract", func(t *testing.T) {
 		// form a contract
 		state := renter.TipState()
-		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		origin, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), origin.ID())
+		session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), origin.ID())
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer session.Close()
 
 		// generate a sector
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
-		sectorRoot := rhpv2.SectorRoot(&sector)
+		sectorRoot := rhp2.SectorRoot(&sector)
 
 		// calculate the remaining duration of the contract
 		var remainingDuration uint64
@@ -355,7 +355,7 @@ func TestRenew(t *testing.T) {
 		}
 		// upload the sector
 		remainingDuration = contractExpiration - currentHeight
-		price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+		price, collateral := rhp2.RPCAppendCost(session.Settings(), remainingDuration)
 		writtenRoot, err := session.Append(context.Background(), &sector, price, collateral)
 		if err != nil {
 			t.Fatal(err)
@@ -372,13 +372,13 @@ func TestRenew(t *testing.T) {
 		settings := session.Settings()
 		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
-		additionalCollateral := rhpv2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhpv2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		additionalCollateral := rhp2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
+		renewed, basePrice := rhp2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
 
-		cost := rhpv2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
+		cost := rhp2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
 		toSign, discard, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
 		if err != nil {
 			t.Fatal(err)
@@ -435,12 +435,12 @@ func BenchmarkUpload(b *testing.B) {
 	defer host.Close()
 
 	// form a contract
-	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
+	contract, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), contract.ID())
+	session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), contract.ID())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -455,17 +455,17 @@ func BenchmarkUpload(b *testing.B) {
 	}
 	// calculate the cost of uploading a sector
 	remainingDuration = contractExpiration - currentHeight
-	price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+	price, collateral := rhp2.RPCAppendCost(session.Settings(), remainingDuration)
 
 	// generate b.N sectors
-	sectors := make([][rhpv2.SectorSize]byte, b.N)
+	sectors := make([][rhp2.SectorSize]byte, b.N)
 	for i := range sectors {
 		frand.Read(sectors[i][:256])
 	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
-	b.SetBytes(rhpv2.SectorSize)
+	b.SetBytes(rhp2.SectorSize)
 
 	// upload b.N sectors
 	for i := 0; i < b.N; i++ {
@@ -492,7 +492,7 @@ func BenchmarkDownload(b *testing.B) {
 	}
 
 	// form a contract
-	contract, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
+	contract, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -502,7 +502,7 @@ func BenchmarkDownload(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	session, err := renter.NewRHP2Session(context.Background(), host.RHPv2Addr(), host.PublicKey(), contract.ID())
+	session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), contract.ID())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -521,11 +521,11 @@ func BenchmarkDownload(b *testing.B) {
 	// upload b.N sectors
 	for i := 0; i < b.N; i++ {
 		// generate a sector
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 
 		// upload the sector
-		price, collateral := rhpv2.RPCAppendCost(session.Settings(), remainingDuration)
+		price, collateral := rhp2.RPCAppendCost(session.Settings(), remainingDuration)
 		root, err := session.Append(context.Background(), &sector, price, collateral)
 		if err != nil {
 			b.Fatal(err)
@@ -535,16 +535,16 @@ func BenchmarkDownload(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	b.SetBytes(rhpv2.SectorSize)
+	b.SetBytes(rhp2.SectorSize)
 
 	for _, root := range uploaded {
 		// download the sector
-		sections := []rhpv2.RPCReadRequestSection{{
+		sections := []rhp2.RPCReadRequestSection{{
 			MerkleRoot: root,
 			Offset:     0,
-			Length:     rhpv2.SectorSize,
+			Length:     rhp2.SectorSize,
 		}}
-		price := rhpv2.RPCReadCost(session.Settings(), sections)
+		price := rhp2.RPCReadCost(session.Settings(), sections)
 		if err := session.Read(context.Background(), io.Discard, sections, price); err != nil {
 			b.Fatal(err)
 		}

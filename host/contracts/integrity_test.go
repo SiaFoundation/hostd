@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
@@ -138,9 +138,9 @@ func TestCheckIntegrity(t *testing.T) {
 	var roots []types.Hash256
 	var releases []func() error
 	for i := 0; i < 5; i++ {
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
-		root := rhpv2.SectorRoot(&sector)
+		root := rhp2.SectorRoot(&sector)
 		release, err := s.Write(root, &sector)
 		if err != nil {
 			t.Fatal(err)
@@ -151,8 +151,8 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 
 	contract.Revision.RevisionNumber++
-	contract.Revision.Filesize = uint64(len(roots)) * rhpv2.SectorSize
-	contract.Revision.FileMerkleRoot = rhpv2.MetaRoot(roots)
+	contract.Revision.Filesize = uint64(len(roots)) * rhp2.SectorSize
+	contract.Revision.FileMerkleRoot = rhp2.MetaRoot(roots)
 
 	if err := updater.Commit(contract.SignedRevision, contracts.Usage{}); err != nil {
 		t.Fatal(err)

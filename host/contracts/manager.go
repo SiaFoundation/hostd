@@ -13,7 +13,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/internal/chain"
@@ -61,7 +61,7 @@ type (
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
 		// Read reads a sector from the store
-		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
+		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
 	}
 
 	// Alerts registers and dismisses global alerts.

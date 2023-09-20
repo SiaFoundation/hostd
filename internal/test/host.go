@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	crhpv2 "go.sia.tech/core/rhp/v2"
-	crhpv3 "go.sia.tech/core/rhp/v3"
+	crhp2 "go.sia.tech/core/rhp/v2"
+	crhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/alerts"
@@ -19,8 +19,8 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/rhp"
-	rhpv2 "go.sia.tech/hostd/rhp/v2"
-	rhpv3 "go.sia.tech/hostd/rhp/v3"
+	rhp2 "go.sia.tech/hostd/rhp/v2"
+	rhp3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
 	"go.uber.org/zap"
 )
@@ -46,9 +46,9 @@ type Host struct {
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
 
-	rhpv2   *rhpv2.SessionHandler
-	rhpv3   *rhpv3.SessionHandler
-	rhpv3WS net.Listener
+	rhp2   *rhp2.SessionHandler
+	rhp3   *rhp3.SessionHandler
+	rhp3WS net.Listener
 }
 
 // DefaultSettings returns the default settings for the test host
@@ -77,9 +77,9 @@ var DefaultSettings = settings.Settings{
 
 // Close shutsdown the host
 func (h *Host) Close() error {
-	h.rhpv3WS.Close()
-	h.rhpv2.Close()
-	h.rhpv3.Close()
+	h.rhp3WS.Close()
+	h.rhp2.Close()
+	h.rhp3.Close()
 	h.settings.Close()
 	h.wallet.Close()
 	h.contracts.Close()
@@ -90,19 +90,19 @@ func (h *Host) Close() error {
 	return nil
 }
 
-// RHPv2Addr returns the address of the RHPv2 listener
-func (h *Host) RHPv2Addr() string {
-	return h.rhpv2.LocalAddr()
+// RHP2Addr returns the address of the rhp2 listener
+func (h *Host) RHP2Addr() string {
+	return h.rhp2.LocalAddr()
 }
 
-// RHPv3Addr returns the address of the RHPv3 listener
-func (h *Host) RHPv3Addr() string {
-	return h.rhpv3.LocalAddr()
+// RHP3Addr returns the address of the rhp3 listener
+func (h *Host) RHP3Addr() string {
+	return h.rhp3.LocalAddr()
 }
 
-// RHPv3WSAddr returns the address of the RHPv3 WebSocket listener
-func (h *Host) RHPv3WSAddr() string {
-	return h.rhpv3WS.Addr().String()
+// RHP3WSAddr returns the address of the rhp3 WebSocket listener
+func (h *Host) RHP3WSAddr() string {
+	return h.rhp3WS.Addr().String()
 }
 
 // AddVolume adds a new volume to the host
@@ -119,14 +119,14 @@ func (h *Host) UpdateSettings(settings settings.Settings) error {
 	return h.settings.UpdateSettings(settings)
 }
 
-// RHPv2Settings returns the host's current RHPv2 settings
-func (h *Host) RHPv2Settings() (crhpv2.HostSettings, error) {
-	return h.rhpv2.Settings()
+// RHP2Settings returns the host's current rhp2 settings
+func (h *Host) RHP2Settings() (crhp2.HostSettings, error) {
+	return h.rhp2.Settings()
 }
 
-// RHPv3PriceTable returns the host's current RHPv3 price table
-func (h *Host) RHPv3PriceTable() (crhpv3.HostPriceTable, error) {
-	return h.rhpv3.PriceTable()
+// RHP3PriceTable returns the host's current rhp3 price table
+func (h *Host) RHP3PriceTable() (crhp3.HostPriceTable, error) {
+	return h.rhp3.PriceTable()
 }
 
 // WalletAddress returns the host's wallet address
@@ -213,30 +213,30 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 
 	sessions := rhp.NewSessionReporter()
 
-	rhpv2, err := rhpv2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubDataMonitor{}, sessions, log.Named("rhpv2"))
+	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubDataMonitor{}, sessions, log.Named("rhp2"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
+		return nil, fmt.Errorf("failed to create rhp2 session handler: %w", err)
 	}
-	go rhpv2.Serve()
+	go rhp2.Serve()
 
-	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, sessions, log.Named("rhpv3"))
+	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, sessions, log.Named("rhp3"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
+		return nil, fmt.Errorf("failed to create rhp3 session handler: %w", err)
 	}
-	go rhpv3.Serve()
+	go rhp3.Serve()
 
-	rhpv3WSListener, err := net.Listen("tcp", "localhost:0")
+	rhp3WSListener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhp3 websocket listener: %w", err)
 	}
 
 	go func() {
-		rhpv3WS := http.Server{
-			Handler:     rhpv3.WebSocketHandler(),
+		rhp3WS := http.Server{
+			Handler:     rhp3.WebSocketHandler(),
 			ReadTimeout: 30 * time.Second,
 		}
 
-		if err := rhpv3WS.Serve(rhpv3WSListener); err != nil {
+		if err := rhp3WS.Serve(rhp3WSListener); err != nil {
 			return
 		}
 	}()
@@ -253,8 +253,8 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		accounts:  accounts,
 		contracts: contracts,
 
-		rhpv2:   rhpv2,
-		rhpv3:   rhpv3,
-		rhpv3WS: rhpv3WSListener,
+		rhp2:   rhp2,
+		rhp3:   rhp3,
+		rhp3WS: rhp3WSListener,
 	}, nil
 }

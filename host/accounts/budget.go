@@ -3,7 +3,7 @@ package accounts
 import (
 	"fmt"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 )
 
@@ -21,7 +21,7 @@ type (
 	// A Budget transactionally manages an account's balance. It is not safe for
 	// concurrent use.
 	Budget struct {
-		accountID rhpv3.Account
+		accountID rhp3.Account
 		max       types.Currency
 		usage     Usage
 		committed bool

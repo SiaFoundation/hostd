@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"lukechampine.com/frand"
 )
 
 func TestPriceTableManager(t *testing.T) {
 	pm := newPriceTableManager()
 	t.Run("serial", func(t *testing.T) {
-		pt := rhpv3.HostPriceTable{
+		pt := rhp3.HostPriceTable{
 			UID:      frand.Entropy128(),
 			Validity: 100 * time.Millisecond,
 		}
@@ -51,7 +51,7 @@ func TestPriceTableManager(t *testing.T) {
 		wg.Add(len(tables))
 		for _, id := range tables {
 			go func(id [16]byte) {
-				pm.Register(rhpv3.HostPriceTable{
+				pm.Register(rhp3.HostPriceTable{
 					UID:      id,
 					Validity: 250 * time.Millisecond,
 				})

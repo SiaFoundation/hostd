@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
@@ -14,10 +14,10 @@ import (
 )
 
 // processContractPayment initializes an RPC budget using funds from a contract.
-func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64) (rhpv3.Account, types.Currency, error) {
-	var req rhpv3.PayByContractRequest
+func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, height uint64) (rhp3.Account, types.Currency, error) {
+	var req rhp3.PayByContractRequest
 	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to read contract payment request: %w", err)
+		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to read contract payment request: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -26,7 +26,7 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	contract, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
+		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
 	defer sh.contracts.Unlock(req.ContractID)
 
@@ -35,7 +35,7 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	if err != nil {
 		err = fmt.Errorf("failed to revise contract: %w", err)
 		s.WriteResponseErr(err)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, err
+		return rhp3.ZeroAccount, types.ZeroCurrency, err
 	}
 
 	// calculate the funding amount
@@ -43,26 +43,26 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 	if underflow {
 		err = errors.New("invalid payment revision: new revision has more funds than current revision")
 		s.WriteResponseErr(err)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, err
+		return rhp3.ZeroAccount, types.ZeroCurrency, err
 	}
 
 	// validate that new revision
 	if err := rhp.ValidatePaymentRevision(current, revision, fundAmount); err != nil {
 		err = fmt.Errorf("invalid payment revision: %w", err)
 		s.WriteResponseErr(err)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, err
+		return rhp3.ZeroAccount, types.ZeroCurrency, err
 	}
 
 	// verify the renter's signature
 	sigHash := rhp.HashRevision(revision)
 	if !contract.RenterKey().VerifyHash(sigHash, req.Signature) {
-		return rhpv3.ZeroAccount, types.ZeroCurrency, ErrInvalidRenterSignature
+		return rhp3.ZeroAccount, types.ZeroCurrency, ErrInvalidRenterSignature
 	}
 
 	settings := sh.settings.Settings()
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
+		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
 	hostSig := sh.privateKey.SignHash(sigHash)
@@ -84,60 +84,60 @@ func (sh *SessionHandler) processContractPayment(s *rhpv3.Stream, height uint64)
 		} else {
 			s.WriteResponseErr(ErrHostInternalError)
 		}
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to credit refund account: %w", err)
+		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to credit refund account: %w", err)
 	}
 
 	// send the updated host signature to the renter
-	err = s.WriteResponse(&rhpv3.PaymentResponse{
+	err = s.WriteResponse(&rhp3.PaymentResponse{
 		Signature: hostSig,
 	})
 	if err != nil {
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to send host signature response: %w", err)
+		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to send host signature response: %w", err)
 	}
 	return req.RefundAccount, fundAmount, nil
 }
 
 // processAccountPayment initializes an RPC budget using an ephemeral
 // account.
-func (sh *SessionHandler) processAccountPayment(s *rhpv3.Stream, height uint64) (rhpv3.Account, types.Currency, error) {
-	var req rhpv3.PayByEphemeralAccountRequest
+func (sh *SessionHandler) processAccountPayment(s *rhp3.Stream, height uint64) (rhp3.Account, types.Currency, error) {
+	var req rhp3.PayByEphemeralAccountRequest
 	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
-		return rhpv3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to read ephemeral account payment request: %w", err)
+		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to read ephemeral account payment request: %w", err)
 	}
 
 	switch {
 	case req.Expiry < height:
-		return rhpv3.ZeroAccount, types.ZeroCurrency, errors.New("withdrawal request expired")
+		return rhp3.ZeroAccount, types.ZeroCurrency, errors.New("withdrawal request expired")
 	case req.Expiry > height+20:
-		return rhpv3.ZeroAccount, types.ZeroCurrency, errors.New("withdrawal request too far in the future")
+		return rhp3.ZeroAccount, types.ZeroCurrency, errors.New("withdrawal request too far in the future")
 	case req.Amount.IsZero():
-		return rhpv3.ZeroAccount, types.ZeroCurrency, errors.New("withdrawal request has zero amount")
-	case req.Account == rhpv3.ZeroAccount:
-		return rhpv3.ZeroAccount, types.ZeroCurrency, errors.New("cannot withdraw from zero account")
+		return rhp3.ZeroAccount, types.ZeroCurrency, errors.New("withdrawal request has zero amount")
+	case req.Account == rhp3.ZeroAccount:
+		return rhp3.ZeroAccount, types.ZeroCurrency, errors.New("cannot withdraw from zero account")
 	case !types.PublicKey(req.Account).VerifyHash(req.SigHash(), req.Signature):
-		return rhpv3.ZeroAccount, types.ZeroCurrency, ErrInvalidRenterSignature
+		return rhp3.ZeroAccount, types.ZeroCurrency, ErrInvalidRenterSignature
 	}
 	return req.Account, req.Amount, nil
 }
 
 // processPayment initializes an RPC budget using funds from a contract or an
 // ephemeral account.
-func (sh *SessionHandler) processPayment(s *rhpv3.Stream, pt *rhpv3.HostPriceTable) (*accounts.Budget, error) {
+func (sh *SessionHandler) processPayment(s *rhp3.Stream, pt *rhp3.HostPriceTable) (*accounts.Budget, error) {
 	var paymentType types.Specifier
 	if err := s.ReadRequest(&paymentType, 16); err != nil {
 		return nil, fmt.Errorf("failed to read payment type: %w", err)
 	}
-	var account rhpv3.Account
+	var account rhp3.Account
 	var amount types.Currency
 	var err error
 	currentHeight := pt.HostBlockHeight
 	switch paymentType {
-	case rhpv3.PaymentTypeContract:
+	case rhp3.PaymentTypeContract:
 		account, amount, err = sh.processContractPayment(s, currentHeight)
 		if err != nil {
 			return nil, fmt.Errorf("failed to process contract payment: %w", err)
 		}
-	case rhpv3.PaymentTypeEphemeralAccount:
+	case rhp3.PaymentTypeEphemeralAccount:
 		account, amount, err = sh.processAccountPayment(s, currentHeight)
 		if err != nil {
 			return nil, fmt.Errorf("failed to process account payment: %w", err)
@@ -153,14 +153,14 @@ func (sh *SessionHandler) processPayment(s *rhpv3.Stream, pt *rhpv3.HostPriceTab
 // processFundAccountPayment processes a contract payment to fund an account for
 // RPCFundAccount returning the fund amount and the current balance of the
 // account. Accounts can only be funded by a contract.
-func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *rhpv3.Stream, accountID rhpv3.Account) (fundAmount, balance types.Currency, _ error) {
+func (sh *SessionHandler) processFundAccountPayment(pt rhp3.HostPriceTable, s *rhp3.Stream, accountID rhp3.Account) (fundAmount, balance types.Currency, _ error) {
 	var paymentType types.Specifier
 	if err := s.ReadRequest(&paymentType, 16); err != nil {
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to read payment type: %w", err)
-	} else if paymentType != rhpv3.PaymentTypeContract {
+	} else if paymentType != rhp3.PaymentTypeContract {
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("unrecognized payment type: %q", paymentType)
 	}
-	var req rhpv3.PayByContractRequest
+	var req rhp3.PayByContractRequest
 	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to read contract payment request: %w", err)
 	}
@@ -235,7 +235,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhpv3.HostPriceTable, s *
 	}
 
 	// send the updated host signature to the renter
-	err = s.WriteResponse(&rhpv3.PaymentResponse{
+	err = s.WriteResponse(&rhp3.PaymentResponse{
 		Signature: hostSig,
 	})
 	if err != nil {

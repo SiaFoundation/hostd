@@ -9,7 +9,7 @@ import (
 	"math"
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
@@ -47,13 +47,13 @@ func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) (contracts.Us
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to marshal settings: %v", err)
 	}
-	return contracts.Usage{}, s.writeResponse(&rhpv2.RPCSettingsResponse{
+	return contracts.Usage{}, s.writeResponse(&rhp2.RPCSettingsResponse{
 		Settings: js,
 	}, 30*time.Second)
 }
 
 func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) (contracts.Usage, error) {
-	var req rhpv2.RPCLockRequest
+	var req rhp2.RPCLockRequest
 	if err := s.readRequest(&req, minMessageSize, 30*time.Second); err != nil {
 		return contracts.Usage{}, err
 	}
@@ -86,7 +86,7 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) (contracts.Usage,
 
 	// set the contract
 	s.contract = contract
-	lockResp := &rhpv2.RPCLockResponse{
+	lockResp := &rhp2.RPCLockResponse{
 		Acquired:     true,
 		NewChallenge: newChallenge,
 		Revision:     contract.Revision,
@@ -118,7 +118,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 		s.t.WriteResponseErr(ErrNotAcceptingContracts)
 		return contracts.Usage{}, ErrNotAcceptingContracts
 	}
-	var req rhpv2.RPCFormContractRequest
+	var req rhp2.RPCFormContractRequest
 	if err := s.readRequest(&req, 10*minMessageSize, time.Minute); err != nil {
 		return contracts.Usage{}, err
 	}
@@ -170,7 +170,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 	hostSig := sh.privateKey.SignHash(sigHash)
 
 	// send the host's transaction funding additions to the renter
-	hostAdditionsResp := &rhpv2.RPCFormContractAdditions{
+	hostAdditionsResp := &rhp2.RPCFormContractAdditions{
 		Inputs:  formationTxn.SiacoinInputs[renterInputs:],
 		Outputs: formationTxn.SiacoinOutputs[renterOutputs:],
 	}
@@ -179,7 +179,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 	}
 
 	// read and validate the renter's signatures
-	var renterSignaturesResp rhpv2.RPCFormContractSignatures
+	var renterSignaturesResp rhp2.RPCFormContractSignatures
 	if err := s.readResponse(&renterSignaturesResp, 10*minMessageSize, 30*time.Second); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	} else if err := validateRenterRevisionSignature(renterSignaturesResp.RevisionSignature, initialRevision.ParentID, sigHash, renterPub); err != nil {
@@ -217,7 +217,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 	}
 
 	// send the host signatures to the renter
-	hostSignaturesResp := &rhpv2.RPCFormContractSignatures{
+	hostSignaturesResp := &rhp2.RPCFormContractSignatures{
 		ContractSignatures: formationTxn.Signatures[renterTxnSigs:],
 		RevisionSignature: types.TransactionSignature{
 			ParentID:      types.Hash256(formationTxn.FileContractID(0)),
@@ -250,7 +250,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 		return contracts.Usage{}, err
 	}
 
-	var req rhpv2.RPCRenewAndClearContractRequest
+	var req rhp2.RPCRenewAndClearContractRequest
 	if err := s.readRequest(&req, 10*minMessageSize, time.Minute); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read renew request: %w", err)
 	}
@@ -328,7 +328,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	defer discard()
 
 	// send the renter the host additions to the renewal txn
-	hostAdditionsResp := &rhpv2.RPCFormContractAdditions{
+	hostAdditionsResp := &rhp2.RPCFormContractAdditions{
 		Inputs:  renewalTxn.SiacoinInputs[renterInputs:],
 		Outputs: renewalTxn.SiacoinOutputs[renterOutputs:],
 	}
@@ -337,7 +337,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	}
 
 	// read the renter's signatures for the renewal
-	var renterSigsResp rhpv2.RPCRenewAndClearContractSignatures
+	var renterSigsResp rhp2.RPCRenewAndClearContractSignatures
 	if err = s.readResponse(&renterSigsResp, minMessageSize, 30*time.Second); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	} else if len(renterSigsResp.RevisionSignature.Signature) != 64 {
@@ -398,7 +398,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	}
 
 	// send the host signatures to the renter
-	hostSigsResp := &rhpv2.RPCRenewAndClearContractSignatures{
+	hostSigsResp := &rhp2.RPCRenewAndClearContractSignatures{
 		ContractSignatures:     renewalTxn.Signatures[len(renterSigsResp.ContractSignatures):],
 		RevisionSignature:      signedRenewal.Signatures()[0],
 		FinalRevisionSignature: signedClearing.HostSignature,
@@ -415,7 +415,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, err
 	}
 
-	var req rhpv2.RPCSectorRootsRequest
+	var req rhp2.RPCSectorRootsRequest
 	if err := s.readRequest(&req, minMessageSize, 30*time.Second); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read sector roots request: %w", err)
 	}
@@ -495,9 +495,9 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 	}
 	s.contract = signedRevision
 
-	sectorRootsResp := &rhpv2.RPCSectorRootsResponse{
+	sectorRootsResp := &rhp2.RPCSectorRootsResponse{
 		SectorRoots: roots,
-		MerkleProof: rhpv2.BuildSectorRangeProof(roots, req.RootOffset, req.RootOffset+req.NumRoots),
+		MerkleProof: rhp2.BuildSectorRangeProof(roots, req.RootOffset, req.RootOffset+req.NumRoots),
 		Signature:   hostSig,
 	}
 	return usage, s.writeResponse(sectorRootsResp, 2*time.Minute)
@@ -517,14 +517,14 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 		return contracts.Usage{}, fmt.Errorf("failed to get settings: %w", err)
 	}
 
-	var req rhpv2.RPCWriteRequest
-	if err := s.readRequest(&req, 5*rhpv2.SectorSize, 5*time.Minute); err != nil {
+	var req rhp2.RPCWriteRequest
+	if err := s.readRequest(&req, 5*rhp2.SectorSize, 5*time.Minute); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read write request: %w", err)
 	}
 
 	remainingDuration := uint64(s.contract.Revision.WindowEnd) - currentHeight
 	// validate the requested actions
-	oldSectors := s.contract.Revision.Filesize / rhpv2.SectorSize
+	oldSectors := s.contract.Revision.Filesize / rhp2.SectorSize
 	costs, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)
 	if err != nil {
 		err := fmt.Errorf("failed to validate write actions: %w", err)
@@ -558,14 +558,14 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	oldRoots := contractUpdater.SectorRoots()
 	for _, action := range req.Actions {
 		switch action.Type {
-		case rhpv2.RPCWriteActionAppend:
-			if len(action.Data) != rhpv2.SectorSize {
+		case rhp2.RPCWriteActionAppend:
+			if len(action.Data) != rhp2.SectorSize {
 				err := fmt.Errorf("append action: invalid sector size: %v", len(action.Data))
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-			sector := (*[rhpv2.SectorSize]byte)(action.Data)
-			root := rhpv2.SectorRoot(sector)
+			sector := (*[rhp2.SectorSize]byte)(action.Data)
+			root := rhp2.SectorRoot(sector)
 			release, err := sh.storage.Write(root, sector)
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
@@ -574,19 +574,19 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 			}
 			defer release()
 			contractUpdater.AppendSector(root)
-		case rhpv2.RPCWriteActionTrim:
+		case rhp2.RPCWriteActionTrim:
 			if err := contractUpdater.TrimSectors(action.A); err != nil {
 				err := fmt.Errorf("trim action: failed to trim sectors: %w", err)
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-		case rhpv2.RPCWriteActionSwap:
+		case rhp2.RPCWriteActionSwap:
 			if err := contractUpdater.SwapSectors(action.A, action.B); err != nil {
 				err := fmt.Errorf("swap action: failed to swap sectors: %w", err)
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-		case rhpv2.RPCWriteActionUpdate:
+		case rhp2.RPCWriteActionUpdate:
 			root, err := contractUpdater.SectorRoot(action.A)
 			if err != nil {
 				err := fmt.Errorf("update action: failed to get sector root: %w", err)
@@ -601,18 +601,18 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 			}
 
 			i, offset := action.A, action.B
-			if offset > rhpv2.SectorSize {
+			if offset > rhp2.SectorSize {
 				err := fmt.Errorf("update action: invalid offset %v bytes", offset)
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
-			} else if offset+uint64(len(action.Data)) > rhpv2.SectorSize {
+			} else if offset+uint64(len(action.Data)) > rhp2.SectorSize {
 				err := errors.New("update action: offset + data exceeds sector size")
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
 
 			copy(sector[offset:], action.Data)
-			newRoot := rhpv2.SectorRoot(sector)
+			newRoot := rhp2.SectorRoot(sector)
 
 			if err := contractUpdater.UpdateSector(newRoot, i); err != nil {
 				err := fmt.Errorf("update action: failed to update sector: %w", err)
@@ -630,11 +630,11 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	}
 
 	// build the merkle proof response
-	writeResp := &rhpv2.RPCWriteMerkleProof{
+	writeResp := &rhp2.RPCWriteMerkleProof{
 		NewMerkleRoot: contractUpdater.MerkleRoot(),
 	}
 	if req.MerkleProof {
-		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = rhpv2.BuildDiffProof(req.Actions, oldRoots)
+		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = rhp2.BuildDiffProof(req.Actions, oldRoots)
 	}
 	if err := s.writeResponse(writeResp, time.Minute); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to write merkle proof: %w", err)
@@ -642,10 +642,10 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 
 	// apply the new merkle root and file size to the revision
 	revision.FileMerkleRoot = writeResp.NewMerkleRoot
-	revision.Filesize = contractUpdater.SectorCount() * rhpv2.SectorSize
+	revision.Filesize = contractUpdater.SectorCount() * rhp2.SectorSize
 
 	// read the renter's signature
-	var renterSigResponse rhpv2.RPCWriteResponse
+	var renterSigResponse rhp2.RPCWriteResponse
 	if err := s.readResponse(&renterSigResponse, minMessageSize, 30*time.Second); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signature: %w", err)
 	}
@@ -690,7 +690,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	s.contract = signedRevision
 
 	// send the host signature
-	hostSigResp := &rhpv2.RPCWriteResponse{Signature: hostSig}
+	hostSigResp := &rhp2.RPCWriteResponse{Signature: hostSig}
 	return usage, s.writeResponse(hostSigResp, 30*time.Second)
 }
 
@@ -711,7 +711,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 	}
 
 	// read the read request
-	var req rhpv2.RPCReadRequest
+	var req rhp2.RPCReadRequest
 	if err := s.readRequest(&req, 4*minMessageSize, time.Minute); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read read request: %w", err)
 	}
@@ -784,7 +784,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 		err := s.readResponse(&id, minMessageSize, 5*time.Minute)
 		if err != nil {
 			stopSignal <- err
-		} else if id != rhpv2.RPCReadStop {
+		} else if id != rhp2.RPCReadStop {
 			stopSignal <- errors.New("expected 'stop' from renter, got " + id.String())
 		} else {
 			stopSignal <- nil
@@ -800,13 +800,13 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 			return usage, err
 		}
 
-		resp := &rhpv2.RPCReadResponse{
+		resp := &rhp2.RPCReadResponse{
 			Data: sector[sec.Offset : sec.Offset+sec.Length],
 		}
 		if req.MerkleProof {
-			start := sec.Offset / rhpv2.LeafSize
-			end := (sec.Offset + sec.Length) / rhpv2.LeafSize
-			resp.MerkleProof = rhpv2.BuildProof(sector, start, end, nil)
+			start := sec.Offset / rhp2.LeafSize
+			end := (sec.Offset + sec.Length) / rhp2.LeafSize
+			resp.MerkleProof = rhp2.BuildProof(sector, start, end, nil)
 		}
 
 		// check for the stop signal and send the response

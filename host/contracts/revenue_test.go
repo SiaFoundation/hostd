@@ -68,12 +68,12 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		settings, err := host.RHPv2Settings()
+		settings, err := host.RHP2Settings()
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +90,7 @@ func TestRevenueMetrics(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // sync time
 
 		// start an RHP3 session
-		sess, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		sess, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,12 +225,12 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		settings, err := host.RHPv2Settings()
+		settings, err := host.RHP2Settings()
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +247,7 @@ func TestRevenueMetrics(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // sync time
 
 		// start an RHP3 session
-		sess, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		sess, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -369,12 +369,12 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		settings, err := host.RHPv2Settings()
+		settings, err := host.RHP2Settings()
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		r1, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		r1, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -391,7 +391,7 @@ func TestRevenueMetrics(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // sync time
 
 		// form a second contract
-		r2, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
+		r2, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), host.TipState().Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -409,7 +409,7 @@ func TestRevenueMetrics(t *testing.T) {
 		}
 
 		// start an RHP3 session
-		sess, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		sess, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		}

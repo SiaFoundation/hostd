@@ -3,7 +3,7 @@ package rhp
 import (
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
@@ -18,22 +18,22 @@ const minMessageSize = 4096
 type session struct {
 	id   rhp.UID
 	conn *rhp.Conn
-	t    *rhpv2.Transport
+	t    *rhp2.Transport
 
 	contract contracts.SignedRevision
 }
 
-func (s *session) readRequest(req rhpv2.ProtocolObject, maxSize uint64, timeout time.Duration) error {
+func (s *session) readRequest(req rhp2.ProtocolObject, maxSize uint64, timeout time.Duration) error {
 	s.conn.SetReadDeadline(time.Now().Add(timeout))
 	return s.t.ReadRequest(req, maxSize)
 }
 
-func (s *session) readResponse(req rhpv2.ProtocolObject, maxSize uint64, timeout time.Duration) error {
+func (s *session) readResponse(req rhp2.ProtocolObject, maxSize uint64, timeout time.Duration) error {
 	s.conn.SetReadDeadline(time.Now().Add(timeout))
 	return s.t.ReadResponse(req, maxSize)
 }
 
-func (s *session) writeResponse(resp rhpv2.ProtocolObject, timeout time.Duration) error {
+func (s *session) writeResponse(resp rhp2.ProtocolObject, timeout time.Duration) error {
 	s.conn.SetWriteDeadline(time.Now().Add(timeout))
 	return s.t.WriteResponse(resp)
 }

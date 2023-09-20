@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/hostd/host/registry"
 )
 
 // GetRegistryValue returns the registry value for the given key. If the key is not
 // found should return ErrEntryNotFound.
-func (s *Store) GetRegistryValue(key rhpv3.RegistryKey) (entry rhpv3.RegistryValue, _ error) {
+func (s *Store) GetRegistryValue(key rhp3.RegistryKey) (entry rhp3.RegistryValue, _ error) {
 	err := s.queryRow(`SELECT revision_number, entry_type, entry_data, entry_signature FROM registry_entries WHERE registry_key=$1`, sqlHash256(key.Hash())).Scan(
 		(*sqlUint64)(&entry.Revision),
 		&entry.Type,
@@ -20,15 +20,15 @@ func (s *Store) GetRegistryValue(key rhpv3.RegistryKey) (entry rhpv3.RegistryVal
 		(*sqlHash512)(&entry.Signature),
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return rhpv3.RegistryValue{}, registry.ErrEntryNotFound
+		return rhp3.RegistryValue{}, registry.ErrEntryNotFound
 	} else if err != nil {
-		return rhpv3.RegistryValue{}, fmt.Errorf("failed to get registry entry: %w", err)
+		return rhp3.RegistryValue{}, fmt.Errorf("failed to get registry entry: %w", err)
 	}
 	return
 }
 
 // SetRegistryValue sets the registry value for the given key.
-func (s *Store) SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) error {
+func (s *Store) SetRegistryValue(entry rhp3.RegistryEntry, expiration uint64) error {
 	const (
 		selectQuery = `SELECT registry_key FROM registry_entries re WHERE re.registry_key=$1`
 		insertQuery = `INSERT INTO registry_entries (registry_key, revision_number, entry_type, entry_signature, entry_data, expiration_height) VALUES ($1, $2, $3, $4, $5, $6) RETURNING registry_key`

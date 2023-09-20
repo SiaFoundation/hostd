@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
@@ -15,7 +15,7 @@ import (
 type (
 	// expiringPriceTable pairs a price table UID with an expiration timestamp.
 	expiringPriceTable struct {
-		uid    rhpv3.SettingsID
+		uid    rhp3.SettingsID
 		expiry time.Time
 	}
 
@@ -33,7 +33,7 @@ type (
 		expirationTimer *time.Timer
 		// priceTables is a map of valid price tables. The key is the UID of the
 		// price table. Keys are removed by the loop in pruneExpired.
-		priceTables map[rhpv3.SettingsID]rhpv3.HostPriceTable
+		priceTables map[rhp3.SettingsID]rhp3.HostPriceTable
 	}
 )
 
@@ -71,18 +71,18 @@ func (pm *priceTableManager) pruneExpired() {
 
 // Get returns the price table with the given UID if it exists and
 // has not expired.
-func (pm *priceTableManager) Get(id [16]byte) (rhpv3.HostPriceTable, error) {
+func (pm *priceTableManager) Get(id [16]byte) (rhp3.HostPriceTable, error) {
 	pm.mu.RLock()
 	pt, ok := pm.priceTables[id]
 	pm.mu.RUnlock()
 	if !ok {
-		return rhpv3.HostPriceTable{}, ErrNoPriceTable
+		return rhp3.HostPriceTable{}, ErrNoPriceTable
 	}
 	return pt, nil
 }
 
 // Register adds a price table to the list of valid price tables.
-func (pm *priceTableManager) Register(pt rhpv3.HostPriceTable) {
+func (pm *priceTableManager) Register(pt rhp3.HostPriceTable) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -105,17 +105,17 @@ func (pm *priceTableManager) Register(pt rhpv3.HostPriceTable) {
 }
 
 // PriceTable returns the session handler's current price table.
-func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
+func (sh *SessionHandler) PriceTable() (rhp3.HostPriceTable, error) {
 	settings := sh.settings.Settings()
 	count, max, err := sh.registry.Entries()
 	if err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to get registry entries: %w", err)
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to get registry entries: %w", err)
 	}
 
 	fee := sh.tpool.RecommendedFee()
 	currentHeight := sh.chain.TipState().Index.Height
 	oneHasting := types.NewCurrency64(1)
-	return rhpv3.HostPriceTable{
+	return rhp3.HostPriceTable{
 		UID:             frand.Entropy128(),
 		HostBlockHeight: currentHeight,
 		Validity:        settings.PriceTableValidity,
@@ -173,11 +173,11 @@ func (sh *SessionHandler) PriceTable() (rhpv3.HostPriceTable, error) {
 
 // readPriceTable reads the price table ID from the stream and returns an error
 // if the price table is invalid or expired.
-func (sh *SessionHandler) readPriceTable(s *rhpv3.Stream) (rhpv3.HostPriceTable, error) {
+func (sh *SessionHandler) readPriceTable(s *rhp3.Stream) (rhp3.HostPriceTable, error) {
 	// read the price table ID from the stream
-	var uid rhpv3.SettingsID
+	var uid rhp3.SettingsID
 	if err := s.ReadRequest(&uid, 16); err != nil {
-		return rhpv3.HostPriceTable{}, fmt.Errorf("failed to read price table ID: %w", err)
+		return rhp3.HostPriceTable{}, fmt.Errorf("failed to read price table ID: %w", err)
 	}
 	return sh.priceTables.Get(uid)
 }
@@ -187,7 +187,7 @@ func (sh *SessionHandler) readPriceTable(s *rhpv3.Stream) (rhpv3.HostPriceTable,
 func newPriceTableManager() *priceTableManager {
 	pm := &priceTableManager{
 		expirationList: list.New(),
-		priceTables:    make(map[rhpv3.SettingsID]rhpv3.HostPriceTable),
+		priceTables:    make(map[rhp3.SettingsID]rhp3.HostPriceTable),
 	}
 	return pm
 }

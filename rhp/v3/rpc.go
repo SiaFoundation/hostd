@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
@@ -43,7 +43,7 @@ var (
 )
 
 // handleRPCPriceTable sends the host's price table to the renter.
-func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
+func (sh *SessionHandler) handleRPCPriceTable(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	pt, err := sh.PriceTable()
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
@@ -55,7 +55,7 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) 
 		return contracts.Usage{}, fmt.Errorf("failed to marshal price table: %w", err)
 	}
 
-	resp := &rhpv3.RPCUpdatePriceTableResponse{
+	resp := &rhp3.RPCUpdatePriceTableResponse{
 		PriceTableJSON: buf,
 	}
 	if err := s.WriteResponse(resp); err != nil {
@@ -87,10 +87,10 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhpv3.Stream, log *zap.Logger) 
 	usage := contracts.Usage{
 		RPCRevenue: pt.UpdatePriceTableCost,
 	}
-	return usage, s.WriteResponse(&rhpv3.RPCPriceTableResponse{})
+	return usage, s.WriteResponse(&rhp3.RPCPriceTableResponse{})
 }
 
-func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
+func (sh *SessionHandler) handleRPCFundAccount(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(time.Minute))
 	// read the price table ID from the stream
 	pt, err := sh.readPriceTable(s)
@@ -101,7 +101,7 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger)
 	}
 
 	// read the fund request from the stream
-	var fundReq rhpv3.RPCFundAccountRequest
+	var fundReq rhp3.RPCFundAccountRequest
 	if err := s.ReadRequest(&fundReq, 32); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read fund account request: %w", err)
 	}
@@ -114,9 +114,9 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger)
 		return contracts.Usage{}, err
 	}
 
-	fundResp := &rhpv3.RPCFundAccountResponse{
+	fundResp := &rhp3.RPCFundAccountResponse{
 		Balance: balance,
-		Receipt: rhpv3.FundAccountReceipt{
+		Receipt: rhp3.FundAccountReceipt{
 			Host:      sh.HostKey(),
 			Account:   fundReq.Account,
 			Amount:    fundAmount,
@@ -134,7 +134,7 @@ func (sh *SessionHandler) handleRPCFundAccount(s *rhpv3.Stream, log *zap.Logger)
 	return usage, s.WriteResponse(fundResp)
 }
 
-func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
+func (sh *SessionHandler) handleRPCAccountBalance(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(time.Minute))
 	// get the price table to use for payment
 	pt, err := sh.readPriceTable(s)
@@ -161,7 +161,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 	}
 
 	// read the account balance request from the stream
-	var req rhpv3.RPCAccountBalanceRequest
+	var req rhp3.RPCAccountBalanceRequest
 	if err := s.ReadRequest(&req, 32); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read account balance request: %w", err)
 	}
@@ -173,7 +173,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 		return contracts.Usage{}, fmt.Errorf("failed to get account balance: %w", err)
 	}
 
-	resp := &rhpv3.RPCAccountBalanceResponse{
+	resp := &rhp3.RPCAccountBalanceResponse{
 		Balance: balance,
 	}
 	if err := budget.Commit(); err != nil {
@@ -185,9 +185,9 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhpv3.Stream, log *zap.Logg
 	return usage, s.WriteResponse(resp)
 }
 
-func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
+func (sh *SessionHandler) handleRPCLatestRevision(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(time.Minute))
-	var req rhpv3.RPCLatestRevisionRequest
+	var req rhp3.RPCLatestRevisionRequest
 	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read latest revision request: %w", err)
 	}
@@ -199,7 +199,7 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 		return contracts.Usage{}, err
 	}
 
-	resp := &rhpv3.RPCLatestRevisionResponse{
+	resp := &rhp3.RPCLatestRevisionResponse{
 		Revision: contract.Revision,
 	}
 	if err := s.WriteResponse(resp); err != nil {
@@ -238,7 +238,7 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhpv3.Stream, log *zap.Logg
 	return usage, nil
 }
 
-func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
+func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(2 * time.Minute))
 	if !sh.settings.Settings().AcceptingContracts {
 		s.WriteResponseErr(ErrNotAcceptingContracts)
@@ -257,7 +257,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (cont
 			s.WriteResponseErr(ErrHostInternalError)
 			return contracts.Usage{}, fmt.Errorf("failed to marshal price table: %w", err)
 		}
-		ptResp := &rhpv3.RPCUpdatePriceTableResponse{
+		ptResp := &rhp3.RPCUpdatePriceTableResponse{
 			PriceTableJSON: buf,
 		}
 		if err := s.WriteResponse(ptResp); err != nil {
@@ -267,7 +267,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (cont
 		return contracts.Usage{}, fmt.Errorf("failed to read price table: %w", err)
 	}
 
-	var req rhpv3.RPCRenewContractRequest
+	var req rhp3.RPCRenewContractRequest
 	if err := s.ReadRequest(&req, 10*maxRequestSize); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read renew contract request: %w", err)
 	} else if err := validRenewalTxnSet(req.TransactionSet); err != nil {
@@ -344,7 +344,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (cont
 	}
 	defer release()
 
-	hostAdditions := &rhpv3.RPCRenewContractHostAdditions{
+	hostAdditions := &rhp3.RPCRenewContractHostAdditions{
 		SiacoinInputs:          renewalTxn.SiacoinInputs[renterInputs:],
 		SiacoinOutputs:         renewalTxn.SiacoinOutputs[renterOutputs:],
 		FinalRevisionSignature: signedClearingRevision.HostSignature,
@@ -353,7 +353,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (cont
 		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
-	var renterSigsResp rhpv3.RPCRenewSignatures
+	var renterSigsResp rhp3.RPCRenewSignatures
 	if err := s.ReadRequest(&renterSigsResp, 10*maxRequestSize); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	}
@@ -423,7 +423,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (cont
 	}
 
 	// send the signatures to the renter
-	hostSigs := &rhpv3.RPCRenewSignatures{
+	hostSigs := &rhp3.RPCRenewSignatures{
 		TransactionSignatures: renewalTxn.Signatures[renterSigs:],
 		RevisionSignature: types.TransactionSignature{
 			ParentID:       types.Hash256(signedRenewal.Revision.ParentID),
@@ -438,7 +438,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhpv3.Stream, log *zap.Logger) (cont
 }
 
 // handleRPCExecute handles an RPCExecuteProgram request.
-func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) (contracts.Usage, error) {
+func (sh *SessionHandler) handleRPCExecute(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	s.SetDeadline(time.Now().Add(5 * time.Minute))
 	// read the price table
 	pt, err := sh.readPriceTable(s)
@@ -460,7 +460,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhpv3.Stream, log *zap.Logger) (co
 
 	// read the program request
 	readReqStart := time.Now()
-	var executeReq rhpv3.RPCExecuteProgramRequest
+	var executeReq rhp3.RPCExecuteProgramRequest
 	if err := s.ReadRequest(&executeReq, maxProgramRequestSize); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read execute request: %w", err)
 	}

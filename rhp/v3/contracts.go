@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 )
 
@@ -19,7 +19,7 @@ func hashFinalRevision(clearing types.FileContractRevision, renewal types.FileCo
 // validateContractRenewal verifies that the renewed contract is valid given the
 // old contract. A renewal is valid if the contract fields match and the
 // revision number is 0.
-func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, walletAddress types.Address, baseStorageRevenue, baseRiskedCollateral types.Currency, pt rhpv3.HostPriceTable) (riskedCollateral, lockedCollateral types.Currency, err error) {
+func validateContractRenewal(existing types.FileContractRevision, renewal types.FileContract, hostKey, renterKey types.UnlockKey, walletAddress types.Address, baseStorageRevenue, baseRiskedCollateral types.Currency, pt rhp3.HostPriceTable) (riskedCollateral, lockedCollateral types.Currency, err error) {
 	switch {
 	case renewal.RevisionNumber != 0:
 		return types.ZeroCurrency, types.ZeroCurrency, errors.New("revision number must be zero")

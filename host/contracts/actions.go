@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.uber.org/zap"
@@ -28,8 +28,8 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize u
 		}, nil
 	}
 
-	sectorIndex := index / rhpv2.LeavesPerSector
-	segmentIndex := index % rhpv2.LeavesPerSector
+	sectorIndex := index / rhp2.LeavesPerSector
+	segmentIndex := index % rhp2.LeavesPerSector
 
 	roots, err := cm.SectorRoots(id, 0, 0)
 	if err != nil {
@@ -40,13 +40,13 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize u
 	if err != nil {
 		return types.StorageProof{}, err
 	}
-	segmentProof := rhpv2.ConvertProofOrdering(rhpv2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
-	sectorProof := rhpv2.ConvertProofOrdering(rhpv2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
+	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
+	sectorProof := rhp2.ConvertProofOrdering(rhp2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
 	sp := types.StorageProof{
 		ParentID: id,
 		Proof:    append(segmentProof, sectorProof...),
 	}
-	copy(sp.Leaf[:], sector[segmentIndex*rhpv2.LeafSize:])
+	copy(sp.Leaf[:], sector[segmentIndex*rhp2.LeafSize:])
 	return sp, nil
 }
 

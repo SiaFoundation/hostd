@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
@@ -27,11 +27,11 @@ type (
 	Store interface {
 		// GetRegistryValue returns the registry value for the given key. If the key is not
 		// found should return ErrEntryNotFound.
-		GetRegistryValue(key rhpv3.RegistryKey) (entry rhpv3.RegistryValue, _ error)
+		GetRegistryValue(key rhp3.RegistryKey) (entry rhp3.RegistryValue, _ error)
 		// SetRegistryValue sets the registry value for the given key. If the
 		// value would exceed the maximum number of entries, should return
 		// ErrNotEnoughSpace.
-		SetRegistryValue(entry rhpv3.RegistryEntry, expiration uint64) error
+		SetRegistryValue(entry rhp3.RegistryEntry, expiration uint64) error
 		// RegistryEntries returns the current number of entries as well as the
 		// maximum number of entries the registry can hold.
 		RegistryEntries() (count uint64, total uint64, err error)
@@ -67,7 +67,7 @@ func (r *Manager) Entries() (count uint64, total uint64, err error) {
 }
 
 // Get returns the registry value for the provided key.
-func (r *Manager) Get(key rhpv3.RegistryKey) (value rhpv3.RegistryValue, err error) {
+func (r *Manager) Get(key rhp3.RegistryKey) (value rhp3.RegistryValue, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	value, err = r.store.GetRegistryValue(key)
@@ -79,12 +79,12 @@ func (r *Manager) Get(key rhpv3.RegistryKey) (value rhpv3.RegistryValue, err err
 
 // Put creates or updates the registry value for the provided key. If err is nil
 // the new value is returned, otherwise the previous value is returned.
-func (r *Manager) Put(entry rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3.RegistryValue, error) {
+func (r *Manager) Put(entry rhp3.RegistryEntry, expirationHeight uint64) (rhp3.RegistryValue, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if err := rhpv3.ValidateRegistryEntry(entry); err != nil {
-		return rhpv3.RegistryValue{}, fmt.Errorf("invalid registry entry: %w", err)
+	if err := rhp3.ValidateRegistryEntry(entry); err != nil {
+		return rhp3.RegistryValue{}, fmt.Errorf("invalid registry entry: %w", err)
 	}
 
 	// get the current value.
@@ -98,12 +98,12 @@ func (r *Manager) Put(entry rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3
 	} else if err != nil {
 		return old, fmt.Errorf("failed to get registry value: %w", err)
 	}
-	oldEntry := rhpv3.RegistryEntry{
+	oldEntry := rhp3.RegistryEntry{
 		RegistryKey:   entry.RegistryKey,
 		RegistryValue: old,
 	}
 
-	if err := rhpv3.ValidateRegistryUpdate(oldEntry, entry, r.hostID); err != nil {
+	if err := rhp3.ValidateRegistryUpdate(oldEntry, entry, r.hostID); err != nil {
 		return old, fmt.Errorf("invalid registry update: %w", err)
 	} else if err = r.store.SetRegistryValue(entry, expirationHeight); err != nil {
 		return old, fmt.Errorf("failed to update registry key: %w", err)
@@ -115,7 +115,7 @@ func (r *Manager) Put(entry rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3
 // NewManager returns a new registry manager.
 func NewManager(privkey types.PrivateKey, store Store, log *zap.Logger) *Manager {
 	m := &Manager{
-		hostID: rhpv3.RegistryHostID(privkey.PublicKey()),
+		hostID: rhp3.RegistryHostID(privkey.PublicKey()),
 		tg:     threadgroup.New(),
 		store:  store,
 		recorder: &registryAccessRecorder{

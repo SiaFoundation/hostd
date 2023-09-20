@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/alerts"
 	"go.uber.org/zap"
@@ -71,14 +71,14 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 	}
 	defer cm.Unlock(contractID)
 
-	expectedRoots := contract.Revision.Filesize / rhpv2.SectorSize
+	expectedRoots := contract.Revision.Filesize / rhp2.SectorSize
 
 	roots, err := cm.getSectorRoots(contractID, 0, 0)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get sector roots: %w", err)
 	} else if uint64(len(roots)) != expectedRoots {
 		return nil, 0, fmt.Errorf("expected %v sector roots, got %v", expectedRoots, len(roots))
-	} else if calculated := rhpv2.MetaRoot(roots); contract.Revision.FileMerkleRoot != calculated {
+	} else if calculated := rhp2.MetaRoot(roots); contract.Revision.FileMerkleRoot != calculated {
 		return nil, 0, fmt.Errorf("expected Merkle root %v, got %v", contract.Revision.FileMerkleRoot, calculated)
 	}
 
@@ -123,7 +123,7 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 				log.Error("missing sector", zap.String("root", root.String()), zap.Error(err))
 				missing++
 				results <- IntegrityResult{ExpectedRoot: root, Error: err}
-			} else if calculated := rhpv2.SectorRoot(sector); root != calculated { // sector data corrupt
+			} else if calculated := rhp2.SectorRoot(sector); root != calculated { // sector data corrupt
 				log.Error("corrupt sector", zap.String("root", root.String()), zap.String("actual", calculated.String()))
 				corrupt++
 				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculated, Error: errors.New("sector data corrupt")}

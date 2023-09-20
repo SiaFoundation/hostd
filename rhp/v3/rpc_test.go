@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	rhpv2 "go.sia.tech/core/rhp/v2"
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp2 "go.sia.tech/core/rhp/v2"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
@@ -27,12 +27,12 @@ func TestPriceTable(t *testing.T) {
 	defer renter.Close()
 	defer host.Close()
 
-	pt, err := host.RHPv3PriceTable()
+	pt, err := host.RHP3PriceTable()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,12 +49,12 @@ func TestPriceTable(t *testing.T) {
 	}
 
 	// pay for a price table using a contract payment
-	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
+	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	account := rhpv3.Account(renter.PublicKey())
+	account := rhp3.Account(renter.PublicKey())
 	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
 
 	retrieved, err = session.RegisterPriceTable(payment)
@@ -95,19 +95,19 @@ func TestAppendSector(t *testing.T) {
 	defer renter.Close()
 	defer host.Close()
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
+	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// register the price table
-	account := rhpv3.Account(renter.PublicKey())
+	account := rhp3.Account(renter.PublicKey())
 	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
 	pt, err := session.RegisterPriceTable(payment)
 	if err != nil {
@@ -127,9 +127,9 @@ func TestAppendSector(t *testing.T) {
 		if cost.IsZero() {
 			t.Fatal("cost is zero")
 		}
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
-		root := rhpv2.SectorRoot(&sector)
+		root := rhp2.SectorRoot(&sector)
 		roots = append(roots, root)
 
 		if _, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost); err != nil {
@@ -137,13 +137,13 @@ func TestAppendSector(t *testing.T) {
 		}
 
 		// check that the contract merkle root matches
-		if revision.Revision.FileMerkleRoot != rhpv2.MetaRoot(roots) {
+		if revision.Revision.FileMerkleRoot != rhp2.MetaRoot(roots) {
 			t.Fatal("contract merkle root doesn't match")
 		}
 
 		// download the sector
-		cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(rhpv2.SectorSize)).Total()
-		downloaded, _, err := session.ReadSector(root, 0, rhpv2.SectorSize, payment, cost)
+		cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize)).Total()
+		downloaded, _, err := session.ReadSector(root, 0, rhp2.SectorSize, payment, cost)
 		if err != nil {
 			t.Fatal(err)
 		} else if !bytes.Equal(downloaded, sector[:]) {
@@ -164,18 +164,18 @@ func TestStoreSector(t *testing.T) {
 	// Resize cache to 0 sectors
 	host.Storage().ResizeCache(0)
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
+	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	account := rhpv3.Account(renter.PublicKey())
+	account := rhp3.Account(renter.PublicKey())
 	// register the price table
 	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
 	pt, err := session.RegisterPriceTable(payment)
@@ -194,17 +194,17 @@ func TestStoreSector(t *testing.T) {
 	// calculate the cost of the upload
 	usage := pt.StoreSectorCost(10)
 	cost, _ := usage.Total()
-	var sector [rhpv2.SectorSize]byte
+	var sector [rhp2.SectorSize]byte
 	frand.Read(sector[:256])
-	root := rhpv2.SectorRoot(&sector)
+	root := rhp2.SectorRoot(&sector)
 	if err = session.StoreSector(&sector, 10, payment, cost); err != nil {
 		t.Fatal(err)
 	}
 
 	// download the sector
-	usage = pt.ReadSectorCost(rhpv2.SectorSize)
+	usage = pt.ReadSectorCost(rhp2.SectorSize)
 	cost, _ = usage.Total()
-	downloaded, _, err := session.ReadSector(root, 0, rhpv2.SectorSize, payment, cost)
+	downloaded, _, err := session.ReadSector(root, 0, rhp2.SectorSize, payment, cost)
 	if err != nil {
 		t.Fatal(err)
 	} else if !bytes.Equal(downloaded, sector[:]) {
@@ -218,9 +218,9 @@ func TestStoreSector(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // sync time
 
 	// check that the sector was deleted
-	usage = pt.ReadSectorCost(rhpv2.SectorSize)
+	usage = pt.ReadSectorCost(rhp2.SectorSize)
 	cost, _ = usage.Total()
-	_, _, err = session.ReadSector(root, 0, rhpv2.SectorSize, payment, cost)
+	_, _, err = session.ReadSector(root, 0, rhp2.SectorSize, payment, cost)
 	if err == nil {
 		t.Fatal("expected error when reading sector")
 	}
@@ -235,18 +235,18 @@ func TestReadSectorOffset(t *testing.T) {
 	defer renter.Close()
 	defer host.Close()
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), 200)
+	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), 200)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	account := rhpv3.Account(renter.PublicKey())
+	account := rhp3.Account(renter.PublicKey())
 	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
 	// register the price table
 	pt, err := session.RegisterPriceTable(payment)
@@ -261,7 +261,7 @@ func TestReadSectorOffset(t *testing.T) {
 	}
 
 	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
-	var sectors [][rhpv2.SectorSize]byte
+	var sectors [][rhp2.SectorSize]byte
 	for i := 0; i < 5; i++ {
 		// upload a few sectors
 		payment = proto3.AccountPayment(account, renter.PrivateKey())
@@ -269,7 +269,7 @@ func TestReadSectorOffset(t *testing.T) {
 		if cost.IsZero() {
 			t.Fatal("cost is zero")
 		}
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 		_, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost)
 		if err != nil {
@@ -280,7 +280,7 @@ func TestReadSectorOffset(t *testing.T) {
 
 	// download the sector
 	cost, _ = pt.BaseCost().Add(pt.ReadOffsetCost(256)).Total()
-	downloaded, _, err := session.ReadOffset(rhpv2.SectorSize*3+64, 256, revision.ID(), payment, cost)
+	downloaded, _, err := session.ReadOffset(rhp2.SectorSize*3+64, 256, revision.ID(), payment, cost)
 	if err != nil {
 		t.Fatal(err)
 	} else if !bytes.Equal(downloaded, sectors[3][64:64+256]) {
@@ -300,12 +300,12 @@ func TestRenew(t *testing.T) {
 	t.Run("empty contract", func(t *testing.T) {
 		state := renter.TipState()
 		// form a contract
-		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		origin, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		settings, err := renter.Settings(context.Background(), host.RHPv2Addr(), host.PublicKey())
+		settings, err := renter.Settings(context.Background(), host.RHP2Addr(), host.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -316,13 +316,13 @@ func TestRenew(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 
-		session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer session.Close()
 
-		account := rhpv3.Account(renter.PublicKey())
+		account := rhp3.Account(renter.PublicKey())
 		payment := proto3.ContractPayment(&origin, renter.PrivateKey(), account)
 		// register a price table to use for the renewal
 		pt, err := session.RegisterPriceTable(payment)
@@ -382,23 +382,23 @@ func TestRenew(t *testing.T) {
 	t.Run("non-empty contract", func(t *testing.T) {
 		// form a contract
 		state := renter.TipState()
-		origin, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
+		origin, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		settings, err := renter.Settings(context.Background(), host.RHPv2Addr(), host.PublicKey())
+		settings, err := renter.Settings(context.Background(), host.RHP2Addr(), host.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+		session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer session.Close()
 
-		account := rhpv3.Account(renter.PublicKey())
+		account := rhp3.Account(renter.PublicKey())
 		payment := proto3.ContractPayment(&origin, renter.PrivateKey(), account)
 		// register a price table to use for the renewal
 		pt, err := session.RegisterPriceTable(payment)
@@ -412,7 +412,7 @@ func TestRenew(t *testing.T) {
 		}
 
 		// generate a sector
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 
 		// calculate the remaining duration of the contract
@@ -496,18 +496,18 @@ func BenchmarkAppendSector(b *testing.B) {
 	defer renter.Close()
 	defer host.Close()
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
+	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	account := rhpv3.Account(renter.PublicKey())
+	account := rhp3.Account(renter.PublicKey())
 	// register the price table
 	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
 	pt, err := session.RegisterPriceTable(payment)
@@ -528,16 +528,16 @@ func BenchmarkAppendSector(b *testing.B) {
 		b.Fatal("cost is zero")
 	}
 
-	var sectors [][rhpv2.SectorSize]byte
+	var sectors [][rhp2.SectorSize]byte
 	for i := 0; i < b.N; i++ {
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 		sectors = append(sectors, sector)
 	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
-	b.SetBytes(rhpv2.SectorSize)
+	b.SetBytes(rhp2.SectorSize)
 
 	for i := 0; i < b.N; i++ {
 		_, err = session.AppendSector(&sectors[i], &revision, renter.PrivateKey(), payment, cost)
@@ -570,18 +570,18 @@ func BenchmarkReadSector(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHPv3Addr(), host.PublicKey())
+	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHPv2Addr(), host.PublicKey(), types.Siacoins(500), types.Siacoins(1000), 200)
+	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(500), types.Siacoins(1000), 200)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	account := rhpv3.Account(renter.PublicKey())
+	account := rhp3.Account(renter.PublicKey())
 	// register the price table
 	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
 	pt, err := session.RegisterPriceTable(payment)
@@ -605,22 +605,22 @@ func BenchmarkReadSector(b *testing.B) {
 
 	var roots []types.Hash256
 	for i := 0; i < b.N; i++ {
-		var sector [rhpv2.SectorSize]byte
+		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 
 		_, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost)
 		if err != nil {
 			b.Fatal(err)
 		}
-		roots = append(roots, rhpv2.SectorRoot(&sector))
+		roots = append(roots, rhp2.SectorRoot(&sector))
 	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
-	b.SetBytes(rhpv2.SectorSize)
+	b.SetBytes(rhp2.SectorSize)
 
 	for i := 0; i < b.N; i++ {
-		_, _, err = session.ReadSector(roots[i], 0, rhpv2.SectorSize, payment, cost)
+		_, _, err = session.ReadSector(roots[i], 0, rhp2.SectorSize, payment, cost)
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
-	rhpv2 "go.sia.tech/core/rhp/v2"
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp2 "go.sia.tech/core/rhp/v2"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
@@ -24,9 +24,9 @@ import (
 type (
 	// An AccountManager manages deposits and withdrawals for accounts.
 	AccountManager interface {
-		Balance(accountID rhpv3.Account) (types.Currency, error)
+		Balance(accountID rhp3.Account) (types.Currency, error)
 		Credit(req accounts.FundAccountWithContract, refund bool) (balance types.Currency, err error)
-		Budget(accountID rhpv3.Account, amount types.Currency) (*accounts.Budget, error)
+		Budget(accountID rhp3.Account, amount types.Currency) (*accounts.Budget, error)
 	}
 
 	// A ContractManager manages the set of contracts that the host is currently
@@ -64,9 +64,9 @@ type (
 		// Write writes a sector to persistent storage. release should only be
 		// called after the contract roots have been committed to prevent the
 		// sector from being deleted.
-		Write(root types.Hash256, data *[rhpv2.SectorSize]byte) (release func() error, _ error)
+		Write(root types.Hash256, data *[rhp2.SectorSize]byte) (release func() error, _ error)
 		// Read reads the sector with the given root from the manager.
-		Read(root types.Hash256) (*[rhpv2.SectorSize]byte, error)
+		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 
@@ -78,8 +78,8 @@ type (
 
 	// A RegistryManager manages registry entries stored in a RegistryStore.
 	RegistryManager interface {
-		Get(key rhpv3.RegistryKey) (rhpv3.RegistryValue, error)
-		Put(value rhpv3.RegistryEntry, expirationHeight uint64) (rhpv3.RegistryValue, error)
+		Get(key rhp3.RegistryKey) (rhp3.RegistryValue, error)
+		Put(value rhp3.RegistryEntry, expirationHeight uint64) (rhp3.RegistryValue, error)
 		Entries() (count uint64, max uint64, err error)
 	}
 
@@ -171,7 +171,7 @@ var (
 )
 
 // handleHostStream handles streams routed to the "host" subscriber
-func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream, sessionID rhp.UID, log *zap.Logger) {
+func (sh *SessionHandler) handleHostStream(s *rhp3.Stream, sessionID rhp.UID, log *zap.Logger) {
 	defer s.Close() // close the stream when the RPC has completed
 
 	done, err := sh.tg.Add() // add the RPC to the threadgroup
@@ -186,13 +186,13 @@ func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream, sessionID rhp.UID, l
 		log.Debug("failed to read RPC ID", zap.Error(err))
 		return
 	}
-	rpcs := map[types.Specifier]func(*rhpv3.Stream, *zap.Logger) (contracts.Usage, error){
-		rhpv3.RPCAccountBalanceID:   sh.handleRPCAccountBalance,
-		rhpv3.RPCUpdatePriceTableID: sh.handleRPCPriceTable,
-		rhpv3.RPCExecuteProgramID:   sh.handleRPCExecute,
-		rhpv3.RPCFundAccountID:      sh.handleRPCFundAccount,
-		rhpv3.RPCLatestRevisionID:   sh.handleRPCLatestRevision,
-		rhpv3.RPCRenewContractID:    sh.handleRPCRenew,
+	rpcs := map[types.Specifier]func(*rhp3.Stream, *zap.Logger) (contracts.Usage, error){
+		rhp3.RPCAccountBalanceID:   sh.handleRPCAccountBalance,
+		rhp3.RPCUpdatePriceTableID: sh.handleRPCPriceTable,
+		rhp3.RPCExecuteProgramID:   sh.handleRPCExecute,
+		rhp3.RPCFundAccountID:      sh.handleRPCFundAccount,
+		rhp3.RPCLatestRevisionID:   sh.handleRPCLatestRevision,
+		rhp3.RPCRenewContractID:    sh.handleRPCRenew,
 	}
 	rpcFn, ok := rpcs[rpc]
 	if !ok {
@@ -250,7 +250,7 @@ func (sh *SessionHandler) Serve() error {
 			log := sh.log.With(zap.Stringer("sessionID", sessionID), zap.String("peerAddress", conn.RemoteAddr().String()))
 
 			// upgrade the connection to RHP3
-			t, err := rhpv3.NewHostTransport(rhpConn, sh.privateKey)
+			t, err := rhp3.NewHostTransport(rhpConn, sh.privateKey)
 			if err != nil {
 				log.Debug("failed to upgrade conn", zap.Error(err))
 				return

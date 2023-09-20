@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	rhpv3 "go.sia.tech/core/rhp/v3"
+	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
 	"nhooyr.io/websocket"
@@ -38,7 +38,7 @@ func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Reques
 	log = log.With(zap.String("sessionID", sessionID.String()))
 
 	// upgrade the connection
-	t, err := rhpv3.NewHostTransport(rhpConn, sh.privateKey)
+	t, err := rhp3.NewHostTransport(rhpConn, sh.privateKey)
 	if err != nil {
 		sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
 		return
