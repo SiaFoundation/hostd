@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/rhp"
 	rhpv2 "go.sia.tech/hostd/rhp/v2"
 	rhpv3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
@@ -25,10 +26,6 @@ import (
 )
 
 const blocksPerMonth = 144 * 30
-
-type stubMetricReporter struct{}
-
-func (stubMetricReporter) Report(any) (_ error) { return }
 
 type stubDataMonitor struct{}
 
@@ -214,13 +211,15 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 	registry := registry.NewManager(privKey, db, log.Named("registry"))
 	accounts := accounts.NewManager(db, settings)
 
-	rhpv2, err := rhpv2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubDataMonitor{}, stubMetricReporter{}, log.Named("rhpv2"))
+	sessions := rhp.NewSessionReporter()
+
+	rhpv2, err := rhpv2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubDataMonitor{}, sessions, log.Named("rhpv2"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv2 session handler: %w", err)
 	}
 	go rhpv2.Serve()
 
-	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, stubMetricReporter{}, log.Named("rhpv3"))
+	rhpv3, err := rhpv3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, sessions, log.Named("rhpv3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhpv3 session handler: %w", err)
 	}

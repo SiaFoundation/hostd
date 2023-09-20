@@ -12,19 +12,33 @@ import (
 
 // handleWebSockets handles websocket connections to the host.
 func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Request) {
-	log := sh.log.Named("websockets").With(zap.String("remoteAddr", r.RemoteAddr))
+	log := sh.log.Named("websockets").With(zap.String("peerAddr", r.RemoteAddr))
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {
-		log.Error("failed to accept websocket connection", zap.Error(err))
+		log.Warn("failed to accept websocket connection", zap.Error(err))
 		return
 	}
 	defer wsConn.Close(websocket.StatusNormalClosure, "")
 
+	// wrap the websocket connection
 	conn := websocket.NetConn(context.Background(), wsConn, websocket.MessageBinary)
+	defer conn.Close()
+
+	// wrap the connection with a rate limiter
 	ingress, egress := sh.settings.BandwidthLimiters()
-	t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, sh.monitor, ingress, egress), sh.privateKey)
+	rhpConn := rhp.NewConn(conn, sh.monitor, ingress, egress)
+	defer rhpConn.Close()
+
+	// initiate the session
+	sessionID, end := sh.sessions.StartSession(rhpConn, rhp.SessionProtocolWS, 3)
+	defer end()
+
+	log = log.With(zap.String("sessionID", sessionID.String()))
+
+	// upgrade the connection
+	t, err := rhpv3.NewHostTransport(rhpConn, sh.privateKey)
 	if err != nil {
 		sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
 		return
@@ -37,7 +51,8 @@ func (sh *SessionHandler) handleWebSockets(w http.ResponseWriter, r *http.Reques
 			log.Debug("failed to accept stream", zap.Error(err))
 			return
 		}
-		go sh.handleHostStream(conn.RemoteAddr().String(), stream)
+
+		go sh.handleHostStream(stream, sessionID, log)
 	}
 }
 

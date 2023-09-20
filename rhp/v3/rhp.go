@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/financials"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/threadgroup"
@@ -108,14 +107,10 @@ type (
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 
-	// MetricReporter records metrics from the host
-	MetricReporter interface {
-		Report(any) error
-	}
-
-	// A FinancialReporter records financial transactions on the host.
-	FinancialReporter interface {
-		Add(financials.Record) error
+	// SessionReporter reports session metrics
+	SessionReporter interface {
+		StartSession(conn *rhp.Conn, proto string, version int) (sessionID rhp.UID, end func())
+		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(contracts.Usage, error))
 	}
 
 	// A SessionHandler handles the host side of the renter-host protocol and
@@ -129,7 +124,7 @@ type (
 
 		accounts  AccountManager
 		contracts ContractManager
-		metrics   MetricReporter
+		sessions  SessionReporter
 		registry  RegistryManager
 		storage   StorageManager
 		log       *zap.Logger
@@ -176,7 +171,7 @@ var (
 )
 
 // handleHostStream handles streams routed to the "host" subscriber
-func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
+func (sh *SessionHandler) handleHostStream(s *rhpv3.Stream, sessionID rhp.UID, log *zap.Logger) {
 	defer s.Close() // close the stream when the RPC has completed
 
 	done, err := sh.tg.Add() // add the RPC to the threadgroup
@@ -186,13 +181,12 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 	defer done()
 
 	s.SetDeadline(time.Now().Add(30 * time.Second)) // set an initial timeout
-	rpcID, err := s.ReadID()
+	rpc, err := s.ReadID()
 	if err != nil {
-		sh.log.Debug("failed to read RPC ID", zap.Error(err))
+		log.Debug("failed to read RPC ID", zap.Error(err))
 		return
 	}
-
-	rpcs := map[types.Specifier]func(*rhpv3.Stream, *zap.Logger) error{
+	rpcs := map[types.Specifier]func(*rhpv3.Stream, *zap.Logger) (contracts.Usage, error){
 		rhpv3.RPCAccountBalanceID:   sh.handleRPCAccountBalance,
 		rhpv3.RPCUpdatePriceTableID: sh.handleRPCPriceTable,
 		rhpv3.RPCExecuteProgramID:   sh.handleRPCExecute,
@@ -200,20 +194,24 @@ func (sh *SessionHandler) handleHostStream(remoteAddr string, s *rhpv3.Stream) {
 		rhpv3.RPCLatestRevisionID:   sh.handleRPCLatestRevision,
 		rhpv3.RPCRenewContractID:    sh.handleRPCRenew,
 	}
-	rpcFn, ok := rpcs[rpcID]
+	rpcFn, ok := rpcs[rpc]
 	if !ok {
-		sh.log.Debug("unrecognized RPC ID", zap.String("rpc", rpcID.String()))
+		log.Debug("unrecognized RPC ID", zap.String("rpc", rpc.String()))
 		return
 	}
 
-	log := sh.log.Named(rpcID.String()).With(zap.String("peerAddr", remoteAddr))
-	start := time.Now()
+	rpcStart := time.Now()
 	s.SetDeadline(time.Now().Add(time.Minute)) // set the initial deadline, may be overwritten by the handler
-	if err = rpcFn(s, log); err != nil {
-		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
+
+	rpcID, end := sh.sessions.StartRPC(sessionID, rpc)
+	log = log.Named(rpc.String()).With(zap.Stringer("rpcID", rpcID))
+	usage, err := rpcFn(s, log)
+	end(usage, err)
+	if err != nil {
+		log.Warn("RPC failed", zap.Error(err), zap.Duration("elapsed", time.Since(rpcStart)))
 		return
 	}
-	log.Info("RPC success", zap.Duration("elapsed", time.Since(start)))
+	log.Info("RPC success", zap.Duration("elapsed", time.Since(rpcStart)))
 }
 
 // HostKey returns the host's ed25519 public key
@@ -239,10 +237,22 @@ func (sh *SessionHandler) Serve() error {
 
 		go func() {
 			defer conn.Close()
+
+			// wrap the conn with the bandwidth limiters
 			ingress, egress := sh.settings.BandwidthLimiters()
-			t, err := rhpv3.NewHostTransport(rhp.NewConn(conn, sh.monitor, ingress, egress), sh.privateKey)
+			rhpConn := rhp.NewConn(conn, sh.monitor, ingress, egress)
+			defer rhpConn.Close()
+
+			// initiate the session
+			sessionID, end := sh.sessions.StartSession(rhpConn, rhp.SessionProtocolTCP, 3)
+			defer end()
+
+			log := sh.log.With(zap.Stringer("sessionID", sessionID), zap.String("peerAddress", conn.RemoteAddr().String()))
+
+			// upgrade the connection to RHP3
+			t, err := rhpv3.NewHostTransport(rhpConn, sh.privateKey)
 			if err != nil {
-				sh.log.Debug("failed to upgrade conn", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
+				log.Debug("failed to upgrade conn", zap.Error(err))
 				return
 			}
 			defer t.Close()
@@ -251,11 +261,12 @@ func (sh *SessionHandler) Serve() error {
 				stream, err := t.AcceptStream()
 				if err != nil {
 					if !isStreamClosedErr(err) {
-						sh.log.Debug("failed to accept stream", zap.Error(err), zap.String("remoteAddress", conn.RemoteAddr().String()))
+						log.Debug("failed to accept stream", zap.Error(err))
 					}
 					return
 				}
-				go sh.handleHostStream(conn.RemoteAddr().String(), stream)
+
+				go sh.handleHostStream(stream, sessionID, log)
 			}
 		}()
 	}
@@ -267,7 +278,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, metrics MetricReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, sessions SessionReporter, log *zap.Logger) (*SessionHandler, error) {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
@@ -281,7 +292,7 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainMana
 
 		accounts:  accounts,
 		contracts: contracts,
-		metrics:   metrics,
+		sessions:  sessions,
 		registry:  registry,
 		settings:  settings,
 		storage:   storage,

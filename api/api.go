@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
@@ -106,6 +107,14 @@ type (
 		AcceptTransactionSet(txns []types.Transaction) error
 	}
 
+	// A RHPSessionReporter reports on RHP session lifecycle events
+	RHPSessionReporter interface {
+		Subscribe(rhp.SessionSubscriber)
+		Unsubscribe(rhp.SessionSubscriber)
+
+		Active() []rhp.Session
+	}
+
 	// An api provides an HTTP API for the host
 	api struct {
 		hostKey types.PublicKey
@@ -123,6 +132,7 @@ type (
 		wallet    Wallet
 		metrics   Metrics
 		settings  Settings
+		sessions  RHPSessionReporter
 
 		volumeJobs volumeJobs
 		checks     integrityCheckJobs
@@ -130,7 +140,7 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
 		name:    name,
@@ -145,6 +155,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		metrics:   m,
 		settings:  s,
 		wallet:    w,
+		sessions:  rsr,
 		log:       log,
 
 		checks: integrityCheckJobs{
@@ -195,6 +206,9 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"DELETE /volumes/:id":        api.handleDeleteVolume,
 		"DELETE /volumes/:id/cancel": api.handleDELETEVolumeCancelOp,
 		"PUT /volumes/:id/resize":    api.handlePUTVolumeResize,
+		// session endpoints
+		"GET /sessions":           api.handleGETSessions,
+		"GET /sessions/subscribe": api.handleGETSessionsSubscribe,
 		// tpool endpoints
 		"GET /tpool/fee": api.handleGETTPoolFee,
 		// wallet endpoints
