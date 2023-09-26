@@ -200,13 +200,14 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 
 // Metrics returns aggregate metrics for the host as of the timestamp.
 func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
-	const query = `WITH summary AS (
-		SELECT 
-		stat, stat_value, 
-		ROW_NUMBER() OVER (PARTITION BY stat ORDER BY date_created DESC) AS rank 
-		FROM host_stats s
-		WHERE s.date_created<=$1)
-		SELECT stat, stat_value FROM summary WHERE rank=1;`
+	const query = `SELECT s.stat, s.stat_value
+FROM host_stats s
+JOIN (
+    SELECT stat, MAX(date_created) AS most_recent
+    FROM host_stats
+    WHERE date_created <= $1
+    GROUP BY stat
+) AS sub ON s.stat = sub.stat AND s.date_created = sub.most_recent;`
 	rows, err := s.query(query, sqlTime(timestamp))
 	if err != nil {
 		return metrics.Metrics{}, fmt.Errorf("failed to query metrics: %w", err)
