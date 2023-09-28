@@ -52,8 +52,6 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 	address to serve API on (default ":9980")
 -log.level string
 	log level (debug, info, warn, error) (default "info")
--log.stdout
-	log to stdout (default false)
 -name string
 	a friendly name for the host, only used for display
 -rpc string
