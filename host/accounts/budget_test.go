@@ -1,6 +1,7 @@
 package accounts_test
 
 import (
+	"errors"
 	"math"
 	"path/filepath"
 	"reflect"
@@ -183,6 +184,11 @@ func TestBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer budget.Rollback()
+
+	// try to spend more than the budget
+	if err := budget.Spend(accounts.Usage{RPCRevenue: budgetAmount.Mul64(2)}); !errors.Is(err, accounts.ErrInsufficientFunds) {
+		t.Fatal("expected insufficient funds error, got", err)
+	}
 
 	// check that the in-memory state is consistent
 	expectedBalance = expectedBalance.Sub(budgetAmount)

@@ -83,7 +83,7 @@ func (b *Budget) Spend(usage Usage) error {
 	newUsage := b.usage.Add(usage)
 	spent := newUsage.Total()
 	if b.max.Cmp(spent) < 0 {
-		return fmt.Errorf("unable to spend %v, %v remaining: %w", usage.Total(), b.max.Sub(spent), ErrInsufficientFunds)
+		return fmt.Errorf("unable to spend %v, %v remaining: %w", usage.Total(), b.max.Sub(b.usage.Total()), ErrInsufficientFunds)
 	}
 	b.usage = newUsage
 	return nil
