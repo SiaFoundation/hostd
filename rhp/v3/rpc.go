@@ -399,7 +399,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	renterSigs := len(renewalTxn.Signatures)
 
 	// sign and broadcast the transaction
-	if err := sh.wallet.SignTransaction(sh.chain.TipState(), &renewalTxn, toSign, wallet.ExplicitCoveredFields(renewalTxn)); err != nil {
+	if err := sh.wallet.SignTransaction(sh.chain.TipState(), &renewalTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
 		s.WriteResponseErr(fmt.Errorf("failed to sign renewal transaction: %w", ErrHostInternalError))
 		return contracts.Usage{}, fmt.Errorf("failed to sign renewal transaction: %w", err)
 	}
