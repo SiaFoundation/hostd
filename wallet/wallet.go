@@ -29,6 +29,10 @@ const (
 	TxnSourceFoundationPayout TransactionSource = "foundation"
 )
 
+var (
+	ErrNotEnoughFunds = errors.New("not enough funds")
+)
+
 type (
 	// A TransactionSource is a string indicating the source of a transaction.
 	TransactionSource string
@@ -274,7 +278,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 		}
 	}
 	if inputSum.Cmp(amount) < 0 {
-		return nil, nil, errors.New("insufficient balance")
+		return nil, nil, ErrNotEnoughFunds
 	} else if inputSum.Cmp(amount) > 0 {
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 			Value:   inputSum.Sub(amount),
@@ -723,6 +727,42 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 	if d.Err() != nil {
 		panic(d.Err())
 	}
+}
+
+// ExplicitCoveredFields returns a CoveredFields that covers all elements
+// present in txn.
+func ExplicitCoveredFields(txn types.Transaction) (cf types.CoveredFields) {
+	for i := range txn.SiacoinInputs {
+		cf.SiacoinInputs = append(cf.SiacoinInputs, uint64(i))
+	}
+	for i := range txn.SiacoinOutputs {
+		cf.SiacoinOutputs = append(cf.SiacoinOutputs, uint64(i))
+	}
+	for i := range txn.FileContracts {
+		cf.FileContracts = append(cf.FileContracts, uint64(i))
+	}
+	for i := range txn.FileContractRevisions {
+		cf.FileContractRevisions = append(cf.FileContractRevisions, uint64(i))
+	}
+	for i := range txn.StorageProofs {
+		cf.StorageProofs = append(cf.StorageProofs, uint64(i))
+	}
+	for i := range txn.SiafundInputs {
+		cf.SiafundInputs = append(cf.SiafundInputs, uint64(i))
+	}
+	for i := range txn.SiafundOutputs {
+		cf.SiafundOutputs = append(cf.SiafundOutputs, uint64(i))
+	}
+	for i := range txn.MinerFees {
+		cf.MinerFees = append(cf.MinerFees, uint64(i))
+	}
+	for i := range txn.ArbitraryData {
+		cf.ArbitraryData = append(cf.ArbitraryData, uint64(i))
+	}
+	for i := range txn.Signatures {
+		cf.Signatures = append(cf.Signatures, uint64(i))
+	}
+	return
 }
 
 // NewSingleAddressWallet returns a new SingleAddressWallet using the provided private key and store.

@@ -15,7 +15,7 @@ import (
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
-	"go.sia.tech/renterd/wallet"
+	"go.sia.tech/hostd/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -339,7 +339,11 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
 	toSign, release, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
 	if err != nil {
-		s.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", ErrHostInternalError))
+		remoteErr := ErrHostInternalError
+		if errors.Is(err, wallet.ErrNotEnoughFunds) {
+			remoteErr = wallet.ErrNotEnoughFunds
+		}
+		s.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", remoteErr))
 		return contracts.Usage{}, fmt.Errorf("failed to fund renewal transaction: %w", err)
 	}
 	defer release()

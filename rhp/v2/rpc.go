@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
+	"go.sia.tech/hostd/wallet"
 	"go.uber.org/zap"
 )
 
@@ -159,7 +160,11 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 	renterInputs, renterOutputs := len(formationTxn.SiacoinInputs), len(formationTxn.SiacoinOutputs)
 	toSign, discard, err := sh.wallet.FundTransaction(formationTxn, hostCollateral)
 	if err != nil {
-		s.t.WriteResponseErr(ErrHostInternalError)
+		remoteErr := ErrHostInternalError
+		if errors.Is(err, wallet.ErrNotEnoughFunds) {
+			remoteErr = wallet.ErrNotEnoughFunds
+		}
+		s.t.WriteResponseErr(fmt.Errorf("failed to fund formation transaction: %w", remoteErr))
 		return contracts.Usage{}, fmt.Errorf("failed to fund formation transaction: %w", err)
 	}
 	defer discard()
@@ -322,7 +327,11 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
 	toSign, discard, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
 	if err != nil {
-		s.t.WriteResponseErr(ErrHostInternalError)
+		remoteErr := ErrHostInternalError
+		if errors.Is(err, wallet.ErrNotEnoughFunds) {
+			remoteErr = wallet.ErrNotEnoughFunds
+		}
+		s.t.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", remoteErr))
 		return contracts.Usage{}, fmt.Errorf("failed to fund renewal transaction: %w", err)
 	}
 	defer discard()
