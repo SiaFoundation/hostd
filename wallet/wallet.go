@@ -30,6 +30,8 @@ const (
 )
 
 var (
+	// ErrNotEnoughFunds is returned when there are not enough unspent outputs
+	// to fund a transaction.
 	ErrNotEnoughFunds = errors.New("not enough funds")
 )
 
