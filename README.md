@@ -71,7 +71,7 @@ with the `HOSTD_CONFIG_FILE` environment variable. All fields are optional and
 default to the same values as the CLI flags.
 
 ```yaml
-dataDir: /etc/hostd
+directory: /etc/hostd
 recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect potato weapon bid
 http:
   address: :9980
