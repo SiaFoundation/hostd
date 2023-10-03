@@ -18,7 +18,7 @@ type volumeSectorRef struct {
 
 var errNoSectorsToMigrate = errors.New("no sectors to migrate")
 
-func (s *Store) migrateSector(volumeID int, startIndex uint64, migrateFn func(location storage.SectorLocation) error, log *zap.Logger) error {
+func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(location storage.SectorLocation) error, log *zap.Logger) error {
 	var locks []int64
 	var oldLoc, newLoc storage.SectorLocation
 	err := s.transaction(func(tx txn) (err error) {
@@ -94,11 +94,11 @@ func (s *Store) migrateSector(volumeID int, startIndex uint64, migrateFn func(lo
 		}
 		return nil
 	})
-	log.Debug("migrated sector", zap.Uint64("oldIndex", oldLoc.Index), zap.Stringer("root", newLoc.Root), zap.Int("newVolume", newLoc.Volume), zap.Uint64("newIndex", newLoc.Index))
+	log.Debug("migrated sector", zap.Uint64("oldIndex", oldLoc.Index), zap.Stringer("root", newLoc.Root), zap.Int64("newVolume", newLoc.Volume), zap.Uint64("newIndex", newLoc.Index))
 	return err
 }
 
-func (s *Store) batchRemoveVolume(id int, force bool) (bool, error) {
+func (s *Store) batchRemoveVolume(id int64, force bool) (bool, error) {
 	var done bool
 	err := s.transaction(func(tx txn) error {
 		var dbID int64
@@ -188,7 +188,7 @@ ORDER BY v.id ASC`
 }
 
 // Volume returns a volume by its ID.
-func (s *Store) Volume(id int) (storage.Volume, error) {
+func (s *Store) Volume(id int64) (storage.Volume, error) {
 	const query = `SELECT v.id, v.disk_path, v.read_only, v.available, v.total_sectors, v.used_sectors
 FROM storage_volumes v
 WHERE v.id=$1`
@@ -295,8 +295,8 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 // MigrateSectors migrates each occupied sector of a volume starting at
 // startIndex. The sector data should be copied to the new location and synced
 // to disk during migrateFn.
-func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(location storage.SectorLocation) error) error {
-	log := s.log.Named("migrate").With(zap.Int("oldVolume", volumeID), zap.Uint64("startIndex", startIndex))
+func (s *Store) MigrateSectors(volumeID int64, startIndex uint64, migrateFn func(location storage.SectorLocation) error) error {
+	log := s.log.Named("migrate").With(zap.Int64("oldVolume", volumeID), zap.Uint64("startIndex", startIndex))
 	for i := 0; ; i++ {
 		if err := s.migrateSector(volumeID, startIndex, migrateFn, log); err != nil {
 			if errors.Is(err, errNoSectorsToMigrate) {
@@ -313,7 +313,7 @@ func (s *Store) MigrateSectors(volumeID int, startIndex uint64, migrateFn func(l
 // AddVolume initializes a new storage volume and adds it to the volume
 // store. GrowVolume must be called afterwards to initialize the volume
 // to its desired size.
-func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err error) {
+func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int64, err error) {
 	const query = `INSERT INTO storage_volumes (disk_path, read_only, used_sectors, total_sectors) VALUES (?, ?, 0, 0) RETURNING id;`
 	err = s.queryRow(query, localPath, readOnly).Scan(&volumeID)
 	return
@@ -322,7 +322,7 @@ func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int, err er
 // RemoveVolume removes a storage volume from the volume store. If there
 // are used sectors in the volume, ErrVolumeNotEmpty is returned. If force is
 // true, the volume is removed regardless of whether it is empty.
-func (s *Store) RemoveVolume(id int, force bool) error {
+func (s *Store) RemoveVolume(id int64, force bool) error {
 	// remove the volume sectors in batches to avoid holding a transaction lock
 	// for too long
 	for {
@@ -341,7 +341,7 @@ func (s *Store) RemoveVolume(id int, force bool) error {
 }
 
 // GrowVolume grows a storage volume's metadata by n sectors.
-func (s *Store) GrowVolume(id int, maxSectors uint64) error {
+func (s *Store) GrowVolume(id int64, maxSectors uint64) error {
 	if maxSectors == 0 {
 		panic("maxSectors must be greater than 0") // dev error
 	}
@@ -380,7 +380,7 @@ func (s *Store) GrowVolume(id int, maxSectors uint64) error {
 
 // ShrinkVolume shrinks a storage volume's metadata to maxSectors. If there are
 // used sectors outside of the new maximum, ErrVolumeNotEmpty is returned.
-func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
+func (s *Store) ShrinkVolume(id int64, maxSectors uint64) error {
 	if maxSectors == 0 {
 		panic("maxSectors must be greater than 0") // dev error
 	}
@@ -420,14 +420,14 @@ func (s *Store) ShrinkVolume(id int, maxSectors uint64) error {
 }
 
 // SetReadOnly sets the read-only flag on a volume.
-func (s *Store) SetReadOnly(volumeID int, readOnly bool) error {
+func (s *Store) SetReadOnly(volumeID int64, readOnly bool) error {
 	const query = `UPDATE storage_volumes SET read_only=$1 WHERE id=$2;`
 	_, err := s.exec(query, readOnly, volumeID)
 	return err
 }
 
 // SetAvailable sets the available flag on a volume.
-func (s *Store) SetAvailable(volumeID int, available bool) error {
+func (s *Store) SetAvailable(volumeID int64, available bool) error {
 	const query = `UPDATE storage_volumes SET available=$1 WHERE id=$2;`
 	_, err := s.exec(query, available, volumeID)
 	return err
@@ -455,6 +455,19 @@ WHERE v.sector_id=$1`
 	return
 }
 
+// emptyLocationInVolume returns an empty location in the given volume. If
+// there is no space available, ErrNotEnoughStorage is returned.
+func emptyLocationInVolume(tx txn, volumeID int64) (loc storage.SectorLocation, err error) {
+	const query = `SELECT vs.id, vs.volume_id, vs.volume_index FROM volume_sectors vs
+LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
+WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id=$1 LIMIT 1;`
+	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = storage.ErrNotEnoughStorage
+	}
+	return
+}
+
 // emptyLocation returns an empty location in a writable volume. If there is no
 // space available, ErrNotEnoughStorage is returned.
 func emptyLocation(tx txn) (storage.SectorLocation, error) {
@@ -470,35 +483,35 @@ func emptyLocation(tx txn) (storage.SectorLocation, error) {
 	// locked, but not committed. This is unlikely to happen in practice, and
 	// the worst case is that the host fails to store a sector. The performance
 	// benefits of choosing a volume first far outweigh the downsides.
-	var loc storage.SectorLocation
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index FROM volume_sectors vs
-LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
-WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id=$1 LIMIT 1;`
-	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = storage.ErrNotEnoughStorage
-	}
-	return loc, err
+	return emptyLocationInVolume(tx, volumeID)
 }
 
 // emptyLocationForMigration returns an empty location in a writable volume
 // other than the given volumeID. If there is no space available,
 // ErrNotEnoughStorage is returned.
-func emptyLocationForMigration(tx txn, volumeID int) (loc storage.SectorLocation, err error) {
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index FROM volume_sectors vs
-	LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
-	WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id<>$1 LIMIT 1;`
-	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
+func emptyLocationForMigration(tx txn, oldVolumeID int64) (loc storage.SectorLocation, err error) {
+	const query = `SELECT id FROM storage_volumes
+WHERE available=true AND read_only=false AND total_sectors-used_sectors > 0 AND id<>$1
+ORDER BY used_sectors ASC LIMIT 1;`
+	var newVolumeID int64
+	err = tx.QueryRow(query, oldVolumeID).Scan(&newVolumeID)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = storage.ErrNotEnoughStorage
+		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
+	} else if err != nil {
+		return storage.SectorLocation{}, fmt.Errorf("failed to get empty location: %w", err)
 	}
-	return
+
+	// note: there is a slight race here where all sectors in a volume could be
+	// locked, but not committed. This is unlikely to happen in practice, and
+	// the worst case is that the host fails to store a sector. The performance
+	// benefits of choosing a volume first far outweigh the downsides.
+	return emptyLocationInVolume(tx, newVolumeID)
 }
 
 // sectorForMigration returns the location of the first occupied sector in the
 // volume starting at minIndex. If there are no sectors to migrate,
 // errNoSectorsToMigrate is returned.
-func sectorForMigration(tx txn, volumeID int, minIndex uint64) (loc storage.SectorLocation, err error) {
+func sectorForMigration(tx txn, volumeID int64, minIndex uint64) (loc storage.SectorLocation, err error) {
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index, s.sector_root
 	FROM volume_sectors vs
 	INNER JOIN stored_sectors s ON (s.id=vs.sector_id)
@@ -514,7 +527,7 @@ func sectorForMigration(tx txn, volumeID int, minIndex uint64) (loc storage.Sect
 // locationWithinVolume returns an empty location within the same volume as
 // the given volumeID. If there is no space in the volume, ErrNotEnoughStorage
 // is returned.
-func locationWithinVolume(tx txn, volumeID int, maxIndex uint64) (loc storage.SectorLocation, err error) {
+func locationWithinVolume(tx txn, volumeID int64, maxIndex uint64) (loc storage.SectorLocation, err error) {
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
 	FROM volume_sectors vs
 	WHERE vs.sector_id IS NULL AND vs.id NOT IN (SELECT volume_sector_id FROM locked_volume_sectors) 
@@ -528,7 +541,7 @@ func locationWithinVolume(tx txn, volumeID int, maxIndex uint64) (loc storage.Se
 	return
 }
 
-func volumeSectorsForDeletion(tx txn, volumeID, batchSize int) (locs []volumeSectorRef, err error) {
+func volumeSectorsForDeletion(tx txn, volumeID int64, batchSize int) (locs []volumeSectorRef, err error) {
 	const query = `SELECT id, sector_id IS NULL AS empty FROM volume_sectors WHERE volume_id=$1 LIMIT $2`
 	rows, err := tx.Query(query, volumeID, batchSize)
 	if err != nil {

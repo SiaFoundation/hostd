@@ -188,7 +188,7 @@ func TestVolumeAdd(t *testing.T) {
 		volume, err := db.Volume(volumeID)
 		if err != nil {
 			t.Fatal(err)
-		} else if volume.ID != i {
+		} else if volume.ID != int64(i) {
 			t.Fatalf("expected volume ID to be %v, got %v", i, volume.ID)
 		} else if volume.LocalPath != localPath {
 			t.Fatalf("expected local path to be %v, got %v", localPath, volume.LocalPath)
@@ -390,7 +390,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the empty volume can be removed
-	if err := db.RemoveVolume(volume.ID, false); err != nil {
+	if err := db.RemoveVolume(int64(volume.ID), false); err != nil {
 		t.Fatal(err)
 	}
 

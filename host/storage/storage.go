@@ -53,7 +53,7 @@ type (
 	// A SectorLocation is a location of a sector within a volume.
 	SectorLocation struct {
 		ID     int64
-		Volume int
+		Volume int64
 		Index  uint64
 		Root   types.Hash256
 	}
@@ -81,16 +81,16 @@ type (
 
 		mu          sync.Mutex // protects the following fields
 		lastCleanup time.Time
-		volumes     map[int]*volume
+		volumes     map[int64]*volume
 		// changedVolumes tracks volumes that need to be fsynced
-		changedVolumes map[int]bool
+		changedVolumes map[int64]bool
 		cache          *lru.Cache[types.Hash256, *[rhp2.SectorSize]byte] // Added cache
 	}
 )
 
 // getVolume returns the volume with the given ID, or an error if the volume does
 // not exist or is currently busy.
-func (vm *VolumeManager) getVolume(v int) (*volume, error) {
+func (vm *VolumeManager) getVolume(v int64) (*volume, error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	vol, ok := vm.volumes[v]
@@ -103,7 +103,7 @@ func (vm *VolumeManager) getVolume(v int) (*volume, error) {
 // lockVolume locks a volume for operations until release is called. A locked
 // volume cannot have its size or status changed and no new sectors can be
 // written to it.
-func (vm *VolumeManager) lockVolume(id int) (func(), error) {
+func (vm *VolumeManager) lockVolume(id int64) (func(), error) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 	v, ok := vm.volumes[id]
@@ -175,7 +175,7 @@ func (vm *VolumeManager) loadVolumes() error {
 
 		if err := v.OpenVolume(vol.LocalPath, false); err != nil {
 			v.appendError(fmt.Errorf("failed to open volume: %w", err))
-			vm.log.Error("unable to open volume", zap.Error(err), zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
+			vm.log.Error("unable to open volume", zap.Error(err), zap.Int64("id", vol.ID), zap.String("path", vol.LocalPath))
 			// mark the volume as unavailable
 			if err := vm.vs.SetAvailable(vol.ID, false); err != nil {
 				return fmt.Errorf("failed to mark volume '%v' as unavailable: %w", vol.LocalPath, err)
@@ -200,7 +200,7 @@ func (vm *VolumeManager) loadVolumes() error {
 			return fmt.Errorf("failed to mark volume '%v' as available: %w", vol.LocalPath, err)
 		}
 		v.SetStatus(VolumeStatusReady)
-		vm.log.Debug("loaded volume", zap.Int("id", vol.ID), zap.String("path", vol.LocalPath))
+		vm.log.Debug("loaded volume", zap.Int64("id", vol.ID), zap.String("path", vol.LocalPath))
 	}
 	return nil
 }
@@ -226,7 +226,7 @@ func (vm *VolumeManager) migrateSector(loc SectorLocation, log *zap.Logger) erro
 }
 
 // growVolume grows a volume by adding sectors to the end of the volume.
-func (vm *VolumeManager) growVolume(ctx context.Context, id int, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
+func (vm *VolumeManager) growVolume(ctx context.Context, id int64, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
 	if oldMaxSectors > newMaxSectors {
 		return errors.New("old sectors must be less than new sectors")
 	}
@@ -281,8 +281,8 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int, volume *volume,
 }
 
 // shrinkVolume shrinks a volume by removing sectors from the end of the volume.
-func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
-	log := vm.log.Named("shrinkVolume").With(zap.Int("volumeID", id), zap.Uint64("oldMaxSectors", oldMaxSectors), zap.Uint64("newMaxSectors", newMaxSectors))
+func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *volume, oldMaxSectors, newMaxSectors uint64) error {
+	log := vm.log.Named("shrinkVolume").With(zap.Int64("volumeID", id), zap.Uint64("oldMaxSectors", oldMaxSectors), zap.Uint64("newMaxSectors", newMaxSectors))
 	if oldMaxSectors <= newMaxSectors {
 		return errors.New("old sectors must be greater than new sectors")
 	}
@@ -362,7 +362,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int, volume *volum
 	return nil
 }
 
-func (vm *VolumeManager) volumeStats(id int) (vs VolumeStats) {
+func (vm *VolumeManager) volumeStats(id int64) (vs VolumeStats) {
 	v, ok := vm.volumes[id]
 	if !ok {
 		vs.Status = "unavailable"
@@ -372,7 +372,7 @@ func (vm *VolumeManager) volumeStats(id int) (vs VolumeStats) {
 	return
 }
 
-func (vm *VolumeManager) setVolumeStatus(id int, status string) {
+func (vm *VolumeManager) setVolumeStatus(id int64, status string) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
 
@@ -383,7 +383,7 @@ func (vm *VolumeManager) setVolumeStatus(id int, status string) {
 	v.stats.Status = status
 }
 
-func (vm *VolumeManager) doResize(ctx context.Context, volumeID int, vol *volume, current, target uint64) error {
+func (vm *VolumeManager) doResize(ctx context.Context, volumeID int64, vol *volume, current, target uint64) error {
 	ctx, cancel, err := vm.tg.AddContext(ctx)
 	if err != nil {
 		return err
@@ -401,7 +401,7 @@ func (vm *VolumeManager) doResize(ctx context.Context, volumeID int, vol *volume
 	return nil
 }
 
-func (vm *VolumeManager) migrateForRemoval(ctx context.Context, id int, localPath string, force bool, log *zap.Logger) (int, error) {
+func (vm *VolumeManager) migrateForRemoval(ctx context.Context, id int64, localPath string, force bool, log *zap.Logger) (int, error) {
 	ctx, cancel, err := vm.tg.AddContext(ctx)
 	if err != nil {
 		return 0, err
@@ -480,9 +480,9 @@ func (vm *VolumeManager) Close() error {
 	// sync and close all open volumes
 	for id, vol := range vm.volumes {
 		if err := vol.Sync(); err != nil {
-			vm.log.Error("failed to sync volume", zap.Int("id", id), zap.Error(err))
+			vm.log.Error("failed to sync volume", zap.Int64("id", id), zap.Error(err))
 		} else if err := vol.Close(); err != nil {
-			vm.log.Error("failed to close volume", zap.Int("id", id), zap.Error(err))
+			vm.log.Error("failed to close volume", zap.Int64("id", id), zap.Error(err))
 		}
 		delete(vm.volumes, id)
 	}
@@ -527,7 +527,7 @@ func (vm *VolumeManager) Volumes() ([]VolumeMeta, error) {
 }
 
 // Volume returns a volume by its ID.
-func (vm *VolumeManager) Volume(id int) (VolumeMeta, error) {
+func (vm *VolumeManager) Volume(id int64) (VolumeMeta, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return VolumeMeta{}, err
@@ -595,7 +595,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 	}
 
 	go func() {
-		log := vm.log.Named("initialize").With(zap.Int("volumeID", volumeID), zap.Uint64("maxSectors", maxSectors))
+		log := vm.log.Named("initialize").With(zap.Int64("volumeID", volumeID), zap.Uint64("maxSectors", maxSectors))
 		start := time.Now()
 		err := func() error {
 			defer vm.vs.SetAvailable(volumeID, true)
@@ -632,7 +632,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 }
 
 // SetReadOnly sets the read-only status of a volume.
-func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
+func (vm *VolumeManager) SetReadOnly(id int64, readOnly bool) error {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return err
@@ -652,8 +652,8 @@ func (vm *VolumeManager) SetReadOnly(id int, readOnly bool) error {
 }
 
 // RemoveVolume removes a volume from the manager.
-func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int, force bool, result chan<- error) error {
-	log := vm.log.Named("remove").With(zap.Int("volumeID", id))
+func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool, result chan<- error) error {
+	log := vm.log.Named("remove").With(zap.Int64("volumeID", id))
 	done, err := vm.tg.Add()
 	if err != nil {
 		return err
@@ -716,7 +716,7 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int, force bool, r
 }
 
 // ResizeVolume resizes a volume to the specified size.
-func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int, maxSectors uint64, result chan<- error) error {
+func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors uint64, result chan<- error) error {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return err
@@ -748,7 +748,7 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int, maxSectors ui
 	}
 
 	go func() {
-		log := vm.log.Named("resize").With(zap.Int("volumeID", id))
+		log := vm.log.Named("resize").With(zap.Int64("volumeID", id))
 		start := time.Now()
 		err := func() error {
 			defer func() {
@@ -896,7 +896,7 @@ func (vm *VolumeManager) Sync() error {
 	defer done()
 
 	vm.mu.Lock()
-	var toSync []int
+	var toSync []int64
 	for id := range vm.changedVolumes {
 		toSync = append(toSync, id)
 	}
@@ -934,7 +934,7 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 		} else if err := vol.WriteSector(data, loc.Index); err != nil {
 			return fmt.Errorf("failed to write sector %v: %w", root, err)
 		}
-		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
+		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		// Add newly written sector to cache
 		vm.cache.Add(root, data)
 		return nil
@@ -1006,8 +1006,8 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 			log:   log.Named("recorder"),
 		},
 
-		volumes:        make(map[int]*volume),
-		changedVolumes: make(map[int]bool),
+		volumes:        make(map[int64]*volume),
+		changedVolumes: make(map[int64]bool),
 		cache:          cache,
 		tg:             threadgroup.New(),
 	}

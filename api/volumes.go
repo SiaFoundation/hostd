@@ -16,7 +16,7 @@ type (
 		volumes VolumeManager
 
 		mu   sync.Mutex // protects jobs
-		jobs map[int]context.CancelFunc
+		jobs map[int64]context.CancelFunc
 	}
 )
 
@@ -48,7 +48,7 @@ func (vj *volumeJobs) AddVolume(path string, maxSectors uint64) (storage.Volume,
 	return volume, nil
 }
 
-func (vj *volumeJobs) RemoveVolume(id int, force bool) error {
+func (vj *volumeJobs) RemoveVolume(id int64, force bool) error {
 	vj.mu.Lock()
 	defer vj.mu.Unlock()
 	if _, exists := vj.jobs[id]; exists {
@@ -79,7 +79,7 @@ func (vj *volumeJobs) RemoveVolume(id int, force bool) error {
 	return nil
 }
 
-func (vj *volumeJobs) ResizeVolume(id int, newSize uint64) error {
+func (vj *volumeJobs) ResizeVolume(id int64, newSize uint64) error {
 	vj.mu.Lock()
 	defer vj.mu.Unlock()
 	if _, exists := vj.jobs[id]; exists {
@@ -110,7 +110,7 @@ func (vj *volumeJobs) ResizeVolume(id int, newSize uint64) error {
 	return nil
 }
 
-func (vj *volumeJobs) Cancel(id int) error {
+func (vj *volumeJobs) Cancel(id int64) error {
 	vj.mu.Lock()
 	defer vj.mu.Unlock()
 	cancel, exists := vj.jobs[id]
@@ -163,7 +163,7 @@ func (a *api) handleDeleteVolume(c jape.Context) {
 	} else if err := c.DecodeForm("force", &force); err != nil {
 		return
 	}
-	err := a.volumeJobs.RemoveVolume(id, force)
+	err := a.volumeJobs.RemoveVolume(int64(id), force)
 	a.checkServerError(c, "failed to remove volume", err)
 }
 
@@ -181,7 +181,7 @@ func (a *api) handlePUTVolumeResize(c jape.Context) {
 		return
 	}
 
-	err := a.volumeJobs.ResizeVolume(id, req.MaxSectors)
+	err := a.volumeJobs.ResizeVolume(int64(id), req.MaxSectors)
 	a.checkServerError(c, "failed to resize volume", err)
 }
 
@@ -194,6 +194,6 @@ func (a *api) handleDELETEVolumeCancelOp(c jape.Context) {
 		return
 	}
 
-	err := a.volumeJobs.Cancel(id)
+	err := a.volumeJobs.Cancel(int64(id))
 	a.checkServerError(c, "failed to cancel operation", err)
 }
