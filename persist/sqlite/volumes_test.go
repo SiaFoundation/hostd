@@ -505,17 +505,15 @@ func TestMigrateSectors(t *testing.T) {
 
 	var i int
 	// migrate the remaining sectors to the first half of the volume
-	err = db.MigrateSectors(volume.ID, initialSectors/2, func(locations []storage.SectorLocation) error {
-		for _, loc := range locations {
-			if loc.Volume != volume.ID {
-				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
-			} else if loc.Index != uint64(i) {
-				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
-			} else if loc.Root != roots[i] {
-				t.Fatalf("expected sector root %v, got %v", roots[i], loc.Root)
-			}
-			i++
+	err = db.MigrateSectors(volume.ID, initialSectors/2, func(loc storage.SectorLocation) error {
+		if loc.Volume != volume.ID {
+			t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
+		} else if loc.Index != uint64(i) {
+			t.Fatalf("expected sector index %v, got %v", i, loc.Index)
+		} else if loc.Root != roots[i] {
+			t.Fatalf("expected sector root %v, got %v", roots[i], loc.Root)
 		}
+		i++
 		// note: sync to disk
 		return nil
 	})
@@ -545,10 +543,12 @@ func TestMigrateSectors(t *testing.T) {
 	}
 
 	// migrate the remaining sectors from the first volume; should partially complete
-	err = db.MigrateSectors(volume.ID, 0, func(locations []storage.SectorLocation) error {
-		if len(locations) > initialSectors/4 {
-			t.Fatalf("expected only %v migrations, got %v", initialSectors/4, len(locations))
+	var n int
+	err = db.MigrateSectors(volume.ID, 0, func(loc storage.SectorLocation) error {
+		if n > initialSectors/4 {
+			t.Fatalf("expected only %v migrations, got %v", initialSectors/4, n)
 		}
+		n++
 		return nil
 	})
 	if !errors.Is(err, storage.ErrNotEnoughStorage) {
@@ -862,7 +862,7 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 
 	// migrate all sectors from the first volume to the second
-	if err := db.MigrateSectors(volume1.ID, 0, func(locations []storage.SectorLocation) error {
+	if err := db.MigrateSectors(volume1.ID, 0, func(loc storage.SectorLocation) error {
 		return nil
 	}); err != nil {
 		b.Fatal(err)
