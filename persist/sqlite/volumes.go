@@ -18,17 +18,6 @@ type volumeSectorRef struct {
 
 var errNoSectorsToMigrate = errors.New("no sectors to migrate")
 
-func emptyLocationForMigration(tx txn, volumeID int) (loc storage.SectorLocation, err error) {
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index FROM volume_sectors vs
-	LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
-	WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id<>$1 LIMIT 1;`
-	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = storage.ErrNotEnoughStorage
-	}
-	return
-}
-
 func (s *Store) migrateSector(volumeID int, startIndex uint64, migrateFn func(location storage.SectorLocation) error, log *zap.Logger) error {
 	var locks []int64
 	var oldLoc, newLoc storage.SectorLocation
@@ -492,8 +481,23 @@ WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id=$1 
 	return loc, err
 }
 
+// emptyLocationForMigration returns an empty location in a writable volume
+// other than the given volumeID. If there is no space available,
+// ErrNotEnoughStorage is returned.
+func emptyLocationForMigration(tx txn, volumeID int) (loc storage.SectorLocation, err error) {
+	const query = `SELECT vs.id, vs.volume_id, vs.volume_index FROM volume_sectors vs
+	LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
+	WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id<>$1 LIMIT 1;`
+	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = storage.ErrNotEnoughStorage
+	}
+	return
+}
+
 // sectorForMigration returns the location of the first occupied sector in the
-// volume starting at minIndex.
+// volume starting at minIndex. If there are no sectors to migrate,
+// errNoSectorsToMigrate is returned.
 func sectorForMigration(tx txn, volumeID int, minIndex uint64) (loc storage.SectorLocation, err error) {
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index, s.sector_root
 	FROM volume_sectors vs
