@@ -313,6 +313,10 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contract
 				sectors++
 				delta++
 			case contracts.SectorActionTrim:
+				if sectors < change.A {
+					return fmt.Errorf("cannot trim %v sectors from contract with %v sectors", change.A, sectors)
+				}
+
 				if err := trimSectors(tx, contractID, change.A); err != nil {
 					return fmt.Errorf("failed to trim sectors: %w", err)
 				}
@@ -576,7 +580,7 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 	}
 
 	var records []contractSectorRootRef
-	rows, err := tx.Query(`SELECT id, sector_id FROM contract_sector_roots WHERE contract_id=$1 AND root_index IN ($2, $3) ORDER BY root_index ASC;`, contractID, i, j)
+	rows, err := tx.Query(`SELECT id, sector_id FROM contract_sector_roots WHERE contract_id=$1 AND root_index IN ($2, $3);`, contractID, i, j)
 	if err != nil {
 		return fmt.Errorf("failed to query sector IDs: %w", err)
 	}
