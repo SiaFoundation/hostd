@@ -928,11 +928,8 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 			return nil
 		}
 		start := time.Now()
-		vol, err := vm.getVolume(loc.Volume)
-		if err != nil {
-			return fmt.Errorf("failed to get volume %v: %w", loc.Volume, err)
-		} else if err := vol.WriteSector(data, loc.Index); err != nil {
-			return fmt.Errorf("failed to write sector %v: %w", root, err)
+		if err := vm.writeSector(data, loc, false); err != nil {
+			return err
 		}
 		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 		// Add newly written sector to cache
