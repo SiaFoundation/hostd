@@ -435,8 +435,8 @@ func (vm *VolumeManager) migrateForRemoval(ctx context.Context, id int64, localP
 		}
 
 		if err := vm.migrateSector(newLoc, log.Named("migrate")); err != nil {
+			log.Error("failed to migrate sector", zap.Stringer("sectorRoot", newLoc.Root), zap.Error(err))
 			if force {
-				log.Error("failed to migrate sector", zap.Stringer("sectorRoot", newLoc.Root), zap.Error(err))
 				failed++
 				a.Data["failed"] = failed
 				return nil
@@ -449,9 +449,9 @@ func (vm *VolumeManager) migrateForRemoval(ctx context.Context, id int64, localP
 		vm.a.Register(a)
 		return nil
 	})
-	if err != nil && !force {
+	if err != nil {
 		return migrated, fmt.Errorf("failed to migrate sector data: %w", err)
-	} else if err := vm.vs.RemoveVolume(id, force); err != nil {
+	} else if err := vm.vs.RemoveVolume(id); err != nil {
 		return migrated, fmt.Errorf("failed to remove volume: %w", err)
 	}
 

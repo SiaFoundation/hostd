@@ -23,7 +23,7 @@ type (
 		// RemoveVolume removes a storage volume from the volume store. If there
 		// are used sectors in the volume, ErrVolumeNotEmpty is returned. If
 		// force is true, the volume is removed even if it is not empty.
-		RemoveVolume(volumeID int64, force bool) error
+		RemoveVolume(volumeID int64) error
 		// GrowVolume grows a storage volume's metadata to maxSectors. If the
 		// number of sectors in the volume is already greater than maxSectors,
 		// nil is returned.
