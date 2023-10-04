@@ -9,6 +9,14 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion18 adds an index to the volume_sectors table to speed up
+// empty sector selection.
+func migrateVersion18(tx txn) error {
+	const query = `CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sector_id);`
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion17 recalculates the indices of all contract sector roots.
 // Fixes a bug where the indices were not being properly updated if more than
 // one root was trimmed.
@@ -484,4 +492,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion15,
 	migrateVersion16,
 	migrateVersion17,
+	migrateVersion18,
 }
