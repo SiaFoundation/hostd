@@ -586,7 +586,13 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 		return errors.New("failed to find both sectors")
 	}
 
-	res, err := tx.Exec(`UPDATE contract_sector_roots SET sector_id=$1 WHERE id=$2`, records[1].sectorID, records[0].dbID)
+	stmt, err := tx.Prepare(`UPDATE contract_sector_roots SET sector_id=$1 WHERE id=$2`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	res, err := stmt.Exec(records[1].sectorID, records[0].dbID)
 	if err != nil {
 		return fmt.Errorf("failed to update sector ID: %w", err)
 	} else if rows, err := res.RowsAffected(); err != nil {
@@ -595,7 +601,7 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 		return fmt.Errorf("expected 1 row affected, got %v", rows)
 	}
 
-	res, err = tx.Exec(`UPDATE contract_sector_roots SET sector_id=$1 WHERE id=$2`, records[0].sectorID, records[1].dbID)
+	res, err = stmt.Exec(records[0].sectorID, records[1].dbID)
 	if err != nil {
 		return fmt.Errorf("failed to update sector ID: %w", err)
 	} else if rows, err := res.RowsAffected(); err != nil {
@@ -603,21 +609,6 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 	} else if rows != 1 {
 		return fmt.Errorf("expected 1 row affected, got %v", rows)
 	}
-
-	func() {
-		rows, err := tx.Query(`SELECT sector_id, root_index FROM contract_sector_roots WHERE contract_id=$1 AND root_index IN ($2, $3) ORDER BY root_index ASC;`, contractID, i, j)
-		if err != nil {
-			panic(fmt.Errorf("failed to query sector IDs: %w", err))
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var id int64
-			var index int64
-			if err := rows.Scan(&id, &index); err != nil {
-				panic(fmt.Errorf("failed to scan sector ID: %w", err))
-			}
-		}
-	}()
 
 	return nil
 }
