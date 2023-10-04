@@ -652,7 +652,7 @@ func TestPrune(t *testing.T) {
 			Action: contracts.SectorActionAppend,
 		})
 	}
-	err = db.ReviseContract(c, contracts.Usage{}, 0, changes)
+	err = db.ReviseContract(c, contracts.Usage{}, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -776,7 +776,7 @@ func TestPrune(t *testing.T) {
 	changes = []contracts.SectorChange{
 		{Action: contracts.SectorActionTrim, A: uint64(len(contractSectors) / 2)},
 	}
-	if err := db.ReviseContract(c, contracts.Usage{}, uint64(len(contractSectors)), changes); err != nil {
+	if err := db.ReviseContract(c, contracts.Usage{}, changes); err != nil {
 		t.Fatal(err)
 	}
 

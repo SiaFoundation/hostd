@@ -279,8 +279,17 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 	})
 }
 
+func contractSectorRoots(tx txn, contractID int64) (uint64, error) {
+	var index uint64
+	err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots WHERE contract_id=$1`, contractID).Scan(&index)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return index, err
+}
+
 // ReviseContract atomically updates a contract's revision and sectors
-func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, oldSectors uint64, sectorChanges []contracts.SectorChange) error {
+func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, sectorChanges []contracts.SectorChange) error {
 	return s.transaction(func(tx txn) error {
 		contractID, err := reviseContract(tx, revision)
 		if err != nil {
@@ -290,20 +299,24 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contract
 		}
 
 		var delta int
-		sectorCount := oldSectors
+		sectors, err := contractSectorRoots(tx, contractID)
+		if err != nil {
+			return fmt.Errorf("failed to get sector index: %w", err)
+		}
+
 		for _, change := range sectorChanges {
 			switch change.Action {
 			case contracts.SectorActionAppend:
-				if err := appendSector(tx, contractID, change.Root, sectorCount); err != nil {
+				if err := appendSector(tx, contractID, change.Root, sectors); err != nil {
 					return fmt.Errorf("failed to append sector: %w", err)
 				}
-				sectorCount++
+				sectors++
 				delta++
 			case contracts.SectorActionTrim:
 				if err := trimSectors(tx, contractID, change.A); err != nil {
 					return fmt.Errorf("failed to trim sectors: %w", err)
 				}
-				sectorCount -= change.A
+				sectors -= change.A
 				delta -= int(change.A)
 			case contracts.SectorActionUpdate:
 				if err := updateSector(tx, contractID, change.Root, change.A); err != nil {
