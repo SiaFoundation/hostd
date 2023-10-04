@@ -313,7 +313,6 @@ func TestReviseContract(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
-
 	}
 }
 

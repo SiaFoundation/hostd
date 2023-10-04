@@ -643,13 +643,8 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 	return nil
 }
 
-type contractRootRef struct {
-	ID       int64
-	SectorID int64
-}
-
 // lastContractSectors returns the last n sector IDs for a contract.
-func lastContractSectors(tx txn, contractID int64, n uint64) (roots []contractRootRef, err error) {
+func lastContractSectors(tx txn, contractID int64, n uint64) (roots []contractSectorRootRef, err error) {
 	const query = `SELECT id, sector_id FROM contract_sector_roots WHERE contract_id=$1 ORDER BY root_index DESC LIMIT $2;`
 	rows, err := tx.Query(query, contractID, n)
 	if err != nil {
@@ -658,8 +653,8 @@ func lastContractSectors(tx txn, contractID int64, n uint64) (roots []contractRo
 	defer rows.Close()
 
 	for rows.Next() {
-		var ref contractRootRef
-		if err := rows.Scan(&ref.ID, &ref.SectorID); err != nil {
+		var ref contractSectorRootRef
+		if err := rows.Scan(&ref.dbID, &ref.sectorID); err != nil {
 			return nil, err
 		}
 		roots = append(roots, ref)
@@ -676,8 +671,8 @@ func trimSectors(tx txn, contractID int64, n uint64, log *zap.Logger) error {
 
 	var rootIDs, sectorIDs []int64
 	for _, ref := range refs {
-		rootIDs = append(rootIDs, ref.ID)
-		sectorIDs = append(sectorIDs, ref.SectorID)
+		rootIDs = append(rootIDs, ref.dbID)
+		sectorIDs = append(sectorIDs, ref.sectorID)
 	}
 
 	// delete the sector roots
@@ -691,6 +686,7 @@ func trimSectors(tx txn, contractID int64, n uint64, log *zap.Logger) error {
 		return fmt.Errorf("failed to delete all sectors: %w", err)
 	}
 
+	// attempt to prune the deleted sectors
 	for _, sectorID := range sectorIDs {
 		if err := pruneSectorRef(tx, sectorID); err != nil && !errors.Is(err, errSectorHasRefs) {
 			return fmt.Errorf("failed to prune sector ref: %w", err)
