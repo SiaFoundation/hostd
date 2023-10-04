@@ -9,6 +9,26 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion17 recalculates the indices of all contract sector roots.
+// Fixes a bug where the indices were not being properly updated if more than
+// one root was trimmed.
+func migrateVersion17(tx txn) error {
+	const query = `
+-- create a temp table that contains the new indices
+CREATE TEMP TABLE temp_contract_sector_roots AS 
+SELECT * FROM (SELECT id, contract_id, root_index, ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY root_index ASC)-1 AS expected_root_index 
+FROM contract_sector_roots) a WHERE root_index <> expected_root_index ORDER BY contract_id, root_index ASC;
+-- update the contract_sector_roots table with the new indices
+UPDATE contract_sector_roots
+SET root_index = (SELECT expected_root_index FROM temp_contract_sector_roots WHERE temp_contract_sector_roots.id = contract_sector_roots.id)
+WHERE id IN (SELECT id FROM temp_contract_sector_roots);
+-- drop the temp table
+DROP TABLE temp_contract_sector_roots;`
+
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion16 recalculates the contract and physical sector metrics.
 func migrateVersion16(tx txn) error {
 	// recalculate the contract sectors metric
@@ -463,4 +483,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion14,
 	migrateVersion15,
 	migrateVersion16,
+	migrateVersion17,
 }
