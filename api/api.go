@@ -55,11 +55,11 @@ type (
 	VolumeManager interface {
 		Usage() (usedSectors uint64, totalSectors uint64, err error)
 		Volumes() ([]storage.VolumeMeta, error)
-		Volume(id int) (storage.VolumeMeta, error)
+		Volume(id int64) (storage.VolumeMeta, error)
 		AddVolume(ctx context.Context, localPath string, maxSectors uint64, result chan<- error) (storage.Volume, error)
-		RemoveVolume(ctx context.Context, id int, force bool, result chan<- error) error
-		ResizeVolume(ctx context.Context, id int, maxSectors uint64, result chan<- error) error
-		SetReadOnly(id int, readOnly bool) error
+		RemoveVolume(ctx context.Context, id int64, force bool, result chan<- error) error
+		ResizeVolume(ctx context.Context, id int64, maxSectors uint64, result chan<- error) error
+		SetReadOnly(id int64, readOnly bool) error
 		RemoveSector(root types.Hash256) error
 		ResizeCache(size uint32)
 	}
@@ -164,7 +164,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		},
 		volumeJobs: volumeJobs{
 			volumes: vm,
-			jobs:    make(map[int]context.CancelFunc),
+			jobs:    make(map[int64]context.CancelFunc),
 		},
 	}
 	return jape.Mux(map[string]jape.Handler{

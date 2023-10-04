@@ -9,6 +9,77 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion18 adds an index to the volume_sectors table to speed up
+// empty sector selection.
+func migrateVersion18(tx txn) error {
+	const query = `CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sector_id);`
+	_, err := tx.Exec(query)
+	return err
+}
+
+// migrateVersion17 recalculates the indices of all contract sector roots.
+// Fixes a bug where the indices were not being properly updated if more than
+// one root was trimmed.
+func migrateVersion17(tx txn) error {
+	const query = `
+-- create a temp table that contains the new indices
+CREATE TEMP TABLE temp_contract_sector_roots AS 
+SELECT * FROM (SELECT id, contract_id, root_index, ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY root_index ASC)-1 AS expected_root_index 
+FROM contract_sector_roots) a WHERE root_index <> expected_root_index ORDER BY contract_id, root_index ASC;
+-- update the contract_sector_roots table with the new indices
+UPDATE contract_sector_roots
+SET root_index = (SELECT expected_root_index FROM temp_contract_sector_roots WHERE temp_contract_sector_roots.id = contract_sector_roots.id)
+WHERE id IN (SELECT id FROM temp_contract_sector_roots);
+-- drop the temp table
+DROP TABLE temp_contract_sector_roots;`
+
+	_, err := tx.Exec(query)
+	return err
+}
+
+// migrateVersion16 recalculates the contract and physical sector metrics.
+func migrateVersion16(tx txn) error {
+	// recalculate the contract sectors metric
+	var contractSectorCount int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&contractSectorCount); err != nil {
+		return fmt.Errorf("failed to query contract sector count: %w", err)
+	} else if err := setNumericStat(tx, metricContractSectors, uint64(contractSectorCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set contract sectors metric: %w", err)
+	}
+
+	// recalculate the physical sectors metric
+	var physicalSectorsCount int64
+	volumePhysicalSectorCount := make(map[int64]int64)
+	rows, err := tx.Query(`SELECT volume_id, COUNT(*) FROM volume_sectors WHERE sector_id IS NOT NULL GROUP BY volume_id`)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to query volume sector count: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var volumeID, count int64
+		if err := rows.Scan(&volumeID, &count); err != nil {
+			return fmt.Errorf("failed to scan volume sector count: %w", err)
+		}
+		volumePhysicalSectorCount[volumeID] = count
+		physicalSectorsCount += count
+	}
+
+	// update the physical sectors metric
+	if err := setNumericStat(tx, metricPhysicalSectors, uint64(physicalSectorsCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set contract sectors metric: %w", err)
+	}
+
+	// update the volume stats
+	for volumeID, count := range volumePhysicalSectorCount {
+		err := tx.QueryRow(`UPDATE storage_volumes SET used_sectors = $1 WHERE id = $2 RETURNING id`, count, volumeID).Scan(&volumeID)
+		if err != nil {
+			return fmt.Errorf("failed to update volume stats: %w", err)
+		}
+	}
+	return nil
+}
+
 // migrateVersion15 adds the registry usage fields to the contracts table,
 // removes the usage fields from the accounts table, and refactors the
 // contract_account_funding table.
@@ -419,4 +490,7 @@ var migrations = []func(tx txn) error{
 	migrateVersion13,
 	migrateVersion14,
 	migrateVersion15,
+	migrateVersion16,
+	migrateVersion17,
+	migrateVersion18,
 }

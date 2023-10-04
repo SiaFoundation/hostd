@@ -57,8 +57,7 @@ CREATE TABLE volume_sectors (
 	sector_id INTEGER UNIQUE REFERENCES stored_sectors (id),
 	UNIQUE (volume_id, volume_index)
 );
--- careful with these indices, the empty sector query is fragile and relies on
--- the volume_index indice for performance.
+CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sector_id);
 CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
 CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index ASC);
 CREATE INDEX volume_sectors_sector_id ON volume_sectors(sector_id);

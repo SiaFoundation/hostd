@@ -15,33 +15,33 @@ type (
 		// Volumes returns a list of all volumes in the volume store.
 		Volumes() ([]Volume, error)
 		// Volume returns a volume in the store by its id
-		Volume(id int) (Volume, error)
+		Volume(id int64) (Volume, error)
 		// AddVolume initializes a new storage volume and adds it to the volume
 		// store. GrowVolume must be called afterwards to initialize the volume
 		// to its desired size.
-		AddVolume(localPath string, readOnly bool) (int, error)
+		AddVolume(localPath string, readOnly bool) (int64, error)
 		// RemoveVolume removes a storage volume from the volume store. If there
 		// are used sectors in the volume, ErrVolumeNotEmpty is returned. If
 		// force is true, the volume is removed even if it is not empty.
-		RemoveVolume(volumeID int, force bool) error
+		RemoveVolume(volumeID int64) error
 		// GrowVolume grows a storage volume's metadata to maxSectors. If the
 		// number of sectors in the volume is already greater than maxSectors,
 		// nil is returned.
-		GrowVolume(volumeID int, maxSectors uint64) error
+		GrowVolume(volumeID int64, maxSectors uint64) error
 		// ShrinkVolume shrinks a storage volume's metadata to maxSectors. If
 		// there are used sectors in the shrink range, an error is returned.
-		ShrinkVolume(volumeID int, maxSectors uint64) error
+		ShrinkVolume(volumeID int64, maxSectors uint64) error
 
 		// SetReadOnly sets the read-only flag on a volume.
-		SetReadOnly(volumeID int, readOnly bool) error
+		SetReadOnly(volumeID int64, readOnly bool) error
 		// SetAvailable sets the available flag on a volume.
-		SetAvailable(volumeID int, available bool) error
+		SetAvailable(volumeID int64, available bool) error
 
-		// MigrateSectors returns a new location for each occupied sector of a volume
-		// starting at min. The sector data should be copied to the new volume and
-		// synced to disk during migrateFn. Iteration is stopped if migrateFn returns an
-		// error.
-		MigrateSectors(volumeID int, min uint64, migrateFn func(newLocations []SectorLocation) error) error
+		// MigrateSectors returns a new location for each occupied sector of a
+		// volume starting at min. The sector data should be copied to the new
+		// location and synced to disk during migrateFn. Iteration is stopped if
+		// migrateFn returns an error.
+		MigrateSectors(volumeID int64, min uint64, migrateFn func(SectorLocation) error) error
 		// StoreSector calls fn with an empty location in a writable volume. If
 		// the sector root already exists, fn is called with the existing
 		// location and exists is true. Unless exists is true, The sector must

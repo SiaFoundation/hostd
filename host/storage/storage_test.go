@@ -567,7 +567,7 @@ func TestVolumeDistribution(t *testing.T) {
 	}
 	defer vm.Close()
 
-	volumeIDs := make([]int, 5)
+	volumeIDs := make([]int64, 5)
 	volumeDir := t.TempDir()
 	for i := range volumeIDs {
 		result := make(chan error, 1)

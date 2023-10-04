@@ -14,6 +14,17 @@ import (
 	"lukechampine.com/frand"
 )
 
+func (s *Store) rootAtIndex(contractID types.FileContractID, rootIndex int64) (root types.Hash256, err error) {
+	err = s.transaction(func(tx txn) error {
+		const query = `SELECT s.sector_root FROM contract_sector_roots csr
+INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
+INNER JOIN contracts c ON (csr.contract_id = c.id)
+WHERE c.contract_id=$1 AND csr.root_index=$2;`
+		return tx.QueryRow(query, sqlHash256(contractID), rootIndex).Scan((*sqlHash256)(&root))
+	})
+	return
+}
+
 func rootsEqual(a, b []types.Hash256) error {
 	if len(a) != len(b) {
 		return errors.New("length mismatch")
@@ -24,6 +35,24 @@ func rootsEqual(a, b []types.Hash256) error {
 		}
 	}
 	return nil
+}
+
+func runRevision(db *Store, revision contracts.SignedRevision, changes []contracts.SectorChange) error {
+	for _, change := range changes {
+		switch change.Action {
+		// store a sector in the database for the append or update actions
+		case contracts.SectorActionAppend, contracts.SectorActionUpdate:
+			root := frand.Entropy256()
+			release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+			if err != nil {
+				return fmt.Errorf("failed to store sector: %w", err)
+			}
+			defer release()
+			change.Root = root
+		}
+	}
+
+	return db.ReviseContract(revision, contracts.Usage{}, changes)
 }
 
 func TestReviseContract(t *testing.T) {
@@ -72,37 +101,28 @@ func TestReviseContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// add some sector roots
-	var changes []contracts.SectorChange
-	var roots []types.Hash256
-	for i := 0; i < 10; i++ {
-		root := frand.Entropy256()
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer release()
-		changes = append(changes, contracts.SectorChange{
-			Root:   root,
-			Action: contracts.SectorActionAppend,
-		})
-		roots = append(roots, root)
-	}
-
-	err = db.ReviseContract(contract, contracts.Usage{}, 0, changes)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// checkConsistency is a helper function that verifies the expected sector
 	// roots are consistent with the database
-	checkConsistency := func() error {
-		// verify the roots were added in the correct order
-		dbRoots, err := db.SectorRoots(contract.Revision.ParentID)
+	checkConsistency := func(roots []types.Hash256, expected int) error {
+		dbRoot, err := db.SectorRoots(contract.Revision.ParentID)
 		if err != nil {
 			return fmt.Errorf("failed to get sector roots: %w", err)
-		} else if err = rootsEqual(roots, dbRoots); err != nil {
+		} else if len(dbRoot) != expected {
+			return fmt.Errorf("expected %v sector roots, got %v", expected, len(dbRoot))
+		} else if len(roots) != expected {
+			return fmt.Errorf("expected %v sector roots, got %v", expected, len(roots))
+		} else if err = rootsEqual(roots, dbRoot); err != nil {
 			return fmt.Errorf("sector roots mismatch: %w", err)
+		}
+
+		// verify the roots were added in the correct order
+		for i := range roots {
+			root, err := db.rootAtIndex(contract.Revision.ParentID, int64(i))
+			if err != nil {
+				return fmt.Errorf("failed to get sector root %d: %w", i, err)
+			} else if root != roots[i] {
+				return fmt.Errorf("sector root mismatch: expected %v, got %v", roots[i], root)
+			}
 		}
 
 		m, err := db.Metrics(time.Now())
@@ -110,132 +130,189 @@ func TestReviseContract(t *testing.T) {
 			return fmt.Errorf("failed to get metrics: %w", err)
 		} else if m.Storage.ContractSectors != uint64(len(roots)) {
 			return fmt.Errorf("expected %v contract sectors, got %v", len(roots), m.Storage.ContractSectors)
+		} else if m.Storage.PhysicalSectors != uint64(len(roots)) {
+			return fmt.Errorf("expected %v physical sectors, got %v", len(roots), m.Storage.PhysicalSectors)
 		}
 		return nil
 	}
 
-	// verify the roots were added
-	if err = checkConsistency(); err != nil {
-		t.Fatal(err)
+	var roots []types.Hash256
+	tests := []struct {
+		name    string
+		changes []contracts.SectorChange
+		sectors int
+		errors  bool
+	}{
+		{
+			name: "append 10 roots",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+			},
+			sectors: 10,
+		},
+		{
+			name: "swap 4 roots",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionSwap, A: 0, B: 1},
+				{Action: contracts.SectorActionSwap, A: 6, B: 4},
+			},
+			sectors: 10,
+		},
+		{
+			name: "update root",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionUpdate, A: 3},
+			},
+			sectors: 10,
+		},
+		{
+			name: "trim 5 roots",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionTrim, A: 5},
+			},
+			sectors: 5,
+		},
+		{
+			name: "swap outside range",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionSwap, A: 0, B: 10},
+			},
+			errors:  true,
+			sectors: 5,
+		},
+		{
+			name: "append swap trim",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionSwap, A: 5, B: 2},
+				{Action: contracts.SectorActionTrim, A: 1},
+			},
+			sectors: 5,
+		},
+		{
+			name: "trim append swap",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionTrim, A: 1},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionSwap, A: 4, B: 1},
+			},
+			sectors: 5,
+		},
+		{
+			name: "swap 2 roots",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionSwap, A: 3, B: 1},
+			},
+			sectors: 5,
+		},
+		{
+			name: "trim append",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionTrim, A: 5},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+			},
+			sectors: 3,
+		},
+		{
+			name: "trim more",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionTrim, A: 5},
+			},
+			sectors: 3,
+			errors:  true,
+		},
+		{
+			name: "update outside range",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionUpdate, A: 6},
+			},
+			sectors: 3,
+			errors:  true,
+		},
+		{
+			name: "trim all",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionTrim, A: 3},
+			},
+			sectors: 0,
+		},
+		{
+			name: "append 5",
+			changes: []contracts.SectorChange{
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+				{Action: contracts.SectorActionAppend},
+			},
+			sectors: 5,
+		},
 	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// update the expected roots
+			for i, change := range test.changes {
+				switch change.Action {
+				case contracts.SectorActionAppend:
+					// add a random sector root
+					root := frand.Entropy256()
+					release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer release()
+					test.changes[i].Root = root
+					roots = append(roots, root)
+				case contracts.SectorActionUpdate:
+					// replace with a random sector root
+					root := frand.Entropy256()
+					release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer release()
+					test.changes[i].Root = root
 
-	// swap two roots
-	i, j := 5, 8
-	changes = []contracts.SectorChange{
-		{Action: contracts.SectorActionSwap, A: uint64(i), B: uint64(j)},
-	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots[i], roots[j] = roots[j], roots[i]
+					if test.errors && change.A >= uint64(len(roots)) { // test failure
+						continue
+					}
+					roots[change.A] = root
+				case contracts.SectorActionSwap:
+					if test.errors && (change.A >= uint64(len(roots)) || change.B >= uint64(len(roots))) { // test failure
+						continue
+					}
+					roots[change.A], roots[change.B] = roots[change.B], roots[change.A]
+				case contracts.SectorActionTrim:
+					if test.errors && change.A >= uint64(len(roots)) { // test failure
+						continue
+					}
+					roots = roots[:len(roots)-int(change.A)]
+				}
+			}
 
-	// verify the roots were swapped
-	if err = checkConsistency(); err != nil {
-		t.Fatal(err)
-	}
-
-	// trim the last 3 roots
-	toRemove := 3
-	changes = []contracts.SectorChange{
-		{Action: contracts.SectorActionTrim, A: uint64(toRemove)},
-	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots = roots[:len(roots)-toRemove]
-
-	// verify the roots were removed
-	if err = checkConsistency(); err != nil {
-		t.Fatal(err)
-	}
-
-	// swap a root outside of the range, should fail
-	changes = []contracts.SectorChange{
-		{Action: contracts.SectorActionSwap, A: 0, B: 15},
-	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-
-	// verify the roots stayed the same
-	if err = checkConsistency(); err != nil {
-		t.Fatal(err)
-	}
-
-	// trim everything
-	toTrim := len(roots)
-	// swap a root outside of the range, should fail
-	changes = []contracts.SectorChange{
-		{Action: contracts.SectorActionTrim, A: uint64(toTrim)},
-	}
-	err = db.ReviseContract(contract, contracts.Usage{}, uint64(len(roots)), changes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots = roots[:0]
-
-	// verify the roots are gone
-	if err = checkConsistency(); err != nil {
-		t.Fatal(err)
-	}
-
-	// test multiple operations in the same transaction
-	// add some sector roots
-	changes = changes[:0]
-	for i := 0; i < 10; i++ {
-		root := frand.Entropy256()
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer release()
-		changes = append(changes, contracts.SectorChange{
-			Root:   root,
-			Action: contracts.SectorActionAppend,
+			if err := runRevision(db, contract, test.changes); err != nil {
+				if test.errors {
+					t.Log("received error:", err)
+					return
+				}
+				t.Fatal(err)
+			} else if err == nil && test.errors {
+				t.Fatal("expected error")
+			} else if err := checkConsistency(roots, test.sectors); err != nil {
+				t.Fatal(err)
+			}
 		})
-		roots = append(roots, root)
-	}
-
-	// store a sector root to update the contract
-	updateRoot := frand.Entropy256()
-	release, err := db.StoreSector(updateRoot, func(loc storage.SectorLocation, exists bool) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer release()
-
-	i, j = 3, 6
-	toUpdate := 8
-	toTrim = 3
-	changes = append(changes, contracts.SectorChange{
-		Action: contracts.SectorActionSwap,
-		A:      uint64(i),
-		B:      uint64(j),
-	}, contracts.SectorChange{
-		Action: contracts.SectorActionUpdate,
-		A:      uint64(toUpdate),
-		Root:   updateRoot,
-	}, contracts.SectorChange{
-		Action: contracts.SectorActionTrim,
-		A:      uint64(toTrim),
-	})
-
-	err = db.ReviseContract(contract, contracts.Usage{}, 0, changes)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// update the roots
-	roots[i], roots[j] = roots[j], roots[i]
-	roots[toUpdate] = updateRoot
-	roots = roots[:len(roots)-toTrim]
-
-	// verify the roots match
-	if err = checkConsistency(); err != nil {
-		t.Fatal(err)
 	}
 }
 

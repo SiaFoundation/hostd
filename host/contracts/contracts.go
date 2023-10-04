@@ -331,7 +331,7 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 
 	start := time.Now()
 	// revise the contract
-	err := cu.store.ReviseContract(revision, usage, cu.sectors, cu.sectorActions)
+	err := cu.store.ReviseContract(revision, usage, cu.sectorActions)
 	if err == nil {
 		// clear the committed sector actions
 		cu.sectorActions = cu.sectorActions[:0]

@@ -285,7 +285,7 @@ func (a *api) handleGETVolume(c jape.Context) {
 		return
 	}
 
-	volume, err := a.volumes.Volume(id)
+	volume, err := a.volumes.Volume(int64(id))
 	if errors.Is(err, storage.ErrVolumeNotFound) {
 		c.Error(err, http.StatusNotFound)
 		return
@@ -309,7 +309,7 @@ func (a *api) handlePUTVolume(c jape.Context) {
 		return
 	}
 
-	err := a.volumes.SetReadOnly(id, req.ReadOnly)
+	err := a.volumes.SetReadOnly(int64(id), req.ReadOnly)
 	if errors.Is(err, storage.ErrVolumeNotFound) {
 		c.Error(err, http.StatusNotFound)
 		return

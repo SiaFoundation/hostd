@@ -6,24 +6,6 @@ import (
 )
 
 type (
-	// UpdateContractTransaction atomically updates a single contract and its
-	// associated sector roots.
-	UpdateContractTransaction interface {
-		// AppendSector appends a sector root to the end of the contract
-		AppendSector(root types.Hash256) error
-		// SwapSectors swaps the sector roots at the given indices.
-		SwapSectors(i, j uint64) error
-		// TrimSectors removes the last n sector roots from the contract.
-		TrimSectors(n int) error
-		// UpdateSector updates the sector root at the given index.
-		UpdateSector(index uint64, newRoot types.Hash256) error
-
-		// AddUsage adds the additional usage costs to the contract.
-		AddUsage(Usage) error
-		// ReviseContract updates the current revision associated with a contract.
-		ReviseContract(SignedRevision) error
-	}
-
 	// UpdateStateTransaction atomically updates the contract manager's state.
 	UpdateStateTransaction interface {
 		ContractRelevant(types.FileContractID) (bool, error)
@@ -66,7 +48,7 @@ type (
 		ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error
 		// ReviseContract atomically updates a contract and its associated
 		// sector roots.
-		ReviseContract(revision SignedRevision, usage Usage, oldSectors uint64, sectorChanges []SectorChange) error
+		ReviseContract(revision SignedRevision, usage Usage, sectorChanges []SectorChange) error
 		// UpdateContractState atomically updates the contract manager's state.
 		UpdateContractState(modules.ConsensusChangeID, uint64, func(UpdateStateTransaction) error) error
 		// ExpireContractSectors removes sector roots for any contracts that are

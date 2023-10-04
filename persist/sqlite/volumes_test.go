@@ -188,7 +188,7 @@ func TestVolumeAdd(t *testing.T) {
 		volume, err := db.Volume(volumeID)
 		if err != nil {
 			t.Fatal(err)
-		} else if volume.ID != i {
+		} else if volume.ID != int64(i) {
 			t.Fatalf("expected volume ID to be %v, got %v", i, volume.ID)
 		} else if volume.LocalPath != localPath {
 			t.Fatalf("expected local path to be %v, got %v", localPath, volume.LocalPath)
@@ -390,7 +390,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the empty volume can be removed
-	if err := db.RemoveVolume(volume.ID, false); err != nil {
+	if err := db.RemoveVolume(int64(volume.ID)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -435,12 +435,17 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the volume cannot be removed
-	if err := db.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrVolumeNotEmpty) {
+	if err := db.RemoveVolume(volume.ID); !errors.Is(err, storage.ErrVolumeNotEmpty) {
 		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
 	}
 
-	// check that the volume can be force removed
-	if err := db.RemoveVolume(volume.ID, true); err != nil {
+	// expire all of the temporary sectors
+	if err := db.ExpireTempSectors(5); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the volume can be removed
+	if err := db.RemoveVolume(volume.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -505,17 +510,15 @@ func TestMigrateSectors(t *testing.T) {
 
 	var i int
 	// migrate the remaining sectors to the first half of the volume
-	err = db.MigrateSectors(volume.ID, initialSectors/2, func(locations []storage.SectorLocation) error {
-		for _, loc := range locations {
-			if loc.Volume != volume.ID {
-				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
-			} else if loc.Index != uint64(i) {
-				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
-			} else if loc.Root != roots[i] {
-				t.Fatalf("expected sector root %v, got %v", roots[i], loc.Root)
-			}
-			i++
+	err = db.MigrateSectors(volume.ID, initialSectors/2, func(loc storage.SectorLocation) error {
+		if loc.Volume != volume.ID {
+			t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
+		} else if loc.Index != uint64(i) {
+			t.Fatalf("expected sector index %v, got %v", i, loc.Index)
+		} else if loc.Root != roots[i] {
+			t.Fatalf("expected sector root %v, got %v", roots[i], loc.Root)
 		}
+		i++
 		// note: sync to disk
 		return nil
 	})
@@ -545,10 +548,12 @@ func TestMigrateSectors(t *testing.T) {
 	}
 
 	// migrate the remaining sectors from the first volume; should partially complete
-	err = db.MigrateSectors(volume.ID, 0, func(locations []storage.SectorLocation) error {
-		if len(locations) > initialSectors/4 {
-			t.Fatalf("expected only %v migrations, got %v", initialSectors/4, len(locations))
+	var n int
+	err = db.MigrateSectors(volume.ID, 0, func(loc storage.SectorLocation) error {
+		if n > initialSectors/4 {
+			t.Fatalf("expected only %v migrations, got %v", initialSectors/4, n)
 		}
+		n++
 		return nil
 	})
 	if !errors.Is(err, storage.ErrNotEnoughStorage) {
@@ -647,7 +652,7 @@ func TestPrune(t *testing.T) {
 			Action: contracts.SectorActionAppend,
 		})
 	}
-	err = db.ReviseContract(c, contracts.Usage{}, 0, changes)
+	err = db.ReviseContract(c, contracts.Usage{}, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -716,9 +721,9 @@ func TestPrune(t *testing.T) {
 			}
 		}
 
-		for _, root := range deleted {
+		for i, root := range deleted {
 			if _, _, err := db.SectorLocation(root); !errors.Is(err, storage.ErrSectorNotFound) {
-				return fmt.Errorf("expected ErrSectorNotFound, got %v", err)
+				return fmt.Errorf("expected ErrSectorNotFound for sector %d %q, got %v", i, root, err)
 			}
 		}
 
@@ -767,7 +772,19 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// expire the contract sectors
+	// trim half of the contract sectors
+	changes = []contracts.SectorChange{
+		{Action: contracts.SectorActionTrim, A: uint64(len(contractSectors) / 2)},
+	}
+	if err := db.ReviseContract(c, contracts.Usage{}, changes); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkConsistency(contractSectors[:len(contractSectors)/2], nil, nil, roots[50:]); err != nil {
+		t.Fatal(err)
+	}
+
+	// expire the rest of the contract sectors
 	if err := db.ExpireContractSectors(c.Revision.WindowEnd + 1); err != nil {
 		t.Fatal(err)
 	}
@@ -862,7 +879,7 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 
 	// migrate all sectors from the first volume to the second
-	if err := db.MigrateSectors(volume1.ID, 0, func(locations []storage.SectorLocation) error {
+	if err := db.MigrateSectors(volume1.ID, 0, func(loc storage.SectorLocation) error {
 		return nil
 	}); err != nil {
 		b.Fatal(err)

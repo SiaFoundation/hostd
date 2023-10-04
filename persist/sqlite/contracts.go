@@ -137,44 +137,24 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 }
 
 func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSectorRef, pruned int, err error) {
-	err = s.transaction(func(tx txn) error {
-		sectors, err := expiredContractSectors(tx, height, sqlSectorBatchSize)
+	err = s.transaction(func(tx txn) (err error) {
+		removed, err = expiredContractSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
-		} else if len(sectors) == 0 {
-			return nil
 		}
 
-		contractSectorIDs := make([]int64, 0, len(sectors))
-		for _, sector := range sectors {
-			contractSectorIDs = append(contractSectorIDs, sector.ID)
+		refs := make([]contractSectorRootRef, 0, len(removed))
+		for _, sector := range removed {
+			refs = append(refs, contractSectorRootRef{
+				dbID:     sector.ID,
+				sectorID: sector.SectorID,
+			})
 		}
-		// delete the sector roots
-		query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(contractSectorIDs)) + `);`
-		res, err := tx.Exec(query, queryArgs(contractSectorIDs)...)
+
+		pruned, err = deleteContractSectors(tx, refs)
 		if err != nil {
-			return fmt.Errorf("failed to delete sectors: %w", err)
-		} else if rows, err := res.RowsAffected(); err != nil {
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		} else if rows != int64(len(contractSectorIDs)) {
-			return fmt.Errorf("failed to delete all sectors: %w", err)
+			return fmt.Errorf("failed to prune sectors: %w", err)
 		}
-
-		// decrement the number of contract sectors
-		if err := incrementNumericStat(tx, metricContractSectors, -len(contractSectorIDs), time.Now()); err != nil {
-			return fmt.Errorf("failed to track contract sectors: %w", err)
-		}
-
-		for _, ref := range sectors {
-			err := pruneSectorRef(tx, ref.SectorID)
-			if errors.Is(err, errSectorHasRefs) {
-				continue
-			} else if err != nil {
-				return fmt.Errorf("failed to prune sector ref: %w", err)
-			}
-			pruned++
-		}
-		removed = sectors
 		return nil
 	})
 	return
@@ -270,46 +250,63 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 			return fmt.Errorf("failed to update renewed contract: %w", err)
 		}
 
-		// get the count of sector roots for the old contract
-		var count int
-		if _, err = tx.Exec(`SELECT COUNT(*) FROM contract_sector_roots WHERE contract_id=$1;`, clearedDBID); err != nil {
-			return fmt.Errorf("failed to get sector root count: %w", err)
-		}
-
-		// copy the sector roots from the old contract to the new contract
-		_, err = tx.Exec(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) SELECT $1, sector_id, root_index FROM contract_sector_roots WHERE contract_id=$2;`, renewedDBID, clearedDBID)
+		// move the sector roots from the old contract to the new contract
+		_, err = tx.Exec(`UPDATE contract_sector_roots SET contract_id=$1 WHERE contract_id=$2`, renewedDBID, clearedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to copy sector roots: %w", err)
-		}
-
-		// increment the number of contract sectors
-		if err := incrementNumericStat(tx, metricContractSectors, count, time.Now()); err != nil {
-			return fmt.Errorf("failed to track contract sectors: %w", err)
 		}
 		return nil
 	})
 }
 
+func contractSectorRoots(tx txn, contractID int64) (uint64, error) {
+	var index uint64
+	err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots WHERE contract_id=$1`, contractID).Scan(&index)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return index, err
+}
+
 // ReviseContract atomically updates a contract's revision and sectors
-func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, oldSectors uint64, sectorChanges []contracts.SectorChange) error {
+func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, sectorChanges []contracts.SectorChange) error {
 	return s.transaction(func(tx txn) error {
+		// revise the contract
 		contractID, err := reviseContract(tx, revision)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
-		} else if err := incrementContractUsage(tx, contractID, usage); err != nil {
+		}
+		// update the contract usage and metrics
+		if err := incrementContractUsage(tx, contractID, usage); err != nil {
 			return fmt.Errorf("failed to update contract usage: %w", err)
+		} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, usage.RiskedCollateral, false, time.Now()); err != nil {
+			return fmt.Errorf("failed to track risked collateral: %w", err)
+		} else if err := incrementPotentialRevenueMetrics(tx, usage, false); err != nil {
+			return fmt.Errorf("failed to track potential revenue: %w", err)
 		}
 
-		var delta int
-		sectorCount := oldSectors
+		// update the sector roots
+		sectors, err := contractSectorRoots(tx, contractID)
+		if err != nil {
+			return fmt.Errorf("failed to get sector index: %w", err)
+		}
+
 		for _, change := range sectorChanges {
 			switch change.Action {
 			case contracts.SectorActionAppend:
-				if err := appendSector(tx, contractID, change.Root, sectorCount); err != nil {
+				if err := appendSector(tx, contractID, change.Root, sectors); err != nil {
 					return fmt.Errorf("failed to append sector: %w", err)
 				}
-				sectorCount++
-				delta++
+				sectors++
+			case contracts.SectorActionTrim:
+				if sectors < change.A {
+					return fmt.Errorf("cannot trim %v sectors from contract with %v sectors", change.A, sectors)
+				}
+
+				if err := trimSectors(tx, contractID, change.A, s.log); err != nil {
+					return fmt.Errorf("failed to trim sectors: %w", err)
+				}
+				sectors -= change.A
 			case contracts.SectorActionUpdate:
 				if err := updateSector(tx, contractID, change.Root, change.A); err != nil {
 					return fmt.Errorf("failed to update sector: %w", err)
@@ -318,29 +315,13 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contract
 				if err := swapSectors(tx, contractID, change.A, change.B); err != nil {
 					return fmt.Errorf("failed to swap sectors: %w", err)
 				}
-			case contracts.SectorActionTrim:
-				if err := trimSectors(tx, contractID, change.A); err != nil {
-					return fmt.Errorf("failed to trim sectors: %w", err)
-				}
-				sectorCount--
-				delta -= int(change.A)
 			}
-		}
-
-		// update global stats
-		if err := incrementNumericStat(tx, metricContractSectors, delta, time.Now()); err != nil {
-			return fmt.Errorf("failed to track contract sectors: %w", err)
-		} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, usage.RiskedCollateral, false, time.Now()); err != nil {
-			return fmt.Errorf("failed to track risked collateral: %w", err)
-		} else if err := incrementPotentialRevenueMetrics(tx, usage, false); err != nil {
-			return fmt.Errorf("failed to track potential revenue: %w", err)
 		}
 		return nil
 	})
 }
 
-// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
-// are returned.
+// SectorRoots returns the sector roots for a contract.
 func (s *Store) SectorRoots(contractID types.FileContractID) (roots []types.Hash256, err error) {
 	err = s.transaction(func(tx txn) error {
 		var dbID int64
@@ -551,10 +532,20 @@ func getContract(tx txn, contractID int64) (contracts.Contract, error) {
 func appendSector(tx txn, contractID int64, root types.Hash256, index uint64) error {
 	var sectorID int64
 	err := tx.QueryRow(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) SELECT $1, id, $2 FROM stored_sectors WHERE sector_root=$3 RETURNING sector_id`, contractID, index, sqlHash256(root)).Scan(&sectorID)
-	return err
+	if err != nil {
+		return err
+	} else if err := incrementNumericStat(tx, metricContractSectors, 1, time.Now()); err != nil {
+		return fmt.Errorf("failed to track contract sectors: %w", err)
+	}
+	return nil
 }
 
 func updateSector(tx txn, contractID int64, root types.Hash256, index uint64) error {
+	var oldSectorID int64
+	if err := tx.QueryRow(`SELECT sector_id FROM contract_sector_roots WHERE contract_id=$1 AND root_index=$2`, contractID, index).Scan(&oldSectorID); err != nil {
+		return fmt.Errorf("failed to get old sector id: %w", err)
+	}
+
 	const query = `WITH sector AS (
 	SELECT id FROM stored_sectors WHERE sector_root=$1
 )
@@ -563,9 +554,14 @@ SET sector_id=sector.id
 FROM sector
 WHERE contract_id=$2 AND root_index=$3
 RETURNING sector_id;`
-	var sectorID int64
-	err := tx.QueryRow(query, sqlHash256(root), contractID, index).Scan(&sectorID)
-	return err
+	var newSectorID int64
+	err := tx.QueryRow(query, sqlHash256(root), contractID, index).Scan(&newSectorID)
+	if err != nil {
+		return err
+	} else if err := pruneSectorRef(tx, oldSectorID); err != nil {
+		return fmt.Errorf("failed to prune sector ref: %w", err)
+	}
+	return nil
 }
 
 func swapSectors(tx txn, contractID int64, i, j uint64) error {
@@ -574,7 +570,7 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 	}
 
 	var records []contractSectorRootRef
-	rows, err := tx.Query(`SELECT id, sector_id FROM contract_sector_roots WHERE contract_id=$1 AND root_index IN ($2, $3) ORDER BY root_index ASC;`, contractID, i, j)
+	rows, err := tx.Query(`SELECT id, sector_id FROM contract_sector_roots WHERE contract_id=$1 AND root_index IN ($2, $3);`, contractID, i, j)
 	if err != nil {
 		return fmt.Errorf("failed to query sector IDs: %w", err)
 	}
@@ -591,7 +587,13 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 		return errors.New("failed to find both sectors")
 	}
 
-	res, err := tx.Exec(`UPDATE contract_sector_roots SET sector_id=$1 WHERE id=$2`, records[1].sectorID, records[0].dbID)
+	stmt, err := tx.Prepare(`UPDATE contract_sector_roots SET sector_id=$1 WHERE id=$2`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	res, err := stmt.Exec(records[1].sectorID, records[0].dbID)
 	if err != nil {
 		return fmt.Errorf("failed to update sector ID: %w", err)
 	} else if rows, err := res.RowsAffected(); err != nil {
@@ -600,7 +602,7 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 		return fmt.Errorf("expected 1 row affected, got %v", rows)
 	}
 
-	res, err = tx.Exec(`UPDATE contract_sector_roots SET sector_id=$1 WHERE id=$2`, records[0].sectorID, records[1].dbID)
+	res, err = stmt.Exec(records[0].sectorID, records[1].dbID)
 	if err != nil {
 		return fmt.Errorf("failed to update sector ID: %w", err)
 	} else if rows, err := res.RowsAffected(); err != nil {
@@ -609,48 +611,77 @@ func swapSectors(tx txn, contractID int64, i, j uint64) error {
 		return fmt.Errorf("expected 1 row affected, got %v", rows)
 	}
 
-	func() {
-		rows, err := tx.Query(`SELECT sector_id, root_index FROM contract_sector_roots WHERE contract_id=$1 AND root_index IN ($2, $3) ORDER BY root_index ASC;`, contractID, i, j)
-		if err != nil {
-			panic(fmt.Errorf("failed to query sector IDs: %w", err))
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var id int64
-			var index int64
-			if err := rows.Scan(&id, &index); err != nil {
-				panic(fmt.Errorf("failed to scan sector ID: %w", err))
-			}
-		}
-	}()
-
 	return nil
 }
 
-func trimSectors(tx txn, contractID int64, n uint64) error {
-	const query = `DELETE FROM contract_sector_roots
-WHERE contract_id = $1
-  AND root_index IN (
-    SELECT root_index
-    FROM contract_sector_roots
-    WHERE contract_id = $1
-    ORDER BY root_index DESC
-    LIMIT $2
-  );`
+// lastContractSectors returns the last n sector IDs for a contract.
+func lastContractSectors(tx txn, contractID int64, n uint64) (roots []contractSectorRootRef, err error) {
+	const query = `SELECT id, sector_id FROM contract_sector_roots WHERE contract_id=$1 ORDER BY root_index DESC LIMIT $2;`
+	rows, err := tx.Query(query, contractID, n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-	result, err := tx.Exec(query, contractID, n)
-	if err != nil {
-		return err
+	for rows.Next() {
+		var ref contractSectorRootRef
+		if err := rows.Scan(&ref.dbID, &ref.sectorID); err != nil {
+			return nil, err
+		}
+		roots = append(roots, ref)
 	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	} else if uint64(rowsAffected) != n {
-		return fmt.Errorf("expected %v sectors removed, got %v", n, rowsAffected)
-	}
-	return nil
+	return
 }
 
+// deleteContractSectors deletes sector roots from a contract. Sectors that are
+// still referenced will not be removed. Returns the number of sectors deleted.
+func deleteContractSectors(tx txn, refs []contractSectorRootRef) (int, error) {
+	var rootIDs []int64
+	for _, ref := range refs {
+		rootIDs = append(rootIDs, ref.dbID)
+	}
+
+	// delete the sector roots
+	query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(rootIDs)) + `);`
+	res, err := tx.Exec(query, queryArgs(rootIDs)...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete sectors: %w", err)
+	} else if rows, err := res.RowsAffected(); err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	} else if rows != int64(len(refs)) {
+		return 0, fmt.Errorf("failed to delete all sectors: %w", err)
+	}
+
+	// decrement the contract metrics
+	if err := incrementNumericStat(tx, metricContractSectors, -len(refs), time.Now()); err != nil {
+		return 0, fmt.Errorf("failed to decrement contract sectors: %w", err)
+	}
+
+	// attempt to prune the deleted sectors
+	var pruned int
+	for _, ref := range refs {
+		if err := pruneSectorRef(tx, ref.sectorID); errors.Is(err, errSectorHasRefs) {
+			continue
+		} else if err != nil {
+			return 0, fmt.Errorf("failed to prune sector ref: %w", err)
+		}
+		pruned++
+	}
+	return pruned, nil
+}
+
+// trimSectors deletes the last n sector roots for a contract.
+func trimSectors(tx txn, contractID int64, n uint64, log *zap.Logger) error {
+	refs, err := lastContractSectors(tx, contractID, n)
+	if err != nil {
+		return fmt.Errorf("failed to get sector IDs: %w", err)
+	}
+
+	_, err = deleteContractSectors(tx, refs)
+	return err
+}
+
+// clearContract clears a contract and returns its ID
 func clearContract(tx txn, revision contracts.SignedRevision, renewedDBID int64, usage contracts.Usage) (dbID int64, err error) {
 	// get the existing contract's current usage
 	var total contracts.Usage
@@ -686,6 +717,7 @@ func clearContract(tx txn, revision contracts.SignedRevision, renewedDBID int64,
 	return
 }
 
+// reviseContract revises a contract and returns its ID
 func reviseContract(tx txn, revision contracts.SignedRevision) (dbID int64, err error) {
 	err = tx.QueryRow(`UPDATE contracts SET (revision_number, window_start, window_end, raw_revision, host_sig, renter_sig) = ($1, $2, $3, $4, $5, $6) WHERE contract_id=$7 RETURNING id;`,
 		sqlUint64(revision.Revision.RevisionNumber),
