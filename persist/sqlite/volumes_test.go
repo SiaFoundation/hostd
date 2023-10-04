@@ -721,9 +721,9 @@ func TestPrune(t *testing.T) {
 			}
 		}
 
-		for _, root := range deleted {
+		for i, root := range deleted {
 			if _, _, err := db.SectorLocation(root); !errors.Is(err, storage.ErrSectorNotFound) {
-				return fmt.Errorf("expected ErrSectorNotFound, got %v", err)
+				return fmt.Errorf("expected ErrSectorNotFound for sector %d %q, got %v", i, root, err)
 			}
 		}
 
@@ -784,7 +784,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// expire the contract sectors
+	// expire the rest of the contract sectors
 	if err := db.ExpireContractSectors(c.Revision.WindowEnd + 1); err != nil {
 		t.Fatal(err)
 	}

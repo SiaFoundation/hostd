@@ -137,8 +137,8 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 }
 
 func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSectorRef, pruned int, err error) {
-	err = s.transaction(func(tx txn) error {
-		removed, err := expiredContractSectors(tx, height, sqlSectorBatchSize)
+	err = s.transaction(func(tx txn) (err error) {
+		removed, err = expiredContractSectors(tx, height, sqlSectorBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to select sectors: %w", err)
 		}
@@ -146,7 +146,8 @@ func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSec
 		refs := make([]contractSectorRootRef, 0, len(removed))
 		for _, sector := range removed {
 			refs = append(refs, contractSectorRootRef{
-				dbID: sector.ID,
+				dbID:     sector.ID,
+				sectorID: sector.SectorID,
 			})
 		}
 
