@@ -19,6 +19,8 @@ type volumeSectorRef struct {
 var errNoSectorsToMigrate = errors.New("no sectors to migrate")
 
 func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(location storage.SectorLocation) error, log *zap.Logger) error {
+	start := time.Now()
+
 	var locks []int64
 	var oldLoc, newLoc storage.SectorLocation
 	err := s.transaction(func(tx txn) (err error) {
@@ -94,7 +96,7 @@ func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(
 		}
 		return nil
 	})
-	log.Debug("migrated sector", zap.Uint64("oldIndex", oldLoc.Index), zap.Stringer("root", newLoc.Root), zap.Int64("newVolume", newLoc.Volume), zap.Uint64("newIndex", newLoc.Index))
+	log.Debug("migrated sector", zap.Uint64("oldIndex", oldLoc.Index), zap.Stringer("root", newLoc.Root), zap.Int64("newVolume", newLoc.Volume), zap.Uint64("newIndex", newLoc.Index), zap.Duration("elapsed", time.Since(start)))
 	return err
 }
 
