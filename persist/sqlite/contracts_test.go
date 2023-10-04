@@ -130,6 +130,8 @@ func TestReviseContract(t *testing.T) {
 			return fmt.Errorf("failed to get metrics: %w", err)
 		} else if m.Storage.ContractSectors != uint64(len(roots)) {
 			return fmt.Errorf("expected %v contract sectors, got %v", len(roots), m.Storage.ContractSectors)
+		} else if m.Storage.PhysicalSectors != uint64(len(roots)) {
+			return fmt.Errorf("expected %v physical sectors, got %v", len(roots), m.Storage.PhysicalSectors)
 		}
 		return nil
 	}
