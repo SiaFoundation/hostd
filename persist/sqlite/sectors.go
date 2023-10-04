@@ -79,11 +79,8 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 		}
 
 		// decrement volume usage and metrics
-		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1;`, volumeID)
-		if err != nil {
-			return fmt.Errorf("failed to update volume: %w", err)
-		} else if err = incrementNumericStat(tx, metricPhysicalSectors, -1, time.Now()); err != nil {
-			return fmt.Errorf("failed to update metric: %w", err)
+		if err = incrementVolumeUsage(tx, volumeID, -1); err != nil {
+			return fmt.Errorf("failed to update volume usage: %w", err)
 		}
 		return nil
 	})
@@ -169,6 +166,35 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 	}
 }
 
+func incrementVolumeUsage(tx txn, volumeID int64, delta int) error {
+	var used int64
+	err := tx.QueryRow(`UPDATE storage_volumes SET used_sectors=used_sectors+$1 WHERE id=$2 RETURNING used_sectors;`, delta, volumeID).Scan(&used)
+	if err != nil {
+		return fmt.Errorf("failed to update volume: %w", err)
+	} else if used < 0 {
+		panic("volume usage is negative") // developer error
+	} else if err = incrementNumericStat(tx, metricPhysicalSectors, delta, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric: %w", err)
+	}
+	return nil
+}
+
+func clearVolumeSector(tx txn, id int64) error {
+	var volumeDBID int64
+	err := tx.QueryRow(`UPDATE volume_sectors SET sector_id=NULL WHERE sector_id=$1 RETURNING volume_id`, id).Scan(&volumeDBID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	// decrement the volume usage
+	if err = incrementVolumeUsage(tx, volumeDBID, -1); err != nil {
+		return fmt.Errorf("failed to update volume usage: %w", err)
+	}
+	return nil
+}
+
 func pruneSectorRef(tx txn, id int64) error {
 	var hasReference bool
 	// check if the sector is referenced by a contract
@@ -194,22 +220,8 @@ func pruneSectorRef(tx txn, id int64) error {
 	}
 
 	// clear the volume sector reference
-	var volumeDBID int64
-	err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=NULL WHERE sector_id=$1 RETURNING volume_id`, id).Scan(&volumeDBID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("failed to update volume sectors: %w", err)
-	}
-	// decrement the volume usage if the sector was in a volume. This should
-	// only happen if a sector was forcibly removed
-	if err == nil {
-		// update the volume usage
-		if _, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1`, volumeDBID); err != nil {
-			return fmt.Errorf("failed to update volume: %w", err)
-		}
-		// decrement the physical sectors metric
-		if err = incrementNumericStat(tx, metricPhysicalSectors, -1, time.Now()); err != nil {
-			return fmt.Errorf("failed to update metric: %w", err)
-		}
+	if err = clearVolumeSector(tx, id); err != nil {
+		return fmt.Errorf("failed to clear volume sector: %w", err)
 	}
 
 	// delete the sector

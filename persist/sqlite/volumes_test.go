@@ -390,7 +390,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the empty volume can be removed
-	if err := db.RemoveVolume(int64(volume.ID), false); err != nil {
+	if err := db.RemoveVolume(int64(volume.ID)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -435,12 +435,17 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the volume cannot be removed
-	if err := db.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrVolumeNotEmpty) {
+	if err := db.RemoveVolume(volume.ID); !errors.Is(err, storage.ErrVolumeNotEmpty) {
 		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
 	}
 
-	// check that the volume can be force removed
-	if err := db.RemoveVolume(volume.ID, true); err != nil {
+	// expire all of the temporary sectors
+	if err := db.ExpireTempSectors(5); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the volume can be removed
+	if err := db.RemoveVolume(volume.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -764,6 +769,18 @@ func TestPrune(t *testing.T) {
 	}
 
 	if err := checkConsistency(contractSectors, nil, nil, roots[40:]); err != nil {
+		t.Fatal(err)
+	}
+
+	// trim half of the contract sectors
+	changes = []contracts.SectorChange{
+		{Action: contracts.SectorActionTrim, A: uint64(len(contractSectors) / 2)},
+	}
+	if err := db.ReviseContract(c, contracts.Usage{}, uint64(len(contractSectors)), changes); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkConsistency(contractSectors[:len(contractSectors)/2], nil, nil, roots[50:]); err != nil {
 		t.Fatal(err)
 	}
 

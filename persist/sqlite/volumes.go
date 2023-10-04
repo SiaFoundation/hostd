@@ -77,7 +77,7 @@ func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(
 		}
 
 		// update the old volume metadata
-		if _, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors-1 WHERE id=$1`, oldVolumeID); err != nil {
+		if err := incrementVolumeUsage(tx, oldVolumeID, -1); err != nil {
 			return fmt.Errorf("failed to update old volume metadata: %w", err)
 		}
 
@@ -89,7 +89,7 @@ func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(
 		}
 
 		// update the new volume metadata
-		if _, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors+1 WHERE id=$1`, newVolumeID); err != nil {
+		if err := incrementVolumeUsage(tx, newVolumeID, 1); err != nil {
 			return fmt.Errorf("failed to update new volume metadata: %w", err)
 		}
 		return nil
@@ -98,12 +98,12 @@ func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(
 	return err
 }
 
-func (s *Store) batchRemoveVolume(id int64, force bool) (bool, error) {
+func (s *Store) batchRemoveVolume(id int64) (bool, error) {
 	var done bool
 	err := s.transaction(func(tx txn) error {
 		var dbID int64
 		err := tx.QueryRow(`SELECT id FROM volume_sectors WHERE volume_id=$1 AND sector_id IS NOT NULL LIMIT 1;`, id).Scan(&dbID)
-		if err == nil && !force {
+		if err == nil {
 			return storage.ErrVolumeNotEmpty
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to check if volume is empty: %w", err)
@@ -117,23 +117,9 @@ func (s *Store) batchRemoveVolume(id int64, force bool) (bool, error) {
 			return nil // no more sectors to remove
 		}
 
-		var forceRemoved int
 		locIDs := make([]int64, 0, len(locations))
 		for _, loc := range locations {
 			locIDs = append(locIDs, loc.ID)
-			// if the root is not empty, the sector was not migrated and
-			// will be forcefully removed
-			if !loc.Empty {
-				forceRemoved++
-			}
-		}
-
-		// reduce the physical sectors metric if there are sectors that
-		// failed to migrate.
-		if forceRemoved > 0 {
-			if err := incrementNumericStat(tx, metricPhysicalSectors, -forceRemoved, time.Now()); err != nil {
-				return fmt.Errorf("failed to update force removed sector metric: %w", err)
-			}
 		}
 
 		// remove the sectors
@@ -261,11 +247,8 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		}
 
 		// increment the volume usage
-		_, err = tx.Exec(`UPDATE storage_volumes SET used_sectors=used_sectors+1 WHERE id=$1`, location.Volume)
-		if err != nil {
-			return fmt.Errorf("failed to update volume usage: %w", err)
-		} else if err := incrementNumericStat(tx, metricPhysicalSectors, 1, time.Now()); err != nil {
-			return fmt.Errorf("failed to update metric: %w", err)
+		if err := incrementVolumeUsage(tx, location.Volume, 1); err != nil {
+			return fmt.Errorf("failed to update volume metadata: %w", err)
 		}
 		return nil
 	})
@@ -322,11 +305,11 @@ func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int64, err 
 // RemoveVolume removes a storage volume from the volume store. If there
 // are used sectors in the volume, ErrVolumeNotEmpty is returned. If force is
 // true, the volume is removed regardless of whether it is empty.
-func (s *Store) RemoveVolume(id int64, force bool) error {
+func (s *Store) RemoveVolume(id int64) error {
 	// remove the volume sectors in batches to avoid holding a transaction lock
 	// for too long
 	for {
-		done, err := s.batchRemoveVolume(id, force)
+		done, err := s.batchRemoveVolume(id)
 		if err != nil {
 			return err
 		} else if done {
