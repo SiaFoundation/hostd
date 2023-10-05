@@ -466,8 +466,8 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 
 		rootsCache:  cm.rootsCache,
 		contractID:  contractID,
-		sectors:     uint64(len(roots)),
-		sectorRoots: roots,
+		sectorRoots: roots, // roots is already a deep copy
+		oldRoots:    append([]types.Hash256(nil), roots...),
 
 		done: done, // decrements the threadgroup counter after the updater is closed
 	}, nil

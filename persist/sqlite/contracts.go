@@ -259,17 +259,8 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 	})
 }
 
-func contractSectorRoots(tx txn, contractID int64) (uint64, error) {
-	var index uint64
-	err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots WHERE contract_id=$1`, contractID).Scan(&index)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
-	}
-	return index, err
-}
-
 // ReviseContract atomically updates a contract's revision and sectors
-func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contracts.Usage, sectorChanges []contracts.SectorChange) error {
+func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots []types.Hash256, usage contracts.Usage, sectorChanges []contracts.SectorChange) error {
 	return s.transaction(func(tx txn) error {
 		// revise the contract
 		contractID, err := reviseContract(tx, revision)
@@ -286,11 +277,7 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, usage contract
 		}
 
 		// update the sector roots
-		sectors, err := contractSectorRoots(tx, contractID)
-		if err != nil {
-			return fmt.Errorf("failed to get sector index: %w", err)
-		}
-
+		sectors := uint64(len(oldRoots))
 		for _, change := range sectorChanges {
 			switch change.Action {
 			case contracts.SectorActionAppend:

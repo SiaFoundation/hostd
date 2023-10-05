@@ -1013,7 +1013,7 @@ func TestSectorRoots(t *testing.T) {
 		defer release()
 
 		// use the database method directly to avoid the sector cache
-		err = db.ReviseContract(rev, contracts.Usage{}, []contracts.SectorChange{
+		err = db.ReviseContract(rev, roots, contracts.Usage{}, []contracts.SectorChange{
 			{Action: contracts.SectorActionAppend, Root: root},
 		})
 		if err != nil {

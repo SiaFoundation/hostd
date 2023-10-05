@@ -652,7 +652,7 @@ func TestPrune(t *testing.T) {
 			Action: contracts.SectorActionAppend,
 		})
 	}
-	err = db.ReviseContract(c, contracts.Usage{}, changes)
+	err = db.ReviseContract(c, []types.Hash256{}, contracts.Usage{}, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -776,11 +776,12 @@ func TestPrune(t *testing.T) {
 	changes = []contracts.SectorChange{
 		{Action: contracts.SectorActionTrim, A: uint64(len(contractSectors) / 2)},
 	}
-	if err := db.ReviseContract(c, contracts.Usage{}, changes); err != nil {
+	if err := db.ReviseContract(c, contractSectors, contracts.Usage{}, changes); err != nil {
 		t.Fatal(err)
 	}
+	contractSectors = contractSectors[:len(contractSectors)/2]
 
-	if err := checkConsistency(contractSectors[:len(contractSectors)/2], nil, nil, roots[50:]); err != nil {
+	if err := checkConsistency(contractSectors, nil, nil, roots[50:]); err != nil {
 		t.Fatal(err)
 	}
 

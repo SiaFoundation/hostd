@@ -148,10 +148,10 @@ type (
 		once       sync.Once
 		done       func() // done is called when the updater is closed.
 
-		sectors       uint64
 		contractID    types.FileContractID
 		sectorActions []SectorChange
 		sectorRoots   []types.Hash256
+		oldRoots      []types.Hash256
 	}
 )
 
@@ -331,7 +331,7 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 
 	start := time.Now()
 	// revise the contract
-	err := cu.store.ReviseContract(revision, usage, cu.sectorActions)
+	err := cu.store.ReviseContract(revision, cu.oldRoots, usage, cu.sectorActions)
 	if err == nil {
 		// clear the committed sector actions
 		cu.sectorActions = cu.sectorActions[:0]

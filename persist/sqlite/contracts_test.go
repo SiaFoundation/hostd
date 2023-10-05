@@ -37,7 +37,7 @@ func rootsEqual(a, b []types.Hash256) error {
 	return nil
 }
 
-func runRevision(db *Store, revision contracts.SignedRevision, changes []contracts.SectorChange) error {
+func runRevision(db *Store, revision contracts.SignedRevision, roots []types.Hash256, changes []contracts.SectorChange) error {
 	for _, change := range changes {
 		switch change.Action {
 		// store a sector in the database for the append or update actions
@@ -52,7 +52,7 @@ func runRevision(db *Store, revision contracts.SignedRevision, changes []contrac
 		}
 	}
 
-	return db.ReviseContract(revision, contracts.Usage{}, changes)
+	return db.ReviseContract(revision, roots, contracts.Usage{}, changes)
 }
 
 func TestReviseContract(t *testing.T) {
@@ -261,6 +261,7 @@ func TestReviseContract(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			oldRoots := append([]types.Hash256(nil), roots...)
 			// update the expected roots
 			for i, change := range test.changes {
 				switch change.Action {
@@ -301,7 +302,7 @@ func TestReviseContract(t *testing.T) {
 				}
 			}
 
-			if err := runRevision(db, contract, test.changes); err != nil {
+			if err := runRevision(db, contract, oldRoots, test.changes); err != nil {
 				if test.errors {
 					t.Log("received error:", err)
 					return
