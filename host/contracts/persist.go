@@ -48,7 +48,7 @@ type (
 		ContractAction(height uint64, contractFn func(types.FileContractID, uint64, string)) error
 		// ReviseContract atomically updates a contract and its associated
 		// sector roots.
-		ReviseContract(revision SignedRevision, usage Usage, sectorChanges []SectorChange) error
+		ReviseContract(revision SignedRevision, oldRoots []types.Hash256, usage Usage, sectorChanges []SectorChange) error
 		// UpdateContractState atomically updates the contract manager's state.
 		UpdateContractState(modules.ConsensusChangeID, uint64, func(UpdateStateTransaction) error) error
 		// ExpireContractSectors removes sector roots for any contracts that are
