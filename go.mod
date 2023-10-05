@@ -1,6 +1,6 @@
 module go.sia.tech/hostd
 
-go 1.19
+go 1.20
 
 require (
 	github.com/aws/aws-sdk-go v1.44.156
