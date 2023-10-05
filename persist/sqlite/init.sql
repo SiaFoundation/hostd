@@ -47,7 +47,7 @@ CREATE TABLE storage_volumes (
 	read_only BOOLEAN NOT NULL,
 	available BOOLEAN NOT NULL DEFAULT false
 );
-CREATE INDEX storage_volumes_read_only_available ON storage_volumes(read_only, available);
+CREATE INDEX storage_volumes_id_available_read_only ON storage_volumes(id, available, read_only);
 CREATE INDEX storage_volumes_read_only_available_used_sectors ON storage_volumes(available, read_only, used_sectors);
 
 CREATE TABLE volume_sectors (
@@ -57,6 +57,7 @@ CREATE TABLE volume_sectors (
 	sector_id INTEGER UNIQUE REFERENCES stored_sectors (id),
 	UNIQUE (volume_id, volume_index)
 );
+CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_compound ON volume_sectors(volume_id, sector_id, volume_index) WHERE sector_id IS NULL;
 CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sector_id);
 CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
 CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index ASC);

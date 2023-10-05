@@ -9,6 +9,17 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion19 adds a compound index to the volume_sectors table
+func migrateVersion19(tx txn) error {
+	const query = `
+DROP INDEX storage_volumes_read_only_available;
+CREATE INDEX storage_volumes_id_available_read_only ON storage_volumes(id, available, read_only);
+CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_compound ON volume_sectors(volume_id, sector_id, volume_index) WHERE sector_id IS NULL;
+`
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion18 adds an index to the volume_sectors table to speed up
 // empty sector selection.
 func migrateVersion18(tx txn) error {
@@ -493,4 +504,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion16,
 	migrateVersion17,
 	migrateVersion18,
+	migrateVersion19,
 }
