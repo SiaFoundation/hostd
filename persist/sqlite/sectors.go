@@ -99,7 +99,7 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 		} else if err != nil {
 			return fmt.Errorf("failed to get sector id: %w", err)
 		}
-		location, err = sectorLocation(tx, sectorID)
+		location, err = sectorLocation(tx, sectorID, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector location: %w", err)
 		}
