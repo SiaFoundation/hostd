@@ -9,6 +9,7 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	irhp2 "go.sia.tech/hostd/internal/test/rhp/v2"
 	rhp3 "go.sia.tech/hostd/internal/test/rhp/v3"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
@@ -49,13 +50,13 @@ func (r *Renter) Wallet() *wallet.SingleAddressWallet {
 
 // NewRHP2Session creates a new session, locks a contract, and retrieves the
 // host's settings
-func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey types.PublicKey, contractID types.FileContractID) (*worker.Session, error) {
+func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey types.PublicKey, contractID types.FileContractID) (*irhp2.RHP2Session, error) {
 	t, err := dialTransport(ctx, hostAddr, hostKey)
 	if err != nil {
 		return nil, err
 	}
 
-	session := worker.NewSession(t, r.privKey, rhp2.ContractRevision{}, rhp2.HostSettings{})
+	session := irhp2.NewRHP2Session(t, r.privKey, rhp2.ContractRevision{}, rhp2.HostSettings{})
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
