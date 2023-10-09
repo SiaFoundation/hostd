@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/core/wallet"
 	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
@@ -114,7 +115,7 @@ func mustGetSeedPhrase(log *zap.Logger) string {
 			fmt.Println("You will need to re-enter this seed phrase every time you start hostd.")
 			fmt.Println("")
 			fmt.Println("\033[34;1mSeed Phrase:\033[0m", phrase)
-			fmt.Println("\033[34;1mWallet Address:\033[0m", key.PublicKey().StandardAddress())
+			fmt.Println("\033[34;1mWallet Address:\033[0m", types.StandardUnlockHash(key.PublicKey()))
 
 			// confirm seed phrase
 			for {
@@ -240,7 +241,7 @@ func main() {
 		}
 		key := wallet.KeyFromSeed(&seed, 0)
 		fmt.Println("Recovery Phrase:", phrase)
-		fmt.Println("Address", key.PublicKey().StandardAddress())
+		fmt.Println("Address", types.StandardUnlockHash(key.PublicKey()))
 		return
 	}
 

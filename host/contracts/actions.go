@@ -167,7 +167,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		}
 
 		// get the proof leaf index
-		leafIndex := cs.StorageProofLeafIndex(contract.Revision.Filesize, windowStart, contract.Revision.ParentID)
+		leafIndex := cs.StorageProofLeafIndex(contract.Revision.Filesize, windowStart.ID, contract.Revision.ParentID)
 		sp, err := cm.buildStorageProof(contract.Revision.ParentID, contract.Revision.Filesize, leafIndex)
 		if err != nil {
 			log.Error("failed to build storage proof", zap.Error(err))

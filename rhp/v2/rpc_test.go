@@ -74,7 +74,11 @@ func TestUploadDownload(t *testing.T) {
 	}
 	// upload the sector
 	remainingDuration = contractExpiration - currentHeight
-	price, collateral := rhp2.RPCAppendCost(*session.Settings(), remainingDuration)
+	price, collateral, err := session.RPCAppendCost(remainingDuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	writtenRoot, err := session.Append(context.Background(), &sector, price, collateral)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +87,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 
 	// check the host's sector roots matches the sector we just uploaded
-	price = rhp2.RPCSectorRootsCost(*session.Settings(), 1)
+	price, _ = session.Settings().RPCSectorRootsCost(0, 1).Total()
 	roots, err := session.SectorRoots(context.Background(), 0, 1, price)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +112,12 @@ func TestUploadDownload(t *testing.T) {
 		},
 	}
 
-	price = rhp2.RPCReadCost(*session.Settings(), sections)
+	// calculate the price
+	cost, err := session.Settings().RPCReadCost(sections, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	price, _ = cost.Total()
 
 	var buf bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -155,7 +164,7 @@ func TestRenew(t *testing.T) {
 		settings := *session.Settings()
 		current := session.Revision().Revision
 		additionalCollateral := rhp2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhp2.PrepareContractRenewal(current, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		renewed, basePrice := rhp2.PrepareContractRenewal(current, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
@@ -241,7 +250,10 @@ func TestRenew(t *testing.T) {
 		}
 		// upload the sector
 		remainingDuration = contractExpiration - currentHeight
-		_, collateral := rhp2.RPCAppendCost(*session.Settings(), remainingDuration)
+		_, collateral, err := session.RPCAppendCost(remainingDuration)
+		if err != nil {
+			t.Fatal(err)
+		}
 		// overpay for the sector, leaving a few hastings for the renewal
 		remainingValue := types.NewCurrency64(25)
 		price := origin.Revision.ValidRenterPayout().Sub(remainingValue)
@@ -262,7 +274,7 @@ func TestRenew(t *testing.T) {
 		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
 		additionalCollateral := rhp2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhp2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		renewed, basePrice := rhp2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
@@ -355,7 +367,10 @@ func TestRenew(t *testing.T) {
 		}
 		// upload the sector
 		remainingDuration = contractExpiration - currentHeight
-		price, collateral := rhp2.RPCAppendCost(*session.Settings(), remainingDuration)
+		price, collateral, err := session.RPCAppendCost(remainingDuration)
+		if err != nil {
+			t.Fatal(err)
+		}
 		writtenRoot, err := session.Append(context.Background(), &sector, price, collateral)
 		if err != nil {
 			t.Fatal(err)
@@ -373,7 +388,7 @@ func TestRenew(t *testing.T) {
 		renewHeight := origin.Revision.WindowEnd + 10
 		current := session.Revision().Revision
 		additionalCollateral := rhp2.ContractRenewalCollateral(current.FileContract, 1<<22, settings, renter.TipState().Index.Height, renewHeight)
-		renewed, basePrice := rhp2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, host.PublicKey(), settings, renewHeight)
+		renewed, basePrice := rhp2.PrepareContractRenewal(session.Revision().Revision, renter.WalletAddress(), types.Siacoins(10), additionalCollateral, settings, renewHeight)
 		renewalTxn := types.Transaction{
 			FileContracts: []types.FileContract{renewed},
 		}
@@ -455,7 +470,10 @@ func BenchmarkUpload(b *testing.B) {
 	}
 	// calculate the cost of uploading a sector
 	remainingDuration = contractExpiration - currentHeight
-	price, collateral := rhp2.RPCAppendCost(*session.Settings(), remainingDuration)
+	price, collateral, err := session.RPCAppendCost(remainingDuration)
+	if err != nil {
+		b.Fatal(err)
+	}
 
 	// generate b.N sectors
 	sectors := make([][rhp2.SectorSize]byte, b.N)
@@ -525,7 +543,11 @@ func BenchmarkDownload(b *testing.B) {
 		frand.Read(sector[:256])
 
 		// upload the sector
-		price, collateral := rhp2.RPCAppendCost(*session.Settings(), remainingDuration)
+		session.Settings().RPCWriteCost([]rhp2.RPCWriteAction{{Type: rhp2.RPCWriteActionAppend}}, uint64(b.N), remainingDuration, true)
+		price, collateral, err := session.RPCAppendCost(remainingDuration)
+		if err != nil {
+			b.Fatal(err)
+		}
 		root, err := session.Append(context.Background(), &sector, price, collateral)
 		if err != nil {
 			b.Fatal(err)
@@ -544,7 +566,12 @@ func BenchmarkDownload(b *testing.B) {
 			Offset:     0,
 			Length:     rhp2.SectorSize,
 		}}
-		price := rhp2.RPCReadCost(*session.Settings(), sections)
+
+		cost, err := session.Settings().RPCReadCost(sections, true)
+		if err != nil {
+			b.Fatal(err)
+		}
+		price, _ := cost.Total()
 		if err := session.Read(context.Background(), io.Discard, sections, price); err != nil {
 			b.Fatal(err)
 		}

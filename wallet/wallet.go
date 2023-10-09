@@ -193,7 +193,7 @@ func (sw *SingleAddressWallet) Address() types.Address {
 
 // UnlockConditions returns the unlock conditions of the wallet.
 func (sw *SingleAddressWallet) UnlockConditions() types.UnlockConditions {
-	return sw.priv.PublicKey().StandardUnlockConditions()
+	return types.StandardUnlockConditions(sw.priv.PublicKey())
 }
 
 // Balance returns the balance of the wallet.
@@ -292,7 +292,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	for i, sce := range fundingElements {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
 			ParentID:         types.SiacoinOutputID(sce.ID),
-			UnlockConditions: sw.priv.PublicKey().StandardUnlockConditions(),
+			UnlockConditions: types.StandardUnlockConditions(sw.priv.PublicKey()),
 		})
 		toSign[i] = types.Hash256(sce.ID)
 		sw.locked[sce.ID] = true
@@ -471,13 +471,13 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + 1
 	for i := 0; i < len(cc.AppliedDiffs); i, blockHeight = i+1, blockHeight+1 {
 		var block types.Block
-		convertToCore(cc.AppliedBlocks[i], &block)
+		convertToCore(cc.AppliedBlocks[i], (*types.V1Block)(&block))
+
 		diff := cc.AppliedDiffs[i]
 		index := types.ChainIndex{
 			ID:     block.ID(),
 			Height: blockHeight,
 		}
-
 		// determine the source of each delayed output
 		delayedOutputSources := make(map[types.SiacoinOutputID]TransactionSource)
 		if blockHeight > uint64(stypes.MaturityDelay) {
@@ -633,7 +633,8 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		// apply transactions
 		for i := 0; i < len(cc.AppliedBlocks); i, blockHeight = i+1, blockHeight+1 {
 			var block types.Block
-			convertToCore(cc.AppliedBlocks[i], &block)
+			convertToCore(cc.AppliedBlocks[i], (*types.V1Block)(&block))
+
 			index := types.ChainIndex{
 				ID:     block.ID(),
 				Height: blockHeight,
@@ -759,7 +760,7 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 		log:   log,
 		tg:    threadgroup.New(),
 
-		addr: priv.PublicKey().StandardAddress(),
+		addr: types.StandardUnlockHash(priv.PublicKey()),
 
 		locked:          make(map[types.SiacoinOutputID]bool),
 		consensusLocked: make(map[types.SiacoinOutputID]bool),

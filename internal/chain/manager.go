@@ -105,8 +105,8 @@ func (m *Manager) Synced() bool {
 func (m *Manager) BlockAtHeight(height uint64) (types.Block, bool) {
 	sb, ok := m.cs.BlockAtHeight(stypes.BlockHeight(height))
 	var c types.Block
-	convertToCore(sb, &c)
-	return c, ok
+	convertToCore(sb, (*types.V1Block)(&c))
+	return types.Block(c), ok
 }
 
 // IndexAtHeight return the chain index at the given height.
@@ -131,7 +131,7 @@ func (m *Manager) TipState() consensus.State {
 // AcceptBlock adds b to the consensus set.
 func (m *Manager) AcceptBlock(b types.Block) error {
 	var sb stypes.Block
-	convertToSiad(b, &sb)
+	convertToSiad(types.V1Block(b), &sb)
 	return m.cs.AcceptBlock(sb)
 }
 
