@@ -308,36 +308,56 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots []typ
 	})
 }
 
-// SectorRoots returns the sector roots for a contract.
+// SectorRoots returns the sector roots for a contract. The contract must be
+// locked before calling.
 func (s *Store) SectorRoots(contractID types.FileContractID) (roots []types.Hash256, err error) {
-	err = s.transaction(func(tx txn) error {
-		var dbID int64
-		err := tx.QueryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
-		if err != nil {
-			return fmt.Errorf("failed to get contract id: %w", err)
-		}
+	var dbID int64
+	err = s.queryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(contractID)).Scan(&dbID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get contract id: %w", err)
+	}
 
-		const query = `SELECT s.sector_root FROM contract_sector_roots c
+	// note: OFFSET is significantly slower than using the last root_index
+	const query = `SELECT s.sector_root, root_index FROM contract_sector_roots c
 INNER JOIN stored_sectors s ON (c.sector_id = s.id)
-WHERE c.contract_id=$1
-ORDER BY root_index ASC`
+WHERE c.contract_id=$1 AND root_index > $2
+ORDER BY root_index ASC
+LIMIT 5000`
 
-		rows, err := tx.Query(query, dbID)
-		if err != nil {
-			return fmt.Errorf("failed to query sector roots: %w", err)
-		}
-		defer rows.Close()
+	stmt, err := s.prepare(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare query: %w", err)
+	}
+	defer stmt.Close()
 
-		for rows.Next() {
-			var root types.Hash256
-			if err := rows.Scan((*sqlHash256)(&root)); err != nil {
-				return fmt.Errorf("failed to scan sector root: %w", err)
+	lastIndex := int64(-1) // root_index can be 0
+	for {
+		start := time.Now()
+		n, err := func() (n int, err error) {
+			rows, err := stmt.Query(dbID, lastIndex)
+			if err != nil {
+				return 0, err
 			}
-			roots = append(roots, root)
+			defer rows.Close()
+
+			for rows.Next() {
+				var root types.Hash256
+
+				if err := rows.Scan((*sqlHash256)(&root), &lastIndex); err != nil {
+					return 0, fmt.Errorf("failed to scan sector root: %w", err)
+				}
+				roots = append(roots, root)
+				n++
+			}
+			return n, nil
+		}()
+		if err != nil {
+			return nil, err
+		} else if n < 5000 {
+			return roots, nil
 		}
-		return nil
-	})
-	return
+		s.log.Debug("loaded sectors", zap.Int("count", n), zap.Stringer("contractID", contractID), zap.Duration("elapsed", time.Since(start)))
+	}
 }
 
 // ContractAction calls contractFn on every contract in the store that
