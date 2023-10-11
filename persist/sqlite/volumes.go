@@ -521,7 +521,8 @@ func sectorForMigration(tx txn, volumeID int64, minIndex uint64) (loc storage.Se
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index, s.sector_root
 	FROM volume_sectors vs
 	INNER JOIN stored_sectors s ON (s.id=vs.sector_id)
-	WHERE vs.sector_id IS NOT NULL AND vs.volume_id=$1 AND vs.volume_index >= $2`
+	WHERE vs.sector_id IS NOT NULL AND vs.volume_id=$1 AND vs.volume_index >= $2
+	LIMIT 1`
 
 	err = tx.QueryRow(query, volumeID, minIndex).Scan(&loc.ID, &loc.Volume, &loc.Index, (*sqlHash256)(&loc.Root))
 	if errors.Is(err, sql.ErrNoRows) {
