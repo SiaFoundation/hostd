@@ -435,7 +435,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
-	costs := rpcSectorRootsCost(req.NumRoots, req.RootOffset, settings)
+	costs := settings.RPCSectorRootsCost(req.NumRoots, req.RootOffset)
 	cost, _ := costs.Total()
 
 	// revise the contract
@@ -497,7 +497,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		costs.Egress = costs.Egress.Add(excess)
 	}
 
-	usage := costs.ToUsage()
+	usage := newUsageFromRPCCost(costs)
 	if err := updater.Commit(signedRevision, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to commit contract revision: %w", err)
@@ -534,7 +534,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	remainingDuration := uint64(s.contract.Revision.WindowEnd) - currentHeight
 	// validate the requested actions
 	oldSectors := s.contract.Revision.Filesize / rhp2.SectorSize
-	costs, err := validateWriteActions(req.Actions, oldSectors, req.MerkleProof, remainingDuration, settings)
+	costs, err := settings.RPCWriteCost(req.Actions, oldSectors, remainingDuration, req.MerkleProof)
 	if err != nil {
 		err := fmt.Errorf("failed to validate write actions: %w", err)
 		s.t.WriteResponseErr(err)
@@ -690,7 +690,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	costs.Collateral = risked
 
 	// commit the contract modifications
-	usage := costs.ToUsage()
+	usage := newUsageFromRPCCost(costs)
 	if err := contractUpdater.Commit(signedRevision, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to commit contract modifications: %w", err)
@@ -726,7 +726,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 	}
 
 	// validate the request sections and calculate the cost
-	costs, err := validateReadActions(req.Sections, req.MerkleProof, settings)
+	costs, err := settings.RPCReadCost(req.Sections, req.MerkleProof)
 	if err != nil {
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, fmt.Errorf("failed to validate read request: %w", err)
@@ -776,8 +776,8 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 	if !underflow {
 		costs.Egress = costs.Egress.Add(excess)
 	}
-	usage := costs.ToUsage()
 	// commit the contract revision
+	usage := newUsageFromRPCCost(costs)
 	if err := updater.Commit(signedRevision, usage); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to commit contract revision: %w", err)
@@ -837,6 +837,17 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 		}
 	}
 	return usage, <-stopSignal
+}
+
+// newUsageFromRPCCost returns a new Usage from the given RPCCost.
+func newUsageFromRPCCost(c rhp2.RPCCost) contracts.Usage {
+	return contracts.Usage{
+		RPCRevenue:       c.Base,
+		StorageRevenue:   c.Storage,
+		EgressRevenue:    c.Egress,
+		IngressRevenue:   c.Ingress,
+		RiskedCollateral: c.Collateral,
+	}
 }
 
 func convertToPublicKey(uc types.UnlockKey) (types.PublicKey, error) {

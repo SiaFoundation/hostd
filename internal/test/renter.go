@@ -7,13 +7,12 @@ import (
 	"path/filepath"
 	"time"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
+	crhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	irhp2 "go.sia.tech/hostd/internal/test/rhp/v2"
+	rhp2 "go.sia.tech/hostd/internal/test/rhp/v2"
 	rhp3 "go.sia.tech/hostd/internal/test/rhp/v3"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
-	"go.sia.tech/renterd/worker"
 	"go.uber.org/zap"
 )
 
@@ -50,13 +49,13 @@ func (r *Renter) Wallet() *wallet.SingleAddressWallet {
 
 // NewRHP2Session creates a new session, locks a contract, and retrieves the
 // host's settings
-func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey types.PublicKey, contractID types.FileContractID) (*irhp2.RHP2Session, error) {
+func (r *Renter) NewRHP2Session(ctx context.Context, hostAddr string, hostKey types.PublicKey, contractID types.FileContractID) (*rhp2.RHP2Session, error) {
 	t, err := dialTransport(ctx, hostAddr, hostKey)
 	if err != nil {
 		return nil, err
 	}
 
-	session := irhp2.NewRHP2Session(t, r.privKey, rhp2.ContractRevision{}, rhp2.HostSettings{})
+	session := rhp2.NewRHP2Session(t, r.privKey, crhp2.ContractRevision{}, crhp2.HostSettings{})
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -72,33 +71,33 @@ func (r *Renter) NewRHP3Session(ctx context.Context, hostAddr string, hostKey ty
 }
 
 // Settings returns the host's current settings
-func (r *Renter) Settings(ctx context.Context, hostAddr string, hostKey types.PublicKey) (rhp2.HostSettings, error) {
+func (r *Renter) Settings(ctx context.Context, hostAddr string, hostKey types.PublicKey) (crhp2.HostSettings, error) {
 	t, err := dialTransport(ctx, hostAddr, hostKey)
 	if err != nil {
-		return rhp2.HostSettings{}, fmt.Errorf("failed to create session: %w", err)
+		return crhp2.HostSettings{}, fmt.Errorf("failed to create session: %w", err)
 	}
 	defer t.Close()
-	settings, err := worker.RPCSettings(ctx, t)
+	settings, err := rhp2.RPCSettings(ctx, t)
 	if err != nil {
-		return rhp2.HostSettings{}, fmt.Errorf("failed to get settings: %w", err)
+		return crhp2.HostSettings{}, fmt.Errorf("failed to get settings: %w", err)
 	}
 	return settings, nil
 }
 
 // FormContract forms a contract with the host
-func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey types.PublicKey, renterPayout, hostCollateral types.Currency, duration uint64) (rhp2.ContractRevision, error) {
+func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey types.PublicKey, renterPayout, hostCollateral types.Currency, duration uint64) (crhp2.ContractRevision, error) {
 	t, err := dialTransport(ctx, hostAddr, hostKey)
 	if err != nil {
-		return rhp2.ContractRevision{}, fmt.Errorf("failed to dial transport: %w", err)
+		return crhp2.ContractRevision{}, fmt.Errorf("failed to dial transport: %w", err)
 	}
 	defer t.Close()
-	settings, err := worker.RPCSettings(ctx, t)
+	settings, err := rhp2.RPCSettings(ctx, t)
 	if err != nil {
-		return rhp2.ContractRevision{}, fmt.Errorf("failed to get host settings: %w", err)
+		return crhp2.ContractRevision{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 	cs := r.TipState()
-	contract := rhp2.PrepareContractFormation(r.privKey.PublicKey(), hostKey, renterPayout, hostCollateral, cs.Index.Height+duration, settings, r.WalletAddress())
-	formationCost := rhp2.ContractFormationCost(cs, contract, settings.ContractPrice)
+	contract := crhp2.PrepareContractFormation(r.privKey.PublicKey(), hostKey, renterPayout, hostCollateral, cs.Index.Height+duration, settings, r.WalletAddress())
+	formationCost := crhp2.ContractFormationCost(cs, contract, settings.ContractPrice)
 	feeEstimate := r.TPool().RecommendedFee().Mul64(2000)
 	formationTxn := types.Transaction{
 		MinerFees:     []types.Currency{feeEstimate},
@@ -108,17 +107,17 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey type
 
 	toSign, release, err := r.wallet.FundTransaction(&formationTxn, fundAmount)
 	if err != nil {
-		return rhp2.ContractRevision{}, fmt.Errorf("failed to fund transaction: %w", err)
+		return crhp2.ContractRevision{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
 	defer release()
 
 	if err := r.wallet.SignTransaction(cs, &formationTxn, toSign, explicitCoveredFields(formationTxn)); err != nil {
-		return rhp2.ContractRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
+		return crhp2.ContractRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
-	revision, _, err := worker.RPCFormContract(ctx, t, r.privKey, []types.Transaction{formationTxn})
+	revision, _, err := rhp2.RPCFormContract(ctx, t, r.privKey, []types.Transaction{formationTxn})
 	if err != nil {
-		return rhp2.ContractRevision{}, fmt.Errorf("failed to form contract: %w", err)
+		return crhp2.ContractRevision{}, fmt.Errorf("failed to form contract: %w", err)
 	}
 	return revision, nil
 }
@@ -135,7 +134,7 @@ func (r *Renter) PublicKey() types.PublicKey {
 
 // dialTransport is a convenience function that connects to the specified
 // host
-func dialTransport(ctx context.Context, hostIP string, hostKey types.PublicKey) (_ *rhp2.Transport, err error) {
+func dialTransport(ctx context.Context, hostIP string, hostKey types.PublicKey) (_ *crhp2.Transport, err error) {
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", hostIP)
 	if err != nil {
 		return nil, err
@@ -155,7 +154,7 @@ func dialTransport(ctx context.Context, hostIP string, hostKey types.PublicKey) 
 		}
 	}()
 
-	t, err := rhp2.NewRenterTransport(conn, hostKey)
+	t, err := crhp2.NewRenterTransport(conn, hostKey)
 	if err != nil {
 		conn.Close()
 		return nil, err
