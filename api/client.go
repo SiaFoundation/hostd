@@ -31,6 +31,11 @@ func (c *Client) AddWebhooks() (wh webhooks.Webhook, err error) {
 	return
 }
 
+func (c *Client) DeleteWebhook() (wh webhooks.Webhook, err error) {
+	err = c.c.POST("/webhook", wh, nil)
+	return
+}
+
 // Host returns the current state of the host
 func (c *Client) Host() (resp HostState, err error) {
 	err = c.c.GET("/state/host", &resp)
