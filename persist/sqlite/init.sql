@@ -209,3 +209,11 @@ CREATE TABLE global_settings (
 
 -- initialize the global settings table
 INSERT INTO global_settings (id, db_version) VALUES (0, 0); -- should not be changed
+
+-- initialize the webhooks table
+CREATE TABLE webhooks (
+	id INTEGER PRIMARY KEY,
+	module TEXT NOT NULL,
+	event TEXT NOT NULL,
+	url TEXT NOT NULL
+);

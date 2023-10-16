@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/host/webhooks"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
 )
@@ -18,6 +19,16 @@ import (
 // A Client is a client for the hostd API.
 type Client struct {
 	c jape.Client
+}
+
+func (c *Client) Webhooks() (resp WebHookResponse, err error) {
+	err = c.c.GET("/webhooks", &resp)
+	return
+}
+
+func (c *Client) AddWebhooks() (wh webhooks.Webhook, err error) {
+	err = c.c.POST("/webhooks", wh, nil)
+	return
 }
 
 // Host returns the current state of the host

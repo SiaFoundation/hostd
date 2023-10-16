@@ -10,6 +10,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/host/webhooks"
 )
 
 // JSON keys for host setting fields
@@ -139,6 +140,11 @@ type (
 	// A CreateDirRequest is the request body for the [POST] /system/dir endpoint.
 	CreateDirRequest struct {
 		Path string `json:"path"`
+	}
+
+	WebHookResponse struct {
+		Webhooks []webhooks.Webhook          `json:"webhooks"`
+		Queues   []webhooks.WebhookQueueInfo `json:"queues"`
 	}
 )
 

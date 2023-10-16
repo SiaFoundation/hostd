@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/host/webhooks"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/jape"
@@ -87,6 +88,11 @@ type (
 		Dismiss(...types.Hash256)
 	}
 
+	Webhooks interface {
+		Info() ([]webhooks.Webhook, []webhooks.WebhookQueueInfo)
+		Register(webhooks.Webhook) error
+	}
+
 	// A Syncer can connect to other peers and synchronize the blockchain.
 	Syncer interface {
 		Address() modules.NetAddress
@@ -133,6 +139,7 @@ type (
 		metrics   Metrics
 		settings  Settings
 		sessions  RHPSessionReporter
+		hooks     Webhooks
 
 		volumeJobs volumeJobs
 		checks     integrityCheckJobs
@@ -140,7 +147,7 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, hks Webhooks, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
 		name:    name,
@@ -157,6 +164,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		wallet:    w,
 		sessions:  rsr,
 		log:       log,
+		hooks:     hks,
 
 		checks: integrityCheckJobs{
 			contracts: cm,
@@ -219,5 +227,10 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		// system endpoints
 		"GET /system/dir": api.handleGETSystemDir,
 		"PUT /system/dir": api.handlePUTSystemDir,
+		// // webhooks endpoints
+		"GET /webhooks":  api.handleGETWebhooks,
+		"POST /webhooks": api.handlePOSTWebhooks,
+		// "POST /webhooks/action": api.handlePOSTWebhooksAction,
+		// "POST /webhook/delete":  api.handlePOSTWebhookDelete,
 	})
 }

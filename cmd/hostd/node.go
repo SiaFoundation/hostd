@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/host/webhooks"
 	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/rhp"
@@ -42,6 +43,7 @@ type node struct {
 	contracts *contracts.ContractManager
 	registry  *registry.Manager
 	storage   *storage.VolumeManager
+	hooks     *webhooks.Manager
 
 	sessions    *rhp.SessionReporter
 	rhp2Monitor *rhp.DataRecorder
@@ -62,6 +64,7 @@ func (n *node) Close() error {
 	n.cm.Close()
 	n.g.Close()
 	n.store.Close()
+	n.hooks.Close()
 	return nil
 }
 
@@ -194,6 +197,11 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}
 
+	hooksManager, err := webhooks.NewManager(db)
+	if err != nil {
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to start webhooks: %w", err)
+	}
+
 	return &node{
 		g:     g,
 		a:     am,
@@ -208,6 +216,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		contracts: contractManager,
 		storage:   sm,
 		registry:  registryManager,
+		hooks:     hooksManager,
 
 		sessions:    sessions,
 		rhp2Monitor: rhp2Monitor,

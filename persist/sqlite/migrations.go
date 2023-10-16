@@ -9,6 +9,23 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion21 adds support for webhooks
+func migrateVersion21(tx txn) (err error) {
+	const query = `
+CREATE TABLE webhooks (
+id INTEGER PRIMARY KEY,
+module TEXT NOT NULL,
+event TEXT NOT NULL,
+url TEXT NOT NULL
+);`
+
+	if _, err = tx.Exec(query); err != nil {
+		return fmt.Errorf("failed to create webhooks table: %w", err)
+	}
+
+	return err
+}
+
 // migrateVersion20 adds a compound index to the volume_sectors table
 func migrateVersion20(tx txn) error {
 	_, err := tx.Exec(`CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_set_compound ON volume_sectors (volume_id, sector_id, volume_index) WHERE sector_id IS NOT NULL;`)
@@ -512,4 +529,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion18,
 	migrateVersion19,
 	migrateVersion20,
+	migrateVersion21,
 }
