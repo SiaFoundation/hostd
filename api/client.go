@@ -32,7 +32,7 @@ func (c *Client) AddWebhooks() (wh webhooks.Webhook, err error) {
 }
 
 func (c *Client) DeleteWebhook() (wh webhooks.Webhook, err error) {
-	err = c.c.POST("/webhook", wh, nil)
+	err = c.c.POST("/webhook/delete", wh, nil)
 	return
 }
 
