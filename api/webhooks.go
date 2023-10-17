@@ -46,3 +46,11 @@ func (a *api) handlePOSTWebhookDelete(c jape.Context) {
 		return
 	}
 }
+
+func (a *api) handlePOSTWebhooksAction(c jape.Context) {
+	var action webhooks.Event
+	if c.Check("failed to decode action", c.Decode(&action)) != nil {
+		return
+	}
+	a.hooks.BroadcastAction(c.Request.Context(), action)
+}

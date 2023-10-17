@@ -92,6 +92,7 @@ type (
 		Info() ([]webhooks.Webhook, []webhooks.WebhookQueueInfo)
 		Register(webhooks.Webhook) error
 		Delete(webhooks.Webhook) error
+		BroadcastAction(context.Context, webhooks.Event) error
 	}
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
@@ -229,9 +230,9 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"GET /system/dir": api.handleGETSystemDir,
 		"PUT /system/dir": api.handlePUTSystemDir,
 		// // webhooks endpoints
-		"GET /webhooks":  api.handleGETWebhooks,
-		"POST /webhooks": api.handlePOSTWebhooks,
-		// "POST /webhooks/action": api.handlePOSTWebhooksAction,
-		"POST /webhook/delete": api.handlePOSTWebhookDelete,
+		"GET /webhooks":         api.handleGETWebhooks,
+		"POST /webhooks":        api.handlePOSTWebhooks,
+		"POST /webhooks/action": api.handlePOSTWebhooksAction,
+		"POST /webhook/delete":  api.handlePOSTWebhookDelete,
 	})
 }
