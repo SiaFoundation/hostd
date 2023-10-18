@@ -84,11 +84,6 @@ func (w Webhook) String() string {
 func (w *Manager) Delete(wh Webhook) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// if err := w.store.DeleteWebhook(wh); errors.Is(err, gorm.ErrRecordNotFound) {
-	// 	return ErrWebhookNotFound
-	// } else if err != nil {
-	// 	return err
-	// }
 	err := w.store.DeleteWebhook(wh)
 	if err != nil {
 		return err
