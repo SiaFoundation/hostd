@@ -31,13 +31,8 @@ func (c *Client) AddWebhooks() (wh webhooks.Webhook, err error) {
 	return
 }
 
-func (c *Client) DeleteWebhook() (wh webhooks.Webhook, err error) {
-	err = c.c.POST("/webhook/delete", wh, nil)
-	return
-}
-
-func (c *Client) WebhookAction() (ev webhooks.Event, err error) {
-	err = c.c.POST("/webhooks/action", ev, nil)
+func (c *Client) DeleteWebhook(id int64) (wh webhooks.Webhook, err error) {
+	err = c.c.DELETE(fmt.Sprintf("/webhooks/%v/delete", id))
 	return
 }
 

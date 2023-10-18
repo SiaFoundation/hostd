@@ -41,6 +41,13 @@ func TestWebhooks(t *testing.T) {
 		t.Fatal("unexpected webhook", whs[0])
 	}
 
+	wh, err := db.GetWebhook(1)
+	if err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(whs[0], wh) {
+		t.Fatal("webhooks don't match")
+	}
+
 	// Add it again. Should be a no-op.
 	if err := db.AddWebhook(wh1); err != nil {
 		t.Fatal(err)

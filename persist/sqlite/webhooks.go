@@ -52,6 +52,15 @@ func (s *Store) Webhooks() (wbs []webhooks.Webhook, err error) {
 	return wbs, err
 }
 
+func (s *Store) GetWebhook(id int64) (wh webhooks.Webhook, err error) {
+	err = s.db.QueryRow(`SELECT * FROM webhooks WHERE id = ?;`, id).Scan(&id, &wh.Module, &wh.Event, &wh.URL)
+	if err != nil {
+		return webhooks.Webhook{}, err
+	}
+
+	return
+}
+
 func (s *Store) AddWebhook(wb webhooks.Webhook) (err error) {
 	var count int
 

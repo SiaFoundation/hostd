@@ -38,6 +38,7 @@ type (
 	WebhookStore interface {
 		DeleteWebhook(wh Webhook) error
 		AddWebhook(wh Webhook) error
+		GetWebhook(id int64) (Webhook, error)
 		Webhooks() ([]Webhook, error)
 	}
 
@@ -113,6 +114,18 @@ func (w *Manager) Info() ([]Webhook, []WebhookQueueInfo) {
 		queue.mu.Unlock()
 	}
 	return hooks, queueInfos
+}
+
+func (w *Manager) Webhook(id int64) (Webhook, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	wh, err := w.store.GetWebhook(id)
+	if err != nil {
+		return Webhook{}, err
+	}
+
+	return wh, err
 }
 
 func (a Event) String() string {

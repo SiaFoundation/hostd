@@ -33,24 +33,20 @@ func (a *api) handlePOSTWebhooks(c jape.Context) {
 	}
 }
 
-func (a *api) handlePOSTWebhookDelete(c jape.Context) {
-	var wh webhooks.Webhook
-	if c.Decode(&wh) != nil {
+func (a *api) handleDELETEWebhook(c jape.Context) {
+	var id int64
+
+	wh, err := a.hooks.Webhook(id)
+	if err != nil {
+		c.Error(fmt.Errorf("failed to delete Webhook: %w", err), http.StatusInternalServerError)
 		return
 	}
-	err := a.hooks.Delete(wh)
+
+	err = a.hooks.Delete(wh)
 	if errors.Is(err, webhooks.ErrWebhookNotFound) {
 		c.Error(fmt.Errorf("webhook for URL %v and event %v.%v not found", wh.URL, wh.Module, wh.Event), http.StatusNotFound)
 		return
 	} else if c.Check("failed to delete webhook", err) != nil {
 		return
 	}
-}
-
-func (a *api) handlePOSTWebhooksAction(c jape.Context) {
-	var action webhooks.Event
-	if c.Check("failed to decode action", c.Decode(&action)) != nil {
-		return
-	}
-	a.hooks.BroadcastAction(c.Request.Context(), action)
 }
