@@ -160,10 +160,14 @@ last_announce_id=NULL, last_announce_height=NULL, last_announce_address=NULL, la
 
 // LastSettingsConsensusChange returns the last processed consensus change ID of
 // the settings manager
-func (s *Store) LastSettingsConsensusChange() (cc modules.ConsensusChangeID, err error) {
-	err = s.queryRow(`SELECT settings_last_processed_change FROM global_settings WHERE id=0;`).Scan(nullable((*sqlHash256)(&cc)))
-	if errors.Is(err, sql.ErrNoRows) {
-		return modules.ConsensusChangeRecent, nil // as a special case don't scan the chain for new announcements
+func (s *Store) LastSettingsConsensusChange() (cc modules.ConsensusChangeID, height uint64, err error) {
+	var nullHeight sql.NullInt64
+	n := nullable((*sqlHash256)(&cc))
+	err = s.queryRow(`SELECT settings_last_processed_change, settings_height FROM global_settings WHERE id=0;`).Scan(n, &nullHeight)
+	if errors.Is(err, sql.ErrNoRows) || !n.Valid {
+		return modules.ConsensusChangeRecent, 0, nil // as a special case don't scan the chain for new announcements
+	} else if nullHeight.Valid {
+		height = uint64(nullHeight.Int64)
 	}
 	return
 }
