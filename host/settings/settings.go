@@ -44,7 +44,7 @@ type (
 		UpdateLastAnnouncement(Announcement) error
 		RevertLastAnnouncement() error
 
-		LastSettingsConsensusChange() (modules.ConsensusChangeID, error)
+		LastSettingsConsensusChange() (modules.ConsensusChangeID, uint64, error)
 	}
 
 	// Settings contains configuration options for the host.
@@ -125,9 +125,10 @@ type (
 		tp     TransactionPool
 		wallet Wallet
 
-		mu         sync.Mutex // guards the following fields
-		settings   Settings   // in-memory cache of the host's settings
-		scanHeight uint64
+		mu                  sync.Mutex // guards the following fields
+		settings            Settings   // in-memory cache of the host's settings
+		scanHeight          uint64     // track the last block height that was scanned for announcements
+		lastAnnounceAttempt uint64     // debounce announcement transactions
 
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
@@ -303,10 +304,12 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}
 
-	lastChange, err := m.store.LastSettingsConsensusChange()
+	lastChange, height, err := m.store.LastSettingsConsensusChange()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load last settings consensus change: %w", err)
 	}
+	m.scanHeight = height
+
 	go func() {
 		// subscribe to consensus changes
 		err := cm.Subscribe(m, lastChange, m.tg.Done())

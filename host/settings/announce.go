@@ -3,8 +3,6 @@ package settings
 import (
 	"crypto/ed25519"
 	"fmt"
-	"net"
-	"strings"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -16,6 +14,7 @@ import (
 )
 
 type (
+	// An Announcement contains the host's announced netaddress and public key
 	Announcement struct {
 		Index     types.ChainIndex `json:"index"`
 		PublicKey types.PublicKey  `json:"publicKey"`
@@ -25,28 +24,6 @@ type (
 
 // constant to overwrite announcement alerts instead of registering new ones
 var alertAnnouncementID = frand.Entropy256()
-
-func validateNetAddress(netaddress string) error {
-	addr, _, err := net.SplitHostPort(netaddress)
-	if err != nil {
-		return fmt.Errorf("invalid net address. please specify a valid address and port: %w", err)
-	}
-
-	ip := net.ParseIP(addr)
-	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
-			return fmt.Errorf("invalid net address %q. please specify a public IP address", addr)
-		}
-		return nil
-	}
-
-	if addrs, err := net.LookupHost(addr); err != nil {
-		return fmt.Errorf("failed to resolve net address %q: %w", addr, err)
-	} else if len(addrs) == 0 {
-		return fmt.Errorf("failed to resolve net address: no addresses found")
-	}
-	return nil
-}
 
 // Announce announces the host to the network
 func (m *ConfigManager) Announce() error {
@@ -90,6 +67,7 @@ func (m *ConfigManager) Announce() error {
 	return nil
 }
 
+// ProcessConsensusChange implements modules.ConsensusSetSubscriber.
 func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	done, err := cm.tg.Add()
 	if err != nil {
@@ -163,6 +141,7 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 					},
 					Timestamp: time.Now(),
 				})
+				log.Info("announcement confirmed", zap.String("address", announcement.Address), zap.Uint64("height", blockHeight))
 			}
 		}
 		blockHeight++
@@ -178,11 +157,20 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	defer cm.mu.Unlock()
 	currentNetAddress := cm.settings.NetAddress
 	cm.scanHeight = uint64(cc.BlockHeight)
+	timestamp := time.Unix(int64(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp), 0)
 
-	// if the current net address is empty, has not changed, or the last announcement is recent, don't announce
-	if len(currentNetAddress) == 0 || strings.TrimSpace(currentNetAddress) == "" || currentNetAddress == lastAnnouncement.Address && lastAnnouncement.Index.Height > minAnnounceHeight {
+	// debounce announcements
+	if cm.scanHeight < cm.lastAnnounceAttempt+6 || time.Since(timestamp) > 3*time.Hour {
 		return
 	}
+
+	// if the address hasn't changed, don't reannounce
+	if currentNetAddress == lastAnnouncement.Address && lastAnnouncement.Index.Height > minAnnounceHeight {
+		return
+	}
+
+	log.Debug("announcing host", zap.Uint64("height", cm.scanHeight), zap.Uint64("lastAttempt", cm.lastAnnounceAttempt))
+	cm.lastAnnounceAttempt = cm.scanHeight
 
 	// in go-routine to prevent deadlock with TPool
 	go func() {
