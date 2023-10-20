@@ -13,6 +13,11 @@ import (
 	"lukechampine.com/frand"
 )
 
+const (
+	autoAnnounceInterval = (144 * 180) // reannounce every 180 days
+	announcementDebounce = 18          // blocks
+)
+
 type (
 	// An Announcement contains the host's announced netaddress and public key
 	Announcement struct {
@@ -149,7 +154,7 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 	var minAnnounceHeight uint64
 	if cc.BlockHeight > 144*180 {
-		minAnnounceHeight = uint64(cc.BlockHeight) - (144 * 180) // reannounce every 180 days
+		minAnnounceHeight = uint64(cc.BlockHeight) - autoAnnounceInterval
 	}
 
 	// get the current net address
@@ -160,7 +165,7 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	timestamp := time.Unix(int64(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp), 0)
 
 	// debounce announcements
-	if cm.scanHeight < cm.lastAnnounceAttempt+6 || time.Since(timestamp) > 3*time.Hour {
+	if cm.scanHeight < cm.lastAnnounceAttempt+announcementDebounce || time.Since(timestamp) > 3*time.Hour {
 		return
 	}
 

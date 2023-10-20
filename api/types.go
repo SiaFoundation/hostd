@@ -9,6 +9,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 )
 
@@ -50,10 +51,11 @@ type (
 
 	// HostState is the response body for the [GET] /state/host endpoint.
 	HostState struct {
-		Name          string          `json:"name,omitempty"`
-		PublicKey     types.PublicKey `json:"publicKey"`
-		WalletAddress types.Address   `json:"walletAddress"`
-		StartTime     time.Time       `json:"startTime"`
+		Name             string                `json:"name,omitempty"`
+		PublicKey        types.PublicKey       `json:"publicKey"`
+		LastAnnouncement settings.Announcement `json:"lastAnnouncement"`
+		WalletAddress    types.Address         `json:"walletAddress"`
+		StartTime        time.Time             `json:"startTime"`
 		BuildState
 	}
 

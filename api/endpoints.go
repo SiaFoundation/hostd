@@ -38,11 +38,18 @@ func (a *api) checkServerError(c jape.Context, context string, err error) bool {
 }
 
 func (a *api) handleGETHostState(c jape.Context) {
+	announcement, err := a.settings.LastAnnouncement()
+	if err != nil {
+		c.Error(err, http.StatusInternalServerError)
+		return
+	}
+
 	c.Encode(HostState{
-		Name:          a.name,
-		PublicKey:     a.hostKey,
-		WalletAddress: a.wallet.Address(),
-		StartTime:     startTime,
+		Name:             a.name,
+		PublicKey:        a.hostKey,
+		WalletAddress:    a.wallet.Address(),
+		StartTime:        startTime,
+		LastAnnouncement: announcement,
 		BuildState: BuildState{
 			Network:   build.NetworkName(),
 			Version:   build.Version(),

@@ -24,7 +24,8 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer node.Close()
 
-	if err := node.MineBlocks(node.Address(), 15); err != nil {
+	// fund the wallet
+	if err := node.MineBlocks(node.Address(), 20); err != nil {
 		t.Fatal(err)
 	}
 
@@ -64,5 +65,19 @@ func TestAutoAnnounce(t *testing.T) {
 		t.Fatal("announcement not recorded")
 	} else if lastAnnouncement.Address != "foo.bar:1234" {
 		t.Fatal("announcement not updated")
+	}
+	lastHeight := lastAnnouncement.Index.Height
+
+	// mine more blocks to ensure another announcement is not triggered
+	if err := node.MineBlocks(node.Address(), 10); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	lastAnnouncement, err = manager.LastAnnouncement()
+	if err != nil {
+		t.Fatal(err)
+	} else if lastAnnouncement.Index.Height != lastHeight {
+		t.Fatal("announcement triggered unexpectedly")
 	}
 }

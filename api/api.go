@@ -39,6 +39,7 @@ type (
 
 		UpdateSettings(s settings.Settings) error
 		Settings() settings.Settings
+		LastAnnouncement() (settings.Announcement, error)
 
 		UpdateDDNS(force bool) error
 	}
