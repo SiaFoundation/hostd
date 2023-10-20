@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -211,43 +212,6 @@ func (m *ConfigManager) LastAnnouncement() (Announcement, error) {
 	return m.store.LastAnnouncement()
 }
 
-// Announce announces the host to the network
-func (m *ConfigManager) Announce() error {
-	// get the current settings
-	settings := m.Settings()
-	// if no netaddress is set, override the field with the auto-discovered one
-	if len(settings.NetAddress) == 0 {
-		settings.NetAddress = m.discoveredRHPAddr
-	}
-	// create a transaction with an announcement
-	minerFee := m.tp.RecommendedFee().Mul64(announcementTxnSize)
-	txn := types.Transaction{
-		ArbitraryData: [][]byte{
-			createAnnouncement(m.hostKey, settings.NetAddress),
-		},
-		MinerFees: []types.Currency{minerFee},
-	}
-
-	// fund the transaction
-	toSign, release, err := m.wallet.FundTransaction(&txn, minerFee)
-	if err != nil {
-		return fmt.Errorf("failed to fund transaction: %w", err)
-	}
-	defer release()
-	// sign the transaction
-	err = m.wallet.SignTransaction(m.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
-	if err != nil {
-		return fmt.Errorf("failed to sign transaction: %w", err)
-	}
-	// broadcast the transaction
-	err = m.tp.AcceptTransactionSet([]types.Transaction{txn})
-	if err != nil {
-		return fmt.Errorf("failed to broadcast transaction: %w", err)
-	}
-	m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
-	return nil
-}
-
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
 	// validate DNS settings
@@ -353,7 +317,7 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 			} else if err = cm.Subscribe(m, modules.ConsensusChangeBeginning, m.tg.Done()); err != nil {
 				m.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
 			}
-		} else if err != nil {
+		} else if err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {
 			m.log.Fatal("failed to subscribe to consensus changes", zap.Error(err))
 		}
 	}()

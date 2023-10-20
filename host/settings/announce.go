@@ -2,6 +2,8 @@ package settings
 
 import (
 	"crypto/ed25519"
+	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -23,6 +25,70 @@ type (
 
 // constant to overwrite announcement alerts instead of registering new ones
 var alertAnnouncementID = frand.Entropy256()
+
+func validateNetAddress(netaddress string) error {
+	addr, _, err := net.SplitHostPort(netaddress)
+	if err != nil {
+		return fmt.Errorf("invalid net address. please specify a valid address and port: %w", err)
+	}
+
+	ip := net.ParseIP(addr)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
+			return fmt.Errorf("invalid net address %q. please specify a public IP address", addr)
+		}
+		return nil
+	}
+
+	if addrs, err := net.LookupHost(addr); err != nil {
+		return fmt.Errorf("failed to resolve net address %q: %w", addr, err)
+	} else if len(addrs) == 0 {
+		return fmt.Errorf("failed to resolve net address: no addresses found")
+	}
+	return nil
+}
+
+// Announce announces the host to the network
+func (m *ConfigManager) Announce() error {
+	// get the current settings
+	settings := m.Settings()
+	// if no netaddress is set, override the field with the auto-discovered one
+	if len(settings.NetAddress) == 0 {
+		settings.NetAddress = m.discoveredRHPAddr
+	}
+
+	if err := validateNetAddress(settings.NetAddress); err != nil {
+		return err
+	}
+
+	// create a transaction with an announcement
+	minerFee := m.tp.RecommendedFee().Mul64(announcementTxnSize)
+	txn := types.Transaction{
+		ArbitraryData: [][]byte{
+			createAnnouncement(m.hostKey, settings.NetAddress),
+		},
+		MinerFees: []types.Currency{minerFee},
+	}
+
+	// fund the transaction
+	toSign, release, err := m.wallet.FundTransaction(&txn, minerFee)
+	if err != nil {
+		return fmt.Errorf("failed to fund transaction: %w", err)
+	}
+	defer release()
+	// sign the transaction
+	err = m.wallet.SignTransaction(m.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
+	if err != nil {
+		return fmt.Errorf("failed to sign transaction: %w", err)
+	}
+	// broadcast the transaction
+	err = m.tp.AcceptTransactionSet([]types.Transaction{txn})
+	if err != nil {
+		return fmt.Errorf("failed to broadcast transaction: %w", err)
+	}
+	m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
+	return nil
+}
 
 func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	done, err := cm.tg.Add()
