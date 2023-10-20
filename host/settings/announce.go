@@ -108,11 +108,10 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	// get the current net address
-	// lock is short since Announce requires it
 	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	currentNetAddress := cm.settings.NetAddress
 	cm.scanHeight = uint64(cc.BlockHeight)
-	cm.mu.Unlock()
 
 	// if the current net address is empty, has not changed, or the last announcement is recent, don't announce
 	if len(currentNetAddress) == 0 || strings.TrimSpace(currentNetAddress) == "" || currentNetAddress == lastAnnouncement.Address && lastAnnouncement.Index.Height > minAnnounceHeight {
