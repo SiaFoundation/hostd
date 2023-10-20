@@ -11,6 +11,10 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/alerts"
+	"go.sia.tech/hostd/internal/chain"
+	"go.sia.tech/hostd/internal/threadgroup"
+	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -34,6 +38,12 @@ type (
 		Settings() (Settings, error)
 		// UpdateSettings updates the host's settings.
 		UpdateSettings(s Settings) error
+
+		LastAnnouncement() (Announcement, error)
+		UpdateLastAnnouncement(Announcement) error
+		RevertLastAnnouncement() error
+
+		LastSettingsConsensusChange() (modules.ConsensusChangeID, error)
 	}
 
 	// Settings contains configuration options for the host.
@@ -83,9 +93,15 @@ type (
 		RecommendedFee() types.Currency
 	}
 
+	// Alerts registers global alerts.
+	Alerts interface {
+		Register(alerts.Alert)
+	}
+
 	// A ChainManager manages the current consensus state
 	ChainManager interface {
 		TipState() consensus.State
+		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
 	}
 
 	// A Wallet manages funds and signs transactions
@@ -101,14 +117,16 @@ type (
 		discoveredRHPAddr string
 
 		store Store
+		a     Alerts
 		log   *zap.Logger
 
 		cm     ChainManager
 		tp     TransactionPool
 		wallet Wallet
 
-		mu       sync.Mutex // guards the following fields
-		settings Settings   // in-memory cache of the host's settings
+		mu         sync.Mutex // guards the following fields
+		settings   Settings   // in-memory cache of the host's settings
+		scanHeight uint64
 
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
@@ -118,6 +136,8 @@ type (
 		lastIPv6        net.IP
 
 		rhp3WSTLS *tls.Config
+
+		tg *threadgroup.ThreadGroup
 	}
 )
 
@@ -173,9 +193,22 @@ func (m *ConfigManager) setRateLimit(ingress, egress uint64) {
 	m.egressLimit.SetLimit(rate.Limit(egressLimit))
 }
 
-// Close is a no-op
+// Close closes the config manager
 func (m *ConfigManager) Close() error {
+	m.tg.Stop()
 	return nil
+}
+
+// ScanHeight returns the last block height that was scanned for announcements
+func (m *ConfigManager) ScanHeight() uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.scanHeight
+}
+
+// LastAnnouncement returns the last announcement that was made by the host
+func (m *ConfigManager) LastAnnouncement() (Announcement, error) {
+	return m.store.LastAnnouncement()
 }
 
 // Announce announces the host to the network
@@ -270,17 +303,19 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, log *zap.Logger) (*ConfigManager, error) {
+func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, a Alerts, log *zap.Logger) (*ConfigManager, error) {
 	m := &ConfigManager{
 		dir:               dir,
 		hostKey:           hostKey,
 		discoveredRHPAddr: rhp2Addr,
 
 		store:  store,
+		a:      a,
 		log:    log,
 		cm:     cm,
 		tp:     tp,
 		wallet: w,
+		tg:     threadgroup.New(),
 
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
@@ -303,6 +338,25 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}
+
+	lastChange, err := m.store.LastSettingsConsensusChange()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load last settings consensus change: %w", err)
+	}
+	go func() {
+		// subscribe to consensus changes
+		err := cm.Subscribe(m, lastChange, m.tg.Done())
+		if errors.Is(err, chain.ErrInvalidChangeID) {
+			// reset change ID and subscribe again
+			if err := store.RevertLastAnnouncement(); err != nil {
+				m.log.Fatal("failed to reset wallet", zap.Error(err))
+			} else if err = cm.Subscribe(m, modules.ConsensusChangeBeginning, m.tg.Done()); err != nil {
+				m.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
+			}
+		} else if err != nil {
+			m.log.Fatal("failed to subscribe to consensus changes", zap.Error(err))
+		}
+	}()
 
 	m.settings = settings
 	// update the global rate limiters from settings
