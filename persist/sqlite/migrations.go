@@ -9,6 +9,19 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+func migrateVersion21(tx txn) error {
+	const query = `
+ALTER TABLE global_settings ADD COLUMN last_announce_key BLOB;
+ALTER TABLE global_settings ADD COLUMN settings_last_processed_change BLOB;
+ALTER TABLE global_settings ADD COLUMN last_announce_id BLOB;
+ALTER TABLE global_settings ADD COLUMN last_announce_height INTEGER;
+ALTER TABLE global_settings ADD COLUMN settings_height INTEGER;
+ALTER TABLE global_settings ADD COLUMN last_announce_address TEXT;
+`
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion20 adds a compound index to the volume_sectors table
 func migrateVersion20(tx txn) error {
 	_, err := tx.Exec(`CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_set_compound ON volume_sectors (volume_id, sector_id, volume_index) WHERE sector_id IS NOT NULL;`)
@@ -512,4 +525,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion18,
 	migrateVersion19,
 	migrateVersion20,
+	migrateVersion21,
 }

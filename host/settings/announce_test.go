@@ -50,13 +50,13 @@ func TestAutoAnnounce(t *testing.T) {
 	if err := node.MineBlocks(node.Address(), 1); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	// confirm the announcement
-	if err := node.MineBlocks(node.Address(), 1); err != nil {
+	if err := node.MineBlocks(node.Address(), 2); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	lastAnnouncement, err := manager.LastAnnouncement()
 	if err != nil {
@@ -72,7 +72,7 @@ func TestAutoAnnounce(t *testing.T) {
 	if err := node.MineBlocks(node.Address(), 10); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	lastAnnouncement, err = manager.LastAnnouncement()
 	if err != nil {
