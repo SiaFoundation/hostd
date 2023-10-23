@@ -10,13 +10,6 @@ import (
 
 var ErrWebhookNotFound = errors.New("Webhook not found")
 
-type (
-	dbWebhook struct {
-		Scope string
-		URL   string
-	}
-)
-
 func (s *Store) DeleteWebhook(wb webhooks.Webhook) error {
 	res, err := s.db.Exec("DELETE FROM webhooks WHERE hook_url = ?;", wb.URL)
 	if err != nil {
