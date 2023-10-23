@@ -91,7 +91,7 @@ type (
 	Webhooks interface {
 		Info() ([]webhooks.Webhook, []webhooks.WebhookQueueInfo)
 		Register(webhooks.Webhook) error
-		Webhook(id int64) (webhooks.Webhook, error)
+		Webhook(id int) (webhooks.Webhook, error)
 		Delete(webhooks.Webhook) error
 	}
 

@@ -213,7 +213,6 @@ INSERT INTO global_settings (id, db_version) VALUES (0, 0); -- should not be cha
 -- initialize the webhooks table
 CREATE TABLE webhooks (
 	id INTEGER PRIMARY KEY,
-	module TEXT NOT NULL,
-	event TEXT NOT NULL,
-	url TEXT NOT NULL
+	scope TEXT NOT NULL,
+	hook_url TEXT NOT NULL
 );

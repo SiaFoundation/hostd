@@ -23,9 +23,8 @@ func (a *api) handlePOSTWebhooks(c jape.Context) {
 		return
 	}
 	err := a.hooks.Register(webhooks.Webhook{
-		Event:  req.Event,
-		Module: req.Module,
-		URL:    req.URL,
+		Scope: req.Scope,
+		URL:   req.URL,
 	})
 	if err != nil {
 		c.Error(fmt.Errorf("failed to add Webhook: %w", err), http.StatusInternalServerError)
@@ -34,7 +33,13 @@ func (a *api) handlePOSTWebhooks(c jape.Context) {
 }
 
 func (a *api) handleDELETEWebhook(c jape.Context) {
-	var id int64
+	var id int
+	if err := c.DecodeParam("id", &id); err != nil {
+		return
+	} else if id < 0 {
+		c.Error(errors.New("invalid volume id"), http.StatusBadRequest)
+		return
+	}
 
 	wh, err := a.hooks.Webhook(id)
 	if err != nil {
@@ -44,7 +49,7 @@ func (a *api) handleDELETEWebhook(c jape.Context) {
 
 	err = a.hooks.Delete(wh)
 	if errors.Is(err, webhooks.ErrWebhookNotFound) {
-		c.Error(fmt.Errorf("webhook for URL %v and event %v.%v not found", wh.URL, wh.Module, wh.Event), http.StatusNotFound)
+		c.Error(fmt.Errorf("webhook for URL %v and event %v not found", wh.URL, wh.Scope), http.StatusNotFound)
 		return
 	} else if c.Check("failed to delete webhook", err) != nil {
 		return

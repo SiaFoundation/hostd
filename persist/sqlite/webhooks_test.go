@@ -18,14 +18,12 @@ func TestWebhooks(t *testing.T) {
 	defer db.Close()
 
 	wh1 := webhooks.Webhook{
-		Module: "foo",
-		Event:  "bar",
-		URL:    "http://example.com",
+		Scope: []string{"alert"},
+		URL:   "http://example.com",
 	}
 	wh2 := webhooks.Webhook{
-		Module: "foo2",
-		Event:  "bar2",
-		URL:    "http://example2.com",
+		Scope: []string{"alert"},
+		URL:   "http://example2.com",
 	}
 
 	if err := db.AddWebhook(wh1); err != nil {

@@ -14,9 +14,8 @@ import (
 
 type (
 	Webhook struct {
-		Module string `json:"module"`
-		Event  string `json:"event"`
-		URL    string `json:"url"`
+		Scope []string `json:"scope"`
+		URL   string   `json:"url"`
 	}
 
 	WebhookQueueInfo struct {
@@ -26,8 +25,7 @@ type (
 
 	// Event describes an event that has been triggered.
 	Event struct {
-		Module  string      `json:"module"`
-		Event   string      `json:"event"`
+		Scope   []string    `json:"scope"`
 		Payload interface{} `json:"payload,omitempty"`
 	}
 )
@@ -38,7 +36,7 @@ type (
 	WebhookStore interface {
 		DeleteWebhook(wh Webhook) error
 		AddWebhook(wh Webhook) error
-		GetWebhook(id int64) (Webhook, error)
+		GetWebhook(id int) (Webhook, error)
 		Webhooks() ([]Webhook, error)
 	}
 
@@ -47,10 +45,9 @@ type (
 	}
 )
 
-const (
-	webhookTimeout   = 10 * time.Second
-	WebhookEventPing = "ping"
-)
+const webhookTimeout = 10 * time.Second
+
+var WebhookEventPing = []string{"ping"}
 
 type Manager struct {
 	ctx       context.Context
@@ -79,7 +76,7 @@ func (w *Manager) Close() error {
 }
 
 func (w Webhook) String() string {
-	return fmt.Sprintf("%v.%v.%v", w.URL, w.Module, w.Event)
+	return fmt.Sprintf("%v.%v", w.URL, w.Scope)
 }
 
 func (w *Manager) Delete(wh Webhook) error {
@@ -99,9 +96,8 @@ func (w *Manager) Info() ([]Webhook, []WebhookQueueInfo) {
 	var hooks []Webhook
 	for _, hook := range w.webhooks {
 		hooks = append(hooks, Webhook{
-			Event:  hook.Event,
-			Module: hook.Module,
-			URL:    hook.URL,
+			Scope: hook.Scope,
+			URL:   hook.URL,
 		})
 	}
 	var queueInfos []WebhookQueueInfo
@@ -116,7 +112,7 @@ func (w *Manager) Info() ([]Webhook, []WebhookQueueInfo) {
 	return hooks, queueInfos
 }
 
-func (w *Manager) Webhook(id int64) (Webhook, error) {
+func (w *Manager) Webhook(id int) (Webhook, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -128,14 +124,24 @@ func (w *Manager) Webhook(id int64) (Webhook, error) {
 	return wh, err
 }
 
-func (a Event) String() string {
-	return a.Module + "." + a.Event
+func (w Webhook) Matches(action Event) bool {
+	scopeMap := make(map[string]bool)
+	for _, s := range w.Scope {
+		scopeMap[s] = true
+	}
+	for _, s := range action.Scope {
+		if !scopeMap[s] {
+			return false
+		}
+	}
+	return true
 }
 
 func (w *Manager) BroadcastAction(_ context.Context, event Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, hook := range w.webhooks {
+
 		if !hook.Matches(event) {
 			continue
 		}
@@ -185,20 +191,13 @@ func (q *eventQueue) dequeue() {
 	}
 }
 
-func (w Webhook) Matches(action Event) bool {
-	if w.Module != action.Module {
-		return false
-	}
-	return w.Event == "" || w.Event == action.Event
-}
-
 func (w *Manager) Register(wh Webhook) error {
 	ctx, cancel := context.WithTimeout(context.Background(), webhookTimeout)
 	defer cancel()
 
 	// Test URL.
 	err := sendEvent(ctx, wh.URL, Event{
-		Event: WebhookEventPing,
+		Scope: WebhookEventPing,
 	})
 	if err != nil {
 		return err

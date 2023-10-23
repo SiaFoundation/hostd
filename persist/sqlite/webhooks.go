@@ -3,6 +3,7 @@ package sqlite
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"go.sia.tech/hostd/host/webhooks"
 )
@@ -11,14 +12,13 @@ var ErrWebhookNotFound = errors.New("Webhook not found")
 
 type (
 	dbWebhook struct {
-		Module string
-		Event  string
-		URL    string
+		Scope string
+		URL   string
 	}
 )
 
 func (s *Store) DeleteWebhook(wb webhooks.Webhook) error {
-	res, err := s.db.Exec("DELETE FROM webhooks WHERE module = ? AND event = ? AND url = ?", wb.Module, wb.Event, wb.URL)
+	res, err := s.db.Exec("DELETE FROM webhooks WHERE hook_url = ?;", wb.URL)
 	if err != nil {
 		return err
 	}
@@ -30,7 +30,7 @@ func (s *Store) DeleteWebhook(wb webhooks.Webhook) error {
 	return err
 }
 
-func (s *Store) Webhooks() (wbs []webhooks.Webhook, err error) {
+func (s *Store) Webhooks() (whs []webhooks.Webhook, err error) {
 	rows, err := s.db.Query(`SELECT * FROM webhooks;`)
 
 	if err != nil {
@@ -39,21 +39,26 @@ func (s *Store) Webhooks() (wbs []webhooks.Webhook, err error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		wb := webhooks.Webhook{}
+		wh := webhooks.Webhook{}
 		var id int
 
-		if err = rows.Scan(&id, &wb.Module, &wb.Event, &wb.URL); err != nil {
+		var tempScope string
+		if err = rows.Scan(&id, &tempScope, &wh.URL); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+		wh.Scope = strings.Split(tempScope, ",")
 
-		wbs = append(wbs, wb)
+		whs = append(whs, wh)
 	}
 
-	return wbs, err
+	return whs, err
 }
 
-func (s *Store) GetWebhook(id int64) (wh webhooks.Webhook, err error) {
-	err = s.db.QueryRow(`SELECT * FROM webhooks WHERE id = ?;`, id).Scan(&id, &wh.Module, &wh.Event, &wh.URL)
+func (s *Store) GetWebhook(id int) (wh webhooks.Webhook, err error) {
+	var tempScope string
+	err = s.db.QueryRow(`SELECT * FROM webhooks WHERE id = ?;`, id).Scan(&id, &tempScope, &wh.URL)
+	wh.Scope = strings.Split(tempScope, ",")
+
 	if err != nil {
 		return webhooks.Webhook{}, err
 	}
@@ -64,13 +69,13 @@ func (s *Store) GetWebhook(id int64) (wh webhooks.Webhook, err error) {
 func (s *Store) AddWebhook(wb webhooks.Webhook) (err error) {
 	var count int
 
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM webhooks WHERE module = ? AND event = ? AND url = ?;`, wb.Module, wb.Event, wb.URL).Scan(&count)
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM webhooks WHERE scope = ? AND hook_url = ?;`, strings.Join(wb.Scope, ","), wb.URL).Scan(&count)
 	if err != nil {
 		return err
 	}
 	if count == 0 {
-		const query = `INSERT INTO webhooks (module, event, url) VALUES (?,?,?);`
-		_, err = s.exec(query, wb.Module, wb.Event, wb.URL)
+		const query = `INSERT INTO webhooks (scope, hook_url) VALUES (?,?);`
+		_, err = s.exec(query, strings.Join(wb.Scope, ","), wb.URL)
 	}
 	return err
 }
