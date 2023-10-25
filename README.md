@@ -118,11 +118,14 @@ go generate ./...
 CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ldflags '-s -w'  ./cmd/hostd
 ```
 
-# Docker
+## Docker Support
 
-`hostd` has a Dockerfile for easy containerization. The image can be pulled from `ghcr.io/siafoundation/hostd`.
+`hostd` includes a `Dockerfile` which can be used for building and running
+hostd within a docker container. The image can also be pulled from `ghcr.io/siafoundation/hostd`.
 
 ## Running container
+
+### Production
 
 ```sh
 docker run -d \
@@ -133,8 +136,20 @@ docker run -d \
   -v ./storage:/storage \
   -e HOSTD_SEED="my wallet seed" \
   -e HOSTD_API_PASSWORD=hostsarecool \
-    ghcr.io/siafoundation/hostd:latest
+    hostd:latest
 ```
+
+### Testnet
+
+docker run -d \
+  --name hostd-testnet \
+  -p 127.0.0.1:9880:9880 \
+  -p 9881-9883:9881-9883 \
+  -v ./data:/data \
+  -v ./storage:/storage \
+  -e HOSTD_ZEN_SEED="my wallet seed" \
+  -e HOSTD_ZEN_API_PASSWORD=hostsarecool \
+    hostd:latest-testnet
 
 ### Docker Compose
 
