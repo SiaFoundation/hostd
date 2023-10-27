@@ -103,16 +103,6 @@ CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-
 `hostd` can be built to run on the Zen testnet by adding the `testnet` build
 tag.
 
-The Zen testnet version of `hostd` changes the environment variables and default
-ports:
-+ `HOSTD_ZEN_SEED` - The recovery phrase for the wallet
-+ `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
-
-+ `9880` - UI and API
-+ `9881` - Sia consensus
-+ `9882` - RHP2
-+ `9883` - RHP3
-
 ```sh
 go generate ./...
 CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ldflags '-s -w'  ./cmd/hostd
@@ -123,7 +113,9 @@ CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ld
 `hostd` includes a `Dockerfile` which can be used for building and running
 hostd within a docker container. The image can also be pulled from `ghcr.io/siafoundation/hostd`.
 
-## Running container
+## Mainnet
+
+### Running container
 
 ### Production
 
@@ -185,6 +177,39 @@ ports:
 + `9881` - Sia consensus
 + `9882` - RHP2
 + `9883` - RHP3
+
+### Running container
+
+```sh
+docker run -d \
+  --name hostd \
+  -p 127.0.0.1:9880:9880 \
+  -p 9881-9883:9881-9883 \
+  -v ./data:/data \
+  -v ./storage:/storage \
+  -e HOSTD_ZEN_SEED="my wallet seed" \
+  -e HOSTD_ZEN_API_PASSWORD=hostsarecool \
+    ghcr.io/siafoundation/hostd:latest-testnet
+```
+
+### Docker Compose
+
+```yml
+version: "3.9"
+services:
+  host:
+    image: ghcr.io/siafoundation/hostd:latest-testnet
+    environment:
+      - HOSTD_ZEN_SEED=my wallet seed
+      - HOSTD_ZEN_API_PASSWORD=hostsarecool
+    ports:
+      - 127.0.0.1:9880:9880/tcp
+      - 9881-9883:9881-9883/tcp
+    volumes:
+      - /data:/data
+      - /storage:/storage
+    restart: unless-stopped
+```
 
 ## Building image
 
