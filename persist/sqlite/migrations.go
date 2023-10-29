@@ -18,10 +18,7 @@ scope TEXT NOT NULL,
 hook_url TEXT UNIQUE NOT NULL
 );`
 
-	if _, err = tx.Exec(query); err != nil {
-		return fmt.Errorf("failed to create webhooks table: %w", err)
-	}
-
+	_, err = tx.Exec(query)
 	return err
 }
 
