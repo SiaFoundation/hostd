@@ -88,7 +88,7 @@ func (w *Manager) Delete(wh Webhook) error {
 	defer w.mu.Unlock()
 	err := w.store.DeleteWebhook(wh)
 	if err != nil {
-		return fmt.Errorf("Faield to delete webhook: %w", err)
+		return fmt.Errorf("Failed to delete webhook: %w", err)
 	}
 	delete(w.webhooks, wh.String())
 	return nil
