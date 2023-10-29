@@ -197,7 +197,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}
 
-	hooksManager, err := webhooks.NewManager(db)
+	hooksManager, err := webhooks.NewManager(db, logger.Named("webhooks"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start webhooks: %w", err)
 	}

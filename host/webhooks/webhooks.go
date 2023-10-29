@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type (
@@ -50,6 +53,7 @@ const webhookTimeout = 10 * time.Second
 var WebhookEventPing = []string{"ping"}
 
 type Manager struct {
+	log       *zap.Logger
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 	wg        sync.WaitGroup
@@ -84,7 +88,7 @@ func (w *Manager) Delete(wh Webhook) error {
 	defer w.mu.Unlock()
 	err := w.store.DeleteWebhook(wh)
 	if err != nil {
-		return err
+		return fmt.Errorf("Faield to delete webhook: %w", err)
 	}
 	delete(w.webhooks, wh.String())
 	return nil
@@ -163,7 +167,7 @@ func (w *Manager) BroadcastAction(_ context.Context, event Event) error {
 			queue.isDequeueing = true
 			w.wg.Add(1)
 			go func() {
-				queue.dequeue()
+				queue.dequeue(w.log)
 				w.wg.Done()
 			}()
 		}
@@ -172,7 +176,7 @@ func (w *Manager) BroadcastAction(_ context.Context, event Event) error {
 	return nil
 }
 
-func (q *eventQueue) dequeue() {
+func (q *eventQueue) dequeue(log *zap.Logger) {
 	for {
 		q.mu.Lock()
 		if len(q.events) == 0 {
@@ -186,7 +190,7 @@ func (q *eventQueue) dequeue() {
 
 		err := sendEvent(q.ctx, q.url, next)
 		if err != nil {
-			//fmt.Errorf("failed to send Webhook event %v to %v: %v", next.String(), q.url, err)
+			log.Error("Failed to send Webhook", zap.Error(err), zap.String("scope", strings.Join(next.Scope, ",")), zap.String("url", q.url))
 		}
 	}
 }
@@ -200,12 +204,12 @@ func (w *Manager) Register(wh Webhook) error {
 		Scope: WebhookEventPing,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("Failed to ping webhook url: %w", err)
 	}
 
 	// Add Webhook.
 	if err := w.store.AddWebhook(wh); err != nil {
-		return err
+		return fmt.Errorf("Failed to add webhook: %w", err)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -213,15 +217,16 @@ func (w *Manager) Register(wh Webhook) error {
 	return nil
 }
 
-func NewManager(store WebhookStore) (*Manager, error) {
+func NewManager(store WebhookStore, log *zap.Logger) (*Manager, error) {
 	hooks, err := store.Webhooks()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to create webhook manager: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		ctx:       ctx,
 		ctxCancel: cancel,
+		log:       log,
 		queues:    make(map[string]*eventQueue),
 		store:     store,
 		webhooks:  make(map[string]Webhook),
@@ -235,19 +240,20 @@ func NewManager(store WebhookStore) (*Manager, error) {
 func sendEvent(ctx context.Context, url string, action Event) error {
 	body, err := json.Marshal(action)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal action: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 	defer io.ReadAll(req.Body) // always drain body
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to execute request: %w", err)
 	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		errStr, err := io.ReadAll(req.Body)
 		if err != nil {
