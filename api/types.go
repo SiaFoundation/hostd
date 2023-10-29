@@ -10,7 +10,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/host/webhooks"
+	"go.sia.tech/hostd/webhooks"
 )
 
 // JSON keys for host setting fields

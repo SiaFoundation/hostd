@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"go.sia.tech/hostd/host/webhooks"
+	"go.sia.tech/hostd/webhooks"
 )
 
 var ErrWebhookNotFound = errors.New("Webhook not found")

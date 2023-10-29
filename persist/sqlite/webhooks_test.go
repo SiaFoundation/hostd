@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"go.sia.tech/hostd/host/webhooks"
+	"go.sia.tech/hostd/webhooks"
 	"go.uber.org/zap/zaptest"
 )
 

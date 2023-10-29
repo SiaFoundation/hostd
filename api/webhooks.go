@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"go.sia.tech/hostd/host/webhooks"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 )
 

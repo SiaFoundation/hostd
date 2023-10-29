@@ -11,8 +11,8 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/host/webhooks"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 )
 
