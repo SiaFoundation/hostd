@@ -24,21 +24,35 @@ can be configured via environment variables or stdin. Others, like the RHP
 ports, can be configured via CLI flags. To simplify more complex configurations,
 `hostd` also supports the use of a YAML configuration file for all settings.
 
-## Default Ports
-`hostd` uses the following ports:
+### Default Ports
 + `9980` - UI and API
 + `9981` - Sia consensus
 + `9982` - RHP2
 + `9983` - RHP3
 
+#### Testnet
+The Zen testnet version of `hostd` changes the default ports:
+
++ `9880` - UI and API
++ `9881` - Sia consensus
++ `9882` - RHP2
++ `9883` - RHP3
+
 ### Environment Variables
-`hostd` supports the following environment variables:
 + `HOSTD_API_PASSWORD` - The password for the UI and API
 + `HOSTD_SEED` - The recovery phrase for the wallet
 + `HOSTD_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
   log file will be created in the data directory
 + `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
   `hostd` will check for a config file in the current directory
+
+#### Testnet
+The Zen testnet version of `hostd` changes the environment variables:
+
++ `HOSTD_ZEN_SEED` - The recovery phrase for the wallet
++ `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
++ `HOSTD_ZEN_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
+  log file will be created in the data directory
 
 ### CLI Flags
 ```sh
@@ -115,10 +129,6 @@ hostd within a docker container. The image can also be pulled from `ghcr.io/siaf
 
 ## Mainnet
 
-### Running container
-
-### Production
-
 ```sh
 docker run -d \
   --name hostd \
@@ -130,18 +140,6 @@ docker run -d \
   -e HOSTD_API_PASSWORD=hostsarecool \
     ghcr.io/siafoundation/hostd:latest
 ```
-
-### Testnet
-
-docker run -d \
-  --name hostd-testnet \
-  -p 127.0.0.1:9880:9880 \
-  -p 9881-9883:9881-9883 \
-  -v ./data:/data \
-  -v ./storage:/storage \
-  -e HOSTD_ZEN_SEED="my wallet seed" \
-  -e HOSTD_ZEN_API_PASSWORD=hostsarecool \
-    ghcr.io/siafoundation/hostd:latest-testnet
 
 ### Docker Compose
 
@@ -165,20 +163,6 @@ services:
 ## Testnet
 
 Suffix any tag with `-testnet` to use the testnet image.
-
-The Zen testnet version of `hostd` changes the environment variables and default
-ports:
-+ `HOSTD_ZEN_SEED` - The recovery phrase for the wallet
-+ `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
-+ `HOSTD_ZEN_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
-  log file will be created in the data directory
-
-+ `9880` - UI and API
-+ `9881` - Sia consensus
-+ `9882` - RHP2
-+ `9883` - RHP3
-
-### Running container
 
 ```sh
 docker run -d \
@@ -213,7 +197,7 @@ services:
 
 ## Building image
 
-### Production
+### Mainnet
 
 ```sh
 docker build -t hostd:latest -f ./docker/Dockerfile .
