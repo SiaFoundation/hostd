@@ -15,7 +15,7 @@ func migrateVersion21(tx txn) (err error) {
 CREATE TABLE webhooks (
 id INTEGER PRIMARY KEY,
 scope TEXT NOT NULL,
-hook_url TEXT NOT NULL
+hook_url TEXT UNIQUE NOT NULL
 );`
 
 	if _, err = tx.Exec(query); err != nil {

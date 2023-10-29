@@ -59,6 +59,20 @@ func TestWebhooks(t *testing.T) {
 		t.Fatal("unexpected webhook", whs[0])
 	}
 
+	// Add a webhook with the same hook url, but different scope. Should update scope.
+	wh1.Scope = []string{"info"}
+	if err := db.AddWebhook(wh1); err != nil {
+		t.Fatal(err)
+	}
+	whs, err = db.Webhooks()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(whs) != 1 {
+		t.Fatal("expected 1 webhook")
+	} else if !reflect.DeepEqual(whs[0], wh1) {
+		t.Fatal("unexpected webhook", whs[0])
+	}
+
 	// Add another.
 	if err := db.AddWebhook(wh2); err != nil {
 		t.Fatal(err)

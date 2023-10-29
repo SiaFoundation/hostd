@@ -214,5 +214,5 @@ INSERT INTO global_settings (id, db_version) VALUES (0, 0); -- should not be cha
 CREATE TABLE webhooks (
 	id INTEGER PRIMARY KEY,
 	scope TEXT NOT NULL,
-	hook_url TEXT NOT NULL
+	hook_url TEXT UNIQUE NOT NULL
 );

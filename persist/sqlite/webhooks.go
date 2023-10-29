@@ -24,7 +24,7 @@ func (s *Store) DeleteWebhook(wb webhooks.Webhook) error {
 }
 
 func (s *Store) Webhooks() (whs []webhooks.Webhook, err error) {
-	rows, err := s.db.Query(`SELECT * FROM webhooks;`)
+	rows, err := s.db.Query(`SELECT id, scope, hook_url FROM webhooks;`)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query webhooks: %w", err)
@@ -49,7 +49,7 @@ func (s *Store) Webhooks() (whs []webhooks.Webhook, err error) {
 
 func (s *Store) GetWebhook(id int) (wh webhooks.Webhook, err error) {
 	var tempScope string
-	err = s.db.QueryRow(`SELECT * FROM webhooks WHERE id = ?;`, id).Scan(&id, &tempScope, &wh.URL)
+	err = s.db.QueryRow(`SELECT id, scope, hook_url FROM webhooks WHERE id = ?;`, id).Scan(&id, &tempScope, &wh.URL)
 	wh.Scope = strings.Split(tempScope, ",")
 
 	if err != nil {
@@ -60,15 +60,7 @@ func (s *Store) GetWebhook(id int) (wh webhooks.Webhook, err error) {
 }
 
 func (s *Store) AddWebhook(wb webhooks.Webhook) (err error) {
-	var count int
-
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM webhooks WHERE scope = ? AND hook_url = ?;`, strings.Join(wb.Scope, ","), wb.URL).Scan(&count)
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		const query = `INSERT INTO webhooks (scope, hook_url) VALUES (?,?);`
-		_, err = s.exec(query, strings.Join(wb.Scope, ","), wb.URL)
-	}
+	const query = `INSERT INTO webhooks (scope, hook_url) VALUES (?,?) ON CONFLICT (hook_url) DO UPDATE SET scope=excluded.scope;`
+	_, err = s.exec(query, strings.Join(wb.Scope, ","), wb.URL)
 	return err
 }
