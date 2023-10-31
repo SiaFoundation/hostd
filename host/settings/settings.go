@@ -12,7 +12,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/alerts"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/siad/modules"

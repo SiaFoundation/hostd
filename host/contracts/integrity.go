@@ -10,7 +10,7 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/alerts"
+	"go.sia.tech/hostd/alerts"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

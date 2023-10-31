@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/alerts"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"

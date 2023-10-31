@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/alerts"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
@@ -50,13 +50,13 @@ func TestAutoAnnounce(t *testing.T) {
 	if err := node.MineBlocks(node.Address(), 1); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(time.Second)
 
 	// confirm the announcement
-	if err := node.MineBlocks(node.Address(), 2); err != nil {
+	if err := node.MineBlocks(node.Address(), 5); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(time.Second)
 
 	lastAnnouncement, err := manager.LastAnnouncement()
 	if err != nil {
@@ -72,7 +72,7 @@ func TestAutoAnnounce(t *testing.T) {
 	if err := node.MineBlocks(node.Address(), 10); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(time.Second)
 
 	lastAnnouncement, err = manager.LastAnnouncement()
 	if err != nil {

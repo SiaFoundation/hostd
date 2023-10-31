@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/alerts"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap"
