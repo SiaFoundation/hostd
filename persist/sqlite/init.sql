@@ -200,11 +200,17 @@ CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
 	host_key BLOB,
+	last_announce_key BLOB, -- public key of the last host announcement
 	wallet_hash BLOB, -- used to prevent wallet seed changes
 	wallet_last_processed_change BLOB, -- last processed consensus change for the wallet
 	contracts_last_processed_change BLOB, -- last processed consensus change for the contract manager
+	settings_last_processed_change BLOG, -- last processed consensus change for the settings manager
+	last_announce_id BLOB, -- chain index of the last host announcement
+	last_announce_height INTEGER, -- height of the last host announcement
 	wallet_height INTEGER, -- height of the wallet as of the last processed change
-	contracts_height INTEGER -- height of the contract manager as of the last processed change
+	contracts_height INTEGER, -- height of the contract manager as of the last processed change
+	settings_height INTEGER, -- height of the settings manager as of the last processed change
+	last_announce_address TEXT -- address of the last host announcement
 );
 
 -- initialize the global settings table

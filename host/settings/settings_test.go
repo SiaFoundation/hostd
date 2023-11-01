@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
@@ -29,7 +30,8 @@ func TestSettings(t *testing.T) {
 	}
 	defer db.Close()
 
-	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, log.Named("settings"))
+	a := alerts.NewManager()
+	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, a, log.Named("settings"))
 	if err != nil {
 		t.Fatal(err)
 	}

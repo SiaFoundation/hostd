@@ -10,6 +10,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
@@ -118,6 +119,55 @@ func (s *Store) HostKey() (pk types.PrivateKey) {
 		s.log.Panic("failed to get host key", zap.Error(err), zap.Stack("stacktrace"))
 	} else if n := len(pk); n != ed25519.PrivateKeySize {
 		s.log.Panic("host key has incorrect length", zap.Int("expected", ed25519.PrivateKeySize), zap.Int("actual", n))
+	}
+	return
+}
+
+// LastAnnouncement returns the last announcement.
+func (s *Store) LastAnnouncement() (ann settings.Announcement, err error) {
+	var height sql.NullInt64
+	var address sql.NullString
+	err = s.queryRow(`SELECT last_announce_id, last_announce_height, last_announce_address, last_announce_key FROM global_settings`).
+		Scan(nullable((*sqlHash256)(&ann.Index.ID)), &height, &address, nullable((*sqlHash256)(&ann.PublicKey)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return settings.Announcement{}, nil
+	}
+
+	if height.Valid {
+		ann.Index.Height = uint64(height.Int64)
+	}
+	if address.Valid {
+		ann.Address = address.String
+	}
+	return
+}
+
+// UpdateLastAnnouncement updates the last announcement.
+func (s *Store) UpdateLastAnnouncement(ann settings.Announcement) error {
+	const query = `UPDATE global_settings SET 
+last_announce_id=$1, last_announce_height=$2, last_announce_address=$3, last_announce_key=$4;`
+	_, err := s.exec(query, sqlHash256(ann.Index.ID), ann.Index.Height, ann.Address, sqlHash256(ann.PublicKey))
+	return err
+}
+
+// RevertLastAnnouncement reverts the last announcement.
+func (s *Store) RevertLastAnnouncement() error {
+	const query = `UPDATE global_settings SET
+last_announce_id=NULL, last_announce_height=NULL, last_announce_address=NULL, last_announce_key=NULL;`
+	_, err := s.exec(query)
+	return err
+}
+
+// LastSettingsConsensusChange returns the last processed consensus change ID of
+// the settings manager
+func (s *Store) LastSettingsConsensusChange() (cc modules.ConsensusChangeID, height uint64, err error) {
+	var nullHeight sql.NullInt64
+	n := nullable((*sqlHash256)(&cc))
+	err = s.queryRow(`SELECT settings_last_processed_change, settings_height FROM global_settings WHERE id=0;`).Scan(n, &nullHeight)
+	if errors.Is(err, sql.ErrNoRows) || !n.Valid {
+		return modules.ConsensusChangeRecent, 0, nil // as a special case don't scan the chain for new announcements
+	} else if nullHeight.Valid {
+		height = uint64(nullHeight.Int64)
 	}
 	return
 }

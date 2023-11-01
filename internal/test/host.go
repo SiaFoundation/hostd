@@ -11,8 +11,8 @@ import (
 	crhp2 "go.sia.tech/core/rhp/v2"
 	crhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/accounts"
-	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
@@ -198,7 +198,7 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
 	}
 
-	settings, err := settings.NewConfigManager(dir, privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, log.Named("settings"))
+	settings, err := settings.NewConfigManager(dir, privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, am, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}

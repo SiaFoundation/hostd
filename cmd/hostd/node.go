@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/accounts"
-	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/registry"
@@ -162,13 +162,14 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	sr, err := settings.NewConfigManager(cfg.Directory, hostKey, discoveredAddr, db, cm, tp, w, logger.Named("settings"))
+	am := alerts.NewManager()
+	sr, err := settings.NewConfigManager(cfg.Directory, hostKey, discoveredAddr, db, cm, tp, w, am, logger.Named("settings"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
 	accountManager := accounts.NewManager(db, sr)
-	am := alerts.NewManager()
+
 	sm, err := storage.NewVolumeManager(db, am, cm, logger.Named("volumes"), sr.Settings().SectorCacheSize)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create storage manager: %w", err)

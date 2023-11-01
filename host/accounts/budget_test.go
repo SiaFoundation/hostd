@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/accounts"
-	"go.sia.tech/hostd/host/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/chain"
