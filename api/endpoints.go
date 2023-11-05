@@ -284,7 +284,7 @@ func (a *api) handleGETContract(c jape.Context) {
 }
 
 func (a *api) handleGETVolume(c jape.Context) {
-	var id int
+	var id int64
 	if err := c.DecodeParam("id", &id); err != nil {
 		return
 	} else if id < 0 {
@@ -292,7 +292,7 @@ func (a *api) handleGETVolume(c jape.Context) {
 		return
 	}
 
-	volume, err := a.volumes.Volume(int64(id))
+	volume, err := a.volumes.Volume(id)
 	if errors.Is(err, storage.ErrVolumeNotFound) {
 		c.Error(err, http.StatusNotFound)
 		return
@@ -303,7 +303,7 @@ func (a *api) handleGETVolume(c jape.Context) {
 }
 
 func (a *api) handlePUTVolume(c jape.Context) {
-	var id int
+	var id int64
 	if err := c.DecodeParam("id", &id); err != nil {
 		return
 	} else if id < 0 {
@@ -316,7 +316,7 @@ func (a *api) handlePUTVolume(c jape.Context) {
 		return
 	}
 
-	err := a.volumes.SetReadOnly(int64(id), req.ReadOnly)
+	err := a.volumes.SetReadOnly(id, req.ReadOnly)
 	if errors.Is(err, storage.ErrVolumeNotFound) {
 		c.Error(err, http.StatusNotFound)
 		return

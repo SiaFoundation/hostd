@@ -153,7 +153,7 @@ func (a *api) handlePOSTVolume(c jape.Context) {
 }
 
 func (a *api) handleDeleteVolume(c jape.Context) {
-	var id int
+	var id int64
 	var force bool
 	if err := c.DecodeParam("id", &id); err != nil {
 		return
@@ -163,12 +163,12 @@ func (a *api) handleDeleteVolume(c jape.Context) {
 	} else if err := c.DecodeForm("force", &force); err != nil {
 		return
 	}
-	err := a.volumeJobs.RemoveVolume(int64(id), force)
+	err := a.volumeJobs.RemoveVolume(id, force)
 	a.checkServerError(c, "failed to remove volume", err)
 }
 
 func (a *api) handlePUTVolumeResize(c jape.Context) {
-	var id int
+	var id int64
 	if err := c.DecodeParam("id", &id); err != nil {
 		return
 	} else if id < 0 {
@@ -181,12 +181,12 @@ func (a *api) handlePUTVolumeResize(c jape.Context) {
 		return
 	}
 
-	err := a.volumeJobs.ResizeVolume(int64(id), req.MaxSectors)
+	err := a.volumeJobs.ResizeVolume(id, req.MaxSectors)
 	a.checkServerError(c, "failed to resize volume", err)
 }
 
 func (a *api) handleDELETEVolumeCancelOp(c jape.Context) {
-	var id int
+	var id int64
 	if err := c.DecodeParam("id", &id); err != nil {
 		return
 	} else if id < 0 {
@@ -194,6 +194,6 @@ func (a *api) handleDELETEVolumeCancelOp(c jape.Context) {
 		return
 	}
 
-	err := a.volumeJobs.Cancel(int64(id))
+	err := a.volumeJobs.Cancel(id)
 	a.checkServerError(c, "failed to cancel operation", err)
 }
