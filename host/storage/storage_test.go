@@ -661,6 +661,118 @@ func TestVolumeDistribution(t *testing.T) {
 	}
 }
 
+func TestVolumeInitConcurrency(t *testing.T) {
+	const (
+		sectors      = 256
+		writeSectors = 10
+	)
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	default:
+	}
+	cm, err := chain.NewManager(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cm.Close()
+	defer cm.Close()
+
+	// initialize the storage manager
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	result := make(chan error, 1)
+	volume, err := vm.AddVolume(context.Background(), volumeFilePath, sectors, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for {
+		// reload the volume, since the initialization progress will have changed
+		v, err := vm.Volume(volume.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		volume = v.Volume
+		// wait for enough sectors to be initialized
+		if volume.TotalSectors >= writeSectors {
+			break
+		}
+	}
+
+	// add a few sectors while the volume is initializing
+	roots := make([]types.Hash256, writeSectors)
+	for i := range roots {
+		var sector [rhp2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		root := rhp2.SectorRoot(&sector)
+		release, err := vm.Write(root, &sector)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		defer release()
+		roots[i] = root
+	}
+
+	// read the sectors back
+	for _, root := range roots {
+		sector, err := vm.Read(root)
+		if err != nil {
+			t.Fatal(err)
+		} else if rhp2.SectorRoot(sector) != root {
+			t.Fatal("sector was corrupted")
+		}
+	}
+
+	// wait for the volume to finish initializing
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	// reload the volume, since initialization should be complete
+	v, err := vm.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume = v.Volume
+
+	// check the volume
+	if err := checkFileSize(volumeFilePath, int64(sectors*rhp2.SectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != sectors {
+		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
+	} else if volume.UsedSectors != writeSectors {
+		t.Fatalf("expected %v used sectors, got %v", writeSectors, volume.UsedSectors)
+	}
+}
+
 func TestVolumeGrow(t *testing.T) {
 	const initialSectors = 20
 	dir := t.TempDir()

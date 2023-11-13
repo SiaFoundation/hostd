@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
-	"math/rand"
 	"os"
 	"sync"
 
@@ -25,16 +23,15 @@ type (
 		Close() error
 	}
 
-	// A volume stores and retrieves sector data
+	// A volume stores and retrieves sector data from a local file
 	volume struct {
-		// data is a flatfile that stores the volume's sector data
-		data volumeData
+		// when reading or writing to the volume, a read lock should be held.
+		// When resizing or updating the volume's state, a write lock should be
+		// held.
+		mu sync.RWMutex
 
-		mu    sync.Mutex // protects the fields below
+		data  volumeData // data is a flatfile that stores the volume's sector data
 		stats VolumeStats
-		// busy must be set to true when the volume is being resized to prevent
-		// conflicting operations.
-		busy bool
 	}
 
 	// VolumeStats contains statistics about a volume
@@ -67,6 +64,28 @@ type (
 // ErrVolumeNotAvailable is returned when a volume is not available
 var ErrVolumeNotAvailable = errors.New("volume not available")
 
+func (v *volume) incrementReadStats(err error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err != nil {
+		v.stats.FailedReads++
+		v.appendError(err)
+	} else {
+		v.stats.SuccessfulReads++
+	}
+}
+
+func (v *volume) incrementWriteStats(err error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err != nil {
+		v.stats.FailedWrites++
+		v.appendError(err)
+	} else {
+		v.stats.SuccessfulWrites++
+	}
+}
+
 func (v *volume) appendError(err error) {
 	v.stats.Errors = append(v.stats.Errors, err)
 	if len(v.stats.Errors) > 100 {
@@ -89,21 +108,35 @@ func (v *volume) OpenVolume(localPath string, reload bool) error {
 	return nil
 }
 
+// SetStatus sets the status of the volume
+func (v *volume) SetStatus(status string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.stats.Status = status
+}
+
+func (v *volume) Status() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.stats.Status
+}
+
 // ReadSector reads the sector at index from the volume
 func (v *volume) ReadSector(index uint64) (*[rhp2.SectorSize]byte, error) {
 	if v.data == nil {
 		return nil, ErrVolumeNotAvailable
 	}
+
 	var sector [rhp2.SectorSize]byte
+
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 	_, err := v.data.ReadAt(sector[:], int64(index*rhp2.SectorSize))
-	v.mu.Lock()
+
 	if err != nil {
-		v.stats.FailedReads++
-		v.appendError(fmt.Errorf("failed to read sector at index %v: %w", index, err))
-	} else {
-		v.stats.SuccessfulReads++
+		err = fmt.Errorf("failed to read sector at index %v: %w", index, err)
 	}
-	v.mu.Unlock()
+	go v.incrementReadStats(err)
 	return &sector, err
 }
 
@@ -112,23 +145,15 @@ func (v *volume) WriteSector(data *[rhp2.SectorSize]byte, index uint64) error {
 	if v.data == nil {
 		panic("volume not open") // developer error
 	}
-	_, err := v.data.WriteAt(data[:], int64(index*rhp2.SectorSize))
-	v.mu.Lock()
-	if err != nil {
-		v.stats.FailedWrites++
-		v.appendError(fmt.Errorf("failed to write sector to index %v: %w", index, err))
-	} else {
-		v.stats.SuccessfulWrites++
-	}
-	v.mu.Unlock()
-	return err
-}
 
-// SetStatus sets the status message of the volume
-func (v *volume) SetStatus(status string) {
-	v.mu.Lock()
-	v.stats.Status = status
-	v.mu.Unlock()
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	_, err := v.data.WriteAt(data[:], int64(index*rhp2.SectorSize))
+	if err != nil {
+		err = fmt.Errorf("failed to write sector to index %v: %w", index, err)
+	}
+	go v.incrementWriteStats(err)
+	return err
 }
 
 // Sync syncs the volume
@@ -147,28 +172,37 @@ func (v *volume) Sync() error {
 }
 
 func (v *volume) Resize(oldSectors, newSectors uint64) error {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
 	if v.data == nil {
 		return ErrVolumeNotAvailable
 	}
 
 	if newSectors > oldSectors {
-		buf := make([]byte, rhp2.SectorSize)
-		r := rand.New(rand.NewSource(int64(frand.Uint64n(math.MaxInt64))))
-		for i := oldSectors; i < newSectors; i++ {
-			r.Read(buf)
-			if _, err := v.data.WriteAt(buf, int64(i*rhp2.SectorSize)); err != nil {
-				return fmt.Errorf("failed to write sector to index %v: %w", i, err)
-			}
+		size := (newSectors - oldSectors) * rhp2.SectorSize // should never be more than 256 MiB
+		buf := make([]byte, size)
+		_, _ = frand.Read(buf) // frand will never return an error
+
+		v.mu.Lock()
+		defer v.mu.Unlock()
+
+		// write the data to the end of the file
+		if _, err := v.data.WriteAt(buf, int64(oldSectors*rhp2.SectorSize)); err != nil {
+			return err
 		}
 	} else {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+
 		if err := v.data.Truncate(int64(newSectors * rhp2.SectorSize)); err != nil {
-			return fmt.Errorf("failed to truncate volume: %w", err)
+			return err
 		}
 	}
 	return nil
+}
+
+func (v *volume) Stats() VolumeStats {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.stats
 }
 
 // Close closes the volume
