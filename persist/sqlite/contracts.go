@@ -54,7 +54,7 @@ func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 		return fmt.Errorf("failed to confirm formation: %w", err)
 	}
 
-	// check if the contract is currently "rejected"
+	// get the contract's status
 	contract, err := getContract(u.tx, dbID)
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
@@ -87,8 +87,6 @@ func (u *updateContractsTxn) ConfirmRevision(revision types.FileContractRevision
 	err := u.tx.QueryRow(query, sqlUint64(revision.RevisionNumber), sqlHash256(revision.ParentID)).Scan(&dbID)
 	if err != nil {
 		return fmt.Errorf("failed to confirm revision: %w", err)
-	} else if err := setContractStatus(u.tx, revision.ParentID, contracts.ContractStatusActive); err != nil {
-		return fmt.Errorf("failed to set contract status to active: %w", err)
 	}
 	return nil
 }
