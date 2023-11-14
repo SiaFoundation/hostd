@@ -50,7 +50,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 		for _, fn := range migrations[current-1:] {
 			current++
 			start := time.Now()
-			if err := fn(tx); err != nil {
+			if err := fn(tx, log.With(zap.Int64("version", current))); err != nil {
 				return fmt.Errorf("failed to migrate database to version %v: %w", current, err)
 			}
 			// check that no foreign key constraints were violated
