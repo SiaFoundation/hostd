@@ -661,7 +661,7 @@ func TestVolumeDistribution(t *testing.T) {
 	}
 }
 
-func TestVolumeInitConcurrency(t *testing.T) {
+func TestVolumeConcurrency(t *testing.T) {
 	const (
 		sectors      = 256
 		writeSectors = 10
@@ -770,6 +770,45 @@ func TestVolumeInitConcurrency(t *testing.T) {
 		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
 	} else if volume.UsedSectors != writeSectors {
 		t.Fatalf("expected %v used sectors, got %v", writeSectors, volume.UsedSectors)
+	}
+
+	// shrink the volume so it is nearly
+	if err := vm.ResizeVolume(context.Background(), volume.ID, writeSectors+1, result); err != nil {
+		t.Fatal(err)
+	}
+
+	// try to write a sector to the volume, which should fail
+	var sector [rhp2.SectorSize]byte
+	_, _ = frand.Read(sector[:256])
+	root := rhp2.SectorRoot(&sector)
+	if _, err := vm.Write(root, &sector); !errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatalf("expected %v, got %v", storage.ErrNotEnoughStorage, err)
+	}
+
+	// wait for the volume to finish shrinking
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	// reload the volume, since shrinking should be complete
+	v, err = vm.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume = v.Volume
+
+	// check the volume
+	if err := checkFileSize(volumeFilePath, int64((writeSectors+1)*rhp2.SectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != writeSectors+1 {
+		t.Fatalf("expected %v total sectors, got %v", writeSectors+1, volume.TotalSectors)
+	} else if volume.UsedSectors != writeSectors {
+		t.Fatalf("expected %v used sectors, got %v", writeSectors, volume.UsedSectors)
+	}
+
+	// write the sector again, which should succeed
+	if _, err := vm.Write(root, &sector); err != nil {
+		t.Fatal(err)
 	}
 }
 
