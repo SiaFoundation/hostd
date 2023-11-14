@@ -9,29 +9,65 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
-// migrateVersion22 recalculates the locked and risked collateral metrics
+// migrateVersion22 recalculates the locked and risked collateral and the
+// potential and earned revenue metrics which will be bugged if the host rescans
+// the blockchain.
 func migrateVersion22(tx txn) error {
-	rows, err := tx.Query(`SELECT locked_collateral, risked_collateral FROM contracts WHERE contract_status IN (?, ?);`, contracts.ContractStatusPending, contracts.ContractStatusActive)
+	rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write FROM contracts WHERE contract_status IN (?, ?, ?);`, contracts.ContractStatusPending, contracts.ContractStatusActive, contracts.ContractStatusSuccessful)
 	if err != nil {
 		return fmt.Errorf("failed to query contracts: %w", err)
 	}
 	defer rows.Close()
 
-	var totalLocked, totalRisked types.Currency
+	var totalLocked types.Currency
+	var totalPending, totalEarned contracts.Usage
 	for rows.Next() {
-		var locked, risked types.Currency
-		if err := rows.Scan((*sqlCurrency)(&locked), (*sqlCurrency)(&risked)); err != nil {
+		var status contracts.ContractStatus
+		var lockedCollateral types.Currency
+		var usage contracts.Usage
+
+		if err := rows.Scan(&status, (*sqlCurrency)(&lockedCollateral), (*sqlCurrency)(&usage.RiskedCollateral), (*sqlCurrency)(&usage.RPCRevenue), (*sqlCurrency)(&usage.StorageRevenue), (*sqlCurrency)(&usage.IngressRevenue), (*sqlCurrency)(&usage.EgressRevenue), (*sqlCurrency)(&usage.AccountFunding), (*sqlCurrency)(&usage.RegistryRead), (*sqlCurrency)(&usage.RegistryWrite)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 
-		totalLocked = totalLocked.Add(locked)
-		totalRisked = totalRisked.Add(risked)
+		switch status {
+		case contracts.ContractStatusPending, contracts.ContractStatusActive:
+			totalLocked = totalLocked.Add(lockedCollateral)
+			totalPending = totalPending.Add(usage)
+		case contracts.ContractStatusSuccessful:
+			totalEarned = totalEarned.Add(usage)
+		}
+
 	}
 
 	if err := setCurrencyStat(tx, metricLockedCollateral, totalLocked, time.Now()); err != nil {
 		return fmt.Errorf("failed to increment locked collateral: %w", err)
-	} else if err := setCurrencyStat(tx, metricRiskedCollateral, totalRisked, time.Now()); err != nil {
+	} else if err := setCurrencyStat(tx, metricRiskedCollateral, totalPending.RiskedCollateral, time.Now()); err != nil {
 		return fmt.Errorf("failed to increment risked collateral: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialRPCRevenue, totalPending.RPCRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment rpc revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialStorageRevenue, totalPending.StorageRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment storage revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialIngressRevenue, totalPending.IngressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment ingress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialEgressRevenue, totalPending.EgressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment egress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialRegistryReadRevenue, totalPending.RegistryRead, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment read registry revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialRegistryWriteRevenue, totalPending.RegistryWrite, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment write registry revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedRPCRevenue, totalEarned.RPCRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment rpc revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedStorageRevenue, totalEarned.StorageRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment storage revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedIngressRevenue, totalEarned.IngressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment ingress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedEgressRevenue, totalEarned.EgressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment egress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedRegistryReadRevenue, totalEarned.RegistryRead, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment read registry revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedRegistryWriteRevenue, totalEarned.RegistryWrite, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment write registry revenue: %w", err)
 	}
 	return nil
 }
