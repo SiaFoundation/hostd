@@ -58,21 +58,23 @@ func (u *updateContractsTxn) ConfirmFormation(id types.FileContractID) error {
 	contract, err := getContract(u.tx, dbID)
 	if err != nil {
 		return fmt.Errorf("failed to get contract: %w", err)
-	} else if contract.Status == contracts.ContractStatusRejected {
-		// rejected contracts have already had their collateral and revenue
-		// removed, need to re-add it if the contract is now confirmed
+	}
+
+	// only update the status if the contract is pending or rejected
+	if contract.Status != contracts.ContractStatusPending && contract.Status != contracts.ContractStatusRejected {
+		return nil
+	}
+
+	if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
+		return fmt.Errorf("failed to set contract status to active: %w", err)
+	}
+	// rejected contracts have already had their collateral and revenue removed,
+	// need to re-add it if the contract is now confirmed
+	if contract.Status == contracts.ContractStatusRejected {
 		if err := incrementCurrencyStat(u.tx, metricLockedCollateral, contract.LockedCollateral, false, time.Now()); err != nil {
 			return fmt.Errorf("failed to increment locked collateral stat: %w", err)
 		} else if err := incrementCurrencyStat(u.tx, metricRiskedCollateral, contract.Usage.RiskedCollateral, false, time.Now()); err != nil {
 			return fmt.Errorf("failed to increment risked collateral stat: %w", err)
-		}
-	}
-
-	// skip updating the status for contracts that are already marked as
-	// successful or failed
-	if contract.Status != contracts.ContractStatusSuccessful && contract.Status != contracts.ContractStatusFailed {
-		if err := setContractStatus(u.tx, id, contracts.ContractStatusActive); err != nil {
-			return fmt.Errorf("failed to set contract status to active: %w", err)
 		}
 	}
 	return nil
@@ -434,8 +436,6 @@ func (s *Store) ExpireContract(id types.FileContractID, status contracts.Contrac
 			return nil
 		}
 
-		// successful, failed, and rejected contracts should have already had their
-		// collateral removed from the metrics
 		if contract.Status == contracts.ContractStatusActive || contract.Status == contracts.ContractStatusPending {
 			// successful, failed and rejected contracts should have already had
 			// their collateral removed from the metrics
