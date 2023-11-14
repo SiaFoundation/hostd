@@ -9,6 +9,33 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 )
 
+// migrateVersion22 recalculates the locked and risked collateral metrics
+func migrateVersion22(tx txn) error {
+	rows, err := tx.Query(`SELECT locked_collateral, risked_collateral FROM contracts WHERE contract_status IN (?, ?);`, contracts.ContractStatusPending, contracts.ContractStatusActive)
+	if err != nil {
+		return fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var totalLocked, totalRisked types.Currency
+	for rows.Next() {
+		var locked, risked types.Currency
+		if err := rows.Scan((*sqlCurrency)(&locked), (*sqlCurrency)(&risked)); err != nil {
+			return fmt.Errorf("failed to scan contract: %w", err)
+		}
+
+		totalLocked = totalLocked.Add(locked)
+		totalRisked = totalRisked.Add(risked)
+	}
+
+	if err := setCurrencyStat(tx, metricLockedCollateral, totalLocked, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment locked collateral: %w", err)
+	} else if err := setCurrencyStat(tx, metricRiskedCollateral, totalRisked, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment risked collateral: %w", err)
+	}
+	return nil
+}
+
 func migrateVersion21(tx txn) error {
 	const query = `
 ALTER TABLE global_settings ADD COLUMN last_announce_key BLOB;
@@ -526,4 +553,5 @@ var migrations = []func(tx txn) error{
 	migrateVersion19,
 	migrateVersion20,
 	migrateVersion21,
+	migrateVersion22,
 }
