@@ -171,8 +171,9 @@ func (vm *VolumeManager) loadVolumes() error {
 			// mark the volume as available
 			if err := vm.vs.SetAvailable(vol.ID, true); err != nil {
 				return fmt.Errorf("failed to mark volume '%v' as available: %w", vol.LocalPath, err)
+			} else if err := v.SetStatus(VolumeStatusReady); err != nil {
+				return fmt.Errorf("failed to set volume status: %w", err)
 			}
-			v.SetStatus(VolumeStatusReady)
 			vm.log.Debug("loaded volume", zap.Int64("id", vol.ID), zap.String("path", vol.LocalPath))
 			return nil
 		}()
@@ -655,10 +656,9 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 	vol, err := vm.getVolume(id)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
-	} else if vol.Status() != VolumeStatusReady {
-		return fmt.Errorf("volume %v is busy", id)
+	} else if err := vol.SetStatus(VolumeStatusRemoving); err != nil {
+		return fmt.Errorf("failed to set volume status: %w", err)
 	}
-	vol.SetStatus(VolumeStatusRemoving)
 
 	stat, err := vm.vs.Volume(id)
 	if err != nil {
@@ -672,7 +672,7 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 
 	go func() {
 		start := time.Now()
-		defer vol.SetStatus(VolumeStatusUnavailable)
+		defer vol.SetStatus(VolumeStatusReady)
 
 		migrated, err := vm.migrateForRemoval(ctx, id, stat.LocalPath, force, log)
 		if err != nil {
@@ -721,10 +721,9 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 	}
 
 	// check that the volume is not already being resized
-	if vol.Status() != VolumeStatusReady {
-		return fmt.Errorf("volume %v is busy", id)
+	if err := vol.SetStatus(VolumeStatusResizing); err != nil {
+		return fmt.Errorf("failed to set volume status: %w", err)
 	}
-	vol.SetStatus(VolumeStatusResizing)
 
 	stat, err := vm.vs.Volume(id)
 	if err != nil {

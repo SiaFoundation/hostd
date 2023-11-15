@@ -772,15 +772,17 @@ func TestVolumeConcurrency(t *testing.T) {
 		t.Fatalf("expected %v used sectors, got %v", writeSectors, volume.UsedSectors)
 	}
 
-	// shrink the volume so it is nearly
+	// generate a random sector
+	var sector [rhp2.SectorSize]byte
+	_, _ = frand.Read(sector[:256])
+	root := rhp2.SectorRoot(&sector)
+
+	// shrink the volume so it is nearly full
 	if err := vm.ResizeVolume(context.Background(), volume.ID, writeSectors+1, result); err != nil {
 		t.Fatal(err)
 	}
 
 	// try to write a sector to the volume, which should fail
-	var sector [rhp2.SectorSize]byte
-	_, _ = frand.Read(sector[:256])
-	root := rhp2.SectorRoot(&sector)
 	if _, err := vm.Write(root, &sector); !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected %v, got %v", storage.ErrNotEnoughStorage, err)
 	}

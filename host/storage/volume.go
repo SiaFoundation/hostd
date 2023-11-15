@@ -108,11 +108,33 @@ func (v *volume) OpenVolume(localPath string, reload bool) error {
 	return nil
 }
 
-// SetStatus sets the status of the volume
-func (v *volume) SetStatus(status string) {
+// SetStatus sets the status of the volume. If the new status is resizing, the
+// volume must be ready. If the new status is removing, the volume must be ready
+// or unavailable.
+func (v *volume) SetStatus(status string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+
+	if v.stats.Status == status {
+		return nil
+	}
+
+	switch status {
+	case VolumeStatusRemoving:
+		if v.stats.Status != VolumeStatusReady && v.stats.Status != VolumeStatusUnavailable {
+			return fmt.Errorf("volume is %v", v.stats.Status)
+		}
+	case VolumeStatusResizing:
+		if v.stats.Status != VolumeStatusReady {
+			return fmt.Errorf("volume is %v", v.stats.Status)
+		}
+	case VolumeStatusReady, VolumeStatusUnavailable:
+		break
+	default:
+		panic("cannot set status to " + status) // developer error
+	}
 	v.stats.Status = status
+	return nil
 }
 
 func (v *volume) Status() string {
