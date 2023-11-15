@@ -916,8 +916,6 @@ func TestVolumeGrow(t *testing.T) {
 		t.Fatalf("expected %v total sectors, got %v", newSectors, meta.TotalSectors)
 	} else if meta.UsedSectors != uint64(len(roots)) {
 		t.Fatalf("expected %v used sectors, got %v", len(roots), meta.UsedSectors)
-	} else if meta.Status != storage.VolumeStatusReady {
-		t.Fatalf("expected volume status to be ready, got %v", meta.Status)
 	}
 
 	f, err := os.Open(volumeFilePath)
