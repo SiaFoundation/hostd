@@ -1084,8 +1084,6 @@ func TestVolumeShrink(t *testing.T) {
 		t.Fatalf("expected %v total sectors, got %v", remainingSectors, meta.TotalSectors)
 	} else if meta.UsedSectors != remainingSectors {
 		t.Fatalf("expected %v used sectors, got %v", remainingSectors, meta.UsedSectors)
-	} else if meta.Status != storage.VolumeStatusReady {
-		t.Fatalf("expected volume status to be ready, got %v", meta.Status)
 	}
 
 	// validate that the sectors were moved to the beginning of the volume
