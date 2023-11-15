@@ -86,25 +86,17 @@ type (
 	}
 )
 
-// getVolume returns the volume with the given ID, or an error if the volume does
-// not exist or is currently busy.
-func (vm *VolumeManager) getVolume(v int64) (*volume, error) {
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-	vol, ok := vm.volumes[v]
-	if !ok {
-		return nil, fmt.Errorf("volume %v not found", v)
-	}
-	return vol, nil
-}
-
 // writeSector writes a sector to a volume. The location is assumed to be empty
 // and locked.
 func (vm *VolumeManager) writeSector(data *[rhp2.SectorSize]byte, loc SectorLocation, sync bool) error {
-	vol, err := vm.getVolume(loc.Volume)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
-	} else if err := vol.WriteSector(data, loc.Index); err != nil {
+	vm.mu.Lock()
+	vol, ok := vm.volumes[loc.Volume]
+	vm.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("volume %v not found", loc.Volume)
+	}
+
+	if err := vol.WriteSector(data, loc.Index); err != nil {
 		return fmt.Errorf("failed to write sector data: %w", err)
 	}
 
@@ -275,24 +267,6 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 		return errors.New("old sectors must be greater than new sectors")
 	}
 
-	v, err := vm.vs.Volume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
-	}
-
-	// if the volume is not read-only, set it to read-only for the duration of
-	// the shrink operation
-	if !v.ReadOnly {
-		if err := vm.vs.SetReadOnly(id, true); err != nil {
-			return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
-		}
-		defer func() {
-			if err := vm.vs.SetReadOnly(id, false); err != nil {
-				log.Error("failed to set volume to read-write", zap.Error(err))
-			}
-		}()
-	}
-
 	// register the alert
 	a := alerts.Alert{
 		ID:       frand.Entropy256(),
@@ -314,7 +288,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 
 	// migrate any sectors outside of the target range.
 	var migrated int
-	err = vm.vs.MigrateSectors(id, newMaxSectors, func(newLoc SectorLocation) error {
+	err := vm.vs.MigrateSectors(id, newMaxSectors, func(newLoc SectorLocation) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -378,24 +352,6 @@ func (vm *VolumeManager) volumeStats(id int64) VolumeStats {
 		}
 	}
 	return v.Stats()
-}
-
-func (vm *VolumeManager) doResize(ctx context.Context, volumeID int64, vol *volume, current, target uint64) error {
-	ctx, cancel, err := vm.tg.AddContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer cancel()
-
-	switch {
-	case current > target:
-		// volume is shrinking
-		return vm.shrinkVolume(ctx, volumeID, vol, current, target)
-	case current < target:
-		// volume is growing
-		return vm.growVolume(ctx, volumeID, vol, current, target)
-	}
-	return nil
 }
 
 func (vm *VolumeManager) migrateForRemoval(ctx context.Context, id int64, localPath string, force bool, log *zap.Logger) (int, error) {
@@ -631,11 +587,13 @@ func (vm *VolumeManager) SetReadOnly(id int64, readOnly bool) error {
 	defer done()
 
 	// check that the volume is available and not busy
-	vol, err := vm.getVolume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
+	vm.mu.Lock()
+	vol, ok := vm.volumes[id]
+	vm.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("volume %v not found", id)
 	} else if vol.Status() != VolumeStatusReady {
-		return fmt.Errorf("volume %v is busy", id)
+		return fmt.Errorf("volume is %v", vol.Status())
 	}
 
 	if err := vm.vs.SetReadOnly(id, readOnly); err != nil {
@@ -653,9 +611,11 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 	}
 	defer done()
 
-	vol, err := vm.getVolume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
+	vm.mu.Lock()
+	vol, ok := vm.volumes[id]
+	vm.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("volume %v not found", id)
 	} else if err := vol.SetStatus(VolumeStatusRemoving); err != nil {
 		return fmt.Errorf("failed to set volume status: %w", err)
 	}
@@ -715,9 +675,17 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 	}
 	defer done()
 
-	vol, err := vm.getVolume(id)
+	stat, err := vm.vs.Volume(id)
 	if err != nil {
 		return fmt.Errorf("failed to get volume: %w", err)
+	}
+
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
+	vol, ok := vm.volumes[id]
+	if !ok {
+		return fmt.Errorf("volume %v not found", id)
 	}
 
 	// check that the volume is not already being resized
@@ -725,18 +693,50 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 		return fmt.Errorf("failed to set volume status: %w", err)
 	}
 
-	stat, err := vm.vs.Volume(id)
-	if err != nil {
-		return fmt.Errorf("failed to get volume: %w", err)
+	var resetReadOnly bool
+	if stat.TotalSectors > maxSectors && !stat.ReadOnly {
+		// set the volume to read-only to prevent new sectors from being added
+		// while the volume is being shrunk
+		if err := vm.vs.SetReadOnly(id, true); err != nil {
+			return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
+		}
+		resetReadOnly = true
 	}
 
 	go func() {
-		defer vol.SetStatus(VolumeStatusReady)
-
 		log := vm.log.Named("resize").With(zap.Int64("volumeID", id))
+
+		defer func() {
+			if resetReadOnly {
+				// reset the volume to read-write
+				if err := vm.vs.SetReadOnly(id, false); err != nil {
+					vm.log.Error("failed to set volume to read-write", zap.Error(err))
+				}
+			}
+			vol.SetStatus(VolumeStatusReady)
+		}()
+
+		ctx, cancel, err := vm.tg.AddContext(ctx)
+		if err != nil {
+			result <- err
+			return
+		}
+		defer cancel()
+
 		start := time.Now()
 
-		err = vm.doResize(ctx, id, vol, stat.TotalSectors, maxSectors)
+		current := stat.TotalSectors
+		target := maxSectors
+
+		switch {
+		case current > target:
+			// volume is shrinking
+			err = vm.shrinkVolume(ctx, id, vol, stat.TotalSectors, maxSectors)
+		case current < target:
+			// volume is growing
+			err = vm.growVolume(ctx, id, vol, stat.TotalSectors, maxSectors)
+		}
+
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
 			Data: map[string]interface{}{
@@ -746,6 +746,7 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 			},
 			Timestamp: time.Now(),
 		}
+
 		if err != nil {
 			log.Error("failed to resize volume", zap.Error(err))
 			alert.Message = "Volume resize failed"
@@ -784,10 +785,13 @@ func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 		return fmt.Errorf("failed to remove sector %v: %w", root, err)
 	}
 
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
 	// get the volume from memory
-	vol, err := vm.getVolume(loc.Volume)
-	if err != nil {
-		return fmt.Errorf("failed to get volume %v: %w", loc.Volume, err)
+	vol, ok := vm.volumes[loc.Volume]
+	if !ok {
+		return fmt.Errorf("volume %v not found", loc.Volume)
 	}
 
 	// zero the sector and immediately sync the volume
@@ -877,16 +881,18 @@ func (vm *VolumeManager) Sync() error {
 		toSync = append(toSync, id)
 	}
 	vm.mu.Unlock()
+
 	for _, id := range toSync {
-		v, err := vm.getVolume(id)
-		if err != nil {
-			return fmt.Errorf("failed to get volume %v: %w", id, err)
-		} else if err := v.Sync(); err != nil {
+		vm.mu.Lock()
+		vol, ok := vm.volumes[id]
+		vm.mu.Unlock()
+		if !ok {
+			continue
+		}
+		if err := vol.Sync(); err != nil {
 			return fmt.Errorf("failed to sync volume %v: %w", id, err)
 		}
-		vm.mu.Lock()
 		delete(vm.changedVolumes, id)
-		vm.mu.Unlock()
 	}
 	return nil
 }
