@@ -129,7 +129,6 @@ func (v *volume) SetStatus(status string) error {
 			return fmt.Errorf("volume is %v", v.stats.Status)
 		}
 	case VolumeStatusReady, VolumeStatusUnavailable:
-		break
 	default:
 		panic("cannot set status to " + status) // developer error
 	}
