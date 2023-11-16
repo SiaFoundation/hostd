@@ -17,6 +17,11 @@ func (wr webRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/api") // strip the prefix
 		wr.api.ServeHTTP(w, req)
 	case strings.HasPrefix(req.URL.Path, "/debug/pprof"):
+		_, password, ok := req.BasicAuth()
+		if !ok || password != cfg.HTTP.Password {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		http.DefaultServeMux.ServeHTTP(w, req)
 	default:
 		wr.ui.ServeHTTP(w, req)
