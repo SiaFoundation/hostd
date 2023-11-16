@@ -561,7 +561,7 @@ func TestVolumeDistribution(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -849,7 +849,7 @@ func TestVolumeGrow(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -968,7 +968,7 @@ func TestVolumeShrink(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1137,7 +1137,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
