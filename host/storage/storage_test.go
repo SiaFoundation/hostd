@@ -561,7 +561,7 @@ func TestVolumeDistribution(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -778,7 +778,8 @@ func TestVolumeConcurrency(t *testing.T) {
 	root := rhp2.SectorRoot(&sector)
 
 	// shrink the volume so it is nearly full
-	if err := vm.ResizeVolume(context.Background(), volume.ID, writeSectors+1, result); err != nil {
+	const newSectors = writeSectors + 5
+	if err := vm.ResizeVolume(context.Background(), volume.ID, newSectors, result); err != nil {
 		t.Fatal(err)
 	}
 
@@ -800,10 +801,10 @@ func TestVolumeConcurrency(t *testing.T) {
 	volume = v.Volume
 
 	// check the volume
-	if err := checkFileSize(volumeFilePath, int64((writeSectors+1)*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64((newSectors)*rhp2.SectorSize)); err != nil {
 		t.Fatal(err)
-	} else if volume.TotalSectors != writeSectors+1 {
-		t.Fatalf("expected %v total sectors, got %v", writeSectors+1, volume.TotalSectors)
+	} else if volume.TotalSectors != newSectors {
+		t.Fatalf("expected %v total sectors, got %v", newSectors, volume.TotalSectors)
 	} else if volume.UsedSectors != writeSectors {
 		t.Fatalf("expected %v used sectors, got %v", writeSectors, volume.UsedSectors)
 	}
@@ -849,7 +850,7 @@ func TestVolumeGrow(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -968,7 +969,7 @@ func TestVolumeShrink(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1137,7 +1138,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 
 	// initialize the storage manager
 	am := alerts.NewManager()
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
