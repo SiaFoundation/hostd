@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	autoAnnounceInterval = (144 * 180) // reannounce every 180 days
-	announcementDebounce = 18          // blocks
+	announcementDebounce = 18 // blocks
 )
 
 type (
@@ -152,11 +151,6 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		blockHeight++
 	}
 
-	var minAnnounceHeight uint64
-	if cc.BlockHeight > 144*180 {
-		minAnnounceHeight = uint64(cc.BlockHeight) - autoAnnounceInterval
-	}
-
 	// get the current net address
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -169,8 +163,9 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		return
 	}
 
+	nextAnnounceHeight := lastAnnouncement.Index.Height + autoAnnounceInterval
 	// if the address hasn't changed, don't reannounce
-	if currentNetAddress == lastAnnouncement.Address && lastAnnouncement.Index.Height > minAnnounceHeight {
+	if currentNetAddress == lastAnnouncement.Address && cm.scanHeight < nextAnnounceHeight {
 		return
 	}
 
