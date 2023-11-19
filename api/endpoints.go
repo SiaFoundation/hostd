@@ -128,7 +128,7 @@ func (a *api) handleGETSyncerPeersPrometheus(c jape.Context) {
 	p := a.syncer.Peers()
 	resulttext := ""
 	for i, peer := range p {
-		synced_peer := fmt.Sprintf("hostd_syncer_peer{address=\"%s\", version=\"%s\"} 1\n", string(peer.NetAddress), peer.Version)
+		synced_peer := fmt.Sprintf(`hostd_syncer_peer{address="%s", version="%s"} 1`, string(peer.NetAddress), peer.Version)
 		if i != len(p)-1 {
 			synced_peer = synced_peer + "\n"
 		}
@@ -174,7 +174,7 @@ func (a *api) handleGETAlertsPrometheus(c jape.Context) {
 
 	resulttext := ""
 	for i, alert := range alerts {
-		alerttext := fmt.Sprintf(`hostd_alert_{severity="%s", message="%s"} 1`,
+		alerttext := fmt.Sprintf(`hostd_alert{severity="%s", message="%s"} 1`,
 			alert.Severity.String(), alert.Message,
 		)
 		if i != len(alerts)-1 {
@@ -630,12 +630,18 @@ func (a *api) handleGETWalletTransactionsPrometheus(c jape.Context) {
 	resulttext := ""
 	for i, transaction := range transactions {
 		txid := strings.Split(transaction.ID.String(), ":")[1]
+		total, underflow := transaction.Inflow.SubWithUnderflow(transaction.Outflow)
+		bitSetVar := 0
+		if underflow {
+			total, _ = transaction.Outflow.SubWithUnderflow(transaction.Inflow)
+			bitSetVar = 1
+		}
 		txtext := fmt.Sprintf(`hostd_wallet_transaction_inflow{txid="%s"} %s
 hostd_wallet_transaction_outflow{txid="%s"} %s
-hostd_wallet_transaction_total{txid="%s"} %s`,
+hostd_wallet_transaction_total{txid="%s", underflow="%d"} %s`,
 			txid, transaction.Inflow.ExactString(),
 			txid, transaction.Outflow.ExactString(),
-			txid, (transaction.Inflow.Sub(transaction.Outflow)).ExactString(),
+			txid, bitSetVar, total.ExactString(),
 		)
 		if i != len(transactions)-1 {
 			txtext = txtext + "\n"
@@ -667,12 +673,18 @@ func (a *api) handleGETWalletPendingPrometheus(c jape.Context) {
 	resulttext := ""
 	for i, transaction := range pending_transactions {
 		txid := strings.Split(transaction.ID.String(), ":")[1]
+		total, underflow := transaction.Inflow.SubWithUnderflow(transaction.Outflow)
+		bitSetVar := 0
+		if underflow {
+			total, _ = transaction.Outflow.SubWithUnderflow(transaction.Inflow)
+			bitSetVar = 1
+		}
 		txtext := fmt.Sprintf(`hostd_wallet_transaction_pending_inflow{txid="%s"} %s
 hostd_wallet_transaction_pending_outflow{txid="%s"} %s
-hostd_wallet_transaction_pending_total{txid="%s"} %s`,
+hostd_wallet_transaction_pending_total{txid="%s", underflow="%d"} %s`,
 			txid, transaction.Inflow.ExactString(),
 			txid, transaction.Outflow.ExactString(),
-			txid, (transaction.Inflow.Sub(transaction.Outflow)).ExactString(),
+			txid, bitSetVar, total.ExactString(),
 		)
 		if i != len(pending_transactions)-1 {
 			txtext = txtext + "\n"

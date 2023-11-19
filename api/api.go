@@ -203,7 +203,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"DELETE /contracts/:id/integrity": api.handleDeleteContractCheck,
 		// account endpoints
 		"GET /accounts":                  api.handleGETAccounts,
-		"GET /accounts/prometheus":       api.handleGETAccountsPrometheus,
+		"GET /accountsprometheus":        api.handleGETAccountsPrometheus,
 		"GET /accounts/:account/funding": api.handleGETAccountFunding,
 		// sector endpoints
 		"DELETE /sectors/:root": api.handleDeleteSector,
