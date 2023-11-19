@@ -170,24 +170,31 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 	}
 	return jape.Mux(map[string]jape.Handler{
 		// state endpoints
-		"GET /state/host":      api.handleGETHostState,
-		"GET /state/consensus": api.handleGETConsensusState,
+		"GET /state/host":                 api.handleGETHostState,
+		"GET /state/host/prometheus":      api.handleGETHostStatePrometheus,
+		"GET /state/consensus":            api.handleGETConsensusState,
+		"GET /state/consensus/prometheus": api.handleGETConsensusStatePrometheus,
 		// gateway endpoints
-		"GET /syncer/address":           api.handleGETSyncerAddr,
-		"GET /syncer/peers":             api.handleGETSyncerPeers,
-		"PUT /syncer/peers":             api.handlePUTSyncerPeer,
-		"DELETE /syncer/peers/:address": api.handleDeleteSyncerPeer,
+		"GET /syncer/address":            api.handleGETSyncerAddr,
+		"GET /syncer/address/prometheus": api.handleGETSyncerAddrPrometheus,
+		"GET /syncer/peers":              api.handleGETSyncerPeers,
+		"GET /syncer/peers/prometheus":   api.handleGETSyncerPeersPrometheus,
+		"PUT /syncer/peers":              api.handlePUTSyncerPeer,
+		"DELETE /syncer/peers/:address":  api.handleDeleteSyncerPeer,
 		// alerts endpoints
-		"GET /alerts":          api.handleGETAlerts,
-		"POST /alerts/dismiss": api.handlePOSTAlertsDismiss,
+		"GET /alerts":            api.handleGETAlerts,
+		"GET /alerts/prometheus": api.handleGETAlertsPrometheus,
+		"POST /alerts/dismiss":   api.handlePOSTAlertsDismiss,
 		// settings endpoints
 		"GET /settings":             api.handleGETSettings,
+		"GET /settings/prometheus":  api.handleGETSettingsPrometheus,
 		"PATCH /settings":           api.handlePATCHSettings,
 		"POST /settings/announce":   api.handlePOSTAnnounce,
 		"PUT /settings/ddns/update": api.handlePUTDDNSUpdate,
 		// metrics endpoints
-		"GET /metrics":         api.handleGETMetrics,
-		"GET /metrics/:period": api.handleGETPeriodMetrics,
+		"GET /metrics":           api.handleGETMetrics,
+		"GET /prometheusmetrics": api.handleGETMetricsPrometheus,
+		"GET /metrics/:period":   api.handleGETPeriodMetrics,
 		// contract endpoints
 		"POST /contracts":                 api.handlePostContracts,
 		"GET /contracts/:id":              api.handleGETContract,
@@ -196,11 +203,13 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"DELETE /contracts/:id/integrity": api.handleDeleteContractCheck,
 		// account endpoints
 		"GET /accounts":                  api.handleGETAccounts,
+		"GET /accounts/prometheus":       api.handleGETAccountsPrometheus,
 		"GET /accounts/:account/funding": api.handleGETAccountFunding,
 		// sector endpoints
 		"DELETE /sectors/:root": api.handleDeleteSector,
 		// volume endpoints
 		"GET /volumes":               api.handleGETVolumes,
+		"GET /volumesprometheus":     api.handleGETVolumesPrometheus,
 		"POST /volumes":              api.handlePOSTVolume,
 		"GET /volumes/:id":           api.handleGETVolume,
 		"PUT /volumes/:id":           api.handlePUTVolume,
@@ -208,15 +217,20 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"DELETE /volumes/:id/cancel": api.handleDELETEVolumeCancelOp,
 		"PUT /volumes/:id/resize":    api.handlePUTVolumeResize,
 		// session endpoints
-		"GET /sessions":           api.handleGETSessions,
-		"GET /sessions/subscribe": api.handleGETSessionsSubscribe,
+		"GET /sessions":            api.handleGETSessions,
+		"GET /sessions/prometheus": api.handleGETSessionsPrometheus,
+		"GET /sessions/subscribe":  api.handleGETSessionsSubscribe,
 		// tpool endpoints
-		"GET /tpool/fee": api.handleGETTPoolFee,
+		"GET /tpool/fee":            api.handleGETTPoolFee,
+		"GET /tpool/fee/prometheus": api.handleGETTPoolFeePrometheus,
 		// wallet endpoints
-		"GET /wallet":              api.handleGETWallet,
-		"GET /wallet/transactions": api.handleGETWalletTransactions,
-		"GET /wallet/pending":      api.handleGETWalletPending,
-		"POST /wallet/send":        api.handlePOSTWalletSend,
+		"GET /wallet":                         api.handleGETWallet,
+		"GET /wallet/prometheus":              api.handleGETWalletPrometheus,
+		"GET /wallet/transactions":            api.handleGETWalletTransactions,
+		"GET /wallet/transactions/prometheus": api.handleGETWalletTransactionsPrometheus,
+		"GET /wallet/pending":                 api.handleGETWalletPending,
+		"GET /wallet/pending/prometheus":      api.handleGETWalletPendingPrometheus,
+		"POST /wallet/send":                   api.handlePOSTWalletSend,
 		// system endpoints
 		"GET /system/dir": api.handleGETSystemDir,
 		"PUT /system/dir": api.handlePUTSystemDir,

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -120,6 +121,59 @@ func (vj *volumeJobs) Cancel(id int64) error {
 	cancel()
 	delete(vj.jobs, id)
 	return nil
+}
+
+func (a *api) handleGETVolumesPrometheus(c jape.Context) {
+	volumes, err := a.volumes.Volumes()
+	if !a.checkServerError(c, "failed to get volumes", err) {
+		return
+	}
+
+	resulttext := ""
+	for i, volume := range volumes {
+		status := 0
+		if volume.Status == "creating" {
+			status = 1
+		} else if volume.Status == "ready" {
+			status = 2
+		}
+
+		volumeReadOnly := 0
+		if volume.ReadOnly {
+			volumeReadOnly = 1
+		}
+
+		volumeAvailable := 0
+		if volume.Available {
+			volumeAvailable = 1
+		}
+
+		text := fmt.Sprintf(`hostd_volume_used_sectors{id="%d", local_path="%s"} %d
+hostd_volume_total_sectors{id="%d", local_path="%s"} %d
+hostd_volume_read_only{id="%d", local_path="%s"} %d
+hostd_volume_available{id="%d", local_path="%s"} %d
+hostd_volume_failed_reads{id="%d", local_path="%s"} %d
+hostd_volume_failed_writes{id="%d", local_path="%s"} %d
+hostd_volume_successful_reads{id="%d", local_path="%s"} %d
+hostd_volume_successful_writes{id="%d", local_path="%s"} %d
+hostd_volume_status{id="%d", local_path="%s"} %d`,
+			volume.ID, volume.LocalPath, volume.UsedSectors,
+			volume.ID, volume.LocalPath, volume.TotalSectors,
+			volume.ID, volume.LocalPath, volumeReadOnly,
+			volume.ID, volume.LocalPath, volumeAvailable,
+			volume.ID, volume.LocalPath, volume.FailedReads,
+			volume.ID, volume.LocalPath, volume.FailedWrites,
+			volume.ID, volume.LocalPath, volume.SuccessfulReads,
+			volume.ID, volume.LocalPath, volume.SuccessfulWrites,
+			volume.ID, volume.LocalPath, status)
+		if i != len(volumes)-1 {
+			text = text + "\n"
+		}
+		resulttext = resulttext + text
+	}
+	var resultbuffer bytes.Buffer
+	resultbuffer.WriteString(resulttext)
+	c.ResponseWriter.Write(resultbuffer.Bytes())
 }
 
 func (a *api) handleGETVolumes(c jape.Context) {

@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/jape"
@@ -20,6 +22,31 @@ func (rs *rhpSessionSubscriber) ReceiveSessionEvent(event rhp.SessionEvent) {
 		return
 	}
 	rs.conn.Write(context.Background(), websocket.MessageText, buf)
+}
+
+func (a *api) handleGETSessionsPrometheus(c jape.Context) {
+	active_sessions := a.sessions.Active()
+
+	resulttext := ""
+	for i, session := range active_sessions {
+		text := fmt.Sprintf(`hostd_session_ingress{peer="%s"} %d
+hostd_session_egress{peer="%s"} %d
+hostd_session_successfulrpcs{peer="%s"} %d
+hostd_session_failedrpcs{peer="%s"} %d`,
+			session.PeerAddress, session.Ingress,
+			session.PeerAddress, session.Egress,
+			session.PeerAddress, session.SuccessfulRPCs,
+			session.PeerAddress, session.FailedRPCs,
+		)
+		if i != len(active_sessions)-1 {
+			text = text + "\n"
+		}
+		resulttext = resulttext + text
+	}
+
+	var resultbuffer bytes.Buffer
+	resultbuffer.WriteString(resulttext)
+	c.ResponseWriter.Write(resultbuffer.Bytes())
 }
 
 func (a *api) handleGETSessions(c jape.Context) {
