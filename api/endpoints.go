@@ -82,7 +82,6 @@ func (a *api) handleGETHostState(c jape.Context) {
 }
 
 func (a *api) handleGETConsensusStatePrometheus(c jape.Context) {
-
 	bitSet := a.chain.Synced()
 	var bitSetVar int8
 	if bitSet {
