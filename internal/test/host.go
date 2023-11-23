@@ -144,6 +144,11 @@ func (h *Host) Storage() *storage.VolumeManager {
 	return h.storage
 }
 
+// Settings returns the host's settings manager
+func (h *Host) Settings() *settings.ConfigManager {
+	return h.settings
+}
+
 // PublicKey returns the host's public key
 func (h *Host) PublicKey() types.PublicKey {
 	return h.privKey.PublicKey()
@@ -206,6 +211,95 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 	s.NetAddress = rhp2Listener.Addr().String()
 	if err := settings.UpdateSettings(s); err != nil {
 		return nil, fmt.Errorf("failed to update host settings: %w", err)
+	}
+
+	registry := registry.NewManager(privKey, db, log.Named("registry"))
+	accounts := accounts.NewManager(db, settings)
+
+	sessions := rhp.NewSessionReporter()
+
+	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, privKey, rhp3Listener.Addr().String(), node.cm, node.tp, wallet, contracts, settings, storage, stubDataMonitor{}, sessions, log.Named("rhp2"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp2 session handler: %w", err)
+	}
+	go rhp2.Serve()
+
+	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, sessions, log.Named("rhp3"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp3 session handler: %w", err)
+	}
+	go rhp3.Serve()
+
+	rhp3WSListener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp3 websocket listener: %w", err)
+	}
+
+	go func() {
+		rhp3WS := http.Server{
+			Handler:     rhp3.WebSocketHandler(),
+			ReadTimeout: 30 * time.Second,
+		}
+
+		if err := rhp3WS.Serve(rhp3WSListener); err != nil {
+			return
+		}
+	}()
+
+	return &Host{
+		Node:      node,
+		privKey:   privKey,
+		store:     db,
+		log:       log,
+		wallet:    wallet,
+		settings:  settings,
+		storage:   storage,
+		registry:  registry,
+		accounts:  accounts,
+		contracts: contracts,
+
+		rhp2:   rhp2,
+		rhp3:   rhp3,
+		rhp3WS: rhp3WSListener,
+	}, nil
+}
+
+// NewEmptyHost initializes a new test host
+func NewEmptyHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) (*Host, error) {
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sql store: %w", err)
+	}
+
+	wallet, err := wallet.NewSingleAddressWallet(privKey, node.cm, node.tp, db, log.Named("wallet"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet: %w", err)
+	}
+
+	am := alerts.NewManager()
+	storage, err := storage.NewVolumeManager(db, am, node.cm, log.Named("storage"), DefaultSettings.SectorCacheSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage manager: %w", err)
+	}
+
+	contracts, err := contracts.NewManager(db, am, storage, node.cm, node.tp, wallet, log.Named("contracts"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create contract manager: %w", err)
+	}
+
+	rhp2Listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
+	}
+
+	rhp3Listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
+	}
+
+	settings, err := settings.NewConfigManager(dir, privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, am, log.Named("settings"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
 	registry := registry.NewManager(privKey, db, log.Named("registry"))

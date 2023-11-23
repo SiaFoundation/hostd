@@ -15,8 +15,8 @@ import (
 	"lukechampine.com/frand"
 )
 
-// addVolume is a helper to add a new volume to the database
-func addVolume(db *Store, name string, size uint64) (storage.Volume, error) {
+// addTestVolume is a helper to add a new volume to the database
+func addTestVolume(db *Store, name string, size uint64) (storage.Volume, error) {
 	volumeID, err := db.AddVolume(name, false)
 	if err != nil {
 		return storage.Volume{}, fmt.Errorf("failed to add volume: %w", err)
@@ -37,7 +37,7 @@ func TestVolumeSetReadOnly(t *testing.T) {
 	defer db.Close()
 
 	// add a volume that is available and writable
-	volume, err := addVolume(db, "test", 10)
+	volume, err := addTestVolume(db, "test", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestGrowVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	volume, err := addVolume(db, "test", initialSectors)
+	volume, err := addTestVolume(db, "test", initialSectors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestGrowVolume(t *testing.T) {
 	}
 
 	// add a second volume
-	volume2, err := addVolume(db, "test2", initialSectors/2)
+	volume2, err := addTestVolume(db, "test2", initialSectors/2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestShrinkVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	volume, err := addVolume(db, "test", initialSectors)
+	volume, err := addTestVolume(db, "test", initialSectors)
 	if err != nil {
 		t.Fatal(err)
 	} else if m, err := db.Metrics(time.Now()); err != nil {
@@ -384,7 +384,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	volume, err := addVolume(db, "test", initialSectors)
+	volume, err := addTestVolume(db, "test", initialSectors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// add another volume
-	volume, err = addVolume(db, "test", initialSectors)
+	volume, err = addTestVolume(db, "test", initialSectors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +468,7 @@ func TestMigrateSectors(t *testing.T) {
 	}
 	defer db.Close()
 
-	volume, err := addVolume(db, "test", initialSectors)
+	volume, err := addTestVolume(db, "test", initialSectors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +542,7 @@ func TestMigrateSectors(t *testing.T) {
 	}
 
 	// add a second volume with only a quarter of the initial space
-	volume2, err := addVolume(db, "test2", initialSectors/4)
+	volume2, err := addTestVolume(db, "test2", initialSectors/4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +591,7 @@ func TestPrune(t *testing.T) {
 	}
 	defer db.Close()
 
-	volume, err := addVolume(db, "test", sectors)
+	volume, err := addTestVolume(db, "test", sectors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,7 +854,7 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	}
 	defer db.Close()
 
-	volume1, err := addVolume(db, "test", uint64(b.N))
+	volume1, err := addTestVolume(db, "test", uint64(b.N))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -870,7 +870,7 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 		}
 	}
 
-	_, err = addVolume(db, "test2", uint64(b.N))
+	_, err = addTestVolume(db, "test2", uint64(b.N))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -895,7 +895,7 @@ func BenchmarkStoreSector(b *testing.B) {
 	}
 	defer db.Close()
 
-	_, err = addVolume(db, "test", uint64(b.N*2))
+	_, err = addTestVolume(db, "test", uint64(b.N*2))
 	if err != nil {
 		b.Fatal(err)
 	}
