@@ -103,18 +103,7 @@ func Siad(ctx context.Context, db Store, dir string, destructive bool, log *zap.
 	convertToCore(&oldConfig.InternalSettings.MinStoragePrice, &newSettings.StoragePrice)
 	convertToCore(&oldConfig.InternalSettings.MinUploadBandwidthPrice, &newSettings.IngressPrice)
 	convertToCore(&oldConfig.InternalSettings.MinDownloadBandwidthPrice, &newSettings.EgressPrice)
-	// collateral
-	storagePrice := newSettings.StoragePrice
-	if storagePrice.IsZero() {
-		storagePrice = types.NewCurrency64(1)
-	}
-	var collateralCost types.Currency
-	convertToCore(&oldConfig.InternalSettings.Collateral, &collateralCost)
-	collateralMultiplier, _ := collateralCost.Div(storagePrice).Big().Float64()
-	if collateralMultiplier < 1 {
-		collateralMultiplier = 1
-	}
-	newSettings.CollateralMultiplier = collateralMultiplier
+	newSettings.CollateralMultiplier = 2
 	// limits
 	convertToCore(&oldConfig.InternalSettings.MaxCollateral, &newSettings.MaxCollateral)
 	newSettings.MaxContractDuration = uint64(oldConfig.InternalSettings.MaxDuration)
