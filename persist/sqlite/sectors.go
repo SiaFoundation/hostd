@@ -166,6 +166,18 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 	}
 }
 
+// HasSector returns true if the sector is stored on the host.
+func (s *Store) HasSector(root types.Hash256) (bool, error) {
+	var dbID int64
+	err := s.queryRow(`SELECT id FROM stored_sectors WHERE sector_root=$1`, sqlHash256(root)).Scan(&dbID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func incrementVolumeUsage(tx txn, volumeID int64, delta int) error {
 	var used int64
 	err := tx.QueryRow(`UPDATE storage_volumes SET used_sectors=used_sectors+$1 WHERE id=$2 RETURNING used_sectors;`, delta, volumeID).Scan(&used)

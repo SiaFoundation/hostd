@@ -223,6 +223,9 @@ func main() {
 	flag.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	// log
 	flag.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
+	// migrate
+	var migrateDestructive bool
+	flag.BoolVar(&migrateDestructive, "migrate.destructive", migrateDestructive, "destructively migrates a siad host to hostd")
 	flag.Parse()
 
 	switch flag.Arg(0) {
