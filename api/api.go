@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
@@ -63,6 +64,10 @@ type (
 		SetReadOnly(id int64, readOnly bool) error
 		RemoveSector(root types.Hash256) error
 		ResizeCache(size uint32)
+		Read(types.Hash256) (*[rhp2.SectorSize]byte, error)
+
+		// SectorReferences returns the references to a sector
+		SectorReferences(root types.Hash256) (storage.SectorReference, error)
 	}
 
 	// A ContractManager manages the host's contracts
@@ -198,7 +203,8 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"GET /accounts":                  api.handleGETAccounts,
 		"GET /accounts/:account/funding": api.handleGETAccountFunding,
 		// sector endpoints
-		"DELETE /sectors/:root": api.handleDeleteSector,
+		"DELETE /sectors/:root":     api.handleDeleteSector,
+		"GET /sectors/:root/verify": api.handleGETVerifySector,
 		// volume endpoints
 		"GET /volumes":               api.handleGETVolumes,
 		"POST /volumes":              api.handlePOSTVolume,
