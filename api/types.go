@@ -142,6 +142,12 @@ type (
 	CreateDirRequest struct {
 		Path string `json:"path"`
 	}
+
+	// VerifySectorResponse is the response body for the [GET] /sectors/:root/verify endpoint.
+	VerifySectorResponse struct {
+		storage.SectorReference
+		Error string `json:"error,omitempty"`
+	}
 )
 
 // MarshalJSON implements json.Marshaler

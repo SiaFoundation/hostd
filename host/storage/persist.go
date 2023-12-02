@@ -68,6 +68,8 @@ type (
 		ExpireTempSectors(height uint64) error
 		// IncrementSectorStats increments sector stats
 		IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) error
+		// SectorReferences returns the references to a sector
+		SectorReferences(types.Hash256) (SectorReference, error)
 	}
 )
 

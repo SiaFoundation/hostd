@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 
+	rhp2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/jape"
 )
@@ -196,4 +198,37 @@ func (a *api) handleDELETEVolumeCancelOp(c jape.Context) {
 
 	err := a.volumeJobs.Cancel(id)
 	a.checkServerError(c, "failed to cancel operation", err)
+}
+
+func (a *api) handleGETVerifySector(jc jape.Context) {
+	var root types.Hash256
+	if err := jc.DecodeParam("root", &root); err != nil {
+		return
+	}
+
+	refs, err := a.volumes.SectorReferences(root)
+	if err != nil {
+		jc.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	resp := VerifySectorResponse{
+		SectorReference: refs,
+	}
+
+	// if the sector is not referenced return the empty response without
+	// attempting to read the sector data
+	if len(refs.Contracts) == 0 && refs.TempStorage == 0 && refs.Locks == 0 {
+		jc.Encode(resp)
+		return
+	}
+
+	// try to read the sector data and verify the root
+	data, err := a.volumes.Read(root)
+	if err != nil {
+		resp.Error = err.Error()
+	} else if calc := rhp2.SectorRoot(data); calc != root {
+		resp.Error = fmt.Sprintf("sector is corrupt: expected root %q, got %q", root, calc)
+	}
+	jc.Encode(resp)
 }
