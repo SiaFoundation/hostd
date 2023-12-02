@@ -189,7 +189,7 @@ func (pe *programExecutor) executeHasSector(instr *rhp3.InstrHasSector) ([]byte,
 	var has bool
 	release, err := pe.storage.LockSector(root)
 	if err != nil && !errors.Is(err, storage.ErrSectorNotFound) {
-		return nil, nil, fmt.Errorf("failed to locate sector: %w", err)
+		return nil, nil, fmt.Errorf("failed to locate sector %q: %w", root, err)
 	} else if err == nil {
 		has = true
 		pe.releaseFuncs = append(pe.releaseFuncs, release)
@@ -275,7 +275,7 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 
 	sector, err := pe.storage.Read(root)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
+		return nil, nil, fmt.Errorf("failed to read sector %q: %w", root, err)
 	}
 
 	// if no proof was requested, return the data
