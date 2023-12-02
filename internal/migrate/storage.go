@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
@@ -167,10 +168,13 @@ func migrateStorageFolders(ctx context.Context, db Store, dir string, destructiv
 		go func(ctx context.Context, volumeID int64, newPath, oldPath string) {
 			defer wg.Done()
 
+			log.Info("migrating storage data", zap.String("newPath", newPath), zap.String("oldPath", oldPath))
+			start := time.Now()
 			err := migrateFolderSectors(ctx, db, volumeID, maxSectors, newPath, oldPath, destructive, log)
 			if err != nil {
 				errCh <- fmt.Errorf("failed to migrate storage data %q: %w", oldPath, err)
 			}
+			log.Info("finished migrating storage data", zap.String("newPath", newPath), zap.String("oldPath", oldPath), zap.Duration("elapsed", time.Since(start)))
 		}(ctx, volumeID, newPath, filepath.Join(folder.Path, "siahostdata.dat"))
 	}
 
