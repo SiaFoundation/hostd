@@ -1,3 +1,5 @@
+//go:build debug
+
 package sqlite
 
 import (
@@ -77,6 +79,8 @@ func getVolumeCachedSectors(tx txn) (map[int64]uint64, error) {
 	return volumes, nil
 }
 
+// VerifyContractSectors verifies that all of the counts in the database are
+// correct.
 func (s *Store) VerifyContractSectors() error {
 	return s.transaction(func(tx txn) error {
 		// count used contract sectors

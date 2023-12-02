@@ -27,6 +27,7 @@ type (
 	}
 )
 
+// ErrMigrateSectorStored is return if a sector is already stored on the host
 var ErrMigrateSectorStored = errors.New("sector already stored")
 
 func readStorageSettings(ctx context.Context, dir string) (storageSettings, error) {

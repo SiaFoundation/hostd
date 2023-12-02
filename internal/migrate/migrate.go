@@ -24,6 +24,7 @@ type (
 		InternalSettings modules.HostInternalSettings `json:"settings"`
 	}
 
+	// A Store is used to migrate a siad host to hostd's database format.
 	Store interface {
 		// Sectors
 		HasSector(root types.Hash256) (bool, error)
