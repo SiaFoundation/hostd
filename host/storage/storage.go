@@ -831,7 +831,7 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	// Cache miss, read from disk
 	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
-		return nil, fmt.Errorf("failed to locate sector %v: %w", root, err)
+		return nil, fmt.Errorf("failed to locate sector: %w", err)
 	}
 	defer release()
 
@@ -844,7 +844,7 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	vm.mu.Unlock()
 	sector, err := v.ReadSector(loc.Index)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read sector %v: %w", root, err)
+		return nil, fmt.Errorf("failed to read sector data: %w", err)
 	}
 
 	// Add sector to cache
