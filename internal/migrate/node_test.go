@@ -1,3 +1,10 @@
+//go:build ignore
+
+// this file is ignored because the tests will not run outside of localhost.
+// siad uses a different sector size for testing that is not compatible with
+// hostd's sector size. Since the tests require a siad node, they will only run
+// on localhost, after modifying siad's sector size to match hostd's.
+
 package migrate_test
 
 import (

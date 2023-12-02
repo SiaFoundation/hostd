@@ -2,8 +2,6 @@ module go.sia.tech/hostd
 
 go 1.20
 
-replace go.sia.tech/siad => ../siad
-
 require (
 	github.com/aws/aws-sdk-go v1.45.16
 	github.com/cloudflare/cloudflare-go v0.75.0
@@ -11,7 +9,6 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.17
 	gitlab.com/NebulousLabs/bolt v1.4.4
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259
 	go.sia.tech/core v0.1.12-0.20231011160830-b58e9e8ec3ce
 	go.sia.tech/jape v0.10.0
 	go.sia.tech/renterd v0.6.0
@@ -52,6 +49,7 @@ require (
 	gitlab.com/NebulousLabs/monitor v0.0.0-20191205095550-2b0fd3e1012a // indirect
 	gitlab.com/NebulousLabs/persist v0.0.0-20200605115618-007e5e23d877 // indirect
 	gitlab.com/NebulousLabs/ratelimit v0.0.0-20200811080431-99b8f0768b2e // indirect
+	gitlab.com/NebulousLabs/siamux v0.0.2-0.20220630142132-142a1443a259 // indirect
 	gitlab.com/NebulousLabs/threadgroup v0.0.0-20200608151952-38921fbef213 // indirect
 	go.sia.tech/mux v1.2.0 // indirect
 	go.sia.tech/web v0.0.0-20230817201630-c3d9328334b1 // indirect

@@ -224,7 +224,6 @@ gitlab.com/NebulousLabs/threadgroup v0.0.0-20200608151952-38921fbef213 h1:owERlK
 gitlab.com/NebulousLabs/threadgroup v0.0.0-20200608151952-38921fbef213/go.mod h1:vIutAvl7lmJqLVYTCBY5WDdJomP+V74At8LCeEYoH8w=
 gitlab.com/NebulousLabs/writeaheadlog v0.0.0-20200618142844-c59a90f49130/go.mod h1:SxigdS5Q1ui+OMgGAXt1E/Fg3RB6PvKXMov2O3gvIzs=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
-go.sia.tech/core v0.1.12-0.20230502175005-71bb29c5f388/go.mod h1:D17UWSn99SEfQnEaR9G9n6Kz9+BwqMoUgZ6Cl424LsQ=
 go.sia.tech/core v0.1.12-0.20231011160830-b58e9e8ec3ce h1:rRji+HxWtZEyXAyc/LSqS4HIowcGq3kGQLgjXFPQBk8=
 go.sia.tech/core v0.1.12-0.20231011160830-b58e9e8ec3ce/go.mod h1:3EoY+rR78w1/uGoXXVqcYdwSjSJKuEMI5bL7WROA27Q=
 go.sia.tech/jape v0.10.0 h1:wsIURirNV29fvqxhvvbd0yhKh+9JeNZvz4haJUL/+yI=
@@ -233,6 +232,8 @@ go.sia.tech/mux v1.2.0 h1:ofa1Us9mdymBbGMY2XH/lSpY8itFsKIo/Aq8zwe+GHU=
 go.sia.tech/mux v1.2.0/go.mod h1:Yyo6wZelOYTyvrHmJZ6aQfRoer3o4xyKQ4NmQLJrBSo=
 go.sia.tech/renterd v0.6.0 h1:eEWftx9xOvYVeGCejmyTopxKAql+KvnHxh1kMk5GEAo=
 go.sia.tech/renterd v0.6.0/go.mod h1:jcpk8/rEVA82GgkMpLThSerUIXxrKE79WT6E9NH1Rho=
+go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca h1:aZMg2AKevn7jKx+wlusWQfwSM5pNU9aGtRZme29q3O4=
+go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca/go.mod h1:h/1afFwpxzff6/gG5i1XdAgPK7dEY6FaibhK7N5F86Y=
 go.sia.tech/web v0.0.0-20230817201630-c3d9328334b1 h1:qzS1HFVPuQlOyh17zqO4Qkz63Q0YwADGMt9YAiL9mrk=
 go.sia.tech/web v0.0.0-20230817201630-c3d9328334b1/go.mod h1:RKODSdOmR3VtObPAcGwQqm4qnqntDVFylbvOBbWYYBU=
 go.sia.tech/web/hostd v0.28.0 h1:l1sqi4EeSgncz0kuo491+4I4XZYf7o0Zw38tHjKKo4k=
