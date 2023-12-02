@@ -22,7 +22,16 @@ func readInput(context string) (string, error) {
 	fmt.Printf("%s: ", context)
 	input, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	fmt.Println()
-	return string(input), err
+	if err != nil {
+		return "", err
+	}
+	// remove the trailing newline
+	input = input[:len(input)-1]
+	// if present, remove the trailing CR
+	if len(input) > 0 && input[len(input)-1] == '\r' {
+		input = input[:len(input)-1]
+	}
+	return input, err
 }
 
 func verifyDirectory(dataPath string) error {
