@@ -26,7 +26,7 @@ const (
 type (
 	// Route53Settings contains the settings for the Route53 DNS provider.
 	Route53Settings struct {
-		ID     string `json:"ID"`
+		ID     string `json:"id"`
 		Secret string `json:"secret"`
 		ZoneID string `json:"zoneID"`
 	}

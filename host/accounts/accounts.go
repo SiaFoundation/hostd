@@ -56,7 +56,7 @@ type (
 
 	// An Account holds the balance and expiration of an ephemeral account.
 	Account struct {
-		ID         rhp3.Account   `json:"ID"`
+		ID         rhp3.Account   `json:"id"`
 		Balance    types.Currency `json:"balance"`
 		Expiration time.Time      `json:"expiration"`
 	}

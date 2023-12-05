@@ -47,7 +47,7 @@ type (
 
 	// An RPC is an RPC call made by a renter to a host.
 	RPC struct {
-		ID        UID             `json:"ID"`
+		ID        UID             `json:"id"`
 		SessionID UID             `json:"sessionID"`
 		RPC       types.Specifier `json:"rpc"`
 		Usage     contracts.Usage `json:"usage"`
