@@ -32,22 +32,20 @@ type (
 	Session struct {
 		conn *Conn
 
-		ID             UID             `json:"id"`
-		Protocol       string          `json:"protocol"`
-		RHPVersion     int             `json:"rhpVersion"`
-		PeerAddress    string          `json:"peerAddress"`
-		Ingress        uint64          `json:"ingress"`
-		Egress         uint64          `json:"egress"`
-		Usage          contracts.Usage `json:"usage"`
-		SuccessfulRPCs uint64          `json:"successfulRPCs"`
-		FailedRPCs     uint64          `json:"failedRPCs"`
+		ID          UID             `json:"id"`
+		Protocol    string          `json:"protocol"`
+		RHPVersion  int             `json:"rhpVersion"`
+		PeerAddress string          `json:"peerAddress"`
+		Ingress     uint64          `json:"ingress"`
+		Egress      uint64          `json:"egress"`
+		Usage       contracts.Usage `json:"usage"`
 
 		Timestamp time.Time `json:"timestamp"`
 	}
 
 	// An RPC is an RPC call made by a renter to a host.
 	RPC struct {
-		ID        UID             `json:"ID"`
+		ID        UID             `json:"id"`
 		SessionID UID             `json:"sessionID"`
 		RPC       types.Specifier `json:"rpc"`
 		Usage     contracts.Usage `json:"usage"`
@@ -175,11 +173,6 @@ func (sr *SessionReporter) StartRPC(sessionID UID, rpc types.Specifier) (rpcID U
 		}
 
 		// update session
-		if err == nil {
-			sess.SuccessfulRPCs++
-		} else {
-			sess.FailedRPCs++
-		}
 		sess.Usage = sess.Usage.Add(usage)
 		sr.sessions[sessionID] = sess
 		// update subscribers

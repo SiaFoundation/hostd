@@ -103,9 +103,8 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			if err = cm.store.RevertLastAnnouncement(); err != nil {
 				log.Fatal("failed to revert last announcement", zap.Error(err))
 			}
+			blockHeight--
 		}
-		lastAnnouncement = Announcement{}
-		blockHeight--
 	}
 
 	// check for new announcements
@@ -134,7 +133,6 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				if err := cm.store.UpdateLastAnnouncement(announcement); err != nil {
 					log.Fatal("failed to update last announcement", zap.Error(err))
 				}
-				lastAnnouncement = announcement
 				cm.a.Register(alerts.Alert{
 					ID:       alertAnnouncementID,
 					Severity: alerts.SeverityInfo,
@@ -149,6 +147,12 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 			}
 		}
 		blockHeight++
+	}
+
+	// get the last announcement again, in case it was updated
+	lastAnnouncement, err = cm.store.LastAnnouncement()
+	if err != nil {
+		log.Fatal("failed to get last announcement", zap.Error(err))
 	}
 
 	// get the current net address
