@@ -8,7 +8,7 @@ const (
 	logPathEnvVariable     = "HOSTD_LOG_PATH"
 	configPathEnvVariable  = "HOSTD_CONFIG_FILE"
 
-	defaultAPIAddr     = ":9980"
+	defaultAPIAddr     = "localhost:9980"
 	defaultGatewayAddr = ":9981"
 	defaultRHP2Addr    = ":9982"
 	defaultRHP3TCPAddr = ":9983"
