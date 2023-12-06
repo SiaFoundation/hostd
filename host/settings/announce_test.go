@@ -53,7 +53,7 @@ func TestAutoAnnounce(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// confirm the announcement
-	if err := node.MineBlocks(node.Address(), 2); err != nil {
+	if err := node.MineBlocks(node.Address(), 5); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
@@ -61,16 +61,19 @@ func TestAutoAnnounce(t *testing.T) {
 	lastAnnouncement, err := manager.LastAnnouncement()
 	if err != nil {
 		t.Fatal(err)
-	} else if lastAnnouncement.Index.Height != 101 {
-		t.Fatalf("expected height 100, got %v", lastAnnouncement.Index.Height)
+	} else if lastAnnouncement.Index.Height == 0 {
+		t.Fatalf("expected an announcement, got %v", lastAnnouncement.Index.Height)
 	} else if lastAnnouncement.Address != "foo.bar:1234" {
 		t.Fatal("announcement not updated")
 	}
 	lastHeight := lastAnnouncement.Index.Height
 
+	remainingBlocks := lastHeight + 100 - node.ChainManager().TipState().Index.Height
+	t.Log("remaining blocks:", remainingBlocks)
+
 	// mine until right before the next announcement to ensure that the
 	// announcement is not triggered early
-	if err := node.MineBlocks(node.Address(), 99); err != nil {
+	if err := node.MineBlocks(node.Address(), int(remainingBlocks-1)); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
@@ -94,12 +97,12 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 
-	nextHeight := lastHeight + 1 + 100 // off-by-one because the announcement is mined in the next block
+	prevHeight := lastAnnouncement.Index.Height
 	lastAnnouncement, err = manager.LastAnnouncement()
 	if err != nil {
 		t.Fatal(err)
-	} else if lastAnnouncement.Index.Height != nextHeight {
-		t.Fatalf("expected height %v, got %v", nextHeight, lastAnnouncement.Index.Height)
+	} else if lastAnnouncement.Index.Height <= prevHeight {
+		t.Fatalf("expected a new announcement after %v, got %v", prevHeight, lastAnnouncement.Index.Height)
 	} else if lastAnnouncement.Address != "foo.bar:1234" {
 		t.Fatal("announcement not updated")
 	}

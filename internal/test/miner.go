@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/siad/crypto"
@@ -135,6 +136,7 @@ func (m *Miner) Mine(addr types.Address, n int) error {
 			return fmt.Errorf("failed to mine block %v: %w", mined, errFailedToSolve)
 		}
 		mined++
+		time.Sleep(time.Millisecond)
 	}
 	return nil
 }
