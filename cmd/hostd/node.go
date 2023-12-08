@@ -32,6 +32,7 @@ import (
 type node struct {
 	g     modules.Gateway
 	a     *alerts.Manager
+	wh    *webhooks.Manager
 	cm    *chain.Manager
 	tp    *chain.TransactionPool
 	w     *wallet.SingleAddressWallet
@@ -62,6 +63,7 @@ func (n *node) Close() error {
 	n.tp.Close()
 	n.cm.Close()
 	n.g.Close()
+	n.wh.Close()
 	n.store.Close()
 	return nil
 }
@@ -204,6 +206,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	return &node{
 		g:     g,
 		a:     am,
+		wh:    webhookReporter,
 		cm:    cm,
 		tp:    tp,
 		w:     w,
