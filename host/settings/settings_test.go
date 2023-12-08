@@ -10,6 +10,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/webhooks"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -30,8 +31,13 @@ func TestSettings(t *testing.T) {
 	}
 	defer db.Close()
 
-	a := alerts.NewManager()
-	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, a, log.Named("settings"))
+	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
+	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, am, log.Named("settings"))
 	if err != nil {
 		t.Fatal(err)
 	}

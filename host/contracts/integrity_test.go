@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/test"
+	"go.sia.tech/hostd/webhooks"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -79,7 +80,12 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 	defer node.Close()
 
-	am := alerts.NewManager()
+	webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
 	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), 0)
 	if err != nil {
 		t.Fatal(err)

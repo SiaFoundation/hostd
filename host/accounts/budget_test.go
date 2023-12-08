@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
@@ -108,7 +109,12 @@ func TestBudget(t *testing.T) {
 	}
 	defer w.Close()
 
-	a := alerts.NewManager()
+	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a := alerts.NewManager(webhookReporter, log.Named("alerts"))
 	sm, err := storage.NewVolumeManager(db, a, cm, log.Named("storage"), 0)
 	if err != nil {
 		t.Fatal(err)

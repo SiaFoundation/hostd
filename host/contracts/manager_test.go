@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/webhooks"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -90,7 +91,12 @@ func TestContractLockUnlock(t *testing.T) {
 	}
 	defer node.Close()
 
-	am := alerts.NewManager()
+	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
 	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +175,12 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer node.Close()
 
-		am := alerts.NewManager()
+		webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		am := alerts.NewManager(webhookReporter, log.Named("alerts"))
 		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 		if err != nil {
 			t.Fatal(err)
@@ -387,7 +398,12 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer node.Close()
 
-		am := alerts.NewManager()
+		webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		am := alerts.NewManager(webhookReporter, log.Named("alerts"))
 		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 		if err != nil {
 			t.Fatal(err)
@@ -574,7 +590,12 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer node.Close()
 
-		am := alerts.NewManager()
+		webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		am := alerts.NewManager(webhookReporter, log.Named("alerts"))
 		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 		if err != nil {
 			t.Fatal(err)
@@ -735,7 +756,12 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer node.Close()
 
-		am := alerts.NewManager()
+		webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		am := alerts.NewManager(webhookReporter, log.Named("alerts"))
 		s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 		if err != nil {
 			t.Fatal(err)
@@ -957,7 +983,12 @@ func TestSectorRoots(t *testing.T) {
 	}
 	defer node.Close()
 
-	am := alerts.NewManager()
+	webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
 	s, err := storage.NewVolumeManager(db, am, node.ChainManager(), log.Named("storage"), sectorCacheSize)
 	if err != nil {
 		t.Fatal(err)
