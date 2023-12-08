@@ -17,6 +17,7 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
@@ -113,6 +114,14 @@ type (
 		AcceptTransactionSet(txns []types.Transaction) error
 	}
 
+	// WebHooks manages webhooks
+	WebHooks interface {
+		WebHooks() ([]webhooks.WebHook, error)
+		RegisterWebHook(callbackURL string, scopes []string) (webhooks.WebHook, error)
+		UpdateWebHook(id int64, callbackURL string, scopes []string) (webhooks.WebHook, error)
+		RemoveWebHook(id int64) error
+	}
+
 	// A RHPSessionReporter reports on RHP session lifecycle events
 	RHPSessionReporter interface {
 		Subscribe(rhp.SessionSubscriber)
@@ -129,6 +138,7 @@ type (
 		log *zap.Logger
 
 		alerts    Alerts
+		webhooks  WebHooks
 		syncer    Syncer
 		chain     ChainManager
 		tpool     TPool
@@ -146,12 +156,13 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
 		name:    name,
 
 		alerts:    a,
+		webhooks:  wh,
 		syncer:    g,
 		chain:     chain,
 		tpool:     tp,
@@ -226,5 +237,10 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		// system endpoints
 		"GET /system/dir": api.handleGETSystemDir,
 		"PUT /system/dir": api.handlePUTSystemDir,
+		// webhook endpoints
+		"GET /webhooks":        api.handleGETWebhooks,
+		"POST /webhooks":       api.handlePOSTWebhooks,
+		"PUT /webhooks/:id":    api.handlePUTWebhooks,
+		"DELETE /webhooks/:id": api.handleDELETEWebhooks,
 	})
 }

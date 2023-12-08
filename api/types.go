@@ -148,6 +148,12 @@ type (
 		storage.SectorReference
 		Error string `json:"error,omitempty"`
 	}
+
+	// RegisterWebHookRequest is the request body for the [POST] /webhooks endpoint.
+	RegisterWebHookRequest struct {
+		CallbackURL string   `json:"callbackURL"`
+		Scopes      []string `json:"scopes"`
+	}
 )
 
 // MarshalJSON implements json.Marshaler
