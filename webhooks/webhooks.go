@@ -54,6 +54,7 @@ type (
 		Data  any    `json:"data"`
 	}
 
+	// A Store stores and retrieves WebHooks.
 	Store interface {
 		RegisterWebHook(url, secret string, scopes []string) (int64, error)
 		UpdateWebHook(id int64, url string, scopes []string) error
@@ -61,6 +62,7 @@ type (
 		WebHooks() ([]WebHook, error)
 	}
 
+	// A Manager manages WebHook subscribers and broadcasts events
 	Manager struct {
 		store Store
 		log   *zap.Logger
