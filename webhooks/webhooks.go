@@ -72,6 +72,12 @@ type (
 	}
 )
 
+// Close closes the Manager.
+func (m *Manager) Close() error {
+	m.tg.Stop()
+	return nil
+}
+
 func (m *Manager) findMatchingHooks(s string) (hooks []WebHook) {
 	// recursively match hooks
 	var match func(scopeParts []string, parent *scope)
@@ -124,6 +130,16 @@ func (m *Manager) removeHookScopes(id int64) {
 	}
 
 	remove(m.scopes)
+}
+
+// WebHooks returns all registered WebHooks.
+func (m *Manager) WebHooks() (hooks []WebHook, _ error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, hook := range m.hooks {
+		hooks = append(hooks, hook)
+	}
+	return
 }
 
 // RegisterWebHook registers a new WebHook.

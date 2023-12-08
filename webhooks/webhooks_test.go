@@ -110,9 +110,32 @@ func TestWebHooks(t *testing.T) {
 		}
 	}
 
+	// update the webhook to have the "all scope"
+	hook, err = wr.UpdateWebHook(hook.ID, "http://"+l.Addr().String(), []string{"all"})
+	if err != nil {
+		t.Fatal(err)
+	} else if hooks, err := wr.WebHooks(); err != nil {
+		t.Fatal(err)
+	} else if len(hooks) != 1 {
+		t.Fatal("expected 1 webhook")
+	}
+
+	// ensure all events are received
+	for _, test := range tests {
+		if err := wr.BroadcastEvent(test.event, test.scope, "hello, world!"); err != nil {
+			t.Fatal(err)
+		} else if err := checkEvent(test.event, test.scope, `"hello, world!"`); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	// unregister the webhook
 	if err := wr.RemoveWebHook(hook.ID); err != nil {
 		t.Fatal(err)
+	} else if hooks, err := wr.WebHooks(); err != nil {
+		t.Fatal(err)
+	} else if len(hooks) != 0 {
+		t.Fatal("expected no webhooks")
 	}
 
 	// ensure no more events are received
@@ -124,18 +147,4 @@ func TestWebHooks(t *testing.T) {
 		}
 	}
 
-	// register the "all" webhook
-	hook, err = wr.RegisterWebHook("http://"+l.Addr().String(), []string{"all"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// ensure all events are received
-	for _, test := range tests {
-		if err := wr.BroadcastEvent(test.event, test.scope, "hello, world!"); err != nil {
-			t.Fatal(err)
-		} else if err := checkEvent(test.event, test.scope, `"hello, world!"`); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
