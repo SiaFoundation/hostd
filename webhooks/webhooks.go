@@ -85,7 +85,11 @@ func (m *Manager) findMatchingHooks(s string) (hooks []WebHook) {
 	var match func(scopeParts []string, parent *scope)
 	match = func(scopeParts []string, parent *scope) {
 		for id := range parent.hooks {
-			hooks = append(hooks, m.hooks[id])
+			hook, ok := m.hooks[id]
+			if !ok {
+				panic("hook not found") // developer error
+			}
+			hooks = append(hooks, hook)
 		}
 		if len(scopeParts) == 0 {
 			return
