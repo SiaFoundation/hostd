@@ -10,6 +10,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion23 creates the webhooks table.
+func migrateVersion23(tx txn, _ *zap.Logger) error {
+	const query = `CREATE TABLE webhooks (
+	id INTEGER PRIMARY KEY,
+	callback_url TEXT UNIQUE NOT NULL,
+	scopes TEXT NOT NULL,
+	secret_key TEXT UNIQUE NOT NULL
+);`
+
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion22 recalculates the locked and risked collateral and the
 // potential and earned revenue metrics which will be bugged if the host rescans
 // the blockchain.
@@ -592,4 +605,5 @@ var migrations = []func(tx txn, log *zap.Logger) error{
 	migrateVersion20,
 	migrateVersion21,
 	migrateVersion22,
+	migrateVersion23,
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.uber.org/zap"
 )
 
 const (
@@ -30,6 +31,11 @@ type (
 	// Severity indicates the severity of an alert.
 	Severity uint8
 
+	// An EventReporter broadcasts events to subscribers.
+	EventReporter interface {
+		BroadcastEvent(event string, scope string, data any) error
+	}
+
 	// An Alert is a dismissible message that is displayed to the user.
 	Alert struct {
 		// ID is a unique identifier for the alert.
@@ -46,6 +52,9 @@ type (
 
 	// A Manager manages the host's alerts.
 	Manager struct {
+		log    *zap.Logger
+		events EventReporter
+
 		mu sync.Mutex
 		// alerts is a map of alert IDs to their current alert.
 		alerts map[types.Hash256]Alert
@@ -99,6 +108,10 @@ func (m *Manager) Register(a Alert) {
 		panic("cannot register alert with zero timestamp") // developer error
 	}
 
+	if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a); err != nil {
+		m.log.Error("failed to broadcast alert", zap.Error(err))
+	}
+
 	m.mu.Lock()
 	m.alerts[a.ID] = a
 	m.mu.Unlock()
@@ -129,8 +142,11 @@ func (m *Manager) Active() []Alert {
 }
 
 // NewManager initializes a new alerts manager.
-func NewManager() *Manager {
+func NewManager(er EventReporter, log *zap.Logger) *Manager {
 	return &Manager{
+		log:    log,
+		events: er,
+
 		alerts: make(map[types.Hash256]Alert),
 	}
 }

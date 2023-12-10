@@ -361,7 +361,7 @@ func main() {
 	auth := jape.BasicAuth(cfg.HTTP.Password)
 	web := http.Server{
 		Handler: webRouter{
-			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.accounts, node.storage, node.sessions, node.metrics, node.settings, node.w, log.Named("api"))),
+			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), node.a, node.wh, node.g, node.cm, node.tp, node.contracts, node.accounts, node.storage, node.sessions, node.metrics, node.settings, node.w, log.Named("api"))),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,

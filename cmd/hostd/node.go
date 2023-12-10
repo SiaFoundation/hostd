@@ -21,6 +21,7 @@ import (
 	rhp2 "go.sia.tech/hostd/rhp/v2"
 	rhp3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
@@ -31,6 +32,7 @@ import (
 type node struct {
 	g     modules.Gateway
 	a     *alerts.Manager
+	wh    *webhooks.Manager
 	cm    *chain.Manager
 	tp    *chain.TransactionPool
 	w     *wallet.SingleAddressWallet
@@ -61,6 +63,7 @@ func (n *node) Close() error {
 	n.tp.Close()
 	n.cm.Close()
 	n.g.Close()
+	n.wh.Close()
 	n.store.Close()
 	return nil
 }
@@ -145,6 +148,11 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
+	webhookReporter, err := webhooks.NewManager(db, logger.Named("webhooks"))
+	if err != nil {
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create webhook reporter: %w", err)
+	}
+
 	rhp2Listener, err := net.Listen("tcp", cfg.RHP2.Address)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp2 addr: %w", err)
@@ -162,7 +170,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	am := alerts.NewManager()
+	am := alerts.NewManager(webhookReporter, logger.Named("alerts"))
 	sr, err := settings.NewConfigManager(cfg.Directory, hostKey, discoveredAddr, db, cm, tp, w, am, logger.Named("settings"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
@@ -198,6 +206,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	return &node{
 		g:     g,
 		a:     am,
+		wh:    webhookReporter,
 		cm:    cm,
 		tp:    tp,
 		w:     w,

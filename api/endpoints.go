@@ -525,6 +525,59 @@ func (a *api) handleGETAccountFunding(c jape.Context) {
 	c.Encode(funding)
 }
 
+func (a *api) handleGETWebhooks(c jape.Context) {
+	hooks, err := a.webhooks.WebHooks()
+	if err != nil {
+		c.Error(err, http.StatusInternalServerError)
+		return
+	}
+	c.Encode(hooks)
+}
+
+func (a *api) handlePOSTWebhooks(c jape.Context) {
+	var req RegisterWebHookRequest
+	if err := c.Decode(&req); err != nil {
+		return
+	}
+
+	hook, err := a.webhooks.RegisterWebHook(req.CallbackURL, req.Scopes)
+	if err != nil {
+		c.Error(err, http.StatusInternalServerError)
+		return
+	}
+	c.Encode(hook)
+}
+
+func (a *api) handlePUTWebhooks(c jape.Context) {
+	var id int64
+	if err := c.DecodeParam("id", &id); err != nil {
+		return
+	}
+	var req RegisterWebHookRequest
+	if err := c.Decode(&req); err != nil {
+		return
+	}
+
+	_, err := a.webhooks.UpdateWebHook(id, req.CallbackURL, req.Scopes)
+	if err != nil {
+		c.Error(err, http.StatusInternalServerError)
+		return
+	}
+}
+
+func (a *api) handleDELETEWebhooks(c jape.Context) {
+	var id int64
+	if err := c.DecodeParam("id", &id); err != nil {
+		return
+	}
+
+	err := a.webhooks.RemoveWebHook(id)
+	if err != nil {
+		c.Error(err, http.StatusInternalServerError)
+		return
+	}
+}
+
 func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset int) {
 	if err := c.DecodeForm("limit", &limit); err != nil {
 		return

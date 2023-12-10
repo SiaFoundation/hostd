@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 )
 
@@ -222,6 +223,37 @@ func (c *Client) MkDir(path string) error {
 		Path: path,
 	}
 	return c.c.PUT("/system/dir", req)
+}
+
+// RegisterWebHook registers a new WebHook.
+func (c *Client) RegisterWebHook(callbackURL string, scopes []string) (hook webhooks.WebHook, err error) {
+	req := RegisterWebHookRequest{
+		CallbackURL: callbackURL,
+		Scopes:      scopes,
+	}
+	err = c.c.POST("/webhooks", req, &hook)
+	return
+}
+
+// UpdateWebHook updates the WebHook with the specified ID.
+func (c *Client) UpdateWebHook(id int64, callbackURL string, scopes []string) (hook webhooks.WebHook, err error) {
+	req := RegisterWebHookRequest{
+		CallbackURL: callbackURL,
+		Scopes:      scopes,
+	}
+	err = c.c.PUT(fmt.Sprintf("/webhooks/%d", id), req)
+	return
+}
+
+// DeleteWebHook deletes the WebHook with the specified ID.
+func (c *Client) DeleteWebHook(id int64) error {
+	return c.c.DELETE(fmt.Sprintf("/webhooks/%d", id))
+}
+
+// WebHooks returns all registered WebHooks.
+func (c *Client) WebHooks() (hooks []webhooks.WebHook, err error) {
+	err = c.c.GET("/webhooks", &hooks)
+	return
 }
 
 // NewClient creates a new hostd API client.
