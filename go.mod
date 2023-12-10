@@ -9,7 +9,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.17
 	gitlab.com/NebulousLabs/bolt v1.4.4
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	go.sia.tech/core v0.1.12-0.20231011160830-b58e9e8ec3ce
+	go.sia.tech/core v0.1.12-0.20231209150840-62eed6d74fd4
 	go.sia.tech/jape v0.10.0
 	go.sia.tech/renterd v0.6.0
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
