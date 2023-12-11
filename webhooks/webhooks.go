@@ -27,6 +27,7 @@ const (
 	ScopeAlertsCritical = "alerts/critical"
 
 	ScopeWallet = "wallet"
+	ScopeTest   = "test"
 )
 
 type (

@@ -120,6 +120,7 @@ type (
 		RegisterWebHook(callbackURL string, scopes []string) (webhooks.WebHook, error)
 		UpdateWebHook(id int64, callbackURL string, scopes []string) (webhooks.WebHook, error)
 		RemoveWebHook(id int64) error
+		BroadcastEvent(event string, scope string, data any) error
 	}
 
 	// A RHPSessionReporter reports on RHP session lifecycle events
@@ -238,9 +239,10 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Sy
 		"GET /system/dir": api.handleGETSystemDir,
 		"PUT /system/dir": api.handlePUTSystemDir,
 		// webhook endpoints
-		"GET /webhooks":        api.handleGETWebhooks,
-		"POST /webhooks":       api.handlePOSTWebhooks,
-		"PUT /webhooks/:id":    api.handlePUTWebhooks,
-		"DELETE /webhooks/:id": api.handleDELETEWebhooks,
+		"GET /webhooks":           api.handleGETWebhooks,
+		"POST /webhooks":          api.handlePOSTWebhooks,
+		"PUT /webhooks/:id":       api.handlePUTWebhooks,
+		"POST /webhooks/:id/test": api.handlePOSTWebhooksTest,
+		"DELETE /webhooks/:id":    api.handleDELETEWebhooks,
 	})
 }
