@@ -21,6 +21,7 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
+	"go.sia.tech/hostd/alerts"
 )
 
 const stdTxnSize = 1200 // bytes
@@ -114,6 +115,15 @@ func (a *api) handlePOSTAlertsDismiss(c jape.Context) {
 		return
 	}
 	a.alerts.Dismiss(ids...)
+}
+
+func (a *api) handlePOSTAlertsRegister(c jape.Context) {
+    var alert alerts.Alert
+    if err := c.Decode(&alert); err != nil {
+        c.Error(err, 400) // Properly handle the error with an HTTP status code
+        return
+    }
+    a.alerts.Register(alert) // Make sure 'a.alerts' is an instance of 'alerts.Manager'
 }
 
 func (a *api) handlePOSTAnnounce(c jape.Context) {

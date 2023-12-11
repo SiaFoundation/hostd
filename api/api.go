@@ -92,6 +92,7 @@ type (
 	Alerts interface {
 		Active() []alerts.Alert
 		Dismiss(...types.Hash256)
+		Register(alerts.Alert)
 	}
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
@@ -196,6 +197,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Sy
 		// alerts endpoints
 		"GET /alerts":          api.handleGETAlerts,
 		"POST /alerts/dismiss": api.handlePOSTAlertsDismiss,
+		"POST /alerts/register": api.handlePOSTAlertsRegister,
 		// settings endpoints
 		"GET /settings":             api.handleGETSettings,
 		"PATCH /settings":           api.handlePATCHSettings,
