@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/disk"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
@@ -560,6 +561,13 @@ func (a *api) handlePUTWebhooks(c jape.Context) {
 
 	_, err := a.webhooks.UpdateWebHook(id, req.CallbackURL, req.Scopes)
 	if err != nil {
+		c.Error(err, http.StatusInternalServerError)
+		return
+	}
+}
+
+func (a *api) handlePOSTWebhooksTest(c jape.Context) {
+	if err := a.webhooks.BroadcastEvent("test", webhooks.ScopeTest, nil); err != nil {
 		c.Error(err, http.StatusInternalServerError)
 		return
 	}
