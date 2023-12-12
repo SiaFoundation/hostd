@@ -120,7 +120,7 @@ type (
 		RegisterWebHook(callbackURL string, scopes []string) (webhooks.WebHook, error)
 		UpdateWebHook(id int64, callbackURL string, scopes []string) (webhooks.WebHook, error)
 		RemoveWebHook(id int64) error
-		BroadcastEvent(event string, scope string, data any) error
+		BroadcastToWebhook(id int64, event, scope string, data interface{}) error
 	}
 
 	// A RHPSessionReporter reports on RHP session lifecycle events
