@@ -149,6 +149,7 @@ jobs:
           GOOS: darwin
           GOARCH: amd64
         run: |
+          sudo sntp -sS time.windows.com
           ZIP_OUTPUT=release/hostd_${GOOS}_${GOARCH}.zip
           mkdir -p release
           go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
