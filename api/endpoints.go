@@ -567,7 +567,12 @@ func (a *api) handlePUTWebhooks(c jape.Context) {
 }
 
 func (a *api) handlePOSTWebhooksTest(c jape.Context) {
-	if err := a.webhooks.BroadcastEvent("test", webhooks.ScopeTest, nil); err != nil {
+	var id int64
+	if err := c.DecodeParam("id", &id); err != nil {
+		return
+	}
+
+	if err := a.webhooks.BroadcastToWebhook(id, "test", webhooks.ScopeTest, nil); err != nil {
 		c.Error(err, http.StatusInternalServerError)
 		return
 	}

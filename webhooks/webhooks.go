@@ -255,6 +255,48 @@ func sendEventData(ctx context.Context, hook WebHook, buf []byte) error {
 	return nil
 }
 
+// BroadcastToWebhook sends an event to a specific WebHook subscriber.
+func (m *Manager) BroadcastToWebhook(hookID int64, event string, scope string, data any) error {
+	done, err := m.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	uid := UID(frand.Bytes(32))
+	e := Event{
+		ID:    uid,
+		Event: event,
+		Scope: scope,
+		Data:  data,
+	}
+
+	buf, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	hook, ok := m.hooks[hookID]
+	if !ok {
+		return fmt.Errorf("webhook not found")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	log := m.log.With(zap.Int64("hook", hook.ID), zap.String("url", hook.CallbackURL), zap.String("scope", scope), zap.String("event", event))
+
+	start := time.Now()
+	if err := sendEventData(ctx, hook, buf); err != nil {
+		return fmt.Errorf("failed to send webhook event: %w", err)
+	}
+	log.Debug("sent webhook event", zap.Duration("elapsed", time.Since(start)))
+	return nil
+}
+
 // BroadcastEvent sends an event to all registered WebHooks that match the
 // event's scope.
 func (m *Manager) BroadcastEvent(event string, scope string, data any) error {
