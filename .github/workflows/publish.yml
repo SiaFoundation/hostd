@@ -136,6 +136,9 @@ jobs:
 
           # generate
           go generate ./...
+
+          # resync system clock https://github.com/actions/runner/issues/2996#issuecomment-1833103110
+          sudo sntp -sS time.windows.com
       - name: Build amd64
         env:
           APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
@@ -149,7 +152,6 @@ jobs:
           GOOS: darwin
           GOARCH: amd64
         run: |
-          sudo sntp -sS time.windows.com
           ZIP_OUTPUT=release/hostd_${GOOS}_${GOARCH}.zip
           mkdir -p release
           go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/hostd
