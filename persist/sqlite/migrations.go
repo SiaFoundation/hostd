@@ -39,26 +39,26 @@ func migrateVersion24(tx txn, log *zap.Logger) error {
 		switch stat {
 		case metricRHP2Ingress:
 			lastRHP2Ingress = value
-			stat = metricDataIngress
+			stat = metricDataRHPIngress
 		case metricRHP2Egress:
 			lastRHP2Egress = value
-			stat = metricDataEgress
+			stat = metricDataRHPEgress
 		case metricRHP3Ingress:
 			lastRHP3Ingress = value
-			stat = metricDataIngress
+			stat = metricDataRHPIngress
 		case metricRHP3Egress:
 			lastRHP3Egress = value
-			stat = metricDataEgress
+			stat = metricDataRHPEgress
 		}
 
 		switch stat {
-		case metricDataIngress:
+		case metricDataRHPIngress:
 			if len(dataPointsIngress) == 0 || !dataPointsIngress[len(dataPointsIngress)-1].timestamp.Equal(timestamp) {
 				dataPointsIngress = append(dataPointsIngress, combinedStat{timestamp, lastRHP2Ingress + lastRHP3Ingress})
 			} else {
 				dataPointsIngress[len(dataPointsIngress)-1].value = lastRHP2Ingress + lastRHP3Ingress
 			}
-		case metricDataEgress:
+		case metricDataRHPEgress:
 			if len(dataPointsEgress) == 0 || !dataPointsEgress[len(dataPointsEgress)-1].timestamp.Equal(timestamp) {
 				dataPointsEgress = append(dataPointsEgress, combinedStat{timestamp, lastRHP2Egress + lastRHP3Egress})
 			} else {
@@ -73,14 +73,14 @@ func migrateVersion24(tx txn, log *zap.Logger) error {
 
 	// add the new data points
 	for _, dataPoint := range dataPointsIngress {
-		if err := setNumericStat(tx, metricDataIngress, dataPoint.value, dataPoint.timestamp); err != nil {
+		if err := setNumericStat(tx, metricDataRHPIngress, dataPoint.value, dataPoint.timestamp); err != nil {
 			return fmt.Errorf("failed to set data ingress metric: %w", err)
 		}
 		log.Debug("added ingress datapoint", zap.Time("timestamp", dataPoint.timestamp), zap.Uint64("value", dataPoint.value))
 	}
 
 	for _, dataPoint := range dataPointsEgress {
-		if err := setNumericStat(tx, metricDataEgress, dataPoint.value, dataPoint.timestamp); err != nil {
+		if err := setNumericStat(tx, metricDataRHPEgress, dataPoint.value, dataPoint.timestamp); err != nil {
 			return fmt.Errorf("failed to set data egress metric: %w", err)
 		}
 		log.Debug("added egress datapoint", zap.Time("timestamp", dataPoint.timestamp), zap.Uint64("value", dataPoint.value))

@@ -12,7 +12,7 @@ const persistInterval = time.Minute
 type (
 	// A DataRecorderStore persists data usage
 	DataRecorderStore interface {
-		IncrementDataUsage(ingress, egress uint64) error
+		IncrementRHPDataUsage(ingress, egress uint64) error
 	}
 
 	// A DataRecorder records the amount of data read and written across
@@ -59,7 +59,7 @@ func (dr *DataRecorder) persistUsage() {
 		return
 	}
 
-	if err := dr.store.IncrementDataUsage(r, w); err != nil {
+	if err := dr.store.IncrementRHPDataUsage(r, w); err != nil {
 		dr.log.Error("failed to persist data usage", zap.Error(err))
 		return
 	}
