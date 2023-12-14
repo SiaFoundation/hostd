@@ -27,14 +27,5 @@ func validateNetAddress(netaddress string) error {
 	} else if len(addrs) == 0 {
 		return fmt.Errorf("failed to resolve net address: no addresses found")
 	}
-
-	for _, addr := range addrs {
-		if addr == nil {
-			return fmt.Errorf("failed to resolve net address: no addresses found")
-		} else if addr.IsLoopback() || addr.IsPrivate() || !addr.IsGlobalUnicast() {
-			return fmt.Errorf("invalid resolved address %q: only public addresses allowed", addr)
-		}
-	}
-
 	return nil
 }
