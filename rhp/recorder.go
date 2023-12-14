@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const persistInterval = 30 * time.Second
+const persistInterval = time.Minute
 
 type (
 	// A DataRecorderStore persists data usage
