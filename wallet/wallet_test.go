@@ -1,6 +1,8 @@
 package wallet_test
 
 import (
+	"encoding/json"
+	"sort"
 	"testing"
 	"time"
 
@@ -90,12 +92,14 @@ func TestWallet(t *testing.T) {
 			Address: w.Address(),
 		}
 	}
-	if _, err = w.SendSiacoins(splitOutputs); err != nil {
+	if txn, err := w.SendSiacoins(splitOutputs); err != nil {
+		buf, _ := json.MarshalIndent(txn, "", "  ")
+		t.Log(string(buf))
 		t.Fatal(err)
 	}
 
 	time.Sleep(250 * time.Millisecond) // sleep for tpool sync
-	// check that the wallet's spendable balance and unconfiremed balance are
+	// check that the wallet's spendable balance and unconfirmed balance are
 	// correct
 	spendable, balance, unconfirmed, err := w.Balance()
 	if err != nil {
@@ -323,5 +327,81 @@ func TestWalletReset(t *testing.T) {
 		t.Fatal(err)
 	} else if !m.Balance.IsZero() {
 		t.Fatal("expected zero balance")
+	}
+}
+
+func TestWalletUTXOSelection(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	w, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir(), log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	_, balance, _, err := w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero balance, got %v", balance)
+	}
+
+	// mine until the wallet has 100 mature outputs
+	if err := w.MineBlocks(w.Address(), 100+int(stypes.MaturityDelay)); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(time.Second) // sleep for consensus sync
+
+	// check that the expected utxos were used
+	utxos, err := w.Store().UnspentSiacoinElements()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 100 {
+		t.Fatalf("expected 100 utxos, got %v", len(utxos))
+	}
+	sort.Slice(utxos, func(i, j int) bool {
+		return utxos[i].Value.Cmp(utxos[j].Value) > 0
+	})
+
+	// send a transaction to the burn address
+	sendAmount := types.Siacoins(10)
+	minerFee := types.Siacoins(1)
+	txn := types.Transaction{
+		MinerFees: []types.Currency{minerFee},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: types.VoidAddress, Value: sendAmount},
+		},
+	}
+
+	fundAmount := sendAmount.Add(minerFee)
+	toSign, release, err := w.FundTransaction(&txn, fundAmount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	if len(txn.SiacoinInputs) != 11 {
+		t.Fatalf("expected 10 additional defrag inputs, got %v", len(toSign)-1)
+	} else if len(txn.SiacoinOutputs) != 2 {
+		t.Fatalf("expected a change output, got %v", len(txn.SiacoinOutputs))
+	}
+
+	// check that the expected UTXOs were added
+	spent := []wallet.SiacoinElement{utxos[0]}
+	rem := utxos[90:]
+	for i := len(rem) - 1; i >= 0; i-- {
+		spent = append(spent, rem[i])
+	}
+
+	for i := range txn.SiacoinInputs {
+		if txn.SiacoinInputs[i].ParentID != spent[i].ID {
+			t.Fatalf("expected input %v to spend %v, got %v", i, spent[i].ID, txn.SiacoinInputs[i].ParentID)
+		}
+	}
+
+	if err := w.SignTransaction(w.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+		t.Fatal(err)
+	} else if err := w.TPool().AcceptTransactionSet([]types.Transaction{txn}); err != nil {
+		t.Fatal(err)
 	}
 }
