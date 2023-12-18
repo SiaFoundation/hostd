@@ -597,10 +597,5 @@ func validRenewalTxnSet(txnset []types.Transaction) error {
 	case len(txnset[len(txnset)-1].FileContractRevisions) != 1:
 		return errors.New("transaction set must contain exactly one file contract revision")
 	}
-	for _, txn := range txnset[:len(txnset)-1] {
-		if len(txn.FileContracts) != 0 || len(txn.FileContractRevisions) != 0 {
-			return errors.New("transaction set contains non-renewal transactions")
-		}
-	}
 	return nil
 }
