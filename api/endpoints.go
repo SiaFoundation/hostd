@@ -417,7 +417,7 @@ hostd_metrics_balance %s`
 		metrics.Contracts.Successful, metrics.Contracts.LockedCollateral.ExactString(), metrics.Contracts.RiskedCollateral.ExactString(), metrics.Storage.TotalSectors,
 		metrics.Storage.PhysicalSectors, metrics.Storage.ContractSectors, metrics.Storage.TempSectors, metrics.Storage.Reads, metrics.Storage.Writes, metrics.Storage.SectorCacheHits,
 		metrics.Storage.SectorCacheMisses, metrics.Registry.Entries, metrics.Registry.MaxEntries, metrics.Registry.Reads, metrics.Registry.Writes,
-		metrics.DataMetrics.RHP3.Ingress, metrics.DataMetrics.RHP3.Egress, metrics.Balance.ExactString(),
+		metrics.DataMetrics.RHP.Ingress, metrics.DataMetrics.RHP.Egress, metrics.Balance.ExactString(),
 	)
 
 	c.ResponseWriter.Write(buf.Bytes())
