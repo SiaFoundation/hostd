@@ -28,7 +28,9 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 + `9980` - UI and API
 + `9981` - Sia consensus
 + `9982` - RHP2
-+ `9983` - RHP3
++ `9983` - RHP3TCP
++ `9984` - RHP3WS
++ `9985` - Prometheus
 
 #### Testnet
 The Zen testnet version of `hostd` changes the default ports:
@@ -36,7 +38,9 @@ The Zen testnet version of `hostd` changes the default ports:
 + `9880` - UI and API
 + `9881` - Sia consensus
 + `9882` - RHP2
-+ `9883` - RHP3
++ `9883` - RHP3TCP
++ `9884` - RHP3WS
++ `9885` - Prometheus
 
 ### Environment Variables
 + `HOSTD_API_PASSWORD` - The password for the UI and API
@@ -76,6 +80,8 @@ The Zen testnet version of `hostd` changes the environment variables:
 	address to listen on for TCP RHP3 connections (default ":9983")
 -rhp3.ws string
 	address to listen on for WebSocket RHP3 connections (default ":9984")
+-prometheus string
+	address to serve prometheus metrics on (default "notset". a value of "notset" will not expose the prometheus metrics endpoint.)
 ```
 
 ### YAML

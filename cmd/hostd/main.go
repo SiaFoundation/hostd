@@ -52,6 +52,10 @@ var (
 			Level: "info",
 			Path:  os.Getenv(logPathEnvVariable),
 		},
+		Prometheus: config.Prometheus{
+			Address:  defaultPrometheusAddr,
+			Password: os.Getenv(apiPasswordEnvVariable),
+		},
 	}
 
 	disableStdin bool
@@ -221,9 +225,13 @@ func main() {
 	flag.StringVar(&cfg.RHP3.WebSocketAddress, "rhp3.ws", cfg.RHP3.WebSocketAddress, "address to listen on for WebSocket RHP3 connections")
 	// http
 	flag.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
+	// prometheus
+	flag.StringVar(&cfg.Prometheus.Address, "prometheus", "notset", "address to serve Prometheus metrics API on")
 	// log
 	flag.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
 	flag.Parse()
+
+	promIsSet := cfg.Prometheus.Address != "notset"
 
 	switch flag.Arg(0) {
 	case "version":
@@ -351,7 +359,9 @@ func main() {
 		}
 	}()
 
-	log.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
+	if !promIsSet {
+		log.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
+	}
 
 	go func() {
 		err := web.Serve(apiListener)
@@ -359,6 +369,32 @@ func main() {
 			log.Error("failed to serve web", zap.Error(err))
 		}
 	}()
+
+	if promIsSet {
+		prometheusListener, err := net.Listen("tcp", cfg.Prometheus.Address)
+		if err != nil {
+			log.Fatal("failed to listen on Prometheus metrics API address", zap.Error(err), zap.String("address", cfg.Prometheus.Address))
+		}
+		defer prometheusListener.Close()
+
+		prometheusauth := jape.BasicAuth(cfg.Prometheus.Password)
+		prometheusweb := http.Server{
+			Handler: prometheusRouter{
+				api: prometheusauth(api.NewServerPrometheus(cfg.Name, hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.accounts, node.storage, node.sessions, node.metrics, node.settings, node.w, log.Named("prometheus"))),
+			},
+			ReadTimeout: 30 * time.Second,
+		}
+		defer prometheusweb.Close()
+
+		go func() {
+			err := prometheusweb.Serve(prometheusListener)
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("failed to serve prometheus", zap.Error(err))
+			}
+		}()
+
+		log.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()), zap.String("prometheus", prometheusListener.Addr().String()))
+	}
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)

@@ -11,6 +11,10 @@ type webRouter struct {
 	api http.Handler
 }
 
+type prometheusRouter struct {
+	api http.Handler
+}
+
 func (wr webRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch {
 	case strings.HasPrefix(req.URL.Path, "/api"):
@@ -25,5 +29,22 @@ func (wr webRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.DefaultServeMux.ServeHTTP(w, req)
 	default:
 		wr.ui.ServeHTTP(w, req)
+	}
+}
+
+func (pr prometheusRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	switch {
+	case strings.HasPrefix(req.URL.Path, "/prometheus"):
+		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/prometheus") // strip the prefix
+		pr.api.ServeHTTP(w, req)
+	case strings.HasPrefix(req.URL.Path, "/debug/pprof"):
+		_, password, ok := req.BasicAuth()
+		if !ok || password != cfg.HTTP.Password {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		http.DefaultServeMux.ServeHTTP(w, req)
+	default:
+		pr.api.ServeHTTP(w, req)
 	}
 }

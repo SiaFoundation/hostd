@@ -8,9 +8,10 @@ const (
 	logPathEnvVariable     = "HOSTD_ZEN_LOG_PATH"
 	configPathEnvVariable  = "HOSTD_ZEN_CONFIG_FILE"
 
-	defaultAPIAddr     = ":9880"
-	defaultGatewayAddr = ":9881"
-	defaultRHP2Addr    = ":9882"
-	defaultRHP3TCPAddr = ":9883"
-	defaultRHP3WSAddr  = ":9884"
+	defaultAPIAddr        = ":9880"
+	defaultGatewayAddr    = ":9881"
+	defaultRHP2Addr       = ":9882"
+	defaultRHP3TCPAddr    = ":9883"
+	defaultRHP3WSAddr     = ":9884"
+	defaultPrometheusAddr = ":9885"
 )

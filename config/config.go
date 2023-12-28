@@ -33,16 +33,23 @@ type (
 		Level string `yaml:"level"`
 	}
 
+	// Prometheus contains the configuration for exporting Prometheus metrics
+	Prometheus struct {
+		Address  string `yaml:"address"`
+		Password string `yaml:"password"`
+	}
+
 	// Config contains the configuration for the host.
 	Config struct {
 		Name           string `yaml:"name"`
 		Directory      string `yaml:"directory"`
 		RecoveryPhrase string `yaml:"recoveryPhrase"`
 
-		HTTP      HTTP      `yaml:"http"`
-		Consensus Consensus `yaml:"consensus"`
-		RHP2      RHP2      `yaml:"rhp2"`
-		RHP3      RHP3      `yaml:"rhp3"`
-		Log       Log       `yaml:"log"`
+		HTTP       HTTP       `yaml:"http"`
+		Consensus  Consensus  `yaml:"consensus"`
+		RHP2       RHP2       `yaml:"rhp2"`
+		RHP3       RHP3       `yaml:"rhp3"`
+		Log        Log        `yaml:"log"`
+		Prometheus Prometheus `yaml:"prometheus"`
 	}
 )
