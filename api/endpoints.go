@@ -403,8 +403,6 @@ hostd_metrics_registry_entries %d
 hostd_metrics_registry_max_entries %d
 hostd_metrics_registry_reads %d
 hostd_metrics_registry_writes %d
-hostd_metrics_data_rhp2_ingress %d
-hostd_metrics_data_rhp2_egress %d
 hostd_metrics_data_rhp3_ingress %d
 hostd_metrics_data_rhp3_egress %d
 hostd_metrics_balance %s`
@@ -419,7 +417,7 @@ hostd_metrics_balance %s`
 		metrics.Contracts.Successful, metrics.Contracts.LockedCollateral.ExactString(), metrics.Contracts.RiskedCollateral.ExactString(), metrics.Storage.TotalSectors,
 		metrics.Storage.PhysicalSectors, metrics.Storage.ContractSectors, metrics.Storage.TempSectors, metrics.Storage.Reads, metrics.Storage.Writes, metrics.Storage.SectorCacheHits,
 		metrics.Storage.SectorCacheMisses, metrics.Registry.Entries, metrics.Registry.MaxEntries, metrics.Registry.Reads, metrics.Registry.Writes,
-		metrics.Data.RHP2.Ingress, metrics.Data.RHP2.Egress, metrics.Data.RHP3.Ingress, metrics.Data.RHP3.Egress, metrics.Balance.ExactString(),
+		metrics.DataMetrics.RHP3.Ingress, metrics.DataMetrics.RHP3.Egress, metrics.Balance.ExactString(),
 	)
 
 	c.ResponseWriter.Write(buf.Bytes())
