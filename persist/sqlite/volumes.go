@@ -21,12 +21,23 @@ var errNoSectorsToMigrate = errors.New("no sectors to migrate")
 func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(location storage.SectorLocation) error, log *zap.Logger) error {
 	start := time.Now()
 
-	var locks []int64
+	var locationLocks []int64
+	var sectorLock int64
 	var oldLoc, newLoc storage.SectorLocation
 	err := s.transaction(func(tx txn) (err error) {
 		oldLoc, err = sectorForMigration(tx, volumeID, startIndex)
 		if err != nil {
 			return fmt.Errorf("failed to get sector for migration: %w", err)
+		}
+
+		sectorDBID, err := sectorDBID(tx, oldLoc.Root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+
+		sectorLock, err = lockSector(tx, sectorDBID)
+		if err != nil {
+			return fmt.Errorf("failed to lock sector: %w", err)
 		}
 
 		newLoc, err = emptyLocationForMigration(tx, volumeID)
@@ -44,17 +55,19 @@ func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(
 		newLoc.Root = oldLoc.Root
 
 		// lock the old and new locations
-		locks, err = lockLocations(tx, []storage.SectorLocation{oldLoc, newLoc})
+		locationLocks, err = lockLocations(tx, []storage.SectorLocation{oldLoc, newLoc})
 		if err != nil {
 			return fmt.Errorf("failed to lock sectors: %w", err)
 		}
+
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to migrate sector: %w", err)
 	}
 	// unlock the locations
-	defer unlockLocations(&dbTxn{s}, locks)
+	defer unlockLocations(&dbTxn{s}, locationLocks)
+	defer unlockSector(&dbTxn{s}, sectorLock)
 
 	// call the migrateFn with the new location, data should be copied to the
 	// new location and synced to disk
