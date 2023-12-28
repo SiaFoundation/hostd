@@ -252,6 +252,7 @@ func main() {
 	flag.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	// log
 	flag.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
+	flag.Parse()
 
 	switch flag.Arg(0) {
 	case "version":
