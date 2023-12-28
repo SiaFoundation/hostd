@@ -10,6 +10,102 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion24 combines the rhp2 and rhp3 data metrics
+func migrateVersion24(tx txn, log *zap.Logger) error {
+	rows, err := tx.Query(`SELECT date_created, stat, stat_value FROM host_stats WHERE stat IN (?, ?, ?, ?) ORDER BY date_created ASC`, metricRHP2Ingress, metricRHP2Egress, metricRHP3Ingress, metricRHP3Egress)
+	if err != nil {
+		return fmt.Errorf("failed to query host stats: %w", err)
+	}
+	defer rows.Close()
+
+	type combinedStat struct {
+		timestamp time.Time
+		value     uint64
+	}
+
+	var lastRHP2Ingress, lastRHP2Egress uint64
+	var lastRHP3Ingress, lastRHP3Egress uint64
+	var dataPointsIngress []combinedStat
+	var dataPointsEgress []combinedStat
+
+	for rows.Next() {
+		var timestamp time.Time
+		var stat string
+		var value uint64
+		if err := rows.Scan((*sqlTime)(&timestamp), &stat, (*sqlUint64)(&value)); err != nil {
+			return fmt.Errorf("failed to scan host stat: %w", err)
+		}
+
+		switch stat {
+		case metricRHP2Ingress:
+			lastRHP2Ingress = value
+			stat = metricDataRHPIngress
+		case metricRHP2Egress:
+			lastRHP2Egress = value
+			stat = metricDataRHPEgress
+		case metricRHP3Ingress:
+			lastRHP3Ingress = value
+			stat = metricDataRHPIngress
+		case metricRHP3Egress:
+			lastRHP3Egress = value
+			stat = metricDataRHPEgress
+		}
+
+		switch stat {
+		case metricDataRHPIngress:
+			if len(dataPointsIngress) == 0 || !dataPointsIngress[len(dataPointsIngress)-1].timestamp.Equal(timestamp) {
+				dataPointsIngress = append(dataPointsIngress, combinedStat{timestamp, lastRHP2Ingress + lastRHP3Ingress})
+			} else {
+				dataPointsIngress[len(dataPointsIngress)-1].value = lastRHP2Ingress + lastRHP3Ingress
+			}
+		case metricDataRHPEgress:
+			if len(dataPointsEgress) == 0 || !dataPointsEgress[len(dataPointsEgress)-1].timestamp.Equal(timestamp) {
+				dataPointsEgress = append(dataPointsEgress, combinedStat{timestamp, lastRHP2Egress + lastRHP3Egress})
+			} else {
+				dataPointsEgress[len(dataPointsEgress)-1].value = lastRHP2Egress + lastRHP3Egress
+			}
+		}
+	}
+
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close rows: %w", err)
+	}
+
+	// add the new data points
+	for _, dataPoint := range dataPointsIngress {
+		if err := setNumericStat(tx, metricDataRHPIngress, dataPoint.value, dataPoint.timestamp); err != nil {
+			return fmt.Errorf("failed to set data ingress metric: %w", err)
+		}
+		log.Debug("added ingress datapoint", zap.Time("timestamp", dataPoint.timestamp), zap.Uint64("value", dataPoint.value))
+	}
+
+	for _, dataPoint := range dataPointsEgress {
+		if err := setNumericStat(tx, metricDataRHPEgress, dataPoint.value, dataPoint.timestamp); err != nil {
+			return fmt.Errorf("failed to set data egress metric: %w", err)
+		}
+		log.Debug("added egress datapoint", zap.Time("timestamp", dataPoint.timestamp), zap.Uint64("value", dataPoint.value))
+	}
+
+	// delete the old data points
+	if _, err := tx.Exec(`DELETE FROM host_stats WHERE stat IN (?, ?, ?, ?)`, metricRHP2Ingress, metricRHP2Egress, metricRHP3Ingress, metricRHP3Egress); err != nil {
+		return fmt.Errorf("failed to delete old data points: %w", err)
+	}
+	return nil
+}
+
+// migrateVersion23 creates the webhooks table.
+func migrateVersion23(tx txn, _ *zap.Logger) error {
+	const query = `CREATE TABLE webhooks (
+	id INTEGER PRIMARY KEY,
+	callback_url TEXT UNIQUE NOT NULL,
+	scopes TEXT NOT NULL,
+	secret_key TEXT UNIQUE NOT NULL
+);`
+
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion22 recalculates the locked and risked collateral and the
 // potential and earned revenue metrics which will be bugged if the host rescans
 // the blockchain.
@@ -592,4 +688,6 @@ var migrations = []func(tx txn, log *zap.Logger) error{
 	migrateVersion20,
 	migrateVersion21,
 	migrateVersion22,
+	migrateVersion23,
+	migrateVersion24,
 }

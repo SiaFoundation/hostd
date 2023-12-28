@@ -64,6 +64,13 @@ type (
 		Expiration uint64
 	}
 
+	// A SectorReference contains the references to a sector.
+	SectorReference struct {
+		Contracts   []types.FileContractID `json:"contracts"`
+		TempStorage int                    `json:"tempStorage"`
+		Locks       int                    `json:"locks"`
+	}
+
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
 		cacheHits   uint64 // ensure 64-bit alignment on 32-bit systems
@@ -416,6 +423,11 @@ func (vm *VolumeManager) Close() error {
 		delete(vm.volumes, id)
 	}
 	return nil
+}
+
+// SectorReferences returns the references to a sector.
+func (vm *VolumeManager) SectorReferences(root types.Hash256) (SectorReference, error) {
+	return vm.vs.SectorReferences(root)
 }
 
 // Usage returns the total and used storage space, in sectors, from the storage manager.
@@ -819,7 +831,7 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	// Cache miss, read from disk
 	loc, release, err := vm.vs.SectorLocation(root)
 	if err != nil {
-		return nil, fmt.Errorf("failed to locate sector %v: %w", root, err)
+		return nil, fmt.Errorf("failed to locate sector: %w", err)
 	}
 	defer release()
 
@@ -832,7 +844,7 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	vm.mu.Unlock()
 	sector, err := v.ReadSector(loc.Index)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read sector %v: %w", root, err)
+		return nil, fmt.Errorf("failed to read sector data: %w", err)
 	}
 
 	// Add sector to cache

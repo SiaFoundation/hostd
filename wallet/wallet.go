@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,18 @@ import (
 	"go.sia.tech/siad/modules"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap"
+)
+
+const (
+	// transactionDefragThreshold is the number of utxos at which the wallet
+	// will attempt to defrag itself by including small utxos in transactions.
+	transactionDefragThreshold = 30
+	// maxInputsForDefrag is the maximum number of inputs a transaction can
+	// have before the wallet will stop adding inputs
+	maxInputsForDefrag = 30
+	// maxDefragUTXOs is the maximum number of utxos that will be added to a
+	// transaction when defragging
+	maxDefragUTXOs = 10
 )
 
 // transaction sources indicate the source of a transaction. Transactions can
@@ -60,7 +73,7 @@ type (
 	// A Transaction is an on-chain transaction relevant to a particular wallet,
 	// paired with useful metadata.
 	Transaction struct {
-		ID          types.TransactionID `json:"ID"`
+		ID          types.TransactionID `json:"id"`
 		Index       types.ChainIndex    `json:"index"`
 		Transaction types.Transaction   `json:"transaction"`
 		Inflow      types.Currency      `json:"inflow"`
@@ -267,29 +280,68 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 	if err != nil {
 		return nil, nil, err
 	}
-	var inputSum types.Currency
-	var fundingElements []SiacoinElement
+
+	// remove locked and spent outputs
+	usableUTXOs := utxos[:0]
 	for _, sce := range utxos {
 		if sw.locked[sce.ID] || sw.tpoolSpent[sce.ID] || sw.consensusLocked[sce.ID] {
 			continue
 		}
-		fundingElements = append(fundingElements, sce)
-		inputSum = inputSum.Add(sce.Value)
+		usableUTXOs = append(usableUTXOs, sce)
+	}
+
+	// sort by value, descending
+	sort.Slice(usableUTXOs, func(i, j int) bool {
+		return usableUTXOs[i].Value.Cmp(usableUTXOs[j].Value) > 0
+	})
+
+	// fund the transaction using the largest utxos first
+	var selected []SiacoinElement
+	var inputSum types.Currency
+	for i, sce := range usableUTXOs {
 		if inputSum.Cmp(amount) >= 0 {
+			usableUTXOs = usableUTXOs[i:]
 			break
 		}
+		selected = append(selected, sce)
+		inputSum = inputSum.Add(sce.Value)
 	}
+
+	// if the transaction can't be funded, return an error
 	if inputSum.Cmp(amount) < 0 {
 		return nil, nil, ErrNotEnoughFunds
-	} else if inputSum.Cmp(amount) > 0 {
+	}
+
+	// check if remaining utxos should be defragged
+	txnInputs := len(txn.SiacoinInputs) + len(selected)
+	if len(usableUTXOs) > transactionDefragThreshold && txnInputs < maxInputsForDefrag {
+		// add the smallest utxos to the transaction
+		defraggable := usableUTXOs
+		if len(defraggable) > maxDefragUTXOs {
+			defraggable = defraggable[len(defraggable)-maxDefragUTXOs:]
+		}
+		for i := len(defraggable) - 1; i >= 0; i-- {
+			if txnInputs >= maxInputsForDefrag {
+				break
+			}
+
+			sce := defraggable[i]
+			selected = append(selected, sce)
+			inputSum = inputSum.Add(sce.Value)
+			txnInputs++
+		}
+	}
+
+	// add a change output if necessary
+	if inputSum.Cmp(amount) > 0 {
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 			Value:   inputSum.Sub(amount),
 			Address: sw.addr,
 		})
 	}
 
-	toSign := make([]types.Hash256, len(fundingElements))
-	for i, sce := range fundingElements {
+	toSign := make([]types.Hash256, len(selected))
+	for i, sce := range selected {
 		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
 			ParentID:         types.SiacoinOutputID(sce.ID),
 			UnlockConditions: types.StandardUnlockConditions(sw.priv.PublicKey()),

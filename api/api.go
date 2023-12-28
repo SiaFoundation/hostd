@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
+	rhp2 "go.sia.tech/core/rhp/v2"
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
@@ -16,6 +17,7 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
@@ -63,6 +65,10 @@ type (
 		SetReadOnly(id int64, readOnly bool) error
 		RemoveSector(root types.Hash256) error
 		ResizeCache(size uint32)
+		Read(types.Hash256) (*[rhp2.SectorSize]byte, error)
+
+		// SectorReferences returns the references to a sector
+		SectorReferences(root types.Hash256) (storage.SectorReference, error)
 	}
 
 	// A ContractManager manages the host's contracts
@@ -108,6 +114,15 @@ type (
 		AcceptTransactionSet(txns []types.Transaction) error
 	}
 
+	// WebHooks manages webhooks
+	WebHooks interface {
+		WebHooks() ([]webhooks.WebHook, error)
+		RegisterWebHook(callbackURL string, scopes []string) (webhooks.WebHook, error)
+		UpdateWebHook(id int64, callbackURL string, scopes []string) (webhooks.WebHook, error)
+		RemoveWebHook(id int64) error
+		BroadcastToWebhook(id int64, event, scope string, data interface{}) error
+	}
+
 	// A RHPSessionReporter reports on RHP session lifecycle events
 	RHPSessionReporter interface {
 		Subscribe(rhp.SessionSubscriber)
@@ -124,6 +139,7 @@ type (
 		log *zap.Logger
 
 		alerts    Alerts
+		webhooks  WebHooks
 		syncer    Syncer
 		chain     ChainManager
 		tpool     TPool
@@ -141,12 +157,13 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
 		name:    name,
 
 		alerts:    a,
+		webhooks:  wh,
 		syncer:    g,
 		chain:     chain,
 		tpool:     tp,
@@ -198,7 +215,8 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		"GET /accounts":                  api.handleGETAccounts,
 		"GET /accounts/:account/funding": api.handleGETAccountFunding,
 		// sector endpoints
-		"DELETE /sectors/:root": api.handleDeleteSector,
+		"DELETE /sectors/:root":     api.handleDeleteSector,
+		"GET /sectors/:root/verify": api.handleGETVerifySector,
 		// volume endpoints
 		"GET /volumes":               api.handleGETVolumes,
 		"POST /volumes":              api.handlePOSTVolume,
@@ -220,6 +238,12 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain C
 		// system endpoints
 		"GET /system/dir": api.handleGETSystemDir,
 		"PUT /system/dir": api.handlePUTSystemDir,
+		// webhook endpoints
+		"GET /webhooks":           api.handleGETWebhooks,
+		"POST /webhooks":          api.handlePOSTWebhooks,
+		"PUT /webhooks/:id":       api.handlePUTWebhooks,
+		"POST /webhooks/:id/test": api.handlePOSTWebhooksTest,
+		"DELETE /webhooks/:id":    api.handleDELETEWebhooks,
 	})
 }
 

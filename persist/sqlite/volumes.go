@@ -312,9 +312,7 @@ func (s *Store) MigrateSectors(volumeID int64, startIndex uint64, migrateFn func
 // store. GrowVolume must be called afterwards to initialize the volume
 // to its desired size.
 func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int64, err error) {
-	const query = `INSERT INTO storage_volumes (disk_path, read_only, used_sectors, total_sectors) VALUES (?, ?, 0, 0) RETURNING id;`
-	err = s.queryRow(query, localPath, readOnly).Scan(&volumeID)
-	return
+	return addVolume(&dbTxn{s}, localPath, readOnly)
 }
 
 // RemoveVolume removes a storage volume from the volume store. If there
@@ -345,34 +343,7 @@ func (s *Store) GrowVolume(id int64, maxSectors uint64) error {
 	}
 
 	return s.transaction(func(tx txn) error {
-		var nextIndex uint64
-		err := tx.QueryRow(`SELECT total_sectors FROM storage_volumes WHERE id=?;`, id).Scan(&nextIndex)
-		if err != nil {
-			return fmt.Errorf("failed to get last volume index: %w", err)
-		}
-
-		if nextIndex >= maxSectors {
-			panic(fmt.Errorf("nextIndex must be less than maxSectors: %v < %v", nextIndex, maxSectors)) // dev error
-		}
-
-		insertStmt, err := tx.Prepare(`INSERT INTO volume_sectors (volume_id, volume_index) VALUES ($1, $2);`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare statement: %w", err)
-		}
-		defer insertStmt.Close()
-
-		for i := nextIndex; i < maxSectors; i++ {
-			if _, err = insertStmt.Exec(id, i); err != nil {
-				return fmt.Errorf("failed to grow volume: %w", err)
-			}
-		}
-
-		if _, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id); err != nil {
-			return fmt.Errorf("failed to update volume metadata: %w", err)
-		} else if err := incrementNumericStat(tx, metricTotalSectors, int(maxSectors-nextIndex), time.Now()); err != nil {
-			return fmt.Errorf("failed to update total sectors metric: %w", err)
-		}
-		return nil
+		return growVolume(tx, id, maxSectors)
 	})
 }
 
@@ -451,6 +422,43 @@ func insertSectorDBID(tx txn, root types.Hash256) (id int64, err error) {
 		return
 	}
 	return
+}
+
+func addVolume(tx txn, localPath string, readOnly bool) (volumeID int64, err error) {
+	const query = `INSERT INTO storage_volumes (disk_path, read_only, used_sectors, total_sectors) VALUES (?, ?, 0, 0) RETURNING id;`
+	err = tx.QueryRow(query, localPath, readOnly).Scan(&volumeID)
+	return
+}
+
+func growVolume(tx txn, id int64, maxSectors uint64) error {
+	var nextIndex uint64
+	err := tx.QueryRow(`SELECT total_sectors FROM storage_volumes WHERE id=?;`, id).Scan(&nextIndex)
+	if err != nil {
+		return fmt.Errorf("failed to get last volume index: %w", err)
+	}
+
+	if nextIndex >= maxSectors {
+		return nil // volume is already large enough
+	}
+
+	insertStmt, err := tx.Prepare(`INSERT INTO volume_sectors (volume_id, volume_index) VALUES ($1, $2);`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer insertStmt.Close()
+
+	for i := nextIndex; i < maxSectors; i++ {
+		if _, err = insertStmt.Exec(id, i); err != nil {
+			return fmt.Errorf("failed to grow volume: %w", err)
+		}
+	}
+
+	if _, err = tx.Exec(`UPDATE storage_volumes SET total_sectors=$1 WHERE id=$2`, maxSectors, id); err != nil {
+		return fmt.Errorf("failed to update volume metadata: %w", err)
+	} else if err := incrementNumericStat(tx, metricTotalSectors, int(maxSectors-nextIndex), time.Now()); err != nil {
+		return fmt.Errorf("failed to update total sectors metric: %w", err)
+	}
+	return nil
 }
 
 // sectorLocation returns the location of a sector.

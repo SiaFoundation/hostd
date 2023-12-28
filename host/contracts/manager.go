@@ -254,6 +254,11 @@ func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset in
 	return cm.getSectorRoots(id, limit, offset)
 }
 
+// ScanHeight returns the height of the last block processed by the contract
+func (cm *ContractManager) ScanHeight() uint64 {
+	return atomic.LoadUint64(&cm.blockHeight)
+}
+
 // ProcessConsensusChange applies a block update to the contract manager.
 func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	done, err := cm.tg.Add()
@@ -432,7 +437,6 @@ func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	scanHeight := uint64(cc.BlockHeight)
-	atomic.StoreUint64(&cm.blockHeight, scanHeight)
 	log.Debug("consensus change applied", zap.Uint64("height", scanHeight), zap.String("changeID", cc.ID.String()))
 
 	// if the last block is more than 3 days old, skip action processing until

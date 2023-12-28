@@ -97,14 +97,14 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	// check if a block containing the announcement was reverted
-	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + uint64(len(cc.RevertedBlocks)) + 1
+	blockHeight := uint64(cc.BlockHeight)
 	for _, block := range cc.RevertedBlocks {
 		if types.BlockID(block.ID()) == lastAnnouncement.Index.ID {
+			log.Info("resetting announcement due to block revert", zap.Uint64("height", blockHeight), zap.String("address", lastAnnouncement.Address), zap.Stringer("publicKey", hostPub))
 			if err = cm.store.RevertLastAnnouncement(); err != nil {
 				log.Fatal("failed to revert last announcement", zap.Error(err))
 			}
 		}
-		lastAnnouncement = Announcement{}
 		blockHeight--
 	}
 
@@ -134,7 +134,6 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				if err := cm.store.UpdateLastAnnouncement(announcement); err != nil {
 					log.Fatal("failed to update last announcement", zap.Error(err))
 				}
-				lastAnnouncement = announcement
 				cm.a.Register(alerts.Alert{
 					ID:       alertAnnouncementID,
 					Severity: alerts.SeverityInfo,
@@ -151,30 +150,38 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 		blockHeight++
 	}
 
+	// get the last announcement again, in case it was updated
+	lastAnnouncement, err = cm.store.LastAnnouncement()
+	if err != nil {
+		log.Fatal("failed to get last announcement", zap.Error(err))
+	}
+
 	// get the current net address
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	currentNetAddress := cm.settings.NetAddress
 	cm.scanHeight = uint64(cc.BlockHeight)
 	timestamp := time.Unix(int64(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp), 0)
+	nextAnnounceHeight := lastAnnouncement.Index.Height + autoAnnounceInterval
+
+	log = log.With(zap.Uint64("currentHeight", cm.scanHeight), zap.Uint64("lastHeight", lastAnnouncement.Index.Height), zap.Uint64("nextHeight", nextAnnounceHeight), zap.String("currentAddress", currentNetAddress), zap.String("oldAddress", lastAnnouncement.Address))
+
+	// if the address hasn't changed, don't reannounce
+	if cm.scanHeight < nextAnnounceHeight && currentNetAddress == lastAnnouncement.Address {
+		log.Debug("skipping announcement")
+		return
+	}
 
 	// debounce announcements
 	if cm.scanHeight < cm.lastAnnounceAttempt+announcementDebounce || time.Since(timestamp) > 3*time.Hour {
 		return
 	}
 
-	nextAnnounceHeight := lastAnnouncement.Index.Height + autoAnnounceInterval
-	// if the address hasn't changed, don't reannounce
-	if currentNetAddress == lastAnnouncement.Address && cm.scanHeight < nextAnnounceHeight {
-		return
-	}
-
-	log.Debug("announcing host", zap.Uint64("height", cm.scanHeight), zap.Uint64("lastAttempt", cm.lastAnnounceAttempt))
+	log.Debug("announcing host")
 	cm.lastAnnounceAttempt = cm.scanHeight
 
 	// in go-routine to prevent deadlock with TPool
 	go func() {
-		log = log.With(zap.String("address", currentNetAddress), zap.String("oldAddress", lastAnnouncement.Address), zap.Uint64("lastHeight", lastAnnouncement.Index.Height))
 		if err := cm.Announce(); err != nil {
 			log.Error("failed to announce host", zap.Error(err))
 			cm.a.Register(alerts.Alert{

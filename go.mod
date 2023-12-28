@@ -7,12 +7,13 @@ require (
 	github.com/cloudflare/cloudflare-go v0.75.0
 	github.com/hashicorp/golang-lru/v2 v2.0.5
 	github.com/mattn/go-sqlite3 v1.14.17
+	gitlab.com/NebulousLabs/bolt v1.4.4
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	go.sia.tech/core v0.1.12-0.20231011160830-b58e9e8ec3ce
+	go.sia.tech/core v0.1.12-0.20231211182757-77190f04f90b
 	go.sia.tech/jape v0.10.0
 	go.sia.tech/renterd v0.6.0
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
-	go.sia.tech/web/hostd v0.27.0
+	go.sia.tech/web/hostd v0.31.4
 	go.uber.org/zap v1.25.0
 	golang.org/x/sys v0.12.0
 	golang.org/x/term v0.12.0
@@ -38,7 +39,6 @@ require (
 	github.com/klauspost/reedsolomon v1.11.8 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	gitlab.com/NebulousLabs/bolt v1.4.4 // indirect
 	gitlab.com/NebulousLabs/demotemutex v0.0.0-20151003192217-235395f71c40 // indirect
 	gitlab.com/NebulousLabs/entropy-mnemonics v0.0.0-20181018051301-7532f67e3500 // indirect
 	gitlab.com/NebulousLabs/errors v0.0.0-20200929122200-06c536cf6975 // indirect

@@ -45,7 +45,7 @@ type (
 		Network   string    `json:"network"`
 		Version   string    `json:"version"`
 		Commit    string    `json:"commit"`
-		OS        string    `json:"OS"`
+		OS        string    `json:"os"`
 		BuildTime time.Time `json:"buildTime"`
 	}
 
@@ -141,6 +141,18 @@ type (
 	// A CreateDirRequest is the request body for the [POST] /system/dir endpoint.
 	CreateDirRequest struct {
 		Path string `json:"path"`
+	}
+
+	// VerifySectorResponse is the response body for the [GET] /sectors/:root/verify endpoint.
+	VerifySectorResponse struct {
+		storage.SectorReference
+		Error string `json:"error,omitempty"`
+	}
+
+	// RegisterWebHookRequest is the request body for the [POST] /webhooks endpoint.
+	RegisterWebHookRequest struct {
+		CallbackURL string   `json:"callbackURL"`
+		Scopes      []string `json:"scopes"`
 	}
 )
 

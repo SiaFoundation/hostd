@@ -46,9 +46,9 @@ func (w *Wallet) SendSiacoins(outputs []types.SiacoinOutput) (txn types.Transact
 	}
 	defer release()
 	if err := w.SignTransaction(w.ChainManager().TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
-		return types.Transaction{}, fmt.Errorf("failed to sign transaction: %w", err)
+		return txn, fmt.Errorf("failed to sign transaction: %w", err)
 	} else if err := w.tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
-		return types.Transaction{}, fmt.Errorf("failed to accept transaction set: %w", err)
+		return txn, fmt.Errorf("failed to accept transaction set: %w", err)
 	}
 	return txn, nil
 }

@@ -29,8 +29,13 @@ type (
 		RegistryWrite types.Currency `json:"registryWrite"`
 	}
 
-	// Data is a collection of metrics related to data usage.
-	Data struct {
+	// DataMetrics is a collection of metrics related to data usage.
+	DataMetrics struct {
+		RHP RHPData `json:"rhp"`
+	}
+
+	// RHPData is a collection of data metrics related to the RHP.
+	RHPData struct {
 		// Ingress returns the number of bytes received by the host.
 		Ingress uint64 `json:"ingress"`
 		// Egress returns the number of bytes sent by the host.
@@ -93,12 +98,6 @@ type (
 	RevenueMetrics struct {
 		Potential Revenue `json:"potential"`
 		Earned    Revenue `json:"earned"`
-	}
-
-	// DataMetrics is a collection of metrics related to data usage.
-	DataMetrics struct {
-		RHP2 Data `json:"rhp2"`
-		RHP3 Data `json:"rhp3"`
 	}
 
 	// Metrics is a collection of metrics for the host.

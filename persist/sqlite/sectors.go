@@ -166,6 +166,75 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 	}
 }
 
+// HasSector returns true if the sector is stored on the host.
+func (s *Store) HasSector(root types.Hash256) (bool, error) {
+	var dbID int64
+	err := s.queryRow(`SELECT id FROM stored_sectors WHERE sector_root=$1`, sqlHash256(root)).Scan(&dbID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// SectorReferences returns the references, if any of a sector root
+func (s *Store) SectorReferences(root types.Hash256) (refs storage.SectorReference, err error) {
+	err = s.transaction(func(tx txn) error {
+		dbID, err := sectorDBID(tx, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+
+		// check if the sector is referenced by a contract
+		refs.Contracts, err = contractSectorRefs(tx, dbID)
+		if err != nil {
+			return fmt.Errorf("failed to get contracts: %w", err)
+		}
+
+		// check if the sector is referenced by temp storage
+		refs.TempStorage, err = getTempStorageCount(tx, dbID)
+		if err != nil {
+			return fmt.Errorf("failed to get temp storage: %w", err)
+		}
+
+		// check if the sector is locked
+		refs.Locks, err = getSectorLockCount(tx, dbID)
+		if err != nil {
+			return fmt.Errorf("failed to get locks: %w", err)
+		}
+		return nil
+	})
+	return
+}
+
+func contractSectorRefs(tx txn, sectorID int64) (contractIDs []types.FileContractID, err error) {
+	rows, err := tx.Query(`SELECT DISTINCT contract_id FROM contract_sector_roots WHERE sector_id=$1;`, sectorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select contracts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var contractID types.FileContractID
+		if err := rows.Scan((*sqlHash256)(&contractID)); err != nil {
+			return nil, fmt.Errorf("failed to scan contract id: %w", err)
+		}
+		contractIDs = append(contractIDs, contractID)
+	}
+	return
+}
+
+func getTempStorageCount(tx txn, sectorID int64) (n int, err error) {
+	err = tx.QueryRow(`SELECT COUNT(*) FROM temp_storage_sector_roots WHERE sector_id=$1;`, sectorID).Scan(&n)
+	return
+}
+
+func getSectorLockCount(tx txn, sectorID int64) (n int, err error) {
+	err = tx.QueryRow(`SELECT COUNT(*) FROM locked_sectors WHERE sector_id=$1;`, sectorID).Scan(&n)
+	return
+}
+
 func incrementVolumeUsage(tx txn, volumeID int64, delta int) error {
 	var used int64
 	err := tx.QueryRow(`UPDATE storage_volumes SET used_sectors=used_sectors+$1 WHERE id=$2 RETURNING used_sectors;`, delta, volumeID).Scan(&used)

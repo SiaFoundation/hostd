@@ -3,6 +3,7 @@ package contracts
 import (
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
@@ -74,6 +75,7 @@ func (cm *ContractManager) processActions() {
 			if err != nil {
 				cm.log.Panic("failed to process contract actions", zap.Error(err), zap.Stack("stack"))
 			}
+			atomic.StoreUint64(&cm.blockHeight, height)
 		case <-cm.tg.Done():
 			return
 		}

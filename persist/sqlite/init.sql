@@ -196,6 +196,13 @@ CREATE TABLE host_settings (
 	sector_cache_size INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE webhooks (
+	id INTEGER PRIMARY KEY,
+	callback_url TEXT UNIQUE NOT NULL,
+	scopes TEXT NOT NULL,
+	secret_key TEXT UNIQUE NOT NULL
+);
+
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations

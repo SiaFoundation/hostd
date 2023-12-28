@@ -22,6 +22,7 @@ import (
 	rhp2 "go.sia.tech/hostd/rhp/v2"
 	rhp3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.uber.org/zap"
 )
 
@@ -144,6 +145,11 @@ func (h *Host) Storage() *storage.VolumeManager {
 	return h.storage
 }
 
+// Settings returns the host's settings manager
+func (h *Host) Settings() *settings.ConfigManager {
+	return h.settings
+}
+
 // PublicKey returns the host's public key
 func (h *Host) PublicKey() types.PublicKey {
 	return h.privKey.PublicKey()
@@ -161,6 +167,27 @@ func (h *Host) Store() *sqlite.Store {
 
 // NewHost initializes a new test host
 func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) (*Host, error) {
+	host, err := NewEmptyHost(privKey, dir, node, log)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(chan error, 1)
+	if _, err := host.Storage().AddVolume(context.Background(), filepath.Join(dir, "storage.dat"), 64, result); err != nil {
+		return nil, fmt.Errorf("failed to add storage volume: %w", err)
+	} else if err := <-result; err != nil {
+		return nil, fmt.Errorf("failed to add storage volume: %w", err)
+	}
+	s := DefaultSettings
+	s.NetAddress = host.RHP2Addr()
+	if err := host.Settings().UpdateSettings(s); err != nil {
+		return nil, fmt.Errorf("failed to update host settings: %w", err)
+	}
+	return host, nil
+}
+
+// NewEmptyHost initializes a new test host
+func NewEmptyHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) (*Host, error) {
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
@@ -171,16 +198,15 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	am := alerts.NewManager()
+	wr, err := webhooks.NewManager(db, log.Named("webhooks"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create webhook reporter: %w", err)
+	}
+
+	am := alerts.NewManager(wr, log.Named("alerts"))
 	storage, err := storage.NewVolumeManager(db, am, node.cm, log.Named("storage"), DefaultSettings.SectorCacheSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
-	}
-	result := make(chan error, 1)
-	if _, err := storage.AddVolume(context.Background(), filepath.Join(dir, "storage.dat"), 64, result); err != nil {
-		return nil, fmt.Errorf("failed to add storage volume: %w", err)
-	} else if err := <-result; err != nil {
-		return nil, fmt.Errorf("failed to add storage volume: %w", err)
 	}
 
 	contracts, err := contracts.NewManager(db, am, storage, node.cm, node.tp, wallet, log.Named("contracts"))
@@ -201,11 +227,6 @@ func NewHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger) 
 	settings, err := settings.NewConfigManager(dir, privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, am, log.Named("settings"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
-	}
-	s := DefaultSettings
-	s.NetAddress = rhp2Listener.Addr().String()
-	if err := settings.UpdateSettings(s); err != nil {
-		return nil, fmt.Errorf("failed to update host settings: %w", err)
 	}
 
 	registry := registry.NewManager(privKey, db, log.Named("registry"))

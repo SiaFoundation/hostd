@@ -149,6 +149,35 @@ func mustGetSeedPhrase(log *zap.Logger) string {
 	}
 }
 
+func startAPIListener(log *zap.Logger) (l net.Listener, err error) {
+	addr, port, err := net.SplitHostPort(cfg.HTTP.Address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse API address: %w", err)
+	}
+
+	// if the address is not localhost, listen on the address as-is
+	if addr != "localhost" {
+		return net.Listen("tcp", cfg.HTTP.Address)
+	}
+
+	// localhost fails on some new installs of Windows 11, so try a few
+	// different addresses
+	tryAddresses := []string{
+		net.JoinHostPort("localhost", port), // original address
+		net.JoinHostPort("127.0.0.1", port), // IPv4 loopback
+		net.JoinHostPort("::1", port),       // IPv6 loopback
+	}
+
+	for _, addr := range tryAddresses {
+		l, err = net.Listen("tcp", addr)
+		if err == nil {
+			return
+		}
+		log.Warn("failed to listen on address", zap.String("address", addr), zap.Error(err))
+	}
+	return
+}
+
 // mustSetWalletkey prompts the user to enter a wallet seed phrase if one is not
 // already set via environment variable or config file.
 func mustSetWalletkey(log *zap.Logger) {
@@ -229,7 +258,6 @@ func main() {
 	flag.StringVar(&cfg.Prometheus.Address, "prometheus", "notset", "address to serve Prometheus metrics API on")
 	// log
 	flag.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
-	flag.Parse()
 
 	promIsSet := cfg.Prometheus.Address != "notset"
 
@@ -316,7 +344,7 @@ func main() {
 		log.Fatal("unable to create config directory", zap.Error(err))
 	}
 
-	apiListener, err := net.Listen("tcp", cfg.HTTP.Address)
+	apiListener, err := startAPIListener(log)
 	if err != nil {
 		log.Fatal("failed to listen on API address", zap.Error(err), zap.String("address", cfg.HTTP.Address))
 	}
@@ -337,7 +365,7 @@ func main() {
 	auth := jape.BasicAuth(cfg.HTTP.Password)
 	web := http.Server{
 		Handler: webRouter{
-			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), node.a, node.g, node.cm, node.tp, node.contracts, node.accounts, node.storage, node.sessions, node.metrics, node.settings, node.w, log.Named("api"))),
+			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), node.a, node.wh, node.g, node.cm, node.tp, node.contracts, node.accounts, node.storage, node.sessions, node.metrics, node.settings, node.w, log.Named("api"))),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,

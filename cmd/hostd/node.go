@@ -21,6 +21,7 @@ import (
 	rhp2 "go.sia.tech/hostd/rhp/v2"
 	rhp3 "go.sia.tech/hostd/rhp/v3"
 	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
@@ -31,6 +32,7 @@ import (
 type node struct {
 	g     modules.Gateway
 	a     *alerts.Manager
+	wh    *webhooks.Manager
 	cm    *chain.Manager
 	tp    *chain.TransactionPool
 	w     *wallet.SingleAddressWallet
@@ -43,24 +45,23 @@ type node struct {
 	registry  *registry.Manager
 	storage   *storage.VolumeManager
 
-	sessions    *rhp.SessionReporter
-	rhp2Monitor *rhp.DataRecorder
-	rhp2        *rhp2.SessionHandler
-	rhp3Monitor *rhp.DataRecorder
-	rhp3        *rhp3.SessionHandler
+	sessions *rhp.SessionReporter
+	data     *rhp.DataRecorder
+	rhp2     *rhp2.SessionHandler
+	rhp3     *rhp3.SessionHandler
 }
 
 func (n *node) Close() error {
 	n.rhp3.Close()
 	n.rhp2.Close()
-	n.rhp2Monitor.Close()
-	n.rhp3Monitor.Close()
+	n.data.Close()
 	n.storage.Close()
 	n.contracts.Close()
 	n.w.Close()
 	n.tp.Close()
 	n.cm.Close()
 	n.g.Close()
+	n.wh.Close()
 	n.store.Close()
 	return nil
 }
@@ -145,6 +146,11 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
+	webhookReporter, err := webhooks.NewManager(db, logger.Named("webhooks"))
+	if err != nil {
+		return nil, types.PrivateKey{}, fmt.Errorf("failed to create webhook reporter: %w", err)
+	}
+
 	rhp2Listener, err := net.Listen("tcp", cfg.RHP2.Address)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to listen on rhp2 addr: %w", err)
@@ -162,7 +168,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	discoveredAddr := net.JoinHostPort(g.Address().Host(), rhp2Port)
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
-	am := alerts.NewManager()
+	am := alerts.NewManager(webhookReporter, logger.Named("alerts"))
 	sr, err := settings.NewConfigManager(cfg.Directory, hostKey, discoveredAddr, db, cm, tp, w, am, logger.Named("settings"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
@@ -183,14 +189,13 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 
 	sessions := rhp.NewSessionReporter()
 
-	rhp2Monitor := rhp.NewDataRecorder(&rhp2MonitorStore{db}, logger.Named("rhp2Monitor"))
-	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, tp, w, contractManager, sr, sm, rhp2Monitor, sessions, logger.Named("rhp2"))
+	dm := rhp.NewDataRecorder(db, logger.Named("data"))
+	rhp2, err := startRHP2(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, tp, w, contractManager, sr, sm, dm, sessions, logger.Named("rhp2"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
-	rhp3Monitor := rhp.NewDataRecorder(&rhp3MonitorStore{db}, logger.Named("rhp3Monitor"))
-	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, tp, w, accountManager, contractManager, registryManager, sr, sm, rhp3Monitor, sessions, logger.Named("rhp3"))
+	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, tp, w, accountManager, contractManager, registryManager, sr, sm, dm, sessions, logger.Named("rhp3"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}
@@ -198,6 +203,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	return &node{
 		g:     g,
 		a:     am,
+		wh:    webhookReporter,
 		cm:    cm,
 		tp:    tp,
 		w:     w,
@@ -210,10 +216,9 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		storage:   sm,
 		registry:  registryManager,
 
-		sessions:    sessions,
-		rhp2Monitor: rhp2Monitor,
-		rhp2:        rhp2,
-		rhp3Monitor: rhp3Monitor,
-		rhp3:        rhp3,
+		sessions: sessions,
+		data:     dm,
+		rhp2:     rhp2,
+		rhp3:     rhp3,
 	}, hostKey, nil
 }

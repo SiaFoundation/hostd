@@ -42,10 +42,21 @@ const (
 	metricRegistryWrites     = "registryWrites"
 
 	// bandwidth
+	metricDataRHPIngress = "dataIngress"
+	metricDataRHPEgress  = "dataEgress"
+
+	// metricRHP2Ingress
+	// Deprecated: combined into metricDataRHPIngress
 	metricRHP2Ingress = "rhp2Ingress"
-	metricRHP2Egress  = "rhp2Egress"
+	// metricRHP2Egress
+	// Deprecated: combined into metricDataRHPEgress
+	metricRHP2Egress = "rhp2Egress"
+	// metricRHP3Ingress
+	// Deprecated: combined into metricDataRHPIngress
 	metricRHP3Ingress = "rhp3Ingress"
-	metricRHP3Egress  = "rhp3Egress"
+	// metricRHP3Egress
+	// Deprecated: combined into metricDataRHPEgress
+	metricRHP3Egress = "rhp3Egress"
 
 	// pricing
 	metricContractPrice        = "contractPrice"
@@ -227,33 +238,16 @@ JOIN (
 	return
 }
 
-// IncrementRHP2DataUsage increments the RHP2 ingress and egress metrics.
-func (s *Store) IncrementRHP2DataUsage(ingress, egress uint64) error {
+// IncrementRHPDataUsage increments the RHP3 ingress and egress metrics.
+func (s *Store) IncrementRHPDataUsage(ingress, egress uint64) error {
 	return s.transaction(func(tx txn) error {
 		if ingress > 0 {
-			if err := incrementNumericStat(tx, metricRHP2Ingress, int(ingress), time.Now()); err != nil {
+			if err := incrementNumericStat(tx, metricDataRHPIngress, int(ingress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
 			}
 		}
 		if egress > 0 {
-			if err := incrementNumericStat(tx, metricRHP2Egress, int(egress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track egress: %w", err)
-			}
-		}
-		return nil
-	})
-}
-
-// IncrementRHP3DataUsage increments the RHP3 ingress and egress metrics.
-func (s *Store) IncrementRHP3DataUsage(ingress, egress uint64) error {
-	return s.transaction(func(tx txn) error {
-		if ingress > 0 {
-			if err := incrementNumericStat(tx, metricRHP3Ingress, int(ingress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track ingress: %w", err)
-			}
-		}
-		if egress > 0 {
-			if err := incrementNumericStat(tx, metricRHP3Egress, int(egress), time.Now()); err != nil {
+			if err := incrementNumericStat(tx, metricDataRHPEgress, int(egress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track egress: %w", err)
 			}
 		}
@@ -390,14 +384,10 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 	case metricRegistryWrites:
 		m.Registry.Writes = mustScanUint64(buf)
 	// bandwidth
-	case metricRHP2Ingress:
-		m.Data.RHP2.Ingress = mustScanUint64(buf)
-	case metricRHP2Egress:
-		m.Data.RHP2.Egress = mustScanUint64(buf)
-	case metricRHP3Ingress:
-		m.Data.RHP3.Ingress = mustScanUint64(buf)
-	case metricRHP3Egress:
-		m.Data.RHP3.Egress = mustScanUint64(buf)
+	case metricDataRHPIngress:
+		m.Data.RHP.Ingress = mustScanUint64(buf)
+	case metricDataRHPEgress:
+		m.Data.RHP.Egress = mustScanUint64(buf)
 	// potential revenue
 	case metricPotentialRPCRevenue:
 		m.Revenue.Potential.RPC = mustScanCurrency(buf)

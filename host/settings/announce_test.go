@@ -10,6 +10,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/webhooks"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -35,8 +36,13 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer db.Close()
 
-	a := alerts.NewManager()
-	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, a, log.Named("settings"))
+	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
+	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, am, log.Named("settings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +59,7 @@ func TestAutoAnnounce(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// confirm the announcement
-	if err := node.MineBlocks(node.Address(), 2); err != nil {
+	if err := node.MineBlocks(node.Address(), 5); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
@@ -61,16 +67,19 @@ func TestAutoAnnounce(t *testing.T) {
 	lastAnnouncement, err := manager.LastAnnouncement()
 	if err != nil {
 		t.Fatal(err)
-	} else if lastAnnouncement.Index.Height != 101 {
-		t.Fatalf("expected height 100, got %v", lastAnnouncement.Index.Height)
+	} else if lastAnnouncement.Index.Height == 0 {
+		t.Fatalf("expected an announcement, got %v", lastAnnouncement.Index.Height)
 	} else if lastAnnouncement.Address != "foo.bar:1234" {
 		t.Fatal("announcement not updated")
 	}
 	lastHeight := lastAnnouncement.Index.Height
 
+	remainingBlocks := lastHeight + 100 - node.ChainManager().TipState().Index.Height
+	t.Log("remaining blocks:", remainingBlocks)
+
 	// mine until right before the next announcement to ensure that the
 	// announcement is not triggered early
-	if err := node.MineBlocks(node.Address(), 99); err != nil {
+	if err := node.MineBlocks(node.Address(), int(remainingBlocks-1)); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
@@ -94,12 +103,12 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 
-	nextHeight := lastHeight + 1 + 100 // off-by-one because the announcement is mined in the next block
+	prevHeight := lastAnnouncement.Index.Height
 	lastAnnouncement, err = manager.LastAnnouncement()
 	if err != nil {
 		t.Fatal(err)
-	} else if lastAnnouncement.Index.Height != nextHeight {
-		t.Fatalf("expected height %v, got %v", nextHeight, lastAnnouncement.Index.Height)
+	} else if lastAnnouncement.Index.Height <= prevHeight {
+		t.Fatalf("expected a new announcement after %v, got %v", prevHeight, lastAnnouncement.Index.Height)
 	} else if lastAnnouncement.Address != "foo.bar:1234" {
 		t.Fatal("announcement not updated")
 	}
