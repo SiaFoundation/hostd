@@ -40,7 +40,7 @@ type (
 		Level      string `yaml:"level"` // override the stdout log level
 		Enabled    bool   `yaml:"enabled"`
 		Format     string `yaml:"format"`
-		EnableANSI bool   `yaml:"enableANSI"`
+		EnableANSI bool   `yaml:"enableANSI"` //nolint:tagliatelle
 	}
 
 	// Log contains the configuration for the logger.

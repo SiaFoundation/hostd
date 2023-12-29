@@ -53,13 +53,23 @@ var (
 		},
 		Log: config.Log{
 			Level: "info",
-			Path:  os.Getenv(logPathEnvVariable),
+			File: config.LogFile{
+				Enabled: true,
+				Format:  "json",
+				Path:    os.Getenv(logPathEnvVariable),
+			},
+			StdOut: config.StdOut{
+				Enabled:    true,
+				Format:     "human",
+				EnableANSI: runtime.GOOS != "windows",
+			},
 		},
 	}
 
 	disableStdin bool
 )
 
+// readPasswordInput reads a password from stdin.
 func readPasswordInput(context string) (string, error) {
 	fmt.Printf("%s: ", context)
 	input, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -67,41 +77,60 @@ func readPasswordInput(context string) (string, error) {
 	return string(input), err
 }
 
+// wrapANSI wraps the output in ANSI escape codes if enabled.
+func wrapANSI(prefix, output, suffix string) string {
+	if cfg.Log.StdOut.EnableANSI {
+		return prefix + output + suffix
+	}
+	return output
+}
+
+// stdoutError prints an error message to stdout and exits with a 1 exit code.
+func stdoutError(msg string) {
+	if cfg.Log.StdOut.EnableANSI {
+		fmt.Println(wrapANSI("\033[31m", msg, "\033[0m"))
+	} else {
+		fmt.Println(msg)
+	}
+	os.Exit(1)
+}
+
 // mustSetAPIPassword prompts the user to enter an API password if one is not
 // already set via environment variable or config file.
-func mustSetAPIPassword(log *zap.Logger) {
+func mustSetAPIPassword() {
 	if len(cfg.HTTP.Password) != 0 {
 		return
 	} else if disableStdin {
-		log.Fatal("API password must be set via environment variable or config file when --env flag is set")
+		stdoutError("API password must be set via environment variable or config file when --env flag is set")
 	}
 
 	for {
-		fmt.Println("Please choose a password to unlock the UI and API.")
+		fmt.Println("Please choose a password to unlock hostd.")
+		fmt.Println("This password will be required to access the UI in your web browser.")
 		fmt.Println("(The password must be at least 4 characters.)")
 		var err error
 		cfg.HTTP.Password, err = readPasswordInput("Enter password")
 		if err != nil {
-			log.Fatal("Could not read password", zap.Error(err))
+			stdoutError("Could not read password:" + err.Error())
 		}
 
 		if len(cfg.HTTP.Password) >= 4 {
 			break
 		}
 
-		fmt.Println("\033[31mPassword must be at least 4 characters!\033[0m")
+		fmt.Println(wrapANSI("\033[31m", "Password must be at least 4 characters!", "\033[0m"))
 		fmt.Println("")
 	}
 }
 
-func mustGetSeedPhrase(log *zap.Logger) string {
+func mustGetSeedPhrase() string {
 	// retry until a valid seed phrase is entered
 	for {
 		fmt.Println("")
 		fmt.Println("Type in your 12-word seed phrase and press enter. If you do not have a seed phrase yet, type 'seed' to generate one.")
 		phrase, err := readPasswordInput("Enter seed phrase")
 		if err != nil {
-			log.Fatal("Could not read seed phrase", zap.Error(err))
+			stdoutError("Could not read seed phrase: " + err.Error())
 		}
 
 		if strings.ToLower(strings.TrimSpace(phrase)) == "seed" {
@@ -113,25 +142,25 @@ func mustGetSeedPhrase(log *zap.Logger) string {
 			}
 			key := wallet.KeyFromSeed(&seed, 0)
 			fmt.Println("")
-			fmt.Println("A new seed phrase has been generated below. \033[1mWrite it down and keep it safe.\033[0m")
+			fmt.Println("A new seed phrase has been generated below. " + wrapANSI("\033[1m", "Write it down and keep it safe.", "\033[0m"))
 			fmt.Println("Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin.")
 			fmt.Println("You will need to re-enter this seed phrase every time you start hostd.")
 			fmt.Println("")
-			fmt.Println("\033[34;1mSeed Phrase:\033[0m", phrase)
-			fmt.Println("\033[34;1mWallet Address:\033[0m", types.StandardUnlockHash(key.PublicKey()))
+			fmt.Println(wrapANSI("\033[34;1m", "Seed Phrase:", "\033[0m"), phrase)
+			fmt.Println(wrapANSI("\033[34;1m", "Wallet Address:", "\033[0m"), types.StandardUnlockHash(key.PublicKey()))
 
 			// confirm seed phrase
 			for {
 				fmt.Println("")
-				fmt.Println("\033[1mPlease confirm your seed phrase to continue.\033[0m")
+				fmt.Println(wrapANSI("\033[1m", "Please confirm your seed phrase to continue.", "\033[0m"))
 				confirmPhrase, err := readPasswordInput("Enter seed phrase")
 				if err != nil {
-					log.Fatal("Could not read seed phrase", zap.Error(err))
+					stdoutError("Could not read seed phrase: " + err.Error())
 				} else if confirmPhrase == phrase {
 					return phrase
 				}
 
-				fmt.Println("\033[31mSeed phrases do not match!\033[0m")
+				fmt.Println(wrapANSI("\033[31m", "Seed phrases do not match!", "\033[0m"))
 				fmt.Println("You entered:", confirmPhrase)
 				fmt.Println("Actual phrase:", phrase)
 			}
@@ -143,7 +172,7 @@ func mustGetSeedPhrase(log *zap.Logger) string {
 			// valid seed phrase
 			return phrase
 		}
-		fmt.Println("\033[31mInvalid seed phrase:\033[0m", err)
+		fmt.Println(wrapANSI("\033[31m", "Invalid seed phrase:", "\033[0m"), err)
 		fmt.Println("You entered:", phrase)
 	}
 }
@@ -192,19 +221,19 @@ func openBrowser(url string) error {
 
 // mustSetWalletkey prompts the user to enter a wallet seed phrase if one is not
 // already set via environment variable or config file.
-func mustSetWalletkey(log *zap.Logger) {
+func mustSetWalletkey() {
 	if len(cfg.RecoveryPhrase) != 0 {
 		return
 	} else if disableStdin {
-		log.Fatal("Wallet seed must be set via environment variable or config file when --env flag is set")
+		stdoutError("Wallet seed must be set via environment variable or config file when --env flag is set")
 	}
 
-	cfg.RecoveryPhrase = mustGetSeedPhrase(log)
+	cfg.RecoveryPhrase = mustGetSeedPhrase()
 }
 
 // tryLoadConfig loads the config file specified by the HOSTD_CONFIG_PATH. If
 // the config file does not exist, it will not be loaded.
-func tryLoadConfig(log *zap.Logger) {
+func tryLoadConfig() {
 	configPath := "hostd.yml"
 	if str := os.Getenv(configPathEnvVariable); len(str) != 0 {
 		configPath = str
@@ -217,7 +246,8 @@ func tryLoadConfig(log *zap.Logger) {
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		log.Fatal("failed to open config file", zap.Error(err))
+		stdoutError("failed to open config file: " + err.Error())
+		return
 	}
 	defer f.Close()
 
@@ -225,33 +255,57 @@ func tryLoadConfig(log *zap.Logger) {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(&cfg); err != nil {
-		log.Fatal("failed to decode config file", zap.Error(err))
+		fmt.Println("failed to decode config file:", err)
+		os.Exit(1)
 	}
 }
 
+// jsonEncoder returns a zapcore.Encoder that encodes logs as JSON intended for
+// parsing.
+func jsonEncoder() zapcore.Encoder {
+	return zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+}
+
+// humanEncoder returns a zapcore.Encoder that encodes logs as human-readable
+// text.
+func humanEncoder(showColors bool) zapcore.Encoder {
+	cfg := zap.NewProductionEncoderConfig()
+	cfg.TimeKey = "" // prevent duplicate timestamps
+	cfg.EncodeTime = zapcore.RFC3339TimeEncoder
+	cfg.EncodeDuration = zapcore.StringDurationEncoder
+
+	if showColors {
+		cfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	} else {
+		cfg.EncodeLevel = zapcore.CapitalLevelEncoder
+	}
+
+	cfg.StacktraceKey = ""
+	cfg.CallerKey = ""
+	return zapcore.NewConsoleEncoder(cfg)
+}
+
+func parseLogLevel(level string) zap.AtomicLevel {
+	switch level {
+	case "debug":
+		return zap.NewAtomicLevelAt(zap.DebugLevel)
+	case "info":
+		return zap.NewAtomicLevelAt(zap.InfoLevel)
+	case "warn":
+		return zap.NewAtomicLevelAt(zap.WarnLevel)
+	case "error":
+		return zap.NewAtomicLevelAt(zap.ErrorLevel)
+	default:
+		fmt.Printf("invalid log level %q", level)
+		os.Exit(1)
+	}
+	panic("unreachable")
+}
+
 func main() {
-	// configure console logging note: this is configured before anything else
-	// to have consistent logging. File logging will be added after the cli
-	// flags and config is parsed
-	consoleCfg := zap.NewProductionEncoderConfig()
-	consoleCfg.TimeKey = "" // prevent duplicate timestamps
-	consoleCfg.EncodeTime = zapcore.RFC3339TimeEncoder
-	consoleCfg.EncodeDuration = zapcore.StringDurationEncoder
-	consoleCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	consoleCfg.StacktraceKey = ""
-	consoleCfg.CallerKey = ""
-	consoleEncoder := zapcore.NewConsoleEncoder(consoleCfg)
-
-	// only log info messages to console unless stdout logging is enabled
-	consoleCore := zapcore.NewCore(consoleEncoder, zapcore.Lock(os.Stdout), zap.NewAtomicLevelAt(zap.InfoLevel))
-	log := zap.New(consoleCore, zap.AddCaller())
-	defer log.Sync()
-	// redirect stdlib log to zap
-	zap.RedirectStdLog(log.Named("stdlib"))
-
 	// attempt to load the config file first, command line flags will override
 	// any values set in the config file
-	tryLoadConfig(log)
+	tryLoadConfig()
 
 	// global
 	flag.StringVar(&cfg.Name, "name", cfg.Name, "a friendly name for the host, only used for display")
@@ -292,57 +346,94 @@ func main() {
 	}
 
 	// check that the API password and wallet seed are set
-	mustSetAPIPassword(log)
-	mustSetWalletkey(log)
+	mustSetAPIPassword()
+	mustSetWalletkey()
+
+	// configure the logger
+	if !cfg.Log.StdOut.Enabled && !cfg.Log.File.Enabled {
+		stdoutError("At least one of stdout or file logging must be enabled")
+		return
+	}
+
+	// normalize log level
+	if cfg.Log.Level == "" {
+		cfg.Log.Level = "info"
+	}
+
+	// if no log level is set for stdout or file, use the global log level
+	if cfg.Log.StdOut.Level == "" {
+		cfg.Log.StdOut.Level = cfg.Log.Level
+	}
+
+	// if no log level is set for stdout or file, use the global log level
+	if cfg.Log.File.Level == "" {
+		cfg.Log.File.Level = cfg.Log.Level
+	}
+
+	var logCores []zapcore.Core
+	if cfg.Log.StdOut.Enabled {
+		// configure the temporary console logging
+		//
+		// note: this is configured with sane defaults before loading the config to
+		// have consistency in the logging output
+
+		var encoder zapcore.Encoder
+		switch cfg.Log.StdOut.Format {
+		case "json":
+			encoder = jsonEncoder()
+		default: // stdout defaults to human
+			encoder = humanEncoder(cfg.Log.StdOut.EnableANSI)
+		}
+
+		// create the stdout logger
+		level := parseLogLevel(cfg.Log.StdOut.Level)
+		logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level))
+	}
+
+	if cfg.Log.File.Enabled {
+		// default to hostd.log in the data directory
+		if len(cfg.Log.File.Path) == 0 {
+			cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
+		}
+
+		// configure file logging
+		var encoder zapcore.Encoder
+		switch cfg.Log.File.Format {
+		case "human":
+			encoder = humanEncoder(false) // disable colors in file log
+		default: // log file defaults to JSON
+			encoder = jsonEncoder()
+		}
+
+		fileWriter, closeFn, err := zap.Open(cfg.Log.File.Path)
+		if err != nil {
+			stdoutError("failed to open log file: " + err.Error())
+			return
+		}
+		defer closeFn()
+
+		// create the file logger
+		level := parseLogLevel(cfg.Log.File.Level)
+		logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), level))
+	}
+
+	var log *zap.Logger
+	if len(logCores) == 1 {
+		log = zap.New(logCores[0], zap.AddCaller())
+	} else {
+		log = zap.New(zapcore.NewTee(logCores...), zap.AddCaller())
+	}
+	defer log.Sync()
+
+	// redirect stdlib log to zap
+	zap.RedirectStdLog(log.Named("stdlib"))
 
 	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", build.NetworkName()), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
-
-	// configure logging
-	var level zap.AtomicLevel
-	switch cfg.Log.Level {
-	case "debug":
-		level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn":
-		level = zap.NewAtomicLevelAt(zap.WarnLevel)
-	case "error":
-		level = zap.NewAtomicLevelAt(zap.ErrorLevel)
-	default:
-		log.Fatal("invalid log level", zap.String("level", cfg.Log.Level))
-	}
 
 	// create the data directory if it does not already exist
 	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
 		log.Fatal("unable to create config directory", zap.Error(err))
 	}
-
-	// set the log path to the data dir if it is not already set note: this
-	// must happen after CLI flags are parsed so that the data directory can be
-	// specified via the command line and environment variable
-	if len(cfg.Log.Path) == 0 {
-		cfg.Log.Path = cfg.Directory
-	}
-
-	// configure file logging
-	fileCfg := zap.NewProductionEncoderConfig()
-	fileEncoder := zapcore.NewJSONEncoder(fileCfg)
-
-	fileWriter, closeFn, err := zap.Open(filepath.Join(cfg.Log.Path, "hostd.log"))
-	if err != nil {
-		fmt.Println("failed to open log file:", err)
-		os.Exit(1)
-	}
-	defer closeFn()
-
-	// wrap the logger to log to both stdout and the log file
-	log = log.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
-		// use a tee to log to both stdout and the log file
-		return zapcore.NewTee(
-			zapcore.NewCore(fileEncoder, zapcore.Lock(fileWriter), level),
-			zapcore.NewCore(consoleEncoder, zapcore.Lock(os.Stdout), level),
-		)
-	}))
 
 	var seed [32]byte
 	if err := wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase); err != nil {
