@@ -314,6 +314,7 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 		// subscribe to consensus changes
 		err := cm.Subscribe(m, lastChange, m.tg.Done())
 		if errors.Is(err, chain.ErrInvalidChangeID) {
+			m.log.Warn("rescanning blockchain due to unknown consensus change ID")
 			// reset change ID and subscribe again
 			if err := store.RevertLastAnnouncement(); err != nil {
 				m.log.Fatal("failed to reset wallet", zap.Error(err))
