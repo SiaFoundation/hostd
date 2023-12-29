@@ -159,6 +159,12 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 	// get the current net address
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := validateNetAddress(cm.settings.NetAddress); err != nil {
+		log.Debug("skipping auto announcement for invalid net address", zap.Error(err))
+		return
+	}
+
 	currentNetAddress := cm.settings.NetAddress
 	cm.scanHeight = uint64(cc.BlockHeight)
 	timestamp := time.Unix(int64(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp), 0)
@@ -168,7 +174,7 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 	// if the address hasn't changed, don't reannounce
 	if cm.scanHeight < nextAnnounceHeight && currentNetAddress == lastAnnouncement.Address {
-		log.Debug("skipping announcement")
+		log.Debug("skipping announcement for unchanged address")
 		return
 	}
 

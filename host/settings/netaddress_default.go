@@ -3,6 +3,7 @@
 package settings
 
 import (
+	"errors"
 	"fmt"
 	"net"
 )
@@ -11,6 +12,10 @@ func validateNetAddress(netaddress string) error {
 	addr, _, err := net.SplitHostPort(netaddress)
 	if err != nil {
 		return fmt.Errorf("invalid net address %q: net addresses must contain an IP and port: %w", netaddress, err)
+	} else if addr == "" {
+		return errors.New("empty net address")
+	} else if addr == "localhost" {
+		return errors.New("net address cannot be localhost")
 	}
 
 	ip := net.ParseIP(addr)
