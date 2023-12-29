@@ -9,8 +9,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -172,6 +174,19 @@ func startAPIListener(log *zap.Logger) (l net.Listener, err error) {
 		log.Debug("failed to listen on fallback address", zap.String("address", addr), zap.Error(err))
 	}
 	return
+}
+
+func openBrowser(url string) error {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform %q", runtime.GOOS)
+	}
 }
 
 // mustSetWalletkey prompts the user to enter a wallet seed phrase if one is not
@@ -388,6 +403,14 @@ func main() {
 			log.Error("failed to serve web", zap.Error(err))
 		}
 	}()
+
+	time.Sleep(time.Millisecond) // give the web server a chance to start
+	_, port, err := net.SplitHostPort(apiListener.Addr().String())
+	if err != nil {
+		log.Debug("failed to parse API address", zap.Error(err))
+	} else if err := openBrowser(fmt.Sprintf("http://127.0.0.1:%s", port)); err != nil {
+		log.Debug("failed to open browser", zap.Error(err))
+	}
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
