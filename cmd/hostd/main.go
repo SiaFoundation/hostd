@@ -169,7 +169,7 @@ func startAPIListener(log *zap.Logger) (l net.Listener, err error) {
 		if err == nil {
 			return
 		}
-		log.Warn("failed to listen on address", zap.String("address", addr), zap.Error(err))
+		log.Debug("failed to listen on fallback address", zap.String("address", addr), zap.Error(err))
 	}
 	return
 }
