@@ -193,6 +193,7 @@ func (cm *ConfigManager) ProcessConsensusChange(cc modules.ConsensusChange) {
 				},
 				Timestamp: time.Now(),
 			})
+			return
 		}
 		log.Info("announced host")
 		cm.a.Register(alerts.Alert{
