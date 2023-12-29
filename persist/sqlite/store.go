@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -86,24 +85,24 @@ func (s *Store) transaction(fn func(txn) error) error {
 	txnID := hex.EncodeToString(frand.Bytes(4))
 	log := s.log.Named("transaction").With(zap.String("id", txnID))
 	start := time.Now()
-	for i := 1; i <= retryAttempts; i++ {
+	attempt := 1
+	for ; attempt <= retryAttempts; attempt++ {
 		attemptStart := time.Now()
-		log := log.With(zap.Int("attempt", i))
+		log := log.With(zap.Int("attempt", attempt))
 		err = doTransaction(s.db, log, fn)
 		if err == nil {
 			// no error, break out of the loop
 			return nil
 		}
 
-		// check if the error is not a busy error
-		var sqliteErr sqlite3.Error
-		if !errors.As(err, &sqliteErr) || sqliteErr.Code != sqlite3.ErrBusy {
-			return err
+		// return immediately if the error is not a busy error
+		if !strings.Contains(err.Error(), "database is locked") {
+			break
 		}
 		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
-		jitterSleep(time.Duration(math.Pow(factor, float64(i))) * time.Millisecond) // exponential backoff
+		jitterSleep(time.Duration(math.Pow(factor, float64(attempt))) * time.Millisecond) // exponential backoff
 	}
-	return fmt.Errorf("transaction failed: %w", err)
+	return fmt.Errorf("transaction failed (%d): %w", attempt, err)
 }
 
 // Close closes the underlying database.
