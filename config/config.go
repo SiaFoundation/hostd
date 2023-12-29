@@ -27,10 +27,27 @@ type (
 		KeyPath          string `yaml:"keyPath"`
 	}
 
+	// LogFile configures the file output of the logger.
+	LogFile struct {
+		Enabled bool   `yaml:"enabled"`
+		Level   string `yaml:"level"` // override the file log level
+		Format  string `yaml:"format"`
+		Path    string `yaml:"path"`
+	}
+
+	// StdOut configures the standard output of the logger.
+	StdOut struct {
+		Level      string `yaml:"level"` // override the stdout log level
+		Enabled    bool   `yaml:"enabled"`
+		Format     string `yaml:"format"`
+		EnableANSI bool   `yaml:"enableANSI"`
+	}
+
 	// Log contains the configuration for the logger.
 	Log struct {
-		Path  string `yaml:"path"`
-		Level string `yaml:"level"`
+		Level  string  `yaml:"level"` // global log level
+		StdOut StdOut  `yaml:"stdout"`
+		File   LogFile `yaml:"file"`
 	}
 
 	// Config contains the configuration for the host.
