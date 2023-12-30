@@ -52,11 +52,12 @@ var (
 			WebSocketAddress: defaultRHP3WSAddr,
 		},
 		Log: config.Log{
+			Path:  os.Getenv(logPathEnvVariable), // deprecated. included for compatibility.
 			Level: "info",
 			File: config.LogFile{
 				Enabled: true,
 				Format:  "json",
-				Path:    os.Getenv(logPathEnvVariable),
+				Path:    os.Getenv(logFileEnvVariable),
 			},
 			StdOut: config.StdOut{
 				Enabled:    true,
@@ -360,22 +361,12 @@ func main() {
 		cfg.Log.Level = "info"
 	}
 
-	// if no log level is set for stdout or file, use the global log level
-	if cfg.Log.StdOut.Level == "" {
-		cfg.Log.StdOut.Level = cfg.Log.Level
-	}
-
-	// if no log level is set for stdout or file, use the global log level
-	if cfg.Log.File.Level == "" {
-		cfg.Log.File.Level = cfg.Log.Level
-	}
-
 	var logCores []zapcore.Core
 	if cfg.Log.StdOut.Enabled {
-		// configure the temporary console logging
-		//
-		// note: this is configured with sane defaults before loading the config to
-		// have consistency in the logging output
+		// if no log level is set for stdout, use the global log level
+		if cfg.Log.StdOut.Level == "" {
+			cfg.Log.StdOut.Level = cfg.Log.Level
+		}
 
 		var encoder zapcore.Encoder
 		switch cfg.Log.StdOut.Format {
@@ -391,9 +382,20 @@ func main() {
 	}
 
 	if cfg.Log.File.Enabled {
-		// default to hostd.log in the data directory
-		if len(cfg.Log.File.Path) == 0 {
-			cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
+		// if no log level is set for file, use the global log level
+		if cfg.Log.File.Level == "" {
+			cfg.Log.File.Level = cfg.Log.Level
+		}
+
+		// normalize log path
+		if cfg.Log.File.Path == "" {
+			// If the log path is not set, try the deprecated log path. If that
+			// is also not set, default to hostd.log in the data directory.
+			if cfg.Log.Path != "" {
+				cfg.Log.File.Path = filepath.Join(cfg.Log.Path, "hostd.log")
+			} else {
+				cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
+			}
 		}
 
 		// configure file logging

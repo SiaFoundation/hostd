@@ -32,7 +32,8 @@ type (
 		Enabled bool   `yaml:"enabled"`
 		Level   string `yaml:"level"` // override the file log level
 		Format  string `yaml:"format"`
-		Path    string `yaml:"path"`
+		// Path is the path of the log file.
+		Path string `yaml:"path"`
 	}
 
 	// StdOut configures the standard output of the logger.
@@ -45,6 +46,9 @@ type (
 
 	// Log contains the configuration for the logger.
 	Log struct {
+		// Path is the directory to store the hostd.log file.
+		// Deprecated: use File.Path instead.
+		Path   string  `yaml:"path"`
 		Level  string  `yaml:"level"` // global log level
 		StdOut StdOut  `yaml:"stdout"`
 		File   LogFile `yaml:"file"`
