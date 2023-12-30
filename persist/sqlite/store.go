@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -211,5 +212,7 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 		// overwrite.
 		return nil, fmt.Errorf("failed to clear locked sectors table: %w", err)
 	}
+	sqliteVersion, _, _ := sqlite3.Version()
+	log.Debug("database initialized", zap.String("sqliteVersion", sqliteVersion), zap.Int("schemaVersion", len(migrations)+1), zap.String("path", fp))
 	return store, nil
 }
