@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -824,16 +825,17 @@ func NewSingleAddressWallet(priv types.PrivateKey, cm ChainManager, tp Transacti
 
 	go func() {
 		// note: start in goroutine to avoid blocking startup
-		if err := cm.Subscribe(sw, changeID, sw.tg.Done()); err != nil {
-			sw.log.Error("failed to subscribe to consensus changes", zap.Error(err))
-			if errors.Is(err, chain.ErrInvalidChangeID) {
-				// reset change ID and subscribe again
-				if err := store.ResetWallet(seedHash); err != nil {
-					sw.log.Fatal("failed to reset wallet", zap.Error(err))
-				} else if err = cm.Subscribe(sw, modules.ConsensusChangeBeginning, sw.tg.Done()); err != nil {
-					sw.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
-				}
+		err := cm.Subscribe(sw, changeID, sw.tg.Done())
+		if errors.Is(err, chain.ErrInvalidChangeID) {
+			sw.log.Warn("rescanning blockchain due to unknown consensus change ID")
+			// reset change ID and subscribe again
+			if err := store.ResetWallet(seedHash); err != nil {
+				sw.log.Fatal("failed to reset wallet", zap.Error(err))
+			} else if err = cm.Subscribe(sw, modules.ConsensusChangeBeginning, sw.tg.Done()); err != nil {
+				sw.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
 			}
+		} else if err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {
+			sw.log.Fatal("failed to subscribe to consensus set", zap.Error(err))
 		}
 	}()
 	tp.Subscribe(sw)
