@@ -41,7 +41,7 @@ The Zen testnet version of `hostd` changes the default ports:
 ### Environment Variables
 + `HOSTD_API_PASSWORD` - The password for the UI and API
 + `HOSTD_SEED` - The recovery phrase for the wallet
-+ `HOSTD_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
++ `HOSTD_LOG_FILE` - changes the location of the log file. If unset, the
   log file will be created in the data directory
 + `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
   `hostd` will check for a config file in the current directory
@@ -99,8 +99,17 @@ rhp3:
   tcp: :9983
   websocket: :9984
 log:
-  path: /var/log/hostd
-  level: info
+  level: info # global log level
+  stdout:
+	enabled: true # enable logging to stdout
+    level: info # log level for console logger
+	format: human # log format (human, json)
+	enableANSI: true # enable ANSI color codes (disabled on Windows)
+  file:
+    enabled: true # enable logging to file
+	level: info # log level for file logger
+	path: /var/log/hostd/hostd.log # the path of the log file
+    format: json # log format (human, json)
 ```
 
 # Building
