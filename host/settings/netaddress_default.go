@@ -6,31 +6,37 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 )
 
 func validateNetAddress(netaddress string) error {
-	addr, _, err := net.SplitHostPort(netaddress)
+	host, port, err := net.SplitHostPort(netaddress)
 	if err != nil {
-		return fmt.Errorf("invalid net address %q: net addresses must contain an IP and port: %w", netaddress, err)
-	} else if addr == "" {
+		return fmt.Errorf("invalid net address %q: net addresses must contain a host and port: %w", netaddress, err)
+	}
+
+	// Check that the host is not empty or localhost.
+	if host == "" {
 		return errors.New("empty net address")
-	} else if addr == "localhost" {
+	} else if host == "localhost" {
 		return errors.New("net address cannot be localhost")
 	}
 
-	ip := net.ParseIP(addr)
-	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
-			return fmt.Errorf("invalid net address %q: only public IP addresses allowed", addr)
-		}
-		return nil
+	// Check that the port is a valid number.
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("failed to parse port: %w", err)
+	} else if n < 1 || n > 65535 {
+		return errors.New("port must be between 1 and 65535")
 	}
 
-	addrs, err := net.LookupIP(addr)
-	if err != nil {
-		return fmt.Errorf("failed to resolve net address %q: %w", addr, err)
-	} else if len(addrs) == 0 {
-		return fmt.Errorf("failed to resolve net address: no addresses found")
+	// If the host is an IP address, check that it is a public IP address.
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
+			return fmt.Errorf("invalid net address %q: only public IP addresses allowed", host)
+		}
+		return nil
 	}
 	return nil
 }
