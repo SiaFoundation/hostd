@@ -34,6 +34,7 @@ var (
 	cfg = config.Config{
 		Directory:      ".",                              // default to current directory
 		RecoveryPhrase: os.Getenv(walletSeedEnvVariable), // default to env variable
+		AutoOpenWebUI:  true,
 
 		HTTP: config.HTTP{
 			Address:  defaultAPIAddr,
@@ -256,6 +257,7 @@ func main() {
 	flag.StringVar(&cfg.Name, "name", cfg.Name, "a friendly name for the host, only used for display")
 	flag.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store hostd metadata")
 	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
+	flag.BoolVar(&cfg.AutoOpenWebUI, "openui", cfg.AutoOpenWebUI, "automatically open the web UI on startup")
 	// consensus
 	flag.StringVar(&cfg.Consensus.GatewayAddress, "rpc", cfg.Consensus.GatewayAddress, "address to listen on for peer connections")
 	flag.BoolVar(&cfg.Consensus.Bootstrap, "bootstrap", cfg.Consensus.Bootstrap, "bootstrap the gateway and consensus modules")
@@ -404,12 +406,14 @@ func main() {
 		}
 	}()
 
-	time.Sleep(time.Millisecond) // give the web server a chance to start
-	_, port, err := net.SplitHostPort(apiListener.Addr().String())
-	if err != nil {
-		log.Debug("failed to parse API address", zap.Error(err))
-	} else if err := openBrowser(fmt.Sprintf("http://127.0.0.1:%s", port)); err != nil {
-		log.Debug("failed to open browser", zap.Error(err))
+	if cfg.AutoOpenWebUI {
+		time.Sleep(time.Millisecond) // give the web server a chance to start
+		_, port, err := net.SplitHostPort(apiListener.Addr().String())
+		if err != nil {
+			log.Debug("failed to parse API address", zap.Error(err))
+		} else if err := openBrowser(fmt.Sprintf("http://127.0.0.1:%s", port)); err != nil {
+			log.Debug("failed to open browser", zap.Error(err))
+		}
 	}
 
 	signalCh := make(chan os.Signal, 1)

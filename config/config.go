@@ -38,6 +38,7 @@ type (
 		Name           string `yaml:"name"`
 		Directory      string `yaml:"directory"`
 		RecoveryPhrase string `yaml:"recoveryPhrase"`
+		AutoOpenWebUI  bool   `yaml:"autoOpenWebUI"`
 
 		HTTP      HTTP      `yaml:"http"`
 		Consensus Consensus `yaml:"consensus"`
