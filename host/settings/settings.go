@@ -220,6 +220,13 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 		return fmt.Errorf("failed to validate DNS settings: %w", err)
 	}
 
+	// if a netaddress is set, validate it
+	if strings.TrimSpace(s.NetAddress) != "" {
+		if err := validateNetAddress(s.NetAddress); err != nil {
+			return fmt.Errorf("failed to validate net address: %w", err)
+		}
+	}
+
 	m.mu.Lock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
