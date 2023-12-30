@@ -101,14 +101,14 @@ rhp3:
 log:
   level: info # global log level
   stdout:
-	enabled: true # enable logging to stdout
+    enabled: true # enable logging to stdout
     level: info # log level for console logger
-	format: human # log format (human, json)
-	enableANSI: true # enable ANSI color codes (disabled on Windows)
+    format: human # log format (human, json)
+    enableANSI: true # enable ANSI color codes (disabled on Windows)
   file:
     enabled: true # enable logging to file
-	level: info # log level for file logger
-	path: /var/log/hostd/hostd.log # the path of the log file
+    level: info # log level for file logger
+    path: /var/log/hostd/hostd.log # the path of the log file
     format: json # log format (human, json)
 ```
 

@@ -844,6 +844,20 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	vm.mu.Unlock()
 	sector, err := v.ReadSector(loc.Index)
 	if err != nil {
+		stats := v.Stats()
+		vm.a.Register(alerts.Alert{
+			ID:       v.alertID("read"),
+			Severity: alerts.SeverityError,
+			Message:  "Failed to read sector",
+			Data: map[string]interface{}{
+				"volume":       v.Location(),
+				"failedReads":  stats.FailedReads,
+				"failedWrites": stats.FailedWrites,
+				"sector":       root,
+				"error":        err.Error(),
+			},
+			Timestamp: time.Now(),
+		})
 		return nil, fmt.Errorf("failed to read sector data: %w", err)
 	}
 
@@ -910,6 +924,20 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 
 		// write the sector to the volume
 		if err := vol.WriteSector(data, loc.Index); err != nil {
+			stats := vol.Stats()
+			vm.a.Register(alerts.Alert{
+				ID:       vol.alertID("write"),
+				Severity: alerts.SeverityError,
+				Message:  "Failed to write sector",
+				Data: map[string]interface{}{
+					"volume":       vol.Location(),
+					"failedReads":  stats.FailedReads,
+					"failedWrites": stats.FailedWrites,
+					"sector":       root,
+					"error":        err.Error(),
+				},
+				Timestamp: time.Now(),
+			})
 			return fmt.Errorf("failed to write sector data: %w", err)
 		}
 		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
