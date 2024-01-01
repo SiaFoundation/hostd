@@ -247,6 +247,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Sy
 	})
 }
 
+// NewServerPrometheus initializes the API for Prometheus
 func NewServerPrometheus(name string, hostKey types.PublicKey, a Alerts, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
