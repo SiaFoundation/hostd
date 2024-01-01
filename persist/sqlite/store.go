@@ -80,30 +80,35 @@ func (s *Store) queryRow(query string, args ...any) *loggedRow {
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed. If the transaction fails due to a busy error, it is
-// retried up to 10 times before returning.
+// retried up to 15 times before returning.
 func (s *Store) transaction(fn func(txn) error) error {
 	var err error
 	txnID := hex.EncodeToString(frand.Bytes(4))
 	log := s.log.Named("transaction").With(zap.String("id", txnID))
 	start := time.Now()
-	for i := 1; i <= retryAttempts; i++ {
+	attempt := 1
+	for ; attempt < maxRetryAttempts; attempt++ {
 		attemptStart := time.Now()
-		log := log.With(zap.Int("attempt", i))
+		log := log.With(zap.Int("attempt", attempt))
 		err = doTransaction(s.db, log, fn)
 		if err == nil {
 			// no error, break out of the loop
 			return nil
 		}
 
-		// check if the error is not a busy error
-		var sqliteErr sqlite3.Error
-		if !errors.As(err, &sqliteErr) || sqliteErr.Code != sqlite3.ErrBusy {
-			return err
+		// return immediately if the error is not a busy error
+		if !strings.Contains(err.Error(), "database is locked") {
+			break
 		}
-		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"))
-		jitterSleep(time.Duration(math.Pow(factor, float64(i))) * time.Millisecond) // exponential backoff
+		// exponential backoff
+		sleep := time.Duration(math.Pow(factor, float64(attempt))) * time.Millisecond
+		if sleep > maxBackoff {
+			sleep = maxBackoff
+		}
+		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"), zap.Duration("retry", sleep))
+		jitterSleep(sleep)
 	}
-	return fmt.Errorf("transaction failed: %w", err)
+	return fmt.Errorf("transaction failed (%d): %w", attempt, err)
 }
 
 // Close closes the underlying database.
@@ -207,5 +212,7 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 		// overwrite.
 		return nil, fmt.Errorf("failed to clear locked sectors table: %w", err)
 	}
+	sqliteVersion, _, _ := sqlite3.Version()
+	log.Debug("database initialized", zap.String("sqliteVersion", sqliteVersion), zap.Int("schemaVersion", len(migrations)+1), zap.String("path", fp))
 	return store, nil
 }

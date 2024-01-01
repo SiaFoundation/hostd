@@ -220,6 +220,13 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 		return fmt.Errorf("failed to validate DNS settings: %w", err)
 	}
 
+	// if a netaddress is set, validate it
+	if strings.TrimSpace(s.NetAddress) != "" {
+		if err := validateNetAddress(s.NetAddress); err != nil {
+			return fmt.Errorf("failed to validate net address: %w", err)
+		}
+	}
+
 	m.mu.Lock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
@@ -314,6 +321,7 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 		// subscribe to consensus changes
 		err := cm.Subscribe(m, lastChange, m.tg.Done())
 		if errors.Is(err, chain.ErrInvalidChangeID) {
+			m.log.Warn("rescanning blockchain due to unknown consensus change ID")
 			// reset change ID and subscribe again
 			if err := store.RevertLastAnnouncement(); err != nil {
 				m.log.Fatal("failed to reset wallet", zap.Error(err))

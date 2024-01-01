@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
 
@@ -30,8 +31,9 @@ type (
 		// held.
 		mu sync.RWMutex
 
-		data  volumeData // data is a flatfile that stores the volume's sector data
-		stats VolumeStats
+		location string     // location is the path to the volume's file
+		data     volumeData // data is a flatfile that stores the volume's sector data
+		stats    VolumeStats
 	}
 
 	// VolumeStats contains statistics about a volume
@@ -93,6 +95,20 @@ func (v *volume) appendError(err error) {
 	}
 }
 
+// Location returns the location of the volume
+func (v *volume) Location() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.location
+}
+
+// alertID returns a deterministic alert ID for a volume and context
+func (v *volume) alertID(context string) types.Hash256 {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return types.HashBytes([]byte(v.location + context))
+}
+
 // OpenVolume opens the volume at localPath
 func (v *volume) OpenVolume(localPath string, reload bool) error {
 	v.mu.Lock()
@@ -104,6 +120,7 @@ func (v *volume) OpenVolume(localPath string, reload bool) error {
 	if err != nil {
 		return err
 	}
+	v.location = localPath
 	v.data = f
 	return nil
 }

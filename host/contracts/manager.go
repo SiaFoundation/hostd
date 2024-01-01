@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -541,13 +542,13 @@ func NewManager(store ContractStore, alerts Alerts, storage StorageManager, c Ch
 	// blocking startup
 	go func() {
 		err := cm.chain.Subscribe(cm, changeID, cm.tg.Done())
-		if err != nil {
-			cm.log.Error("failed to subscribe to consensus set", zap.Error(err))
-			if errors.Is(err, chain.ErrInvalidChangeID) {
-				if err := cm.chain.Subscribe(cm, modules.ConsensusChangeBeginning, cm.tg.Done()); err != nil {
-					cm.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
-				}
+		if errors.Is(err, chain.ErrInvalidChangeID) {
+			cm.log.Warn("rescanning blockchain due to unknown consensus change ID")
+			if err := cm.chain.Subscribe(cm, modules.ConsensusChangeBeginning, cm.tg.Done()); err != nil {
+				cm.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
 			}
+		} else if err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {
+			cm.log.Fatal("failed to subscribe to consensus changes", zap.Error(err))
 		}
 	}()
 
