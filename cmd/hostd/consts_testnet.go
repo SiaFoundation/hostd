@@ -12,7 +12,7 @@ const (
 	logFileEnvVariable    = "HOSTD_ZEN_LOG_FILE"
 	configPathEnvVariable = "HOSTD_ZEN_CONFIG_FILE"
 
-	defaultAPIAddr        = ":9880"
+	defaultAPIAddr        = "localhost:9880"
 	defaultGatewayAddr    = ":9881"
 	defaultRHP2Addr       = ":9882"
 	defaultRHP3TCPAddr    = ":9883"
