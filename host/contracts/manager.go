@@ -127,8 +127,17 @@ func (cm *ContractManager) getSectorRoots(id types.FileContractID, limit, offset
 	if limit == 0 {
 		limit = len(roots)
 	}
+
+	if offset > len(roots) {
+		return nil, nil
+	}
+
+	n := offset + limit
+	if n > len(roots) {
+		n = len(roots)
+	}
 	// return the requested roots
-	return roots[offset : offset+limit], nil
+	return roots[offset:n], nil
 }
 
 // Lock locks a contract for modification.
