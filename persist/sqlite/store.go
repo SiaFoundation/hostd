@@ -108,7 +108,7 @@ func (s *Store) transaction(fn func(txn) error) error {
 		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"), zap.Duration("retry", sleep))
 		jitterSleep(sleep)
 	}
-	return fmt.Errorf("transaction failed (%d): %w", attempt, err)
+	return fmt.Errorf("transaction failed (attempt %d): %w", attempt, err)
 }
 
 // Close closes the underlying database.
