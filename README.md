@@ -136,6 +136,17 @@ CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ld
 `hostd` includes a `Dockerfile` which can be used for building and running
 hostd within a docker container. The image can also be pulled from `ghcr.io/siafoundation/hostd`.
 
+1. Generate a wallet seed using `hostd seed`.
+2. Create `hostd.yml` in the directory you want to store your `hostd` data. Replace the recovery phrase with the one you generated above. Replace the password with a secure password to unlock the UI.
+
+```yml
+recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect potato weapon bid
+http:
+  password: sia is cool
+```
+
+3. Create your docker container using one of the examples below. Replace "./data" in the volume mount with the directory in which you want to store your Sia data. Replace "./storage" in the volume mount with the location of your mounted storage volumes
+
 ## Mainnet
 
 ```sh
@@ -145,8 +156,6 @@ docker run -d \
   -p 9981-9983:9981-9983 \
   -v ./data:/data \
   -v ./storage:/storage \
-  -e HOSTD_SEED="my wallet seed" \
-  -e HOSTD_API_PASSWORD=hostsarecool \
     ghcr.io/siafoundation/hostd:latest
 ```
 
@@ -157,9 +166,6 @@ version: "3.9"
 services:
   host:
     image: ghcr.io/siafoundation/hostd:latest
-    environment:
-      - HOSTD_SEED=my wallet seed
-      - HOSTD_API_PASSWORD=hostsarecool
     ports:
       - 127.0.0.1:9980:9980/tcp
       - 9981-9983:9981-9983/tcp
