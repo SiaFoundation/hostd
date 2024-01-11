@@ -109,11 +109,7 @@ func (cm *ContractManager) getSectorRoots(id types.FileContractID, limit, offset
 
 	// check the cache first
 	roots, ok := cm.rootsCache.Get(id)
-	if ok {
-		// copy the roots into a new slice to avoid returning a slice of the
-		// cache's internal array
-		roots = append([]types.Hash256(nil), roots...)
-	} else {
+	if !ok {
 		var err error
 		// if the cache doesn't have the roots, read them from the store
 		roots, err = cm.store.SectorRoots(id)
@@ -129,15 +125,15 @@ func (cm *ContractManager) getSectorRoots(id types.FileContractID, limit, offset
 	}
 
 	if offset > len(roots) {
-		return nil, nil
+		return nil, errors.New("offset is greater than the number of roots")
 	}
 
 	n := offset + limit
 	if n > len(roots) {
 		n = len(roots)
 	}
-	// return the requested roots
-	return roots[offset:n], nil
+	// return a deep copy of the roots
+	return append([]types.Hash256(nil), roots[offset:n]...), nil
 }
 
 // Lock locks a contract for modification.
