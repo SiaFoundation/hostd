@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// A Metric is a Prometheus metric.
 type Metric struct {
 	Name      string
 	Labels    map[string]any
@@ -15,7 +16,7 @@ type Metric struct {
 	Timestamp time.Time
 }
 
-// EncodePrometheus encodes a Metric into a Prometheus metric string.
+// encode encodes a Metric into a Prometheus metric string.
 func (m *Metric) encode(sb *strings.Builder) error {
 	sb.WriteString(m.Name)
 
@@ -66,10 +67,12 @@ func (m *Metric) encode(sb *strings.Builder) error {
 	return nil
 }
 
+// A Marshaller can be marshalled into Prometheus samples
 type Marshaller interface {
 	PrometheusMetric() []Metric
 }
 
+// An Encoder writes Prometheus samples to the writer
 type Encoder struct {
 	used bool
 	sb   strings.Builder
@@ -103,6 +106,7 @@ func (e *Encoder) Append(m Marshaller) error {
 	return nil
 }
 
+// NewEncoder creates a new Prometheus encoder.
 func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{
 		w: w,

@@ -46,8 +46,8 @@ type (
 		UpdateDDNS(force bool) error
 	}
 
-	// Metrics retrieves metrics related to the host
-	Metrics interface {
+	// A MetricManager retrieves metrics related to the host
+	MetricManager interface {
 		// PeriodMetrics returns metrics for n periods starting at start.
 		PeriodMetrics(start time.Time, periods int, interval metrics.Interval) (period []metrics.Metrics, err error)
 		// Metrics returns aggregated metrics for the host as of the timestamp.
@@ -147,7 +147,7 @@ type (
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
-		metrics   Metrics
+		metrics   MetricManager
 		settings  Settings
 		sessions  RHPSessionReporter
 
@@ -157,7 +157,7 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m Metrics, s Settings, w Wallet, log *zap.Logger) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m MetricManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
 	api := &api{
 		hostKey: hostKey,
 		name:    name,
