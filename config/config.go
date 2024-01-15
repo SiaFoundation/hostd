@@ -11,7 +11,7 @@ type (
 	Consensus struct {
 		GatewayAddress string   `yaml:"gatewayAddress,omitempty"`
 		Bootstrap      bool     `yaml:"bootstrap,omitempty"`
-		Peers          []string `toml:"peers,omitempty"`
+		Peers          []string `yaml:"peers,omitempty"`
 	}
 
 	// RHP2 contains the configuration for the RHP2 server.
