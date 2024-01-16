@@ -151,8 +151,8 @@ var (
 		MaxContractDuration: 6 * blocksPerMonth, // 6 months
 
 		ContractPrice:     types.Siacoins(1).Div64(5),   // 200 ms / contract
-		BaseRPCPrice:      types.Siacoins(1).Div64(1e7), // 1 SC / million RPCs
-		SectorAccessPrice: types.Siacoins(1).Div64(1e7), // 1 SC / million sectors
+		BaseRPCPrice:      types.Siacoins(1).Div64(1e6), // 1 SC / million RPCs
+		SectorAccessPrice: types.Siacoins(1).Div64(1e6), // 1 SC / million sectors
 
 		CollateralMultiplier: 2.0, // 2x storage price
 		MaxCollateral:        types.Siacoins(1000),
