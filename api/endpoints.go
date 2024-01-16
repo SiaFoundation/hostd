@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/disk"
+	"go.sia.tech/hostd/internal/prometheus"
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
@@ -38,6 +39,34 @@ func (a *api) checkServerError(c jape.Context, context string, err error) bool {
 	return err == nil
 }
 
+func (a *api) writeResponse(c jape.Context, code int, resp any) {
+	var responseFormat string
+	if err := c.DecodeForm("response", &responseFormat); err != nil {
+		return
+	}
+
+	if resp != nil {
+		switch responseFormat {
+		case "prometheus":
+			v, ok := resp.(prometheus.Marshaller)
+			if !ok {
+				err := fmt.Errorf("response does not implement prometheus.Marshaller %T", resp)
+				c.Error(err, http.StatusInternalServerError)
+				a.log.Error("response does not implement prometheus.Marshaller", zap.Stack("stack"), zap.Error(err))
+				return
+			}
+
+			enc := prometheus.NewEncoder(c.ResponseWriter)
+			if err := enc.Append(v); err != nil {
+				a.log.Error("failed to marshal prometheus response", zap.Error(err))
+				return
+			}
+		default:
+			c.Encode(resp)
+		}
+	}
+}
+
 func (a *api) handleGETHostState(c jape.Context) {
 	announcement, err := a.settings.LastAnnouncement()
 	if err != nil {
@@ -45,7 +74,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 		return
 	}
 
-	c.Encode(HostState{
+	a.writeResponse(c, http.StatusOK, HostState{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
 		WalletAddress:    a.wallet.Address(),
@@ -62,7 +91,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 }
 
 func (a *api) handleGETConsensusState(c jape.Context) {
-	c.Encode(ConsensusState{
+	a.writeResponse(c, http.StatusOK, ConsensusState{
 		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
 	})
@@ -123,7 +152,8 @@ func (a *api) handlePOSTAnnounce(c jape.Context) {
 }
 
 func (a *api) handleGETSettings(c jape.Context) {
-	c.Encode(a.settings.Settings())
+	hs := HostSettings(a.settings.Settings())
+	a.writeResponse(c, http.StatusOK, hs)
 }
 
 func (a *api) handlePATCHSettings(c jape.Context) {
@@ -186,7 +216,8 @@ func (a *api) handleGETMetrics(c jape.Context) {
 	if !a.checkServerError(c, "failed to get metrics", err) {
 		return
 	}
-	c.Encode(metrics)
+
+	a.writeResponse(c, http.StatusOK, Metrics(metrics))
 }
 
 func (a *api) handleGETPeriodMetrics(c jape.Context) {
@@ -339,7 +370,7 @@ func (a *api) handleGETWallet(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
-	c.Encode(WalletResponse{
+	a.writeResponse(c, http.StatusOK, WalletResponse{
 		ScanHeight:  a.wallet.ScanHeight(),
 		Address:     a.wallet.Address(),
 		Spendable:   spendable,

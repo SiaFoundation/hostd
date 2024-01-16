@@ -9,6 +9,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 )
@@ -58,6 +59,12 @@ type (
 		StartTime        time.Time             `json:"startTime"`
 		BuildState
 	}
+
+	// HostSettings is the response body for the [GET] /settings endpoint.
+	HostSettings settings.Settings
+
+	// Metrics is the response body for the [GET] /metrics endpoint.
+	Metrics metrics.Metrics
 
 	// ConsensusState is the response body for the [GET] /consensus endpoint.
 	ConsensusState struct {
