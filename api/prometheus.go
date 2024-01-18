@@ -23,6 +23,7 @@ func (hs HostState) PrometheusMetric() []prometheus.Metric {
 				"build_time":     hs.BuildTime,
 				"start_time":     hs.StartTime,
 			},
+			Timestamp: time.Now(),
 		},
 		{
 			Name:      "hostd_runtime",
