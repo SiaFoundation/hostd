@@ -62,7 +62,7 @@ func (m *Metric) encode(sb *strings.Builder) error {
 	// write optional timestamp
 	if !m.Timestamp.IsZero() {
 		sb.WriteString(" ")
-		sb.WriteString(strconv.FormatInt(m.Timestamp.Unix(), 10))
+		sb.WriteString(strconv.FormatInt(m.Timestamp.UnixMilli(), 10))
 	}
 	return nil
 }
