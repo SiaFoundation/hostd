@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -26,7 +25,6 @@ import (
 	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -74,114 +72,6 @@ var (
 	disableStdin bool
 )
 
-// readPasswordInput reads a password from stdin.
-func readPasswordInput(context string) (string, error) {
-	fmt.Printf("%s: ", context)
-	input, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	return string(input), err
-}
-
-// wrapANSI wraps the output in ANSI escape codes if enabled.
-func wrapANSI(prefix, output, suffix string) string {
-	if cfg.Log.StdOut.EnableANSI {
-		return prefix + output + suffix
-	}
-	return output
-}
-
-// stdoutError prints an error message to stdout and exits with a 1 exit code.
-func stdoutError(msg string) {
-	if cfg.Log.StdOut.EnableANSI {
-		fmt.Println(wrapANSI("\033[31m", msg, "\033[0m"))
-	} else {
-		fmt.Println(msg)
-	}
-	os.Exit(1)
-}
-
-// mustSetAPIPassword prompts the user to enter an API password if one is not
-// already set via environment variable or config file.
-func mustSetAPIPassword() {
-	if len(cfg.HTTP.Password) != 0 {
-		return
-	} else if disableStdin {
-		stdoutError("API password must be set via environment variable or config file when --env flag is set")
-	}
-
-	for {
-		fmt.Println("Please choose a password to unlock hostd.")
-		fmt.Println("This password will be required to access the UI in your web browser.")
-		fmt.Println("(The password must be at least 4 characters.)")
-		var err error
-		cfg.HTTP.Password, err = readPasswordInput("Enter password")
-		if err != nil {
-			stdoutError("Could not read password:" + err.Error())
-		}
-
-		if len(cfg.HTTP.Password) >= 4 {
-			break
-		}
-
-		fmt.Println(wrapANSI("\033[31m", "Password must be at least 4 characters!", "\033[0m"))
-		fmt.Println("")
-	}
-}
-
-func mustGetSeedPhrase() string {
-	// retry until a valid seed phrase is entered
-	for {
-		fmt.Println("")
-		fmt.Println("Type in your 12-word seed phrase and press enter. If you do not have a seed phrase yet, type 'seed' to generate one.")
-		phrase, err := readPasswordInput("Enter seed phrase")
-		if err != nil {
-			stdoutError("Could not read seed phrase: " + err.Error())
-		}
-
-		if strings.ToLower(strings.TrimSpace(phrase)) == "seed" {
-			// generate a new seed phrase
-			var seed [32]byte
-			phrase = wallet.NewSeedPhrase()
-			if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
-				panic(err)
-			}
-			key := wallet.KeyFromSeed(&seed, 0)
-			fmt.Println("")
-			fmt.Println("A new seed phrase has been generated below. " + wrapANSI("\033[1m", "Write it down and keep it safe.", "\033[0m"))
-			fmt.Println("Your seed phrase is the only way to recover your Siacoin. If you lose your seed phrase, you will also lose your Siacoin.")
-			fmt.Println("You will need to re-enter this seed phrase every time you start hostd.")
-			fmt.Println("")
-			fmt.Println(wrapANSI("\033[34;1m", "Seed Phrase:", "\033[0m"), phrase)
-			fmt.Println(wrapANSI("\033[34;1m", "Wallet Address:", "\033[0m"), types.StandardUnlockHash(key.PublicKey()))
-
-			// confirm seed phrase
-			for {
-				fmt.Println("")
-				fmt.Println(wrapANSI("\033[1m", "Please confirm your seed phrase to continue.", "\033[0m"))
-				confirmPhrase, err := readPasswordInput("Enter seed phrase")
-				if err != nil {
-					stdoutError("Could not read seed phrase: " + err.Error())
-				} else if confirmPhrase == phrase {
-					return phrase
-				}
-
-				fmt.Println(wrapANSI("\033[31m", "Seed phrases do not match!", "\033[0m"))
-				fmt.Println("You entered:", confirmPhrase)
-				fmt.Println("Actual phrase:", phrase)
-			}
-		}
-
-		var seed [32]byte
-		err = wallet.SeedFromPhrase(&seed, phrase)
-		if err == nil {
-			// valid seed phrase
-			return phrase
-		}
-		fmt.Println(wrapANSI("\033[31m", "Invalid seed phrase:", "\033[0m"), err)
-		fmt.Println("You entered:", phrase)
-	}
-}
-
 func startAPIListener(log *zap.Logger) (l net.Listener, err error) {
 	addr, port, err := net.SplitHostPort(cfg.HTTP.Address)
 	if err != nil {
@@ -224,18 +114,6 @@ func openBrowser(url string) error {
 	}
 }
 
-// mustSetWalletkey prompts the user to enter a wallet seed phrase if one is not
-// already set via environment variable or config file.
-func mustSetWalletkey() {
-	if len(cfg.RecoveryPhrase) != 0 {
-		return
-	} else if disableStdin {
-		stdoutError("Wallet seed must be set via environment variable or config file when --env flag is set")
-	}
-
-	cfg.RecoveryPhrase = mustGetSeedPhrase()
-}
-
 // tryLoadConfig loads the config file specified by the HOSTD_CONFIG_PATH. If
 // the config file does not exist, it will not be loaded.
 func tryLoadConfig() {
@@ -251,7 +129,7 @@ func tryLoadConfig() {
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		stdoutError("failed to open config file: " + err.Error())
+		stdoutFatalError("failed to open config file: " + err.Error())
 		return
 	}
 	defer f.Close()
@@ -352,15 +230,32 @@ func main() {
 		fmt.Println("Recovery Phrase:", phrase)
 		fmt.Println("Address", types.StandardUnlockHash(key.PublicKey()))
 		return
+	case "config":
+		buildConfig()
+		return
 	}
 
-	// check that the API password and wallet seed are set
-	mustSetAPIPassword()
-	mustSetWalletkey()
+	// check that the API password is set
+	if cfg.HTTP.Password == "" {
+		if disableStdin {
+			stdoutFatalError("API password must be set via environment variable or config file when --env flag is set")
+			return
+		}
+		setAPIPassword()
+	}
+
+	// check that the wallet seed is set
+	if cfg.RecoveryPhrase == "" {
+		if disableStdin {
+			stdoutFatalError("Wallet seed must be set via environment variable or config file when --env flag is set")
+			return
+		}
+		setSeedPhrase()
+	}
 
 	// configure the logger
 	if !cfg.Log.StdOut.Enabled && !cfg.Log.File.Enabled {
-		stdoutError("At least one of stdout or file logging must be enabled")
+		stdoutFatalError("At least one of stdout or file logging must be enabled")
 		return
 	}
 
@@ -417,7 +312,7 @@ func main() {
 
 		fileWriter, closeFn, err := zap.Open(cfg.Log.File.Path)
 		if err != nil {
-			stdoutError("failed to open log file: " + err.Error())
+			stdoutFatalError("failed to open log file: " + err.Error())
 			return
 		}
 		defer closeFn()
@@ -440,17 +335,13 @@ func main() {
 
 	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", build.NetworkName()), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
 
-	// create the data directory if it does not already exist
-	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
-		log.Fatal("unable to create config directory", zap.Error(err))
-	}
-
 	var seed [32]byte
 	if err := wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase); err != nil {
 		log.Fatal("failed to load wallet", zap.Error(err))
 	}
 	walletKey := wallet.KeyFromSeed(&seed, 0)
 
+	// create the data directory if it does not already exist
 	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
 		log.Fatal("unable to create config directory", zap.Error(err))
 	}

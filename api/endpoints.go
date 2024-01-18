@@ -40,23 +40,18 @@ func (a *api) checkServerError(c jape.Context, context string, err error) bool {
 	return err == nil
 }
 
-func (a *api) handleGETHostStatePrometheus(c jape.Context) {
-	announcement, err := a.settings.LastAnnouncement()
-	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
+func (a *api) writeResponse(c jape.Context, code int, resp any) {
+	var responseFormat string
+	if err := c.DecodeForm("response", &responseFormat); err != nil {
 		return
 	}
 
-	var buf bytes.Buffer
-
-	text := `hostd_host_state{public_key="%s", walletAddress="%s", starttime="%s", network="%s", version="%s", commit="%s",os="%s", buildtime="%s", lastAnnouncement_index_id="%s", lastAnnouncement_publicKey="%s", lastAnnouncement_address="%s"} 1
-hostd_lastAnnouncement_index_height %d`
-	fmt.Fprintf(&buf, text, a.hostKey, a.wallet.Address().String(), startTime,
-		build.NetworkName(), build.Version(), build.Commit(), runtime.GOOS, build.Time(),
-		announcement.Index.ID, announcement.PublicKey.String(), announcement.Address,
-		announcement.Index.Height)
-
-	c.ResponseWriter.Write(buf.Bytes())
+	if resp != nil {
+		switch responseFormat {
+		default:
+			c.Encode(resp)
+		}
+	}
 }
 
 func (a *api) handleGETHostState(c jape.Context) {
@@ -66,7 +61,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 		return
 	}
 
-	c.Encode(HostState{
+	a.writeResponse(c, http.StatusOK, HostState{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
 		WalletAddress:    a.wallet.Address(),
@@ -105,7 +100,7 @@ hostd_consensus_state_chain_index_height_exp2{synced="%d" id="%s"} %d`
 }
 
 func (a *api) handleGETConsensusState(c jape.Context) {
-	c.Encode(ConsensusState{
+	a.writeResponse(c, http.StatusOK, ConsensusState{
 		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
 	})
@@ -298,7 +293,8 @@ hostd_settings_revision%s %d`
 }
 
 func (a *api) handleGETSettings(c jape.Context) {
-	c.Encode(a.settings.Settings())
+	hs := HostSettings(a.settings.Settings())
+	a.writeResponse(c, http.StatusOK, hs)
 }
 
 func (a *api) handlePATCHSettings(c jape.Context) {
@@ -435,7 +431,8 @@ func (a *api) handleGETMetrics(c jape.Context) {
 	if !a.checkServerError(c, "failed to get metrics", err) {
 		return
 	}
-	c.Encode(metrics)
+
+	a.writeResponse(c, http.StatusOK, Metrics(metrics))
 }
 
 func (a *api) handleGETPeriodMetrics(c jape.Context) {
@@ -608,7 +605,7 @@ func (a *api) handleGETWallet(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
-	c.Encode(WalletResponse{
+	a.writeResponse(c, http.StatusOK, WalletResponse{
 		ScanHeight:  a.wallet.ScanHeight(),
 		Address:     a.wallet.Address(),
 		Spendable:   spendable,
@@ -836,6 +833,25 @@ func (a *api) handlePUTSystemDir(c jape.Context) {
 		return
 	}
 	a.checkServerError(c, "failed to create dir", os.MkdirAll(req.Path, 0775))
+}
+
+func (a *api) handleGETHostStatePrometheus(c jape.Context) {
+	announcement, err := a.settings.LastAnnouncement()
+	if err != nil {
+		c.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+
+	text := `hostd_host_state{public_key="%s", walletAddress="%s", starttime="%s", network="%s", version="%s", commit="%s",os="%s", buildtime="%s", lastAnnouncement_index_id="%s", lastAnnouncement_publicKey="%s", lastAnnouncement_address="%s"} 1
+hostd_lastAnnouncement_index_height %d`
+	fmt.Fprintf(&buf, text, a.hostKey, a.wallet.Address().String(), startTime,
+		build.NetworkName(), build.Version(), build.Commit(), runtime.GOOS, build.Time(),
+		announcement.Index.ID, announcement.PublicKey.String(), announcement.Address,
+		announcement.Index.Height)
+
+	c.ResponseWriter.Write(buf.Bytes())
 }
 
 func (a *api) handleGETTPoolFeePrometheus(c jape.Context) {
