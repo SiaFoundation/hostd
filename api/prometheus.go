@@ -21,12 +21,13 @@ func (hs HostState) PrometheusMetric() []prometheus.Metric {
 				"commit":         hs.Commit,
 				"os":             hs.OS,
 				"build_time":     hs.BuildTime,
+				"start_time":     hs.StartTime,
 			},
 		},
 		{
-			Name:      "hostd_start_time",
-			Value:     1,
-			Timestamp: hs.StartTime,
+			Name:      "hostd_runtime",
+			Value:     float64(time.Since(hs.StartTime).Milliseconds()),
+			Timestamp: time.Now(),
 		},
 		{
 			Name:      "hostd_last_announcement",
