@@ -237,8 +237,6 @@ gitlab.com/NebulousLabs/writeaheadlog v0.0.0-20200618142844-c59a90f49130/go.mod 
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.sia.tech/core v0.1.13-0.20240116022021-2cd44b4d828d h1:gcqhQHYuc+k9L2WqT+r302dmorERpjkCrhW31I71omU=
 go.sia.tech/core v0.1.13-0.20240116022021-2cd44b4d828d/go.mod h1:3EoY+rR78w1/uGoXXVqcYdwSjSJKuEMI5bL7WROA27Q=
-go.sia.tech/jape v0.10.0 h1:wsIURirNV29fvqxhvvbd0yhKh+9JeNZvz4haJUL/+yI=
-go.sia.tech/jape v0.10.0/go.mod h1:4QqmBB+t3W7cNplXPj++ZqpoUb2PeiS66RLpXmEGap4=
 go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640 h1:mSaJ622P7T/M97dAK8iPV+IRIC9M5vV28NHeceoWO3M=
 go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640/go.mod h1:4QqmBB+t3W7cNplXPj++ZqpoUb2PeiS66RLpXmEGap4=
 go.sia.tech/mux v1.2.0 h1:ofa1Us9mdymBbGMY2XH/lSpY8itFsKIo/Aq8zwe+GHU=
