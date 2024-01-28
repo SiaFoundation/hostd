@@ -253,6 +253,11 @@ func main() {
 		setSeedPhrase()
 	}
 
+	// create the data directory if it does not already exist
+	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
+		stdoutFatalError("unable to create config directory: " + err.Error())
+	}
+
 	// configure the logger
 	if !cfg.Log.StdOut.Enabled && !cfg.Log.File.Enabled {
 		stdoutFatalError("At least one of stdout or file logging must be enabled")
@@ -340,11 +345,6 @@ func main() {
 		log.Fatal("failed to load wallet", zap.Error(err))
 	}
 	walletKey := wallet.KeyFromSeed(&seed, 0)
-
-	// create the data directory if it does not already exist
-	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
-		log.Fatal("unable to create config directory", zap.Error(err))
-	}
 
 	apiListener, err := startAPIListener(log)
 	if err != nil {

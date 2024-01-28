@@ -3,20 +3,20 @@ module go.sia.tech/hostd
 go 1.21
 
 require (
-	github.com/aws/aws-sdk-go v1.45.16
-	github.com/cloudflare/cloudflare-go v0.75.0
+	github.com/aws/aws-sdk-go v1.50.1
+	github.com/cloudflare/cloudflare-go v0.86.0
 	github.com/hashicorp/golang-lru/v2 v2.0.5
 	github.com/mattn/go-sqlite3 v1.14.17
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	go.sia.tech/core v0.1.13-0.20240116022021-2cd44b4d828d
-	go.sia.tech/jape v0.10.0
+	go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640
 	go.sia.tech/renterd v0.6.0
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
-	go.sia.tech/web/hostd v0.33.0
+	go.sia.tech/web/hostd v0.36.0
 	go.uber.org/zap v1.25.0
-	golang.org/x/sys v0.12.0
-	golang.org/x/term v0.12.0
-	golang.org/x/time v0.3.0
+	golang.org/x/sys v0.16.0
+	golang.org/x/term v0.16.0
+	golang.org/x/time v0.5.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/frand v1.4.2
 	nhooyr.io/websocket v1.8.7
@@ -30,7 +30,7 @@ require (
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.4 // indirect
+	github.com/hashicorp/go-retryablehttp v0.7.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/klauspost/compress v1.16.7 // indirect
@@ -54,9 +54,9 @@ require (
 	go.sia.tech/mux v1.2.0 // indirect
 	go.sia.tech/web v0.0.0-20230817201630-c3d9328334b1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.13.0 // indirect
-	golang.org/x/net v0.15.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
+	golang.org/x/crypto v0.18.0 // indirect
+	golang.org/x/net v0.20.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

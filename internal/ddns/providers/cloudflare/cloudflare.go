@@ -88,7 +88,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 			Content: ipv4.String(),
 			TTL:     300,
 			Proxied: cloudflare.BoolPtr(false),
-			Comment: "managed by hostd",
+			Comment: cloudflare.StringPtr("managed by hostd"),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to update ipv4 record: %w", err)
@@ -124,7 +124,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 			Content: ipv6.String(),
 			TTL:     300,
 			Proxied: cloudflare.BoolPtr(false),
-			Comment: "managed by hostd",
+			Comment: cloudflare.StringPtr("managed by hostd"),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to update ipv6 record: %w", err)
