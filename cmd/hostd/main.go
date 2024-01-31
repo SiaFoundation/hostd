@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/core/wallet"
+	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/config"
