@@ -126,8 +126,8 @@ func (txn Transaction) EncodeTo(e *types.Encoder) {
 	txn.ID.EncodeTo(e)
 	txn.Index.EncodeTo(e)
 	txn.Transaction.EncodeTo(e)
-	txn.Inflow.EncodeTo(e)
-	txn.Outflow.EncodeTo(e)
+	(*types.V1Currency)(&txn.Inflow).EncodeTo(e)
+	(*types.V1Currency)(&txn.Outflow).EncodeTo(e)
 	e.WriteString(string(txn.Source))
 	e.WriteTime(txn.Timestamp)
 }
@@ -137,8 +137,8 @@ func (txn *Transaction) DecodeFrom(d *types.Decoder) {
 	txn.ID.DecodeFrom(d)
 	txn.Index.DecodeFrom(d)
 	txn.Transaction.DecodeFrom(d)
-	txn.Inflow.DecodeFrom(d)
-	txn.Outflow.DecodeFrom(d)
+	(*types.V1Currency)(&txn.Inflow).DecodeFrom(d)
+	(*types.V1Currency)(&txn.Outflow).DecodeFrom(d)
 	txn.Source = TransactionSource(d.ReadString())
 	txn.Timestamp = d.ReadTime()
 }
@@ -570,7 +570,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			}
 			// append the payout transaction to the diff
 			var utxo types.SiacoinOutput
-			convertToCore(dsco.SiacoinOutput, &utxo)
+			convertToCore(dsco.SiacoinOutput, (*types.V1SiacoinOutput)(&utxo))
 			sce := SiacoinElement{
 				ID:            types.SiacoinOutputID(dsco.ID),
 				SiacoinOutput: utxo,
@@ -584,7 +584,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 		for _, diff := range applied.SiacoinOutputDiffs {
 			if diff.Direction == modules.DiffRevert {
 				var so types.SiacoinOutput
-				convertToCore(diff.SiacoinOutput, &so)
+				convertToCore(diff.SiacoinOutput, (*types.V1SiacoinOutput)(&so))
 				spentOutputs[types.SiacoinOutputID(diff.ID)] = so
 			}
 		}
@@ -607,7 +607,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 			}
 			if diff.Direction == modules.DiffApply {
 				var sco types.SiacoinOutput
-				convertToCore(diff.SiacoinOutput, &sco)
+				convertToCore(diff.SiacoinOutput, (*types.V1SiacoinOutput)(&sco))
 				err := tx.AddSiacoinElement(SiacoinElement{
 					SiacoinOutput: sco,
 					ID:            types.SiacoinOutputID(diff.ID),
@@ -643,7 +643,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				}
 
 				var value types.Currency
-				convertToCore(sco.SiacoinOutput.Value, &value)
+				convertToCore(sco.SiacoinOutput.Value, (*types.V1Currency)(&value))
 				switch sco.Direction {
 				case modules.DiffApply:
 					if err := tx.AddWalletDelta(value, blockTimestamp); err != nil {
@@ -667,7 +667,7 @@ func (sw *SingleAddressWallet) ProcessConsensusChange(cc modules.ConsensusChange
 				}
 
 				var value types.Currency
-				convertToCore(sco.SiacoinOutput.Value, &value)
+				convertToCore(sco.SiacoinOutput.Value, (*types.V1Currency)(&value))
 				switch sco.Direction {
 				case modules.DiffApply:
 					if err := tx.AddWalletDelta(value, blockTimestamp); err != nil {

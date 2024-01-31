@@ -14,7 +14,7 @@ type TransactionPool struct {
 // RecommendedFee returns the recommended fee per byte.
 func (tp *TransactionPool) RecommendedFee() (fee types.Currency) {
 	_, max := tp.tp.FeeEstimation()
-	convertToCore(&max, &fee)
+	convertToCore(&max, (*types.V1Currency)(&fee))
 	return
 }
 
