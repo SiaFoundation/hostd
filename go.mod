@@ -8,8 +8,8 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.5
 	github.com/mattn/go-sqlite3 v1.14.17
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	go.sia.tech/core v0.2.1-0.20240124010156-3ffae341852c
-	go.sia.tech/coreutils v0.0.0-20240125145741-0f35c5ee74a8
+	go.sia.tech/core v0.2.1
+	go.sia.tech/coreutils v0.0.1
 	go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640
 	go.sia.tech/renterd v0.6.0
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
