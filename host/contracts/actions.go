@@ -22,7 +22,7 @@ const (
 	ActionExpire                 = "expire"
 )
 
-func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize uint64, index uint64) (types.StorageProof, error) {
+func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize uint64, index uint64, log *zap.Logger) (types.StorageProof, error) {
 	if filesize == 0 {
 		return types.StorageProof{
 			ParentID: id,
@@ -34,12 +34,16 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize u
 
 	roots, err := cm.SectorRoots(id, 0, 0)
 	if err != nil {
-		return types.StorageProof{}, err
+		return types.StorageProof{}, fmt.Errorf("failed to get sector roots: %w", err)
+	} else if uint64(len(roots)) < sectorIndex {
+		log.Error("failed to build storage proof. invalid root index", zap.Uint64("sectorIndex", sectorIndex), zap.Uint64("segmentIndex", segmentIndex), zap.Int("rootsLength", len(roots)))
+		return types.StorageProof{}, fmt.Errorf("invalid root index")
 	}
 	root := roots[sectorIndex]
 	sector, err := cm.storage.Read(root)
 	if err != nil {
-		return types.StorageProof{}, err
+		log.Error("failed to build storage proof. unable to read sector data", zap.Error(err), zap.Stringer("sectorRoot", root))
+		return types.StorageProof{}, fmt.Errorf("failed to read sector data")
 	}
 	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
 	sectorProof := rhp2.ConvertProofOrdering(rhp2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
@@ -90,7 +94,8 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		log.Error("failed to get contract", zap.Error(err))
 		return
 	}
-	log.Debug("performing contract action", zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.Uint64("negotiationHeight", contract.NegotiationHeight), zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd))
+	log = log.With(zap.Uint64("revisionNumber", contract.Revision.RevisionNumber), zap.Uint64("size", contract.Revision.Filesize), zap.Stringer("merkleRoot", contract.Revision.FileMerkleRoot), zap.Uint64("scanHeight", cm.chain.TipState().Index.Height))
+	log.Debug("performing contract action", zap.Uint64("negotiationHeight", contract.NegotiationHeight), zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd))
 	start := time.Now()
 	cs := cm.chain.TipState()
 
@@ -170,7 +175,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 
 		// get the proof leaf index
 		leafIndex := cs.StorageProofLeafIndex(contract.Revision.Filesize, windowStart.ID, contract.Revision.ParentID)
-		sp, err := cm.buildStorageProof(contract.Revision.ParentID, contract.Revision.Filesize, leafIndex)
+		sp, err := cm.buildStorageProof(contract.Revision.ParentID, contract.Revision.Filesize, leafIndex, log.Named("buildStorageProof"))
 		if err != nil {
 			log.Error("failed to build storage proof", zap.Error(err))
 			return
