@@ -11,8 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-var errSectorHasRefs = errors.New("sector has references")
-
 type tempSectorRef struct {
 	ID       int64
 	SectorID int64
@@ -48,13 +46,12 @@ func (s *Store) batchExpireTempSectors(height uint64) (refs []tempSectorRef, rec
 		}
 
 		for _, ref := range refs {
-			err := pruneSectorRef(tx, ref.SectorID)
-			if errors.Is(err, errSectorHasRefs) {
-				continue
-			} else if err != nil {
+			deleted, err := pruneSectorRef(tx, ref.SectorID)
+			if err != nil {
 				return fmt.Errorf("failed to prune sector: %w", err)
+			} else if deleted {
+				reclaimed++
 			}
-			reclaimed++
 		}
 		return nil
 	})
@@ -264,40 +261,40 @@ func clearVolumeSector(tx txn, id int64) error {
 	return nil
 }
 
-func pruneSectorRef(tx txn, id int64) error {
+func pruneSectorRef(tx txn, id int64) (bool, error) {
 	var hasReference bool
 	// check if the sector is referenced by a contract
 	err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM contract_sector_roots WHERE sector_id=$1)`, id).Scan(&hasReference)
 	if err != nil {
-		return fmt.Errorf("failed to check contract references: %w", err)
+		return false, fmt.Errorf("failed to check contract references: %w", err)
 	} else if hasReference {
-		return fmt.Errorf("sector referenced by contract: %w", errSectorHasRefs)
+		return false, nil
 	}
 	// check if the sector is referenced by temp storage
 	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM temp_storage_sector_roots WHERE sector_id=$1)`, id).Scan(&hasReference)
 	if err != nil {
-		return fmt.Errorf("failed to check temp references: %w", err)
+		return false, fmt.Errorf("failed to check temp references: %w", err)
 	} else if hasReference {
-		return fmt.Errorf("sector referenced by temp storage: %w", errSectorHasRefs)
+		return false, nil
 	}
 	// check if the sector is locked
 	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM locked_sectors WHERE sector_id=$1)`, id).Scan(&hasReference)
 	if err != nil {
-		return fmt.Errorf("failed to check lock references: %w", err)
+		return false, fmt.Errorf("failed to check lock references: %w", err)
 	} else if hasReference {
-		return fmt.Errorf("sector locked: %w", errSectorHasRefs)
+		return false, nil
 	}
 
 	// clear the volume sector reference
 	if err = clearVolumeSector(tx, id); err != nil {
-		return fmt.Errorf("failed to clear volume sector: %w", err)
+		return false, fmt.Errorf("failed to clear volume sector: %w", err)
 	}
 
 	// delete the sector
 	if _, err = tx.Exec(`DELETE FROM stored_sectors WHERE id=$1`, id); err != nil {
-		return fmt.Errorf("failed to delete sector: %w", err)
+		return false, fmt.Errorf("failed to delete sector: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 func expiredTempSectors(tx txn, height uint64, limit int) (sectors []tempSectorRef, _ error) {
@@ -362,10 +359,8 @@ func unlockSector(txn txn, lockIDs ...int64) error {
 	}
 
 	for _, sectorID := range sectorIDs {
-		err := pruneSectorRef(txn, sectorID)
-		if errors.Is(err, errSectorHasRefs) {
-			continue
-		} else if err != nil {
+		_, err := pruneSectorRef(txn, sectorID)
+		if err != nil {
 			return fmt.Errorf("failed to prune sector: %w", err)
 		}
 	}

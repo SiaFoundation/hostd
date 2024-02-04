@@ -3,7 +3,6 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -171,7 +170,7 @@ func clearLockedSectors(tx txn) error {
 	}
 
 	for _, sectorID := range sectorIDs {
-		if err := pruneSectorRef(tx, sectorID); err != nil && !errors.Is(err, errSectorHasRefs) {
+		if _, err := pruneSectorRef(tx, sectorID); err != nil {
 			return fmt.Errorf("failed to prune sector %d: %w", sectorID, err)
 		}
 	}
