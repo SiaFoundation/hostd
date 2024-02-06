@@ -424,9 +424,20 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, err
 	}
 
+	contractSectors := s.contract.Revision.Filesize / rhp2.SectorSize
+
 	var req rhp2.RPCSectorRootsRequest
 	if err := s.readRequest(&req, minMessageSize, 30*time.Second); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read sector roots request: %w", err)
+	}
+
+	start := req.RootOffset
+	end := req.RootOffset + req.NumRoots
+
+	if end > contractSectors {
+		err := fmt.Errorf("invalid sector range: %d-%d, contract has %d sectors", start, end, contractSectors)
+		s.t.WriteResponseErr(err)
+		return contracts.Usage{}, err
 	}
 
 	settings, err := sh.Settings()
@@ -435,7 +446,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
 	}
 
-	costs := settings.RPCSectorRootsCost(req.NumRoots, req.RootOffset)
+	costs := settings.RPCSectorRootsCost(req.RootOffset, req.NumRoots)
 	cost, _ := costs.Total()
 
 	// revise the contract
@@ -472,10 +483,13 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, err
 	}
 
-	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID, int(req.NumRoots), int(req.RootOffset))
+	roots, err := sh.contracts.SectorRoots(s.contract.Revision.ParentID)
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to get sector roots: %w", err)
+	} else if uint64(len(roots)) != contractSectors {
+		s.t.WriteResponseErr(ErrHostInternalError)
+		return contracts.Usage{}, fmt.Errorf("inconsistent sector roots: expected %v, got %v", contractSectors, len(roots))
 	}
 
 	// commit the revision
@@ -503,10 +517,9 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, fmt.Errorf("failed to commit contract revision: %w", err)
 	}
 	s.contract = signedRevision
-
 	sectorRootsResp := &rhp2.RPCSectorRootsResponse{
-		SectorRoots: roots,
-		MerkleProof: rhp2.BuildSectorRangeProof(roots, req.RootOffset, uint64(len(roots))),
+		SectorRoots: roots[start:end],
+		MerkleProof: rhp2.BuildSectorRangeProof(roots, start, end),
 		Signature:   hostSig,
 	}
 	return usage, s.writeResponse(sectorRootsResp, 2*time.Minute)
