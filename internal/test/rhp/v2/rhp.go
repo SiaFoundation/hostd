@@ -449,7 +449,7 @@ func (s *RHP2Session) Revision() (rev rhp2.ContractRevision) {
 func (s *RHP2Session) RPCAppendCost(remainingDuration uint64) (types.Currency, types.Currency, error) {
 	var sector [rhp2.SectorSize]byte
 	actions := []rhp2.RPCWriteAction{{Type: rhp2.RPCWriteActionAppend, Data: sector[:]}}
-	cost, err := s.settings.RPCWriteCost(actions, 0, remainingDuration, true)
+	cost, err := s.settings.RPCWriteCost(actions, s.revision.Revision.Filesize/rhp2.SectorSize, remainingDuration, true)
 	if err != nil {
 		return types.ZeroCurrency, types.ZeroCurrency, err
 	}
