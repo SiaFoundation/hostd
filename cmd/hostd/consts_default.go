@@ -12,10 +12,9 @@ const (
 	logFileEnvVariable    = "HOSTD_LOG_FILE"
 	configPathEnvVariable = "HOSTD_CONFIG_FILE"
 
-	defaultAPIAddr        = "localhost:9980"
-	defaultGatewayAddr    = ":9981"
-	defaultRHP2Addr       = ":9982"
-	defaultRHP3TCPAddr    = ":9983"
-	defaultRHP3WSAddr     = ":9984"
-	defaultPrometheusAddr = ":9985"
+	defaultAPIAddr     = "localhost:9980"
+	defaultGatewayAddr = ":9981"
+	defaultRHP2Addr    = ":9982"
+	defaultRHP3TCPAddr = ":9983"
+	defaultRHP3WSAddr  = ":9984"
 )

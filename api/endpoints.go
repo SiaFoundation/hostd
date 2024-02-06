@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	rhp3 "go.sia.tech/core/rhp/v3"
@@ -20,6 +18,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/disk"
+	"go.sia.tech/hostd/internal/prometheus"
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
@@ -48,6 +47,20 @@ func (a *api) writeResponse(c jape.Context, code int, resp any) {
 
 	if resp != nil {
 		switch responseFormat {
+		case "prometheus":
+			v, ok := resp.(prometheus.Marshaller)
+			if !ok {
+				err := fmt.Errorf("response does not implement prometheus.Marshaller %T", resp)
+				c.Error(err, http.StatusInternalServerError)
+				a.log.Error("response does not implement prometheus.Marshaller", zap.Stack("stack"), zap.Error(err))
+				return
+			}
+
+			enc := prometheus.NewEncoder(c.ResponseWriter)
+			if err := enc.Append(v); err != nil {
+				a.log.Error("failed to marshal prometheus response", zap.Error(err))
+				return
+			}
 		default:
 			c.Encode(resp)
 		}
@@ -77,28 +90,6 @@ func (a *api) handleGETHostState(c jape.Context) {
 	})
 }
 
-func (a *api) handleGETConsensusStatePrometheus(c jape.Context) {
-	bitSet := a.chain.Synced()
-	var bitSetVar int8
-	if bitSet {
-		bitSetVar = 1
-	}
-
-	var buf bytes.Buffer
-
-	text := `hostd_consensus_state_synced %d
-hostd_consensus_state_chain_index_height %d
-hostd_consensus_state_chain_index_height_exp1{synced="%d"} %d
-hostd_consensus_state_chain_index_height_exp2{synced="%d" id="%s"} %d`
-	fmt.Fprintf(&buf, text,
-		bitSetVar,
-		a.chain.TipState().Index.Height,
-		bitSetVar, a.chain.TipState().Index.Height,
-		bitSetVar, a.chain.TipState().Index.ID, a.chain.TipState().Index.Height)
-
-	c.ResponseWriter.Write(buf.Bytes())
-}
-
 func (a *api) handleGETConsensusState(c jape.Context) {
 	a.writeResponse(c, http.StatusOK, ConsensusState{
 		Synced:     a.chain.Synced(),
@@ -106,32 +97,8 @@ func (a *api) handleGETConsensusState(c jape.Context) {
 	})
 }
 
-func (a *api) handleGETSyncerAddrPrometheus(c jape.Context) {
-	var buf bytes.Buffer
-
-	text := `hostd_syncer_address{address="%s"} 1`
-	fmt.Fprintf(&buf, text, string(a.syncer.Address()))
-
-	c.ResponseWriter.Write(buf.Bytes())
-}
-
 func (a *api) handleGETSyncerAddr(c jape.Context) {
 	c.Encode(string(a.syncer.Address()))
-}
-
-func (a *api) handleGETSyncerPeersPrometheus(c jape.Context) {
-	p := a.syncer.Peers()
-	resulttext := ""
-	for i, peer := range p {
-		synced_peer := fmt.Sprintf(`hostd_syncer_peer{address="%s", version="%s"} 1`, string(peer.NetAddress), peer.Version)
-		if i != len(p)-1 {
-			synced_peer = synced_peer + "\n"
-		}
-		resulttext = resulttext + synced_peer
-	}
-	var resultbuffer bytes.Buffer
-	resultbuffer.WriteString(resulttext)
-	c.ResponseWriter.Write(resultbuffer.Bytes())
 }
 
 func (a *api) handleGETSyncerPeers(c jape.Context) {
@@ -164,25 +131,6 @@ func (a *api) handleDeleteSyncerPeer(c jape.Context) {
 	a.checkServerError(c, "failed to disconnect from peer", err)
 }
 
-func (a *api) handleGETAlertsPrometheus(c jape.Context) {
-	alerts := a.alerts.Active()
-
-	resulttext := ""
-	for i, alert := range alerts {
-		alerttext := fmt.Sprintf(`hostd_alert{severity="%s", message="%s"} 1`,
-			alert.Severity.String(), alert.Message,
-		)
-		if i != len(alerts)-1 {
-			alerttext = alerttext + "\n"
-		}
-		resulttext = resulttext + alerttext
-	}
-
-	var resultbuffer bytes.Buffer
-	resultbuffer.WriteString(resulttext)
-	c.ResponseWriter.Write(resultbuffer.Bytes())
-}
-
 func (a *api) handleGETAlerts(c jape.Context) {
 	c.Encode(a.alerts.Active())
 }
@@ -201,95 +149,6 @@ func (a *api) handlePOSTAlertsDismiss(c jape.Context) {
 func (a *api) handlePOSTAnnounce(c jape.Context) {
 	err := a.settings.Announce()
 	a.checkServerError(c, "failed to announce", err)
-}
-
-func (a *api) handleGETSettingsPrometheus(c jape.Context) {
-	var buf bytes.Buffer
-
-	bitSet := a.settings.Settings().AcceptingContracts
-	var acceptingContracts int8
-	if bitSet {
-		acceptingContracts = 1
-	}
-
-	bitSet = a.settings.Settings().DDNS.IPv4
-	var ddnsIPv4 int8
-	if bitSet {
-		ddnsIPv4 = 1
-	}
-
-	bitSet = a.settings.Settings().DDNS.IPv6
-	var ddnsIPv6 int8
-	if bitSet {
-		ddnsIPv6 = 1
-	}
-
-	settings := a.settings.Settings()
-
-	tags := ""
-	if settings.NetAddress != "" {
-		tags = "{net_address=\"" + settings.NetAddress + "\""
-	}
-
-	if settings.DDNS.Provider != "" {
-		if tags == "" {
-			tags = "{provider=\"" + settings.DDNS.Provider + "\"}"
-		} else {
-			tags = tags + ", provider=\"" + settings.DDNS.Provider + "\"}"
-		}
-	} else {
-		if settings.NetAddress != "" {
-			tags = tags + "}"
-		}
-	}
-
-	text := `hostd_settings_accepting_contracts%s %d
-hostd_settings_max_contract_duration%s %d
-hostd_settings_window_size%s %d
-hostd_settings_contract_price%s %s
-hostd_settings_baserpc_price%s %s
-hostd_settings_sectoraccess_price%s %s
-hostd_settings_collateral_multiplier%s %f
-hostd_settings_max_collateral%s %s
-hostd_settings_storage_price%s %s
-hostd_settings_egress_price%s %s
-hostd_settings_ingress_price%s %s
-hostd_settings_pricetable_validity%s %f
-hostd_settings_max_registry_entries%s %d
-hostd_settings_account_expiry%s %f
-hostd_settings_max_account_balance%s %s
-hostd_settings_ingress_limit%s %d
-hostd_settings_egress_limit%s %d
-hostd_settings_ddns_ipv4%s %d
-hostd_settings_ddns_ipv6%s %d
-hostd_settings_sector_cache_size%s %d
-hostd_settings_revision%s %d`
-
-	fmt.Fprintf(&buf, text,
-		tags, acceptingContracts,
-		tags, settings.MaxContractDuration,
-		tags, settings.WindowSize,
-		tags, settings.ContractPrice.ExactString(),
-		tags, settings.BaseRPCPrice.ExactString(),
-		tags, settings.SectorAccessPrice.ExactString(),
-		tags, settings.CollateralMultiplier,
-		tags, settings.MaxCollateral.ExactString(),
-		tags, settings.StoragePrice.ExactString(),
-		tags, settings.EgressPrice.ExactString(),
-		tags, settings.IngressPrice.ExactString(),
-		tags, settings.PriceTableValidity.Hours(),
-		tags, settings.MaxRegistryEntries,
-		tags, settings.AccountExpiry.Hours(),
-		tags, settings.MaxAccountBalance.ExactString(),
-		tags, settings.IngressLimit,
-		tags, settings.EgressLimit,
-		tags, ddnsIPv4,
-		tags, ddnsIPv6,
-		tags, settings.SectorCacheSize,
-		tags, settings.Revision,
-	)
-
-	c.ResponseWriter.Write(buf.Bytes())
 }
 
 func (a *api) handleGETSettings(c jape.Context) {
@@ -343,80 +202,6 @@ func (a *api) handlePATCHSettings(c jape.Context) {
 func (a *api) handlePUTDDNSUpdate(c jape.Context) {
 	err := a.settings.UpdateDDNS(true)
 	a.checkServerError(c, "failed to update dynamic DNS", err)
-}
-
-func (a *api) handleGETMetricsPrometheus(c jape.Context) {
-	var timestamp time.Time
-	if err := c.DecodeForm("timestamp", &timestamp); err != nil {
-		return
-	} else if timestamp.IsZero() {
-		timestamp = time.Now()
-	}
-
-	metrics, err := a.metrics.Metrics(timestamp)
-	if !a.checkServerError(c, "failed to get metrics", err) {
-		return
-	}
-
-	var buf bytes.Buffer
-	text := `hostd_metrics_accounts_active %d
-hostd_metrics_accounts_balance %s
-hostd_metrics_revenue_potential_rpc %s
-hostd_metrics_revenue_potential_storage %s
-hostd_metrics_revenue_potential_ingress %s
-hostd_metrics_revenue_potential_egress %s
-hostd_metrics_revenue_potential_registry_read %s
-hostd_metrics_revenue_potential_registry_write %s
-hostd_metrics_revenue_earned_rpc %s
-hostd_metrics_revenue_earned_storage %s
-hostd_metrics_revenue_earned_ingress %s
-hostd_metrics_revenue_earned_egress %s
-hostd_metrics_revenue_earned_registry_read %s
-hostd_metrics_revenue_earned_registry_write %s
-hostd_metrics_pricing_contract_price %s
-hostd_metrics_pricing_ingress_price %s
-hostd_metrics_pricing_egress_price %s
-hostd_metrics_pricing_baserpc_price %s
-hostd_metrics_pricing_sector_access_price %s
-hostd_metrics_pricing_storage_price %s
-hostd_metrics_pricing_collateral_multiplier %f
-hostd_metrics_contracts_pending %d
-hostd_metrics_contracts_active %d
-hostd_metrics_contracts_rejected %d
-hostd_metrics_contracts_failed %d
-hostd_metrics_contracts_successful %d
-hostd_metrics_contracts_locked_collateral %s
-hostd_metrics_contracts_risked_collateral %s
-hostd_metrics_storage_total_sectors %d
-hostd_metrics_storage_physical_sectors %d
-hostd_metrics_storage_contract_sectors %d
-hostd_metrics_storage_temp_sectors %d
-hostd_metrics_storage_reads %d
-hostd_metrics_storage_writes %d
-hostd_metrics_storage_sector_cache_hits %d
-hostd_metrics_storage_sector_cache_misses %d
-hostd_metrics_registry_entries %d
-hostd_metrics_registry_max_entries %d
-hostd_metrics_registry_reads %d
-hostd_metrics_registry_writes %d
-hostd_metrics_data_rhp3_ingress %d
-hostd_metrics_data_rhp3_egress %d
-hostd_metrics_balance %s`
-	fmt.Fprintf(&buf, text, metrics.Accounts.Active, metrics.Accounts.Balance.ExactString(), metrics.Revenue.Potential.RPC.ExactString(),
-		metrics.Revenue.Potential.Storage.ExactString(), metrics.Revenue.Potential.Ingress.ExactString(), metrics.Revenue.Potential.Egress.ExactString(),
-		metrics.Revenue.Potential.RegistryRead.ExactString(), metrics.Revenue.Potential.RegistryWrite.ExactString(), metrics.Revenue.Earned.RPC.ExactString(),
-		metrics.Revenue.Earned.Storage.ExactString(), metrics.Revenue.Earned.Ingress.ExactString(), metrics.Revenue.Earned.Egress.ExactString(),
-		metrics.Revenue.Earned.RegistryRead.ExactString(), metrics.Revenue.Earned.RegistryWrite.ExactString(),
-		metrics.Pricing.ContractPrice.ExactString(), metrics.Pricing.IngressPrice.ExactString(), metrics.Pricing.EgressPrice.ExactString(),
-		metrics.Pricing.BaseRPCPrice.ExactString(), metrics.Pricing.SectorAccessPrice.ExactString(), metrics.Pricing.StoragePrice.ExactString(),
-		metrics.Pricing.CollateralMultiplier, metrics.Contracts.Pending, metrics.Contracts.Active, metrics.Contracts.Rejected, metrics.Contracts.Failed,
-		metrics.Contracts.Successful, metrics.Contracts.LockedCollateral.ExactString(), metrics.Contracts.RiskedCollateral.ExactString(), metrics.Storage.TotalSectors,
-		metrics.Storage.PhysicalSectors, metrics.Storage.ContractSectors, metrics.Storage.TempSectors, metrics.Storage.Reads, metrics.Storage.Writes, metrics.Storage.SectorCacheHits,
-		metrics.Storage.SectorCacheMisses, metrics.Registry.Entries, metrics.Registry.MaxEntries, metrics.Registry.Reads, metrics.Registry.Writes,
-		metrics.Data.RHP.Ingress, metrics.Data.RHP.Egress, metrics.Balance.ExactString(),
-	)
-
-	c.ResponseWriter.Write(buf.Bytes())
 }
 
 func (a *api) handleGETMetrics(c jape.Context) {
@@ -580,26 +365,6 @@ func (a *api) handleDeleteSector(c jape.Context) {
 	a.checkServerError(c, "failed to remove sector", err)
 }
 
-func (a *api) handleGETWalletPrometheus(c jape.Context) {
-	spendable, confirmed, unconfirmed, err := a.wallet.Balance()
-	if !a.checkServerError(c, "failed to get wallet", err) {
-		return
-	}
-
-	var buf bytes.Buffer
-
-	text := `hostd_wallet_scan_height{address="%s"} %d
-hostd_wallet_spendable{address="%s"} %s
-hostd_wallet_confirmed{address="%s"} %s
-hostd_wallet_unconfirmed{address="%s"} %s`
-	fmt.Fprintf(&buf, text, a.wallet.Address().String(), a.wallet.ScanHeight(),
-		a.wallet.Address().String(), spendable.ExactString(),
-		a.wallet.Address().String(), confirmed.ExactString(),
-		a.wallet.Address().String(), unconfirmed.ExactString())
-
-	c.ResponseWriter.Write(buf.Bytes())
-}
-
 func (a *api) handleGETWallet(c jape.Context) {
 	spendable, confirmed, unconfirmed, err := a.wallet.Balance()
 	if !a.checkServerError(c, "failed to get wallet", err) {
@@ -614,41 +379,6 @@ func (a *api) handleGETWallet(c jape.Context) {
 	})
 }
 
-func (a *api) handleGETWalletTransactionsPrometheus(c jape.Context) {
-	limit, offset := parseLimitParams(c, 100, 500)
-
-	transactions, err := a.wallet.Transactions(limit, offset)
-	if !a.checkServerError(c, "failed to get wallet transactions", err) {
-		return
-	}
-
-	resulttext := ""
-	for i, transaction := range transactions {
-		txid := strings.Split(transaction.ID.String(), ":")[1]
-		total, underflow := transaction.Inflow.SubWithUnderflow(transaction.Outflow)
-		bitSetVar := 0
-		if underflow {
-			total, _ = transaction.Outflow.SubWithUnderflow(transaction.Inflow)
-			bitSetVar = 1
-		}
-		txtext := fmt.Sprintf(`hostd_wallet_transaction_inflow{txid="%s"} %s
-hostd_wallet_transaction_outflow{txid="%s"} %s
-hostd_wallet_transaction_total{txid="%s", underflow="%d"} %s`,
-			txid, transaction.Inflow.ExactString(),
-			txid, transaction.Outflow.ExactString(),
-			txid, bitSetVar, total.ExactString(),
-		)
-		if i != len(transactions)-1 {
-			txtext = txtext + "\n"
-		}
-		resulttext = resulttext + txtext
-	}
-
-	var resultbuffer bytes.Buffer
-	resultbuffer.WriteString(resulttext)
-	c.ResponseWriter.Write(resultbuffer.Bytes())
-}
-
 func (a *api) handleGETWalletTransactions(c jape.Context) {
 	limit, offset := parseLimitParams(c, 100, 500)
 
@@ -657,39 +387,6 @@ func (a *api) handleGETWalletTransactions(c jape.Context) {
 		return
 	}
 	c.Encode(transactions)
-}
-
-func (a *api) handleGETWalletPendingPrometheus(c jape.Context) {
-	pending_transactions, err := a.wallet.UnconfirmedTransactions()
-	if !a.checkServerError(c, "failed to get wallet pending", err) {
-		return
-	}
-
-	resulttext := ""
-	for i, transaction := range pending_transactions {
-		txid := strings.Split(transaction.ID.String(), ":")[1]
-		total, underflow := transaction.Inflow.SubWithUnderflow(transaction.Outflow)
-		bitSetVar := 0
-		if underflow {
-			total, _ = transaction.Outflow.SubWithUnderflow(transaction.Inflow)
-			bitSetVar = 1
-		}
-		txtext := fmt.Sprintf(`hostd_wallet_transaction_pending_inflow{txid="%s"} %s
-hostd_wallet_transaction_pending_outflow{txid="%s"} %s
-hostd_wallet_transaction_pending_total{txid="%s", underflow="%d"} %s`,
-			txid, transaction.Inflow.ExactString(),
-			txid, transaction.Outflow.ExactString(),
-			txid, bitSetVar, total.ExactString(),
-		)
-		if i != len(pending_transactions)-1 {
-			txtext = txtext + "\n"
-		}
-		resulttext = resulttext + txtext
-	}
-
-	var resultbuffer bytes.Buffer
-	resultbuffer.WriteString(resulttext)
-	c.ResponseWriter.Write(resultbuffer.Bytes())
 }
 
 func (a *api) handleGETWalletPending(c jape.Context) {
@@ -835,60 +532,8 @@ func (a *api) handlePUTSystemDir(c jape.Context) {
 	a.checkServerError(c, "failed to create dir", os.MkdirAll(req.Path, 0775))
 }
 
-func (a *api) handleGETHostStatePrometheus(c jape.Context) {
-	announcement, err := a.settings.LastAnnouncement()
-	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
-		return
-	}
-
-	var buf bytes.Buffer
-
-	text := `hostd_host_state{public_key="%s", walletAddress="%s", starttime="%s", network="%s", version="%s", commit="%s",os="%s", buildtime="%s", lastAnnouncement_index_id="%s", lastAnnouncement_publicKey="%s", lastAnnouncement_address="%s"} 1
-hostd_lastAnnouncement_index_height %d`
-	fmt.Fprintf(&buf, text, a.hostKey, a.wallet.Address().String(), startTime,
-		build.NetworkName(), build.Version(), build.Commit(), runtime.GOOS, build.Time(),
-		announcement.Index.ID, announcement.PublicKey.String(), announcement.Address,
-		announcement.Index.Height)
-
-	c.ResponseWriter.Write(buf.Bytes())
-}
-
-func (a *api) handleGETTPoolFeePrometheus(c jape.Context) {
-	var buf bytes.Buffer
-
-	text := `hostd_tpool_fee %s`
-	fmt.Fprintf(&buf, text, a.tpool.RecommendedFee().ExactString())
-
-	c.ResponseWriter.Write(buf.Bytes())
-}
-
 func (a *api) handleGETTPoolFee(c jape.Context) {
 	c.Encode(a.tpool.RecommendedFee())
-}
-
-func (a *api) handleGETAccountsPrometheus(c jape.Context) {
-	limit, offset := parseLimitParams(c, 100, 500)
-	accounts, err := a.accounts.Accounts(limit, offset)
-	if !a.checkServerError(c, "failed to get accounts", err) {
-		return
-	}
-
-	resulttext := ""
-	for i, account := range accounts {
-		accid := strings.Split(account.ID.String(), ":")[1]
-		acctext := fmt.Sprintf(`hostd_account_balance{accid="%s"} %s`,
-			accid, account.Balance.ExactString(),
-		)
-		if i != len(accounts)-1 {
-			acctext = acctext + "\n"
-		}
-		resulttext = resulttext + acctext
-	}
-
-	var resultbuffer bytes.Buffer
-	resultbuffer.WriteString(resulttext)
-	c.ResponseWriter.Write(resultbuffer.Bytes())
 }
 
 func (a *api) handleGETAccounts(c jape.Context) {

@@ -54,12 +54,6 @@ type (
 		File   LogFile `yaml:"file,omitempty"`
 	}
 
-	// Prometheus contains the configuration for exporting Prometheus metrics
-	Prometheus struct {
-		Address  string `yaml:"address"`
-		Password string `yaml:"password"`
-	}
-
 	// Config contains the configuration for the host.
 	Config struct {
 		Name           string `yaml:"name,omitempty"`
@@ -67,11 +61,10 @@ type (
 		RecoveryPhrase string `yaml:"recoveryPhrase,omitempty"`
 		AutoOpenWebUI  bool   `yaml:"autoOpenWebUI,omitempty"`
 
-		HTTP       HTTP       `yaml:"http,omitempty"`
-		Consensus  Consensus  `yaml:"consensus,omitempty"`
-		RHP2       RHP2       `yaml:"rhp2,omitempty"`
-		RHP3       RHP3       `yaml:"rhp3,omitempty"`
-		Log        Log        `yaml:"log,omitempty"`
-		Prometheus Prometheus `yaml:"prometheus,omitempty"`
+		HTTP      HTTP      `yaml:"http,omitempty"`
+		Consensus Consensus `yaml:"consensus,omitempty"`
+		RHP2      RHP2      `yaml:"rhp2,omitempty"`
+		RHP3      RHP3      `yaml:"rhp3,omitempty"`
+		Log       Log       `yaml:"log,omitempty"`
 	}
 )
