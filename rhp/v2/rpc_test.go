@@ -222,70 +222,6 @@ func TestRenew(t *testing.T) {
 		}
 	})
 
-	t.Run("TestSectorRoots", func(t *testing.T) {
-		log := zaptest.NewLogger(t)
-		renter, host, err := test.NewTestingPair(t.TempDir(), log)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer renter.Close()
-		defer host.Close()
-
-		// form a contract
-		contract, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), contract.ID())
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer session.Close()
-
-		// calculate the remaining duration of the contract
-		var remainingDuration uint64
-		contractExpiration := uint64(session.Revision().Revision.WindowEnd)
-		currentHeight := renter.TipState().Index.Height
-		if contractExpiration < currentHeight {
-			t.Fatal("contract expired")
-		}
-		// calculate the cost of uploading a sector
-		remainingDuration = contractExpiration - currentHeight
-		price, collateral, err := session.RPCAppendCost(remainingDuration)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// upload a few sectors
-		sectors := make([][rhp2.SectorSize]byte, 5)
-		for i := range sectors {
-			frand.Read(sectors[i][:256])
-		}
-
-		// upload b.N sectors
-		for i := 0; i < len(sectors); i++ {
-			sector := sectors[i]
-
-			// upload the sector
-			if _, err := session.Append(context.Background(), &sector, price, collateral); err != nil {
-				t.Fatal(err)
-			}
-		}
-
-		for i := 0; i < len(sectors); i++ {
-			price, _ := session.Settings().RPCSectorRootsCost(uint64(i), 1).Total()
-			root, err := session.SectorRoots(context.Background(), uint64(i), 1, price)
-			if err != nil {
-				t.Fatal(err)
-			} else if len(root) != 1 {
-				t.Fatal("expected 1 sector root")
-			} else if root[0] != rhp2.SectorRoot(&sectors[i]) {
-				t.Fatal("sector root mismatch")
-			}
-		}
-	})
-
 	t.Run("drained contract", func(t *testing.T) {
 		// form a contract
 		state := renter.TipState()
@@ -638,6 +574,83 @@ func BenchmarkDownload(b *testing.B) {
 		price, _ := cost.Total()
 		if err := session.Read(context.Background(), io.Discard, sections, price); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func TestSectorRoots(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	// form a contract
+	contract, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := renter.NewRHP2Session(context.Background(), host.RHP2Addr(), host.PublicKey(), contract.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	// calculate the remaining duration of the contract
+	var remainingDuration uint64
+	contractExpiration := uint64(session.Revision().Revision.WindowEnd)
+	currentHeight := renter.TipState().Index.Height
+	if contractExpiration < currentHeight {
+		t.Fatal("contract expired")
+	}
+	// calculate the cost of uploading a sector
+	remainingDuration = contractExpiration - currentHeight
+	price, collateral, err := session.RPCAppendCost(remainingDuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// upload a few sectors
+	sectors := make([][rhp2.SectorSize]byte, 5)
+	for i := range sectors {
+		frand.Read(sectors[i][:256])
+	}
+
+	// upload b.N sectors
+	for i := 0; i < len(sectors); i++ {
+		sector := sectors[i]
+
+		// upload the sector
+		if _, err := session.Append(context.Background(), &sector, price, collateral); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// fetch sectors one-by-one and compare
+	for i := 0; i < len(sectors); i++ {
+		price, _ := session.Settings().RPCSectorRootsCost(uint64(i), 1).Total()
+		root, err := session.SectorRoots(context.Background(), uint64(i), 1, price)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(root) != 1 {
+			t.Fatal("expected 1 sector root")
+		} else if root[0] != rhp2.SectorRoot(&sectors[i]) {
+			t.Fatal("sector root mismatch")
+		}
+	}
+
+	// fetch all sectors at once and compare
+	price, _ = session.Settings().RPCSectorRootsCost(0, uint64(len(sectors))).Total()
+	roots, err := session.SectorRoots(context.Background(), 0, uint64(len(sectors)), price)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range roots {
+		if roots[i] != rhp2.SectorRoot(&sectors[i]) {
+			t.Fatal("sector root mismatch")
 		}
 	}
 }
