@@ -1078,5 +1078,4 @@ func TestSectorRoots(t *testing.T) {
 			t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
 		}
 	}
-
 }
