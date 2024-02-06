@@ -1054,7 +1054,7 @@ func TestSectorRoots(t *testing.T) {
 	}
 
 	// check that the sector roots are correct
-	check, err := c.SectorRoots(rev.Revision.ParentID, 0, 0)
+	check, err := c.SectorRoots(rev.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(check) != len(roots) {
@@ -1067,7 +1067,7 @@ func TestSectorRoots(t *testing.T) {
 	}
 
 	// check that the cached sector roots are correct
-	check, err = c.SectorRoots(rev.Revision.ParentID, 0, 0)
+	check, err = c.SectorRoots(rev.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(check) != len(roots) {
@@ -1079,35 +1079,4 @@ func TestSectorRoots(t *testing.T) {
 		}
 	}
 
-	// try random offsets and lengths
-	for i := 0; i < 200; i++ {
-		offset, limit := frand.Intn(len(roots)), frand.Intn(len(roots))
-
-		check, err = c.SectorRoots(rev.Revision.ParentID, limit, offset)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// handle special case
-		if limit == 0 {
-			limit = len(roots)
-		}
-
-		// handle case where offset+limit > len(roots)
-		n := limit
-		if offset+limit > len(roots) {
-			n = len(roots) - offset
-		}
-
-		if len(check) != n {
-			t.Fatalf("expected %v sector roots, got %v (offset %d, limit %d, len %d)", n, len(check), offset, limit, len(roots))
-		}
-
-		for i := range check {
-			j := offset + i
-			if check[i] != roots[j] {
-				t.Fatalf("expected sector root %v to be %v, got %v", j, roots[j], check[i])
-			}
-		}
-	}
 }

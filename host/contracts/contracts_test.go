@@ -167,7 +167,7 @@ func TestContractUpdater(t *testing.T) {
 				t.Fatal("wrong merkle root in database")
 			}
 			// check that the cache sector roots are correct
-			cachedRoots, err := c.SectorRoots(rev.Revision.ParentID, 0, 0)
+			cachedRoots, err := c.SectorRoots(rev.Revision.ParentID)
 			if err != nil {
 				t.Fatal(err)
 			} else if rhp2.MetaRoot(cachedRoots) != rhp2.MetaRoot(roots) {

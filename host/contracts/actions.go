@@ -32,7 +32,7 @@ func (cm *ContractManager) buildStorageProof(id types.FileContractID, filesize u
 	sectorIndex := index / rhp2.LeavesPerSector
 	segmentIndex := index % rhp2.LeavesPerSector
 
-	roots, err := cm.SectorRoots(id, 0, 0)
+	roots, err := cm.getSectorRoots(id)
 	if err != nil {
 		return types.StorageProof{}, fmt.Errorf("failed to get sector roots: %w", err)
 	} else if uint64(len(roots)) < sectorIndex {

@@ -102,11 +102,7 @@ type (
 	}
 )
 
-func (cm *ContractManager) getSectorRoots(id types.FileContractID, limit, offset int) ([]types.Hash256, error) {
-	if limit < 0 || offset < 0 {
-		return nil, errors.New("limit and offset must be non-negative")
-	}
-
+func (cm *ContractManager) getSectorRoots(id types.FileContractID) ([]types.Hash256, error) {
 	// check the cache first
 	roots, ok := cm.rootsCache.Get(id)
 	if !ok {
@@ -119,21 +115,8 @@ func (cm *ContractManager) getSectorRoots(id types.FileContractID, limit, offset
 		// add the roots to the cache
 		cm.rootsCache.Add(id, roots)
 	}
-
-	if limit == 0 {
-		limit = len(roots)
-	}
-
-	if offset > len(roots) {
-		return nil, errors.New("offset is greater than the number of roots")
-	}
-
-	n := offset + limit
-	if n > len(roots) {
-		n = len(roots)
-	}
 	// return a deep copy of the roots
-	return append([]types.Hash256(nil), roots[offset:n]...), nil
+	return append([]types.Hash256(nil), roots...), nil
 }
 
 // Lock locks a contract for modification.
@@ -250,14 +233,14 @@ func (cm *ContractManager) RenewContract(renewal SignedRevision, existing Signed
 }
 
 // SectorRoots returns the roots of all sectors stored by the contract.
-func (cm *ContractManager) SectorRoots(id types.FileContractID, limit, offset int) ([]types.Hash256, error) {
+func (cm *ContractManager) SectorRoots(id types.FileContractID) ([]types.Hash256, error) {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	return cm.getSectorRoots(id, limit, offset)
+	return cm.getSectorRoots(id)
 }
 
 // ScanHeight returns the height of the last block processed by the contract
@@ -466,7 +449,7 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 		return nil, err
 	}
 
-	roots, err := cm.getSectorRoots(contractID, 0, 0)
+	roots, err := cm.getSectorRoots(contractID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sector roots: %w", err)
 	}
