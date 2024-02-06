@@ -506,7 +506,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 
 	sectorRootsResp := &rhp2.RPCSectorRootsResponse{
 		SectorRoots: roots,
-		MerkleProof: rhp2.BuildSectorRangeProof(roots, req.RootOffset, uint64(len(roots))),
+		MerkleProof: rhp2.BuildSectorRangeProof(roots, req.RootOffset, req.RootOffset+uint64(len(roots))),
 		Signature:   hostSig,
 	}
 	return usage, s.writeResponse(sectorRootsResp, 2*time.Minute)
