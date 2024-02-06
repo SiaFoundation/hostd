@@ -8,10 +8,15 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/alerts"
+	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/rhp"
+	"go.sia.tech/hostd/wallet"
+	"go.sia.tech/siad/modules"
 )
 
 // JSON keys for host setting fields
@@ -161,6 +166,36 @@ type (
 		CallbackURL string   `json:"callbackURL"`
 		Scopes      []string `json:"scopes"`
 	}
+
+	// AccountResp is the response body for the [GET] /tpool/fee endpoint
+	TPoolResp struct {
+		RecommendedFee types.Currency
+	}
+
+	// AccountResp is the response body for the [GET] /accounts endpoint
+	AccountResp []accounts.Account
+
+	// VolumeResp is the response body for the [GET] /volumes endpoint
+	VolumeResp []storage.VolumeMeta
+
+	// AlertResp is the response body for the [GET] /alerts endpoint
+	AlertResp []alerts.Alert
+
+	// PeerResp is the response body for the [GET] /syncer/address endpoint
+	PeerResp []Peer
+
+	// SyncAddrResp is the response body for the [GET] /syncer/peers endpoint
+	SyncAddrResp modules.NetAddress
+
+	// WalletTransactionsResp is the response body for the [GET] /wallet/transactions endpoint
+	// WalletTransactionsResp is the response body for the [GET] /wallet/pending endpoint
+	WalletTransactionsResp struct {
+		Transactions []wallet.Transaction
+		PendingFlag  bool
+	}
+
+	// SessionResp is the response body for the [GET] /sessions endpoint
+	SessionResp []rhp.Session
 )
 
 // MarshalJSON implements json.Marshaler
