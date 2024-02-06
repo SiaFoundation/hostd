@@ -74,7 +74,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 		return
 	}
 
-	a.writeResponse(c, http.StatusOK, HostState{
+	a.writeResponse(c, http.StatusOK, HostState(HostState{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
 		WalletAddress:    a.wallet.Address(),
@@ -87,18 +87,19 @@ func (a *api) handleGETHostState(c jape.Context) {
 			OS:        runtime.GOOS,
 			BuildTime: build.Time(),
 		},
-	})
+	}))
 }
 
 func (a *api) handleGETConsensusState(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, ConsensusState{
+	a.writeResponse(c, http.StatusOK, ConsensusState(ConsensusState{
 		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
-	})
+	}))
 }
 
 func (a *api) handleGETSyncerAddr(c jape.Context) {
-	c.Encode(string(a.syncer.Address()))
+	// c.Encode(string(a.syncer.Address()))
+	a.writeResponse(c, http.StatusOK, SyncAddrResp(a.syncer.Address()))
 }
 
 func (a *api) handleGETSyncerPeers(c jape.Context) {
@@ -110,7 +111,7 @@ func (a *api) handleGETSyncerPeers(c jape.Context) {
 			Version: peer.Version,
 		}
 	}
-	c.Encode(peers)
+	a.writeResponse(c, http.StatusOK, PeerResp(peers))
 }
 
 func (a *api) handlePUTSyncerPeer(c jape.Context) {
@@ -132,7 +133,7 @@ func (a *api) handleDeleteSyncerPeer(c jape.Context) {
 }
 
 func (a *api) handleGETAlerts(c jape.Context) {
-	c.Encode(a.alerts.Active())
+	a.writeResponse(c, http.StatusOK, AlertResp(a.alerts.Active()))
 }
 
 func (a *api) handlePOSTAlertsDismiss(c jape.Context) {
@@ -370,13 +371,13 @@ func (a *api) handleGETWallet(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
-	a.writeResponse(c, http.StatusOK, WalletResponse{
+	a.writeResponse(c, http.StatusOK, WalletResponse(WalletResponse{
 		ScanHeight:  a.wallet.ScanHeight(),
 		Address:     a.wallet.Address(),
 		Spendable:   spendable,
 		Confirmed:   confirmed,
 		Unconfirmed: unconfirmed,
-	})
+	}))
 }
 
 func (a *api) handleGETWalletTransactions(c jape.Context) {
@@ -386,7 +387,8 @@ func (a *api) handleGETWalletTransactions(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet transactions", err) {
 		return
 	}
-	c.Encode(transactions)
+
+	a.writeResponse(c, http.StatusOK, WalletTransactionsResp(WalletTransactionsResp{Transactions: transactions, PendingFlag: false}))
 }
 
 func (a *api) handleGETWalletPending(c jape.Context) {
@@ -394,7 +396,7 @@ func (a *api) handleGETWalletPending(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet pending", err) {
 		return
 	}
-	c.Encode(pending)
+	a.writeResponse(c, http.StatusOK, WalletTransactionsResp(WalletTransactionsResp{Transactions: pending, PendingFlag: true}))
 }
 
 func (a *api) handlePOSTWalletSend(c jape.Context) {
@@ -533,7 +535,16 @@ func (a *api) handlePUTSystemDir(c jape.Context) {
 }
 
 func (a *api) handleGETTPoolFee(c jape.Context) {
-	c.Encode(a.tpool.RecommendedFee())
+	var responseFormat string
+	if err := c.DecodeForm("response", &responseFormat); err != nil {
+		return
+	}
+	switch responseFormat {
+	case "prometheus":
+		a.writeResponse(c, http.StatusOK, TPoolResp(TPoolResp{RecommendedFee: a.tpool.RecommendedFee()}))
+	default:
+		c.Encode(a.tpool.RecommendedFee())
+	}
 }
 
 func (a *api) handleGETAccounts(c jape.Context) {
@@ -542,7 +553,7 @@ func (a *api) handleGETAccounts(c jape.Context) {
 	if !a.checkServerError(c, "failed to get accounts", err) {
 		return
 	}
-	c.Encode(accounts)
+	a.writeResponse(c, http.StatusOK, AccountResp(accounts))
 }
 
 func (a *api) handleGETAccountFunding(c jape.Context) {
