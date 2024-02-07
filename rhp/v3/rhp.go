@@ -48,9 +48,6 @@ type (
 		RenewContract(renewal contracts.SignedRevision, existing contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage) error
 		// ReviseContract atomically revises a contract and its sector roots
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
-
-		// SectorRoots returns the sector roots of the contract with the given ID.
-		SectorRoots(id types.FileContractID, limit, offset int) ([]types.Hash256, error)
 	}
 
 	// A StorageManager manages the storage of sectors on disk.
