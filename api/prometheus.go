@@ -5,6 +5,7 @@ import (
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/prometheus"
 )
 
@@ -344,7 +345,7 @@ func (t TPoolResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	return []prometheus.Metric{
 		{
 			Name:  "hostd_tpool_fee",
-			Value: t.RecommendedFee.Siacoins(),
+			Value: types.Currency(t).Siacoins(),
 		},
 	}
 }

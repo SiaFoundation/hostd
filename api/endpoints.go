@@ -534,16 +534,7 @@ func (a *api) handlePUTSystemDir(c jape.Context) {
 }
 
 func (a *api) handleGETTPoolFee(c jape.Context) {
-	var responseFormat string
-	if err := c.DecodeForm("response", &responseFormat); err != nil {
-		return
-	}
-	switch responseFormat {
-	case "prometheus":
-		a.writeResponse(c, http.StatusOK, TPoolResp(TPoolResp{RecommendedFee: a.tpool.RecommendedFee()}))
-	default:
-		c.Encode(a.tpool.RecommendedFee())
-	}
+	a.writeResponse(c, http.StatusOK, TPoolResp(a.tpool.RecommendedFee()))
 }
 
 func (a *api) handleGETAccounts(c jape.Context) {
