@@ -433,9 +433,8 @@ func (v VolumeResp) PrometheusMetric() (metrics []prometheus.Metric) {
 					return 1
 				} else if volume.Status == "ready" {
 					return 2
-				} else {
-					return 0
 				}
+				return 0
 			}(),
 		})
 	}
