@@ -167,7 +167,7 @@ type (
 		Scopes      []string `json:"scopes"`
 	}
 
-	// AccountResp is the response body for the [GET] /tpool/fee endpoint
+	// TPoolResp is the response body for the [GET] /tpool/fee endpoint
 	TPoolResp struct {
 		RecommendedFee types.Currency
 	}
@@ -188,9 +188,10 @@ type (
 	SyncAddrResp modules.NetAddress
 
 	// WalletTransactionsResp is the response body for the [GET] /wallet/transactions endpoint
-	// WalletTransactionsResp is the response body for the [GET] /wallet/pending endpoint
 	WalletTransactionsResp []wallet.Transaction
-	WalletPendingResp      []wallet.Transaction
+
+	// WalletPendingResp is the response body for the [GET] /wallet/pending endpoint
+	WalletPendingResp []wallet.Transaction
 
 	// SessionResp is the response body for the [GET] /sessions endpoint
 	SessionResp []rhp.Session

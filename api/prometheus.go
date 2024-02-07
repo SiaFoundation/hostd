@@ -359,6 +359,7 @@ func (wr WalletResponse) PrometheusMetric() []prometheus.Metric {
 	}
 }
 
+// PrometheusMetric returns Prometheus samples for the hosts tpool fee.
 func (t TPoolResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	return []prometheus.Metric{
 		{
@@ -368,6 +369,7 @@ func (t TPoolResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	}
 }
 
+// PrometheusMetric returns Prometheus samples for the hosts volumes.
 func (v VolumeResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	for _, volume := range v {
 		labels := make(map[string]interface{}, 2)
@@ -440,6 +442,7 @@ func (v VolumeResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	return
 }
 
+// PrometheusMetric returns Prometheus samples for the hosts alerts.
 func (a AlertResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	for _, alert := range a {
 		metrics = append(metrics, prometheus.Metric{
@@ -454,6 +457,7 @@ func (a AlertResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	return
 }
 
+// PrometheusMetric returns Prometheus samples for the hosts syncer peers.
 func (p PeerResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	for _, peer := range p {
 		metrics = append(metrics, prometheus.Metric{
@@ -468,6 +472,7 @@ func (p PeerResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	return
 }
 
+// PrometheusMetric returns Prometheus samples for the hosts syncer address.
 func (s SyncAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	metrics = append(metrics, prometheus.Metric{
 		Name: "hostd_syncer_address",
@@ -479,6 +484,7 @@ func (s SyncAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	return
 }
 
+// PrometheusMetric returns Prometheus samples for the hosts transactions.
 func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	metricName := "hostd_wallet_transaction"
 	for _, txn := range w {
@@ -500,6 +506,7 @@ func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric)
 	return
 }
 
+// PrometheusMetric returns Prometheus samples for the host pending transactions.
 func (w WalletPendingResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	metricName := "hostd_wallet_transaction_pending"
 	for _, txn := range w {
@@ -521,6 +528,7 @@ func (w WalletPendingResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	return
 }
 
+// PrometheusMetric returns Prometheus samples for the hosts sessions
 func (s SessionResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	for _, session := range s {
 		metrics = append(metrics, prometheus.Metric{
