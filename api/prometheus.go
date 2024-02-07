@@ -14,6 +14,7 @@ func (hs HostState) PrometheusMetric() []prometheus.Metric {
 		{
 			Name: "hostd_host_state",
 			Labels: map[string]any{
+				"name":           hs.Name,
 				"public_key":     hs.PublicKey,
 				"wallet_address": hs.WalletAddress,
 				"network":        hs.Network,
