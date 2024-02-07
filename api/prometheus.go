@@ -427,8 +427,9 @@ func (a AlertResp) PrometheusMetric() (metrics []prometheus.Metric) {
 		metrics = append(metrics, prometheus.Metric{
 			Name: "hostd_alert",
 			Labels: map[string]any{
-				"severity": alert.Severity.String(),
-				"message":  alert.Message,
+				"severity":  alert.Severity.String(),
+				"message":   alert.Message,
+				"timestamp": alert.Timestamp.String(),
 			},
 			Value: 1,
 		})
