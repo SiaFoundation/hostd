@@ -129,20 +129,11 @@ func (a *api) handleGETVolumes(c jape.Context) {
 	if !a.checkServerError(c, "failed to get volumes", err) {
 		return
 	}
-	var responseFormat string
-	if err := c.DecodeForm("response", &responseFormat); err != nil {
-		return
+	var jsonVolumes []VolumeMeta
+	for _, volume := range volumes {
+		jsonVolumes = append(jsonVolumes, toJSONVolume(volume))
 	}
-	switch responseFormat {
-	case "prometheus":
-		a.writeResponse(c, http.StatusOK, VolumeResp(volumes))
-	default:
-		var jsonVolumes []VolumeMeta
-		for _, volume := range volumes {
-			jsonVolumes = append(jsonVolumes, toJSONVolume(volume))
-		}
-		c.Encode(jsonVolumes)
-	}
+	a.writeResponse(c, http.StatusOK, VolumeResp(jsonVolumes))
 }
 
 func (a *api) handlePOSTVolume(c jape.Context) {

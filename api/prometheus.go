@@ -2,6 +2,7 @@ package api
 
 import (
 	"strings"
+	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/hostd/internal/prometheus"
@@ -13,19 +14,24 @@ func (hs HostState) PrometheusMetric() []prometheus.Metric {
 		{
 			Name: "hostd_host_state",
 			Labels: map[string]any{
-				"public_key":    hs.PublicKey,
-				"walletAddress": hs.WalletAddress,
-				"network":       hs.Network,
-				"version":       hs.Version,
-				"commit":        hs.Commit,
-				"os":            hs.OS,
-				"build_time":    hs.BuildTime,
+				"public_key":     hs.PublicKey,
+				"wallet_address": hs.WalletAddress,
+				"network":        hs.Network,
+				"version":        hs.Version,
+				"commit":         hs.Commit,
+				"os":             hs.OS,
+				"build_time":     hs.BuildTime,
 			},
 			Value: 1,
 		},
 		{
 			Name:  "hostd_start_time",
-			Value: 1,
+			Value: float64(hs.StartTime.UTC().UnixMilli()),
+		},
+		{
+			Name:      "hostd_runtime",
+			Value:     float64(time.Since(hs.StartTime).Milliseconds()),
+			Timestamp: time.Now(),
 		},
 		{
 			Name:   "hostd_last_announcement",
@@ -105,21 +111,6 @@ func (hs HostSettings) PrometheusMetric() []prometheus.Metric {
 			Value:  float64(hs.WindowSize),
 		},
 		{
-			Name:   "hostd_settings_contract_price",
-			Labels: labels,
-			Value:  hs.ContractPrice.Siacoins(),
-		},
-		{
-			Name:   "hostd_settings_baserpc_price",
-			Labels: labels,
-			Value:  hs.BaseRPCPrice.Siacoins(),
-		},
-		{
-			Name:   "hostd_settings_sectoraccess_price",
-			Labels: labels,
-			Value:  hs.SectorAccessPrice.Siacoins(),
-		},
-		{
 			Name:   "hostd_settings_collateral_multiplier",
 			Labels: labels,
 			Value:  hs.CollateralMultiplier,
@@ -130,29 +121,9 @@ func (hs HostSettings) PrometheusMetric() []prometheus.Metric {
 			Value:  hs.MaxCollateral.Siacoins(),
 		},
 		{
-			Name:   "hostd_settings_storage_price",
-			Labels: labels,
-			Value:  hs.StoragePrice.Mul64(1e12).Mul64(4320).Siacoins(), // price * 1TB * 4320 blocks per month
-		},
-		{
-			Name:   "hostd_settings_egress_price",
-			Labels: labels,
-			Value:  hs.EgressPrice.Mul64(1e12).Siacoins(), // price * 1TB
-		},
-		{
-			Name:   "hostd_settings_ingress_price",
-			Labels: labels,
-			Value:  hs.IngressPrice.Mul64(1e12).Siacoins(), // price * 1TB
-		},
-		{
 			Name:   "hostd_settings_pricetable_validity",
 			Labels: labels,
 			Value:  hs.PriceTableValidity.Hours(),
-		},
-		{
-			Name:   "hostd_settings_max_registry_entries",
-			Labels: labels,
-			Value:  float64(hs.MaxRegistryEntries),
 		},
 		{
 			Name:   "hostd_settings_account_expiry",
@@ -235,14 +206,6 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 			Value: m.Revenue.Potential.Egress.Siacoins(),
 		},
 		{
-			Name:  "hostd_metrics_revenue_potential_registry_read",
-			Value: m.Revenue.Potential.RegistryRead.Siacoins(),
-		},
-		{
-			Name:  "hostd_metrics_revenue_potential_registry_write",
-			Value: m.Revenue.Potential.RegistryWrite.Siacoins(),
-		},
-		{
 			Name:  "hostd_metrics_revenue_earned_rpc",
 			Value: m.Revenue.Earned.RPC.Siacoins(),
 		},
@@ -257,14 +220,6 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 		{
 			Name:  "hostd_metrics_revenue_earned_egress",
 			Value: m.Revenue.Earned.Egress.Siacoins(),
-		},
-		{
-			Name:  "hostd_metrics_revenue_earned_registry_read",
-			Value: m.Revenue.Earned.RegistryRead.Siacoins(),
-		},
-		{
-			Name:  "hostd_metrics_revenue_earned_registry_write",
-			Value: m.Revenue.Earned.RegistryWrite.Siacoins(),
 		},
 		{
 			Name:  "hostd_metrics_pricing_contract_price",
@@ -355,27 +310,11 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 			Value: float64(m.Storage.SectorCacheMisses),
 		},
 		{
-			Name:  "hostd_metrics_registry_entries",
-			Value: float64(m.Registry.Entries),
-		},
-		{
-			Name:  "hostd_metrics_registry_max_entries",
-			Value: float64(m.Registry.MaxEntries),
-		},
-		{
-			Name:  "hostd_metrics_registry_reads",
-			Value: float64(m.Registry.Reads),
-		},
-		{
-			Name:  "hostd_metrics_registry_writes",
-			Value: float64(m.Registry.Writes),
-		},
-		{
-			Name:  "hostd_metrics_data_rhp3_ingress",
+			Name:  "hostd_metrics_data_rhp_ingress",
 			Value: float64(m.Data.RHP.Ingress),
 		},
 		{
-			Name:  "hostd_metrics_data_rhp3_egress",
+			Name:  "hostd_metrics_data_rhp_egress",
 			Value: float64(m.Data.RHP.Egress),
 		},
 		{
@@ -426,19 +365,6 @@ func (t TPoolResp) PrometheusMetric() (metrics []prometheus.Metric) {
 			Value: t.RecommendedFee.Siacoins(),
 		},
 	}
-}
-
-func (a AccountResp) PrometheusMetric() (metrics []prometheus.Metric) {
-	for _, account := range a {
-		metrics = append(metrics, prometheus.Metric{
-			Name: "hostd_account_balance",
-			Labels: map[string]any{
-				"accid": strings.Split(account.ID.String(), ":")[1],
-			},
-			Value: account.Balance.Siacoins(),
-		})
-	}
-	return
 }
 
 func (v VolumeResp) PrometheusMetric() (metrics []prometheus.Metric) {
@@ -554,10 +480,28 @@ func (s SyncAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 
 func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	metricName := "hostd_wallet_transaction"
-	if w.PendingFlag {
-		metricName = "hostd_wallet_transaction_pending"
+	for _, txn := range w {
+		var value float64
+		if txn.Inflow.Cmp(txn.Outflow) > 0 { // inflow > outflow = positive value
+			value = txn.Inflow.Sub(txn.Outflow).Siacoins()
+		} else { // inflow < outflow = negative value
+			value = txn.Outflow.Sub(txn.Inflow).Siacoins() * -1
+		}
+
+		metrics = append(metrics, prometheus.Metric{
+			Name: metricName,
+			Labels: map[string]any{
+				"txid": strings.Split(txn.ID.String(), ":")[1],
+			},
+			Value: value,
+		})
 	}
-	for _, txn := range w.Transactions {
+	return
+}
+
+func (w WalletPendingResp) PrometheusMetric() (metrics []prometheus.Metric) {
+	metricName := "hostd_wallet_transaction_pending"
+	for _, txn := range w {
 		var value float64
 		if txn.Inflow.Cmp(txn.Outflow) > 0 { // inflow > outflow = positive value
 			value = txn.Inflow.Sub(txn.Outflow).Siacoins()

@@ -1,0 +1,35 @@
+# run from wsl
+cd C:\Users\jacob\Desktop\git\bwsia\hostd
+docker build -t hostd-bustedware:latest -f ./docker/Dockerfile .
+
+docker build -t hostd-bustedware:latest-testnet -f ./docker/Dockerfile.testnet .
+
+docker run -d --name hostd-bustedware -p 127.0.0.1:13980:9980 -p 13981-13985:9981-9985 -v D:\sia\databw:/data -v D:\sia\storagebw:/storage -e HOSTD_SEED="lecture raw apology armor route eternal unfair wine settle pole letter hobby" -e HOSTD_API_PASSWORD=hostsarecool hostd-bustedware:latest
+
+docker run -d --name hostd-bustedware-testnet -p 127.0.0.1:9880:9880 -p 9881-9885:9881-9885 -v D:\sia\data:/data -v D:\sia\storage:/storage -e HOSTD_ZEN_SEED="lecture raw apology armor route eternal unfair wine settle pole letter hobby" -e HOSTD_ZEN_API_PASSWORD=hostsarecool hostd-bustedware:latest-testnet
+
+################################################################################
+################################################################################
+
+cd C:\Users\jacob\Desktop\git\bwsia\hostd
+docker build -t hostd-bustedware:latest -f ./docker/Dockerfile .
+
+docker run -d --name hostd-bustedware -p 127.0.0.1:13980:9980 -p 13981-13985:9981-9985 -v D:\sia\databw:/data -v D:\sia\storagebw:/storage -e HOSTD_SEED="lecture raw apology armor route eternal unfair wine settle pole letter hobby" -e HOSTD_API_PASSWORD=test1234 hostd-bustedware:latest
+
+############# HOSTD TESTNET
+docker build -t hostd-bustedware:latest-testnet -f ./docker/Dockerfile.testnet .
+
+docker run -d --name hostd-bustedware-testnet -p 127.0.0.1:9880:9880 -p 9881-9885:9881-9885 -v D:\sia\data:/data -v D:\sia\storage:/storage -e HOSTD_ZEN_SEED="lecture raw apology armor route eternal unfair wine settle pole letter hobby" -e HOSTD_ZEN_API_PASSWORD=hostsarecool hostd-bustedware:latest-testnet
+
+
+for merge with refactor
+removed timestamps
+hostd_metrics_storage_total_sectors    -> hostd_metrics_storage_total_bytes
+hostd_metrics_storage_physical_sectors -> hostd_metrics_storage_physical_used_bytes
+hostd_metrics_storage_contract_sectors -> hostd_metrics_storage_contract_used_bytes
+hostd_metrics_storage_temp_sectors     -> hostd_metrics_storage_temp_used_bytes
+
+hostd_wallet_transaction_inflow  -> 
+hostd_wallet_transaction_outflow -> hostd_wallet_transaction w/ sounrce ie contract
+hostd_wallet_transaction_total   ->
+same for pending

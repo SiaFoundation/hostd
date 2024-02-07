@@ -176,7 +176,7 @@ type (
 	AccountResp []accounts.Account
 
 	// VolumeResp is the response body for the [GET] /volumes endpoint
-	VolumeResp []storage.VolumeMeta
+	VolumeResp []VolumeMeta
 
 	// AlertResp is the response body for the [GET] /alerts endpoint
 	AlertResp []alerts.Alert
@@ -189,10 +189,8 @@ type (
 
 	// WalletTransactionsResp is the response body for the [GET] /wallet/transactions endpoint
 	// WalletTransactionsResp is the response body for the [GET] /wallet/pending endpoint
-	WalletTransactionsResp struct {
-		Transactions []wallet.Transaction
-		PendingFlag  bool
-	}
+	WalletTransactionsResp []wallet.Transaction
+	WalletPendingResp      []wallet.Transaction
 
 	// SessionResp is the response body for the [GET] /sessions endpoint
 	SessionResp []rhp.Session
