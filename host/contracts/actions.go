@@ -71,8 +71,6 @@ func (cm *ContractManager) processActions() {
 				err = cm.store.ContractAction(height, cm.handleContractAction)
 				if err != nil {
 					return fmt.Errorf("failed to process contract actions: %w", err)
-				} else if err = cm.store.ExpireContractSectors(height); err != nil {
-					return fmt.Errorf("failed to expire contract sectors: %w", err)
 				}
 				return nil
 			}()

@@ -786,7 +786,7 @@ func TestPrune(t *testing.T) {
 	}
 
 	// expire the rest of the contract sectors
-	if err := db.ExpireContractSectors(c.Revision.WindowEnd + 1); err != nil {
+	if err := db.ExpireContract(c.Revision.ParentID, contracts.ContractStatusSuccessful); err != nil {
 		t.Fatal(err)
 	}
 

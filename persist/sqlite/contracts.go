@@ -137,27 +137,26 @@ func (u *updateContractsTxn) ContractRelevant(id types.FileContractID) (bool, er
 	return err == nil, err
 }
 
-func (s *Store) batchExpireContractSectors(height uint64) (removed []contractSectorRef, pruned int, err error) {
-	err = s.transaction(func(tx txn) (err error) {
-		removed, err = expiredContractSectors(tx, height, sqlSectorBatchSize)
-		if err != nil {
-			return fmt.Errorf("failed to select sectors: %w", err)
-		}
+func deleteContractSectors(tx txn, contractID int64) (deleted []int64, err error) {
+	const query = `DELETE FROM contract_sector_roots WHERE contract_id=$1 RETURNING id;`
+	rows, err := tx.Query(query, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete sector roots: %w", err)
+	}
+	defer rows.Close()
 
-		refs := make([]contractSectorRootRef, 0, len(removed))
-		for _, sector := range removed {
-			refs = append(refs, contractSectorRootRef{
-				dbID:     sector.ID,
-				sectorID: sector.SectorID,
-			})
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan sector root: %w", err)
 		}
+		deleted = append(deleted, id)
+	}
 
-		pruned, err = deleteContractSectors(tx, refs)
-		if err != nil {
-			return fmt.Errorf("failed to prune sectors: %w", err)
-		}
-		return nil
-	})
+	// decrement the contract metrics
+	if err := incrementNumericStat(tx, metricContractSectors, -len(deleted), time.Now()); err != nil {
+		return nil, fmt.Errorf("failed to decrement contract sectors: %w", err)
+	}
 	return
 }
 
@@ -447,6 +446,8 @@ func (s *Store) ContractFormationSet(id types.FileContractID) ([]types.Transacti
 // ExpireContract expires a contract and updates its status. Should only be used
 // if the contract is active or pending.
 func (s *Store) ExpireContract(id types.FileContractID, status contracts.ContractStatus) error {
+	log := s.log.Named("expireContract").With(zap.Stringer("contractID", id), zap.Stringer("status", status))
+
 	return s.transaction(func(tx txn) error {
 		var contractID int64
 		err := tx.QueryRow(`SELECT id FROM contracts WHERE contract_id=$1;`, sqlHash256(id)).Scan(&contractID)
@@ -487,7 +488,8 @@ func (s *Store) ExpireContract(id types.FileContractID, status contracts.Contrac
 		if err := setContractStatus(tx, id, status); err != nil {
 			return fmt.Errorf("failed to set contract status: %w", err)
 		}
-		return nil
+
+		return expireContractSectors(tx, contractID, log)
 	})
 }
 
@@ -516,33 +518,20 @@ func (s *Store) UpdateContractState(ccID modules.ConsensusChangeID, height uint6
 	})
 }
 
-// ExpireContractSectors expires all sectors that are no longer covered by an
+// expireContractSectors expires all sectors that are no longer covered by an
 // active contract.
-func (s *Store) ExpireContractSectors(height uint64) error {
-	var totalRemoved int
-	contractExpired := make(map[types.FileContractID]int)
-	defer func() {
-		for contractID, removed := range contractExpired {
-			s.log.Debug("expired contract sectors", zap.Stringer("contractID", contractID), zap.Uint64("height", height), zap.Int("expired", removed))
-		}
-		if totalRemoved > 0 {
-			s.log.Debug("removed contract sectors", zap.Uint64("height", height), zap.Int("removed", totalRemoved))
-		}
-	}()
-	// delete in batches to avoid holding a lock on the database for too long
-	for i := 0; ; i++ {
-		expired, removed, err := s.batchExpireContractSectors(height)
-		if err != nil {
-			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if len(expired) == 0 {
-			return nil
-		}
-		for _, ref := range expired {
-			contractExpired[ref.ContractID]++
-		}
-		totalRemoved += removed
-		jitterSleep(time.Millisecond) // allow other transactions to run
+func expireContractSectors(tx txn, contractID int64, log *zap.Logger) error {
+	deleted, err := deleteContractSectors(tx, contractID)
+	if err != nil {
+		return fmt.Errorf("failed to delete contract sectors: %w", err)
 	}
+
+	pruned, err := pruneSectors(tx, deleted)
+	if err != nil {
+		return fmt.Errorf("failed to prune sectors: %w", err)
+	}
+	log.Debug("expired contract sectors", zap.Int("expired", len(deleted)), zap.Int("pruned", len(pruned)))
+	return nil
 }
 
 func getContract(tx txn, contractID int64) (contracts.Contract, error) {
@@ -596,7 +585,7 @@ WHERE contract_id=$1 AND root_index=$2`, contractID, index)
 		return types.Hash256{}, fmt.Errorf("failed to update sector ID: %w", err)
 	}
 	// prune the old sector ID
-	if _, err := pruneSectorRef(tx, ref.sectorID); err != nil {
+	if _, err := pruneSectors(tx, []int64{ref.sectorID}); err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to prune old sector: %w", err)
 	}
 	return ref.root, nil
@@ -677,53 +666,31 @@ WHERE contract_id=$1 ORDER BY root_index DESC LIMIT $2;`
 	return
 }
 
-// deleteContractSectors deletes sector roots from a contract. Sectors that are
-// still referenced will not be removed. Returns the number of sectors deleted.
-func deleteContractSectors(tx txn, refs []contractSectorRootRef) (int, error) {
-	var rootIDs []int64
-	for _, ref := range refs {
-		rootIDs = append(rootIDs, ref.dbID)
-	}
-
-	// delete the sector roots
-	query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(rootIDs)) + `) RETURNING id;`
-	rows, err := tx.Query(query, queryArgs(rootIDs)...)
+func deleteContractSectorRefs(tx txn, contractID int64, refs []int64) (sectorIDs []int64, err error) {
+	query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(refs)) + `) RETURNING sector_id;`
+	rows, err := tx.Query(query, queryArgs(refs)...)
 	if err != nil {
-		return 0, fmt.Errorf("failed to delete sectors: %w", err)
+		return nil, err
 	}
-	deleted := make(map[int64]bool)
+	defer rows.Close()
+
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return 0, fmt.Errorf("failed to scan deleted sector: %w", err)
+			return nil, err
 		}
-		deleted[id] = true
+		sectorIDs = append(sectorIDs, id)
 	}
-	if len(deleted) != len(rootIDs) {
-		return 0, errors.New("failed to delete all sectors")
-	}
-	for _, rootID := range rootIDs {
-		if !deleted[rootID] {
-			return 0, errors.New("failed to delete all sectors")
-		}
+
+	if len(sectorIDs) != len(refs) {
+		return nil, errors.New("failed to delete all contract sectors")
 	}
 
 	// decrement the contract metrics
-	if err := incrementNumericStat(tx, metricContractSectors, -len(refs), time.Now()); err != nil {
-		return 0, fmt.Errorf("failed to decrement contract sectors: %w", err)
+	if err := incrementNumericStat(tx, metricContractSectors, -len(sectorIDs), time.Now()); err != nil {
+		return nil, err
 	}
-
-	// attempt to prune the deleted sectors
-	var pruned int
-	for _, ref := range refs {
-		deleted, err := pruneSectorRef(tx, ref.sectorID)
-		if err != nil {
-			return 0, fmt.Errorf("failed to prune sector ref: %w", err)
-		} else if deleted {
-			pruned++
-		}
-	}
-	return pruned, nil
+	return
 }
 
 // trimSectors deletes the last n sector roots for a contract.
@@ -731,14 +698,40 @@ func trimSectors(tx txn, contractID int64, n uint64, log *zap.Logger) (map[types
 	refs, err := lastContractSectors(tx, contractID, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sector IDs: %w", err)
-	} else if _, err = deleteContractSectors(tx, refs); err != nil {
-		return nil, fmt.Errorf("failed to delete sectors: %w", err)
+	} else if len(refs) != int(n) {
+		return nil, fmt.Errorf("expected %v sector roots, got %v", n, len(refs))
+	}
+
+	var contractSectorIDs []int64
+	for _, ref := range refs {
+		contractSectorIDs = append(contractSectorIDs, ref.dbID)
+	}
+
+	sectorIDs, err := deleteContractSectorRefs(tx, contractID, contractSectorIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete sector roots: %w", err)
+	} else if len(sectorIDs) != len(refs) {
+		return nil, fmt.Errorf("expected %v sector roots to be deleted, got %v", len(refs), len(sectorIDs))
+	}
+
+	deleted := make(map[int64]bool, len(sectorIDs))
+	for _, id := range sectorIDs {
+		deleted[id] = true
 	}
 
 	roots := make(map[types.Hash256]bool)
 	for _, ref := range refs {
+		if !deleted[ref.sectorID] {
+			return nil, fmt.Errorf("failed to delete sector root: %v", ref.sectorID)
+		}
 		roots[ref.root] = true
 	}
+
+	pruned, err := pruneSectors(tx, sectorIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prune sectors: %w", err)
+	}
+	log.Debug("trimmed contract sectors", zap.Int("trimmed", len(sectorIDs)), zap.Int("pruned", len(pruned)))
 	return roots, nil
 }
 

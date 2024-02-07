@@ -169,12 +169,8 @@ func clearLockedSectors(tx txn) error {
 		}
 	}
 
-	for _, sectorID := range sectorIDs {
-		if _, err := pruneSectorRef(tx, sectorID); err != nil {
-			return fmt.Errorf("failed to prune sector %d: %w", sectorID, err)
-		}
-	}
-	return nil
+	_, err = pruneSectors(tx, sectorIDs)
+	return err
 }
 
 func clearLockedLocations(tx txn) error {
