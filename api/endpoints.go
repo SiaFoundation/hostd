@@ -74,7 +74,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 		return
 	}
 
-	a.writeResponse(c, http.StatusOK, HostState(HostState{
+	a.writeResponse(c, http.StatusOK, HostState{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
 		WalletAddress:    a.wallet.Address(),
@@ -87,18 +87,17 @@ func (a *api) handleGETHostState(c jape.Context) {
 			OS:        runtime.GOOS,
 			BuildTime: build.Time(),
 		},
-	}))
+	})
 }
 
 func (a *api) handleGETConsensusState(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, ConsensusState(ConsensusState{
+	a.writeResponse(c, http.StatusOK, ConsensusState{
 		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
-	}))
+	})
 }
 
 func (a *api) handleGETSyncerAddr(c jape.Context) {
-	// c.Encode(string(a.syncer.Address()))
 	a.writeResponse(c, http.StatusOK, SyncAddrResp(a.syncer.Address()))
 }
 
@@ -371,13 +370,13 @@ func (a *api) handleGETWallet(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
-	a.writeResponse(c, http.StatusOK, WalletResponse(WalletResponse{
+	a.writeResponse(c, http.StatusOK, WalletResponse{
 		ScanHeight:  a.wallet.ScanHeight(),
 		Address:     a.wallet.Address(),
 		Spendable:   spendable,
 		Confirmed:   confirmed,
 		Unconfirmed: unconfirmed,
-	}))
+	})
 }
 
 func (a *api) handleGETWalletTransactions(c jape.Context) {
@@ -388,7 +387,7 @@ func (a *api) handleGETWalletTransactions(c jape.Context) {
 		return
 	}
 
-	a.writeResponse(c, http.StatusOK, WalletTransactionsResp(WalletTransactionsResp{Transactions: transactions, PendingFlag: false}))
+	a.writeResponse(c, http.StatusOK, WalletTransactionsResp(transactions))
 }
 
 func (a *api) handleGETWalletPending(c jape.Context) {
@@ -396,7 +395,7 @@ func (a *api) handleGETWalletPending(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet pending", err) {
 		return
 	}
-	a.writeResponse(c, http.StatusOK, WalletTransactionsResp(WalletTransactionsResp{Transactions: pending, PendingFlag: true}))
+	a.writeResponse(c, http.StatusOK, WalletPendingResp(pending))
 }
 
 func (a *api) handlePOSTWalletSend(c jape.Context) {
@@ -553,7 +552,7 @@ func (a *api) handleGETAccounts(c jape.Context) {
 	if !a.checkServerError(c, "failed to get accounts", err) {
 		return
 	}
-	a.writeResponse(c, http.StatusOK, AccountResp(accounts))
+	c.Encode(accounts)
 }
 
 func (a *api) handleGETAccountFunding(c jape.Context) {
