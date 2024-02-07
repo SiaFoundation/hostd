@@ -55,27 +55,7 @@ func (cs ConsensusState) PrometheusMetric() []prometheus.Metric {
 			}(),
 		},
 		{
-			Name:  "hostd_consensus_state_chain_index_height",
-			Value: float64(cs.ChainIndex.Height),
-		},
-		{
-			Name: "hostd_consensus_state_chain_index_height_B", //TODO: grafana cannot simultaneously display block height and colorize based of this synced label. the bustedware/grafana repo is working on a forked grafana that will one day make this work
-			Labels: map[string]any{"synced": func() float64 {
-				if cs.Synced {
-					return 1
-				}
-				return 0
-			}()},
-			Value: float64(cs.ChainIndex.Height),
-		},
-		{
-			Name: "hostd_consensus_state_chain_index_height_C", //TODO: i don't believe including id is efficient use of labels. confirm
-			Labels: map[string]any{"synced": func() float64 {
-				if cs.Synced {
-					return 1
-				}
-				return 0
-			}(), "id": cs.ChainIndex.ID},
+			Name:  "hostd_consensus_state_index",
 			Value: float64(cs.ChainIndex.Height),
 		},
 	}
@@ -476,7 +456,7 @@ func (s SyncAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	metrics = append(metrics, prometheus.Metric{
 		Name: "hostd_syncer_address",
 		Labels: map[string]any{
-			"address": string(s),
+			"address": s,
 		},
 		Value: 1,
 	})

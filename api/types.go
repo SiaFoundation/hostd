@@ -16,7 +16,6 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/wallet"
-	"go.sia.tech/siad/modules"
 )
 
 // JSON keys for host setting fields
@@ -185,7 +184,7 @@ type (
 	PeerResp []Peer
 
 	// SyncAddrResp is the response body for the [GET] /syncer/peers endpoint
-	SyncAddrResp modules.NetAddress
+	SyncAddrResp string
 
 	// WalletTransactionsResp is the response body for the [GET] /wallet/transactions endpoint
 	WalletTransactionsResp []wallet.Transaction
