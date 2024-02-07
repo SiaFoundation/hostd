@@ -167,9 +167,7 @@ type (
 	}
 
 	// TPoolResp is the response body for the [GET] /tpool/fee endpoint
-	TPoolResp struct {
-		RecommendedFee types.Currency
-	}
+	TPoolResp types.Currency
 
 	// AccountResp is the response body for the [GET] /accounts endpoint
 	AccountResp []accounts.Account
