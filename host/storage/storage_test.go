@@ -792,7 +792,17 @@ func TestVolumeConcurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// reload the volume, since initialization should be complete
+	// read the sectors back
+	for _, root := range roots {
+		sector, err := vm.Read(root)
+		if err != nil {
+			t.Fatal(err)
+		} else if rhp2.SectorRoot(sector) != root {
+			t.Fatal("sector was corrupted")
+		}
+	}
+
+	// refresh the volume, since initialization should be complete
 	v, err := vm.Volume(volume.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -815,6 +825,7 @@ func TestVolumeConcurrency(t *testing.T) {
 
 	// shrink the volume so it is nearly full
 	const newSectors = writeSectors + 5
+	result = make(chan error, 1)
 	if err := vm.ResizeVolume(context.Background(), volume.ID, newSectors, result); err != nil {
 		t.Fatal(err)
 	}
