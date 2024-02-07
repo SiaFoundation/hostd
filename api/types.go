@@ -9,7 +9,6 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
-	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
@@ -168,9 +167,6 @@ type (
 
 	// TPoolResp is the response body for the [GET] /tpool/fee endpoint
 	TPoolResp types.Currency
-
-	// AccountResp is the response body for the [GET] /accounts endpoint
-	AccountResp []accounts.Account
 
 	// VolumeResp is the response body for the [GET] /volumes endpoint
 	VolumeResp []VolumeMeta
