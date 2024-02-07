@@ -213,3 +213,27 @@ jobs:
         with:
           name: hostd
           path: release/
+  dispatch:
+    if: ${{ !contains(github.ref, 'rc') }}
+    strategy:
+        matrix:
+            repo: ['siafoundation/homebrew-sia', 'siafoundation/linux']
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Tag Name
+        id: get_tag
+        run: echo "::set-output name=tag_name::${GITHUB_REF#refs/tags/}"
+
+      - name: Repository Dispatch
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT_REPOSITORY_DISPATCH }}
+          repository: ${{ matrix.repo }}
+          event-type: release-tagged
+          client-payload: >
+            {
+              "description": "Hostd: A host for Sia",
+              "tag": "${{ steps.get_tag.outputs.tag_name }}",
+              "project": "hostd",
+              "workflow_id": "${{ github.run_id }}"
+            }
