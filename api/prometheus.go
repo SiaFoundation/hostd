@@ -458,7 +458,7 @@ func (s SyncAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	metrics = append(metrics, prometheus.Metric{
 		Name: "hostd_syncer_address",
 		Labels: map[string]any{
-			"address": s,
+			"address": string(s),
 		},
 		Value: 1,
 	})
