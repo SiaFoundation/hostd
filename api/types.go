@@ -8,10 +8,13 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/rhp"
+	"go.sia.tech/hostd/wallet"
 )
 
 // JSON keys for host setting fields
@@ -161,6 +164,30 @@ type (
 		CallbackURL string   `json:"callbackURL"`
 		Scopes      []string `json:"scopes"`
 	}
+
+	// TPoolResp is the response body for the [GET] /tpool/fee endpoint
+	TPoolResp types.Currency
+
+	// VolumeResp is the response body for the [GET] /volumes endpoint
+	VolumeResp []VolumeMeta
+
+	// AlertResp is the response body for the [GET] /alerts endpoint
+	AlertResp []alerts.Alert
+
+	// PeerResp is the response body for the [GET] /syncer/address endpoint
+	PeerResp []Peer
+
+	// SyncerAddrResp is the response body for the [GET] /syncer/peers endpoint
+	SyncerAddrResp string
+
+	// WalletTransactionsResp is the response body for the [GET] /wallet/transactions endpoint
+	WalletTransactionsResp []wallet.Transaction
+
+	// WalletPendingResp is the response body for the [GET] /wallet/pending endpoint
+	WalletPendingResp []wallet.Transaction
+
+	// SessionResp is the response body for the [GET] /sessions endpoint
+	SessionResp []rhp.Session
 )
 
 // MarshalJSON implements json.Marshaler
