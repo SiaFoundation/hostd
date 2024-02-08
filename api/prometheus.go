@@ -64,17 +64,16 @@ func (cs ConsensusState) PrometheusMetric() []prometheus.Metric {
 
 // PrometheusMetric returns Prometheus samples for the host settings.
 func (hs HostSettings) PrometheusMetric() []prometheus.Metric {
-	labels := make(map[string]interface{}, 2)
-	if hs.NetAddress != "" {
-		labels["net_address"] = hs.NetAddress
-	}
-	if hs.DDNS.Provider != "" {
-		labels["provaider"] = hs.DDNS.Provider
-	}
 	return []prometheus.Metric{
 		{
-			Name:   "hostd_settings_accepting_contracts",
-			Labels: labels,
+			Name: "hostd_settings",
+			Labels: map[string]any{
+				"net_address": hs.NetAddress,
+			},
+			Value: 1,
+		},
+		{
+			Name: "hostd_settings_accepting_contracts",
 			Value: func() float64 {
 				if hs.AcceptingContracts {
 					return 1
@@ -83,79 +82,48 @@ func (hs HostSettings) PrometheusMetric() []prometheus.Metric {
 			}(),
 		},
 		{
-			Name:   "hostd_settings_max_contract_duration",
-			Labels: labels,
-			Value:  float64(hs.MaxContractDuration),
+			Name:  "hostd_settings_max_contract_duration",
+			Value: float64(hs.MaxContractDuration),
 		},
 		{
-			Name:   "hostd_settings_window_size",
-			Labels: labels,
-			Value:  float64(hs.WindowSize),
+			Name:  "hostd_settings_window_size",
+			Value: float64(hs.WindowSize),
 		},
 		{
-			Name:   "hostd_settings_collateral_multiplier",
-			Labels: labels,
-			Value:  hs.CollateralMultiplier,
+			Name:  "hostd_settings_collateral_multiplier",
+			Value: hs.CollateralMultiplier,
 		},
 		{
-			Name:   "hostd_settings_max_collateral",
-			Labels: labels,
-			Value:  hs.MaxCollateral.Siacoins(),
+			Name:  "hostd_settings_max_collateral",
+			Value: hs.MaxCollateral.Siacoins(),
 		},
 		{
-			Name:   "hostd_settings_pricetable_validity",
-			Labels: labels,
-			Value:  hs.PriceTableValidity.Hours(),
+			Name:  "hostd_settings_pricetable_validity",
+			Value: hs.PriceTableValidity.Seconds(),
 		},
 		{
-			Name:   "hostd_settings_account_expiry",
-			Labels: labels,
-			Value:  hs.AccountExpiry.Hours(),
+			Name:  "hostd_settings_account_expiry",
+			Value: hs.AccountExpiry.Seconds(),
 		},
 		{
-			Name:   "hostd_settings_max_account_balance",
-			Labels: labels,
-			Value:  hs.MaxAccountBalance.Siacoins(),
+			Name:  "hostd_settings_max_account_balance",
+			Value: hs.MaxAccountBalance.Siacoins(),
 		},
 		{
-			Name:   "hostd_settings_ingress_limit",
-			Labels: labels,
-			Value:  float64(hs.IngressLimit),
+			Name:  "hostd_settings_ingress_limit",
+			Value: float64(hs.IngressLimit),
 		},
 		{
-			Name:   "hostd_settings_egress_limit",
-			Labels: labels,
-			Value:  float64(hs.EgressLimit),
+			Name:  "hostd_settings_egress_limit",
+			Value: float64(hs.EgressLimit),
 		},
 		{
-			Name:   "hostd_settings_ddns_ipv4",
-			Labels: labels,
-			Value: func() float64 {
-				if hs.DDNS.IPv4 {
-					return 1
-				}
-				return 0
-			}(),
+			Name:  "hostd_settings_sector_cache_size",
+			Value: float64(hs.SectorCacheSize),
 		},
 		{
-			Name:   "hostd_settings_ddns_ipv6",
-			Labels: labels,
-			Value: func() float64 {
-				if hs.DDNS.IPv6 {
-					return 1
-				}
-				return 0
-			}(),
-		},
-		{
-			Name:   "hostd_settings_sector_cache_size",
-			Labels: labels,
-			Value:  float64(hs.SectorCacheSize),
-		},
-		{
-			Name:   "hostd_settings_revision",
-			Labels: labels,
-			Value:  float64(hs.Revision),
+			Name:  "hostd_settings_revision",
+			Value: float64(hs.Revision),
 		},
 	}
 }
@@ -353,9 +321,10 @@ func (t TPoolResp) PrometheusMetric() (metrics []prometheus.Metric) {
 // PrometheusMetric returns Prometheus samples for the hosts volumes.
 func (v VolumeResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	for _, volume := range v {
-		labels := make(map[string]interface{}, 2)
-		labels["id"] = volume.ID
-		labels["local_path"] = volume.LocalPath
+		labels := map[string]any{
+			"id":         volume.ID,
+			"local_path": volume.LocalPath,
+		}
 		metrics = append(metrics, prometheus.Metric{
 			Name:   "hostd_volume_used_sectors",
 			Labels: labels,
