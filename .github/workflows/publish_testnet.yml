@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
-          go-version: 'stable'
+          go-version: '1.21'
       - name: Test
         uses: ./.github/actions/test
   docker:
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
-          go-version: 'stable'
+          go-version: '1.21'
       - name: Setup
         run: |
           sudo apt update
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
-          go-version: 'stable'
+          go-version: '1.21'
       - name: Setup
         env:
           APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
@@ -192,7 +192,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
-          go-version: 'stable'
+          go-version: '1.21'
       - name: Setup
         shell: bash
         run: |
