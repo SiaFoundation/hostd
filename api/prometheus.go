@@ -56,8 +56,9 @@ func (cs ConsensusState) PrometheusMetric() []prometheus.Metric {
 			}(),
 		},
 		{
-			Name:  "hostd_consensus_state_index",
-			Value: float64(cs.ChainIndex.Height),
+			Name:   "hostd_consensus_state_index",
+			Labels: map[string]any{"id": cs.ChainIndex.ID},
+			Value:  float64(cs.ChainIndex.Height),
 		},
 	}
 }
