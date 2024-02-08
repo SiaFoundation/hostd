@@ -98,7 +98,7 @@ func (a *api) handleGETConsensusState(c jape.Context) {
 }
 
 func (a *api) handleGETSyncerAddr(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, SyncAddrResp(a.syncer.Address()))
+	a.writeResponse(c, http.StatusOK, SyncerAddrResp(a.syncer.Address()))
 }
 
 func (a *api) handleGETSyncerPeers(c jape.Context) {

@@ -177,8 +177,8 @@ type (
 	// PeerResp is the response body for the [GET] /syncer/address endpoint
 	PeerResp []Peer
 
-	// SyncAddrResp is the response body for the [GET] /syncer/peers endpoint
-	SyncAddrResp string
+	// SyncerAddrResp is the response body for the [GET] /syncer/peers endpoint
+	SyncerAddrResp string
 
 	// WalletTransactionsResp is the response body for the [GET] /wallet/transactions endpoint
 	WalletTransactionsResp []wallet.Transaction

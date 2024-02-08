@@ -428,11 +428,12 @@ func (a AlertResp) PrometheusMetric() (metrics []prometheus.Metric) {
 		metrics = append(metrics, prometheus.Metric{
 			Name: "hostd_alert",
 			Labels: map[string]any{
-				"severity":  alert.Severity.String(),
-				"message":   alert.Message,
-				"timestamp": alert.Timestamp.String(),
+				"id":       alert.ID,
+				"severity": alert.Severity.String(),
+				"message":  alert.Message,
 			},
-			Value: 1,
+			Value:     1,
+			Timestamp: alert.Timestamp,
 		})
 	}
 	return
@@ -454,11 +455,11 @@ func (p PeerResp) PrometheusMetric() (metrics []prometheus.Metric) {
 }
 
 // PrometheusMetric returns Prometheus samples for the hosts syncer address.
-func (s SyncAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
+func (s SyncerAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	metrics = append(metrics, prometheus.Metric{
 		Name: "hostd_syncer_address",
 		Labels: map[string]any{
-			"address": s,
+			"address": string(s),
 		},
 		Value: 1,
 	})
