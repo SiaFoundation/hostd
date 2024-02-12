@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -238,12 +239,42 @@ func setAdvancedConfig() {
 	setListenAddress("RHP3 TCP Address", &cfg.RHP3.TCPAddress)
 }
 
+func setDataDirectory() {
+	if len(cfg.Directory) == 0 {
+		cfg.Directory = "."
+	}
+
+	dir, err := filepath.Abs(cfg.Directory)
+	if err != nil {
+		stdoutFatalError("Could not get absolute path of data directory: " + err.Error())
+	}
+
+	fmt.Println("The data directory is where hostd will store its metadata and consensus data.")
+	fmt.Println("This directory should be on a fast, reliable storage device, preferably an SSD.")
+	fmt.Println("")
+
+	_, existsErr := os.Stat(filepath.Join(cfg.Directory, "hostd.db"))
+	dataExists := existsErr == nil
+	if dataExists {
+		fmt.Println(wrapANSI("\033[33m", "There is existing data in the data directory.", "\033[0m"))
+		fmt.Println(wrapANSI("\033[33m", "If you change your data directory, you will need to manually move consensus, gateway, tpool, and hostd.db to the new directory.", "\033[0m"))
+	}
+
+	if !promptYesNo("Would you like to change the data directory? (Current: " + dir + ")") {
+		return
+	}
+	cfg.Directory = readInput("Enter data directory")
+}
+
 func buildConfig() {
 	if _, err := os.Stat("hostd.yml"); err == nil {
 		if !promptYesNo("hostd.yml already exists. Would you like to overwrite it?") {
 			return
 		}
 	}
+
+	fmt.Println("")
+	setDataDirectory()
 
 	fmt.Println("")
 	if cfg.RecoveryPhrase != "" {
@@ -268,7 +299,6 @@ func buildConfig() {
 		setAPIPassword()
 	}
 
-	fmt.Println("")
 	setAdvancedConfig()
 
 	// write the config file
