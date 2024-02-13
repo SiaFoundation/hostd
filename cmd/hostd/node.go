@@ -55,6 +55,7 @@ func (n *node) Close() error {
 	n.rhp3.Close()
 	n.rhp2.Close()
 	n.data.Close()
+	n.registry.Close()
 	n.storage.Close()
 	n.contracts.Close()
 	n.w.Close()

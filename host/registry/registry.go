@@ -122,6 +122,10 @@ func NewManager(privkey types.PrivateKey, store Store, log *zap.Logger) *Manager
 			log: log.Named("recorder"),
 		},
 	}
-	go m.recorder.Run(m.tg.Done())
+	done, _ := m.tg.Add()
+	go func() {
+		m.recorder.Run(m.tg.Done())
+		done()
+	}()
 	return m
 }

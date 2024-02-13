@@ -84,6 +84,7 @@ func (h *Host) Close() error {
 	h.settings.Close()
 	h.wallet.Close()
 	h.contracts.Close()
+	h.registry.Close()
 	h.storage.Close()
 	h.store.Close()
 	h.Node.Close()

@@ -13,9 +13,14 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/internal/test"
 	"go.sia.tech/renterd/wallet"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestSettings(t *testing.T) {
 	log := zaptest.NewLogger(t)
