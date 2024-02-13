@@ -14,9 +14,14 @@ import (
 	"go.sia.tech/hostd/internal/test"
 	rhp3 "go.sia.tech/hostd/internal/test/rhp/v3"
 	"go.sia.tech/hostd/persist/sqlite"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func checkRevenueConsistency(s *sqlite.Store, potential, earned metrics.Revenue) error {
 	time.Sleep(time.Second) // commit time

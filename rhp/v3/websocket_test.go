@@ -7,9 +7,14 @@ import (
 
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/hostd/internal/test"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zaptest"
 	"nhooyr.io/websocket"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestWebSockets(t *testing.T) {
 	log := zaptest.NewLogger(t)
