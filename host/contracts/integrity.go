@@ -92,6 +92,7 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 			"checked":    0,
 			"missing":    0,
 			"corrupt":    0,
+			"progress":   0.0,
 			"total":      len(roots),
 		},
 		Timestamp: time.Now(),
@@ -105,6 +106,9 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 
 		ctx, done, err := cm.tg.AddContext(ctx)
 		if err != nil {
+			alert.Message = "Integrity check canceled"
+			alert.Severity = alerts.SeverityWarning
+			cm.alerts.Register(alert)
 			return
 		}
 		defer done()
@@ -114,6 +118,9 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 		for i, root := range roots {
 			select {
 			case <-ctx.Done():
+				alert.Message = "Integrity check canceled"
+				alert.Severity = alerts.SeverityWarning
+				cm.alerts.Register(alert)
 				return
 			default:
 			}
@@ -135,6 +142,7 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 			alert.Data["checked"] = i + 1
 			alert.Data["missing"] = missing
 			alert.Data["corrupt"] = corrupt
+			alert.Data["progress"] = float64(i+1) / float64(len(roots))
 			cm.alerts.Register(alert)
 			time.Sleep(time.Millisecond) // sleep to allow other transactions to proceed
 		}

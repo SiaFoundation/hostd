@@ -241,3 +241,144 @@ func TestCheckIntegrity(t *testing.T) {
 		t.Fatalf("expected %v issues, got %v", 2, issues)
 	}
 }
+
+func TestCancelIntegrityCheck(t *testing.T) {
+	const sectors = 256
+
+	hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	node, err := test.NewWallet(hostKey, dir, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+
+	webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
+	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	result := make(chan error, 1)
+	if _, err := s.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), sectors, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := contracts.NewManager(node.Store(), am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// note: many more blocks than necessary are mined to ensure all forks have activated
+	if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // sync time
+
+	rev, err := formContract(renterKey, hostKey, 50, 60, types.Siacoins(500), types.Siacoins(1000), c, node, node.ChainManager(), node.TPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contract, err := c.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.Status != contracts.ContractStatusPending {
+		t.Fatal("expected contract to be pending")
+	}
+
+	if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // sync time
+
+	contract, err = c.Contract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.Status != contracts.ContractStatusActive {
+		t.Fatal("expected contract to be active")
+	}
+
+	updater, err := c.ReviseContract(rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer updater.Close()
+
+	var roots []types.Hash256
+	var releases []func() error
+	for i := 0; i < sectors; i++ {
+		var sector [rhp2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhp2.SectorRoot(&sector)
+		release, err := s.Write(root, &sector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		releases = append(releases, release)
+		roots = append(roots, root)
+		updater.AppendSector(root)
+	}
+
+	contract.Revision.RevisionNumber++
+	contract.Revision.Filesize = uint64(len(roots)) * rhp2.SectorSize
+	contract.Revision.FileMerkleRoot = rhp2.MetaRoot(roots)
+
+	if err := updater.Commit(contract.SignedRevision, contracts.Usage{}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, release := range releases {
+		if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// dismiss all the alerts
+	for _, alert := range am.Active() {
+		am.Dismiss(alert.ID)
+	}
+
+	results, _, err := c.CheckIntegrity(ctx, rev.Revision.ParentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// verify that the check was canceled
+	var checked int
+	for res := range results {
+		if res.Error != nil {
+			t.Fatal(res.Error)
+		}
+
+		checked++
+		// cancel the check after the first few sectors
+		if checked == 10 {
+			cancel()
+		}
+	}
+	if checked != 10 {
+		t.Fatalf("expected 10 sectors to be checked, got %v", checked)
+	}
+
+	alerts := am.Active()
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %v", len(alerts))
+	} else if alerts[0].Message != "Integrity check canceled" {
+		t.Fatalf("expected message 'Integrity check canceled', got %v", alerts[0].Message)
+	}
+}
