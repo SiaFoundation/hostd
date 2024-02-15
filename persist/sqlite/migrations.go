@@ -10,6 +10,11 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion25(tx txn, log *zap.Logger) error {
+	// no-op migration to trigger foreign key checks
+	return nil
+}
+
 // migrateVersion24 combines the rhp2 and rhp3 data metrics
 func migrateVersion24(tx txn, log *zap.Logger) error {
 	rows, err := tx.Query(`SELECT date_created, stat, stat_value FROM host_stats WHERE stat IN (?, ?, ?, ?) ORDER BY date_created ASC`, metricRHP2Ingress, metricRHP2Egress, metricRHP3Ingress, metricRHP3Egress)

@@ -68,11 +68,6 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 func (s *Store) init() error {
 	// calculate the expected final database version
 	target := int64(len(migrations) + 1)
-	// disable foreign key constraints during migration
-	if _, err := s.db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
-		return fmt.Errorf("failed to disable foreign key constraints: %w", err)
-	}
-
 	version := getDBVersion(s.db)
 	switch {
 	case version == 0:
