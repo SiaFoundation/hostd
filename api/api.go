@@ -178,7 +178,7 @@ func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Sy
 
 		checks: integrityCheckJobs{
 			contracts: cm,
-			checks:    make(map[types.FileContractID]IntegrityCheckResult),
+			checks:    make(map[types.FileContractID]integrityCheckJob),
 		},
 		volumeJobs: volumeJobs{
 			volumes: vm,

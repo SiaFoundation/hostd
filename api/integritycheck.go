@@ -23,23 +23,30 @@ type (
 		BadSectors     []contracts.IntegrityResult `json:"badSectors"`
 	}
 
+	integrityCheckJob struct {
+		cancelFn context.CancelFunc
+		IntegrityCheckResult
+	}
+
 	// integrityChecks tracks the result of all integrity checks.
 	integrityCheckJobs struct {
 		contracts ContractManager
 
 		mu     sync.Mutex // protects checks
-		checks map[types.FileContractID]IntegrityCheckResult
+		checks map[types.FileContractID]integrityCheckJob
 	}
 )
 
-// ClearResult clears the result of the integrity check for the specified contract.
-func (ic *integrityCheckJobs) ClearResult(contractID types.FileContractID) bool {
+// Cancel cancels the integrity check for the specified contract. If no check is
+// running, false is returned.
+func (ic *integrityCheckJobs) Cancel(contractID types.FileContractID) bool {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
-	_, exists := ic.checks[contractID]
+	job, exists := ic.checks[contractID]
 	if !exists {
 		return false
 	}
+	job.cancelFn()
 	delete(ic.checks, contractID)
 	return true
 }
@@ -49,7 +56,7 @@ func (ic *integrityCheckJobs) Results(contractID types.FileContractID) (Integrit
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	check, exists := ic.checks[contractID]
-	return check, exists
+	return check.IntegrityCheckResult, exists
 }
 
 // CheckContract starts an integrity check for the specified contract. If a
@@ -58,23 +65,28 @@ func (ic *integrityCheckJobs) CheckContract(contractID types.FileContractID) (ui
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 
-	check, exists := ic.checks[contractID]
-	if exists && check.End.IsZero() { // if a check is still running, return an error
+	job, exists := ic.checks[contractID]
+	if exists && job.End.IsZero() { // if a check is still running, return an error
 		return 0, fmt.Errorf("integrity check already running for contract %v", contractID)
 	}
 
-	results, roots, err := ic.contracts.CheckIntegrity(context.Background(), contractID)
+	ctx, cancel := context.WithCancel(context.Background())
+	results, roots, err := ic.contracts.CheckIntegrity(ctx, contractID)
 	if err != nil {
+		cancel()
 		return 0, fmt.Errorf("failed to check contract integrity: %w", err)
 	}
-
-	check = IntegrityCheckResult{
-		Start:        time.Now(),
-		TotalSectors: roots,
+	ic.checks[contractID] = integrityCheckJob{
+		cancelFn: cancel,
+		IntegrityCheckResult: IntegrityCheckResult{
+			Start:        time.Now(),
+			TotalSectors: roots,
+		},
 	}
-	ic.checks[contractID] = check
 
 	go func() {
+		defer cancel()
+
 		for result := range results {
 			ic.mu.Lock()
 			check := ic.checks[contractID]
@@ -114,8 +126,8 @@ func (a *api) handleDeleteContractCheck(c jape.Context) {
 		return
 	}
 
-	if !a.checks.ClearResult(contractID) {
-		c.Error(fmt.Errorf("no integrity check found for contract %v", contractID), http.StatusNotFound)
+	if !a.checks.Cancel(contractID) {
+		c.Error(fmt.Errorf("no integrity check found for contract %q", contractID), http.StatusNotFound)
 	}
 }
 
