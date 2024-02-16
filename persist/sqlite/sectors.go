@@ -239,11 +239,6 @@ func incrementVolumeUsage(tx txn, volumeID int64, delta int) error {
 	return nil
 }
 
-func clearVolumeSector(tx txn, id int64) error {
-
-	return nil
-}
-
 func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
 	hasContractRefStmt, err := tx.Prepare(`SELECT id FROM contract_sector_roots WHERE sector_id=$1 LIMIT 1`)
 	if err != nil {

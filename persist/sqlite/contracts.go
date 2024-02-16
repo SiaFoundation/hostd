@@ -157,7 +157,6 @@ RETURNING sector_id;`
 		sectorIDs = append(sectorIDs, id)
 	}
 	return sectorIDs, nil
-
 }
 
 func (s *Store) batchExpireContractSectors(height uint64) (expired int, removed []types.Hash256, err error) {
