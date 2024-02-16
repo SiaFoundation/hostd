@@ -10,8 +10,51 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion26 recalculates the contract and physical sectors metrics
+func migrateVersion26(tx txn, log *zap.Logger) error {
+	// recalculate the contract sectors metric
+	var contractSectorCount int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&contractSectorCount); err != nil {
+		return fmt.Errorf("failed to query contract sector count: %w", err)
+	} else if err := setNumericStat(tx, metricContractSectors, uint64(contractSectorCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set contract sectors metric: %w", err)
+	}
+
+	// recalculate the physical sectors metric
+	var physicalSectorsCount int64
+	volumePhysicalSectorCount := make(map[int64]int64)
+	rows, err := tx.Query(`SELECT volume_id, COUNT(*) FROM volume_sectors WHERE sector_id IS NOT NULL GROUP BY volume_id`)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to query volume sector count: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var volumeID, count int64
+		if err := rows.Scan(&volumeID, &count); err != nil {
+			return fmt.Errorf("failed to scan volume sector count: %w", err)
+		}
+		volumePhysicalSectorCount[volumeID] = count
+		physicalSectorsCount += count
+	}
+
+	// update the physical sectors metric
+	if err := setNumericStat(tx, metricPhysicalSectors, uint64(physicalSectorsCount), time.Now()); err != nil {
+		return fmt.Errorf("failed to set contract sectors metric: %w", err)
+	}
+
+	// update the volume stats
+	for volumeID, count := range volumePhysicalSectorCount {
+		err := tx.QueryRow(`UPDATE storage_volumes SET used_sectors = $1 WHERE id = $2 RETURNING id`, count, volumeID).Scan(&volumeID)
+		if err != nil {
+			return fmt.Errorf("failed to update volume stats: %w", err)
+		}
+	}
+	return nil
+}
+
+// migrateVersion25 is a no-op migration to trigger foreign key checks
 func migrateVersion25(tx txn, log *zap.Logger) error {
-	// no-op migration to trigger foreign key checks
 	return nil
 }
 
