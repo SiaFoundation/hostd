@@ -755,7 +755,7 @@ func TestPrune(t *testing.T) {
 	}
 
 	// unlock locked sectors
-	if err := unlockSector(&dbTxn{db}, locks...); err != nil {
+	if err := unlockSector(&dbTxn{db}, log.Named("unlockSector"), locks...); err != nil {
 		t.Fatal(err)
 	}
 

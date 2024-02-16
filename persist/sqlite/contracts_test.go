@@ -242,7 +242,8 @@ func TestReviseContract(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		func() {
+			t.Log("revising contract:", test.name)
 			oldRoots := append([]types.Hash256(nil), roots...)
 			// update the expected roots
 			for i, change := range test.changes {
@@ -295,7 +296,7 @@ func TestReviseContract(t *testing.T) {
 			} else if err := checkConsistency(roots, test.sectors); err != nil {
 				t.Fatal(err)
 			}
-		})
+		}()
 	}
 }
 

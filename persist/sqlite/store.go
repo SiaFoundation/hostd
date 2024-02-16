@@ -155,7 +155,7 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
 	return nil
 }
 
-func clearLockedSectors(tx txn) error {
+func clearLockedSectors(tx txn, log *zap.Logger) error {
 	rows, err := tx.Query(`DELETE FROM locked_sectors RETURNING sector_id`)
 	if err != nil {
 		return err
@@ -169,11 +169,11 @@ func clearLockedSectors(tx txn) error {
 		}
 	}
 
-	for _, sectorID := range sectorIDs {
-		if _, err := pruneSectorRef(tx, sectorID); err != nil {
-			return fmt.Errorf("failed to prune sector %d: %w", sectorID, err)
-		}
+	removed, err := pruneSectors(tx, sectorIDs)
+	if err != nil {
+		return fmt.Errorf("failed to prune sectors: %w", err)
 	}
+	log.Debug("cleared locked sectors", zap.Int("locked", len(sectorIDs)), zap.Stringers("removed", removed))
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (s *Store) clearLocks() error {
 	return s.transaction(func(tx txn) error {
 		if err := clearLockedLocations(tx); err != nil {
 			return fmt.Errorf("failed to clear locked locations: %w", err)
-		} else if err = clearLockedSectors(tx); err != nil {
+		} else if err = clearLockedSectors(tx, s.log.Named("clearLockedSectors")); err != nil {
 			return fmt.Errorf("failed to clear locked sectors: %w", err)
 		}
 		return nil
