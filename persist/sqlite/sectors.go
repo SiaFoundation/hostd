@@ -306,10 +306,11 @@ func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
 
 		var root types.Hash256
 		err = deleteSectorStmt.QueryRow(id).Scan((*sqlHash256)(&root))
-		if err != nil && !errors.Is(err, sql.ErrNoRows) { // ignore rows not found
+		if err == nil {
+			pruned = append(pruned, root)
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) { // ignore rows not found
 			return nil, fmt.Errorf("failed to delete sector: %w", err)
 		}
-		pruned = append(pruned, root)
 	}
 
 	// decrement the usage of all changed volumes
