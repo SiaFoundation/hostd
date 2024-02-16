@@ -699,14 +699,6 @@ func deleteContractSectors(tx txn, refs []contractSectorRootRef) (int, error) {
 		}
 		deleted[id] = true
 	}
-	if len(deleted) != len(rootIDs) {
-		return 0, errors.New("failed to delete all sectors")
-	}
-	for _, rootID := range rootIDs {
-		if !deleted[rootID] {
-			return 0, errors.New("failed to delete all sectors")
-		}
-	}
 
 	// decrement the contract metrics
 	if err := incrementNumericStat(tx, metricContractSectors, -len(refs), time.Now()); err != nil {
