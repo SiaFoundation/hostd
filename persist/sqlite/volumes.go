@@ -67,7 +67,7 @@ func (s *Store) migrateSector(volumeID int64, startIndex uint64, migrateFn func(
 	}
 	// unlock the locations
 	defer unlockLocations(&dbTxn{s}, locationLocks)
-	defer unlockSector(&dbTxn{s}, sectorLock)
+	defer unlockSector(&dbTxn{s}, log.Named("unlockSector"), sectorLock)
 
 	// call the migrateFn with the new location, data should be copied to the
 	// new location and synced to disk
@@ -218,6 +218,7 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 	var location storage.SectorLocation
 	var exists bool
 
+	log := s.log.Named("StoreSector").With(zap.Stringer("root", root))
 	err := s.transaction(func(tx txn) error {
 		sectorID, err := insertSectorDBID(tx, root)
 		if err != nil {
@@ -270,12 +271,13 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 	if err != nil {
 		return nil, err
 	}
-
+	log = log.With(zap.Int64("volume", location.Volume), zap.Uint64("index", location.Index))
+	log.Debug("stored sector")
 	unlock := func() error {
 		return s.transaction(func(tx txn) error {
 			if err := unlockLocations(tx, locationLocks); err != nil {
 				return fmt.Errorf("failed to unlock sector location: %w", err)
-			} else if err := unlockSector(tx, sectorLockID); err != nil {
+			} else if err := unlockSector(tx, log.Named("unlock"), sectorLockID); err != nil {
 				return fmt.Errorf("failed to unlock sector: %w", err)
 			}
 			return nil
