@@ -10,7 +10,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
 	"go.uber.org/zap"
-	"lukechampine.com/frand"
 )
 
 // An action determines what lifecycle event should be performed on a contract.
@@ -178,6 +177,17 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		sp, err := cm.buildStorageProof(contract.Revision.ParentID, contract.Revision.Filesize, leafIndex, log.Named("buildStorageProof"))
 		if err != nil {
 			log.Error("failed to build storage proof", zap.Error(err))
+			cm.alerts.Register(alerts.Alert{
+				ID:       types.Hash256(id),
+				Severity: alerts.SeverityError,
+				Message:  "Failed to build storage proof",
+				Data: map[string]any{
+					"contractID":  id,
+					"blockHeight": height,
+					"error":       err.Error(),
+				},
+				Timestamp: time.Now(),
+			})
 			return
 		}
 
@@ -199,6 +209,17 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		intermediateToSign, discard, err := cm.wallet.FundTransaction(&resolutionTxnSet[0], fee)
 		if err != nil {
 			log.Error("failed to fund resolution transaction", zap.Error(err))
+			cm.alerts.Register(alerts.Alert{
+				ID:       types.Hash256(id),
+				Severity: alerts.SeverityError,
+				Message:  "Failed to fund resolution transaction",
+				Data: map[string]any{
+					"contractID":  id,
+					"blockHeight": height,
+					"error":       err.Error(),
+				},
+				Timestamp: time.Now(),
+			})
 			return
 		}
 		defer discard()
@@ -219,8 +240,20 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		} else if err := cm.tpool.AcceptTransactionSet(resolutionTxnSet); err != nil { // broadcast the transaction set
 			buf, _ := json.Marshal(resolutionTxnSet)
 			log.Error("failed to broadcast resolution transaction set", zap.Error(err), zap.ByteString("transactionSet", buf))
+			cm.alerts.Register(alerts.Alert{
+				ID:       types.Hash256(id),
+				Severity: alerts.SeverityError,
+				Message:  "Failed to broadcast resolution transaction",
+				Data: map[string]any{
+					"contractID":  id,
+					"blockHeight": height,
+					"error":       err.Error(),
+				},
+				Timestamp: time.Now(),
+			})
 			return
 		}
+		cm.alerts.Dismiss(types.Hash256(id)) // dismiss any previous failure alerts
 		log.Info("broadcast storage proof", zap.String("transactionID", resolutionTxnSet[1].ID().String()), zap.Duration("elapsed", time.Since(start)))
 	case ActionReject:
 		if err := cm.store.ExpireContract(id, ContractStatusRejected); err != nil {
@@ -255,8 +288,8 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 				log.Error("failed to set contract status", zap.Error(err))
 			}
 			cm.alerts.Register(alerts.Alert{
-				ID:       frand.Entropy256(),
-				Severity: alerts.SeverityWarning,
+				ID:       types.Hash256(id),
+				Severity: alerts.SeverityError,
 				Message:  "Contract failed without storage proof",
 				Data: map[string]any{
 					"contractID":  id,
