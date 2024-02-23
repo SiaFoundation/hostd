@@ -98,6 +98,25 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 	start := time.Now()
 	cs := cm.chain.TipState()
 
+	// helper to register a contract alert
+	registerContractAlert := func(severity alerts.Severity, message string, err error) {
+		data := map[string]any{
+			"contractID":  id,
+			"blockHeight": height,
+		}
+		if err != nil {
+			data["error"] = err.Error()
+		}
+
+		cm.alerts.Register(alerts.Alert{
+			ID:        types.Hash256(id),
+			Severity:  severity,
+			Message:   message,
+			Data:      data,
+			Timestamp: time.Now(),
+		})
+	}
+
 	switch action {
 	case ActionBroadcastFormation:
 		if (height-contract.NegotiationHeight)%3 != 0 {
@@ -177,17 +196,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		sp, err := cm.buildStorageProof(contract.Revision.ParentID, contract.Revision.Filesize, leafIndex, log.Named("buildStorageProof"))
 		if err != nil {
 			log.Error("failed to build storage proof", zap.Error(err))
-			cm.alerts.Register(alerts.Alert{
-				ID:       types.Hash256(id),
-				Severity: alerts.SeverityError,
-				Message:  "Failed to build storage proof",
-				Data: map[string]any{
-					"contractID":  id,
-					"blockHeight": height,
-					"error":       err.Error(),
-				},
-				Timestamp: time.Now(),
-			})
+			registerContractAlert(alerts.SeverityError, "Failed to build storage proof", err)
 			return
 		}
 
@@ -209,17 +218,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		intermediateToSign, discard, err := cm.wallet.FundTransaction(&resolutionTxnSet[0], fee)
 		if err != nil {
 			log.Error("failed to fund resolution transaction", zap.Error(err))
-			cm.alerts.Register(alerts.Alert{
-				ID:       types.Hash256(id),
-				Severity: alerts.SeverityError,
-				Message:  "Failed to fund resolution transaction",
-				Data: map[string]any{
-					"contractID":  id,
-					"blockHeight": height,
-					"error":       err.Error(),
-				},
-				Timestamp: time.Now(),
-			})
+			registerContractAlert(alerts.SeverityError, "Failed to fund resolution transaction", err)
 			return
 		}
 		defer discard()
@@ -240,17 +239,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		} else if err := cm.tpool.AcceptTransactionSet(resolutionTxnSet); err != nil { // broadcast the transaction set
 			buf, _ := json.Marshal(resolutionTxnSet)
 			log.Error("failed to broadcast resolution transaction set", zap.Error(err), zap.ByteString("transactionSet", buf))
-			cm.alerts.Register(alerts.Alert{
-				ID:       types.Hash256(id),
-				Severity: alerts.SeverityError,
-				Message:  "Failed to broadcast resolution transaction",
-				Data: map[string]any{
-					"contractID":  id,
-					"blockHeight": height,
-					"error":       err.Error(),
-				},
-				Timestamp: time.Now(),
-			})
+			registerContractAlert(alerts.SeverityError, "Failed to broadcast resolution transaction set", err)
 			return
 		}
 		cm.alerts.Dismiss(types.Hash256(id)) // dismiss any previous failure alerts
@@ -287,16 +276,7 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 			if err := cm.store.ExpireContract(id, ContractStatusFailed); err != nil {
 				log.Error("failed to set contract status", zap.Error(err))
 			}
-			cm.alerts.Register(alerts.Alert{
-				ID:       types.Hash256(id),
-				Severity: alerts.SeverityError,
-				Message:  "Contract failed without storage proof",
-				Data: map[string]any{
-					"contractID":  id,
-					"blockHeight": height,
-				},
-				Timestamp: time.Now(),
-			})
+			registerContractAlert(alerts.SeverityError, "Contract failed without storage proof", nil)
 			log.Error("contract failed, revenue lost", zap.Uint64("windowStart", contract.Revision.WindowStart), zap.Uint64("windowEnd", contract.Revision.WindowEnd), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
 		default:
 			log.Panic("unrecognized contract state", zap.Stack("stack"), zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()), zap.Uint64("resolutionHeight", contract.ResolutionHeight), zap.Bool("formationConfirmed", contract.FormationConfirmed))
