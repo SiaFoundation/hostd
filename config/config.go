@@ -19,6 +19,12 @@ type (
 		Address string `yaml:"address,omitempty"`
 	}
 
+	// ExplorerData contains the configuration for using an external explorer.
+	ExplorerData struct {
+		Disable bool   `yaml:"disable,omitempty"`
+		URL     string `yaml:"url,omitempty"`
+	}
+
 	// RHP3 contains the configuration for the RHP3 server.
 	RHP3 struct {
 		TCPAddress       string `yaml:"tcp,omitempty"`
@@ -61,10 +67,11 @@ type (
 		RecoveryPhrase string `yaml:"recoveryPhrase,omitempty"`
 		AutoOpenWebUI  bool   `yaml:"autoOpenWebUI,omitempty"`
 
-		HTTP      HTTP      `yaml:"http,omitempty"`
-		Consensus Consensus `yaml:"consensus,omitempty"`
-		RHP2      RHP2      `yaml:"rhp2,omitempty"`
-		RHP3      RHP3      `yaml:"rhp3,omitempty"`
-		Log       Log       `yaml:"log,omitempty"`
+		HTTP      HTTP         `yaml:"http,omitempty"`
+		Consensus Consensus    `yaml:"consensus,omitempty"`
+		Explorer  ExplorerData `yaml:"explorer,omitempty"`
+		RHP2      RHP2         `yaml:"rhp2,omitempty"`
+		RHP3      RHP3         `yaml:"rhp3,omitempty"`
+		Log       Log          `yaml:"log,omitempty"`
 	}
 )
