@@ -29,9 +29,10 @@ type (
 
 		frequency time.Duration
 
-		mu     sync.Mutex
-		rates  []decimal.Decimal
-		pinned PinnedSettings // in-memory cache of pinned settings
+		mu       sync.Mutex
+		rates    []decimal.Decimal
+		lastRate decimal.Decimal
+		pinned   PinnedSettings // in-memory cache of pinned settings
 	}
 )
 
@@ -51,11 +52,6 @@ func convertToCurrency(target decimal.Decimal, rate decimal.Decimal) types.Curre
 }
 
 func (pm *PinManager) update(ctx context.Context) error {
-	var lastRate decimal.Decimal
-	if len(pm.rates) > 0 {
-		lastRate = pm.rates[len(pm.rates)-1]
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -90,10 +86,11 @@ func (pm *PinManager) update(ctx context.Context) error {
 	}
 	avgRate := sum.Div(decimal.New(int64(len(pm.rates)), 0))
 
-	if !isOverThreshold(lastRate, avgRate, decimal.NewFromFloat(0.05)) {
-		pm.log.Debug("new rate not over threshold", zap.Stringer("current", current), zap.Stringer("average", avgRate), zap.Stringer("last", lastRate))
+	if !isOverThreshold(pm.lastRate, avgRate, pm.pinned.Threshold) {
+		pm.log.Debug("new rate not over threshold", zap.Stringer("current", current), zap.Stringer("average", avgRate), zap.Stringer("last", pm.lastRate))
 		return nil
 	}
+	pm.lastRate = avgRate
 
 	settings := pm.cm.Settings()
 	if !pm.pinned.Storage.IsZero() {
