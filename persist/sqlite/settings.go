@@ -14,6 +14,29 @@ import (
 	"go.uber.org/zap"
 )
 
+// PinnedSettings returns the host's pinned settings.
+func (s *Store) PinnedSettings() (pinned settings.PinnedSettings, err error) {
+	const query = `SELECT currency, storage_price, ingress_price, egress_price, max_collateral
+FROM host_pinned_settings;`
+
+	err = s.queryRow(query).Scan(&pinned.Currency, &pinned.Storage, &pinned.Ingress, &pinned.Egress, &pinned.MaxCollateral)
+	if errors.Is(err, sql.ErrNoRows) {
+		return settings.PinnedSettings{}, nil
+	}
+	return
+}
+
+// UpdatePinnedSettings updates the host's pinned settings.
+func (s *Store) UpdatePinnedSettings(p settings.PinnedSettings) error {
+	const query = `INSERT INTO host_pinned_settings (id, currency, storage_price, ingress_price, egress_price, max_collateral) VALUES (0, $1, $2, $3, $4, $5) 
+ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, storage_price=EXCLUDED.storage_price, ingress_price=EXCLUDED.ingress_price, egress_price=EXCLUDED.egress_price, max_collateral=EXCLUDED.max_collateral
+RETURNING id;`
+
+	var dummyID int64
+	err := s.queryRow(query, p.Currency, p.Storage, p.Ingress, p.Egress, p.MaxCollateral).Scan(&dummyID)
+	return err
+}
+
 // Settings returns the current host settings.
 func (s *Store) Settings() (config settings.Settings, err error) {
 	var dyndnsBuf []byte

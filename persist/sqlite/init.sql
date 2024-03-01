@@ -196,6 +196,15 @@ CREATE TABLE host_settings (
 	sector_cache_size INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE host_pinned_settings (
+	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+	currency TEXT NOT NULL,
+	storage_price REAL NOT NULL,
+	ingress_price REAL NOT NULL,
+	egress_price REAL NOT NULL,
+	max_collateral REAL NOT NULL
+);
+
 CREATE TABLE webhooks (
 	id INTEGER PRIMARY KEY,
 	callback_url TEXT UNIQUE NOT NULL,
