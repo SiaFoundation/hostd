@@ -108,12 +108,7 @@ func setAPIPassword() {
 		fmt.Println("Please choose a password to unlock hostd.")
 		fmt.Println("This password will be required to access the admin UI in your web browser.")
 		fmt.Println("(The password must be at least 4 characters.)")
-		var err error
 		cfg.HTTP.Password = readPasswordInput("Enter password")
-		if err != nil {
-			stdoutFatalError("Could not read password:" + err.Error())
-		}
-
 		if len(cfg.HTTP.Password) >= 4 {
 			break
 		}

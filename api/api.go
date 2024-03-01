@@ -46,6 +46,12 @@ type (
 		UpdateDDNS(force bool) error
 	}
 
+	// PinnedSettings updates and retrieves the host's pinned settings
+	PinnedSettings interface {
+		Update(p settings.PinnedSettings) error
+		Pinned() settings.PinnedSettings
+	}
+
 	// A MetricManager retrieves metrics related to the host
 	MetricManager interface {
 		// PeriodMetrics returns metrics for n periods starting at start.
@@ -149,6 +155,7 @@ type (
 		wallet    Wallet
 		metrics   MetricManager
 		settings  Settings
+		pinned    PinnedSettings
 		sessions  RHPSessionReporter
 
 		volumeJobs volumeJobs
@@ -157,92 +164,84 @@ type (
 )
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, a Alerts, wh WebHooks, g Syncer, chain ChainManager, tp TPool, cm ContractManager, am AccountManager, vm VolumeManager, rsr RHPSessionReporter, m MetricManager, s Settings, w Wallet, log *zap.Logger) http.Handler {
-	api := &api{
+func NewServer(name string, hostKey types.PublicKey, opts ...ServerOption) http.Handler {
+	a := &api{
 		hostKey: hostKey,
 		name:    name,
-
-		alerts:    a,
-		webhooks:  wh,
-		syncer:    g,
-		chain:     chain,
-		tpool:     tp,
-		contracts: cm,
-		accounts:  am,
-		volumes:   vm,
-		metrics:   m,
-		settings:  s,
-		wallet:    w,
-		sessions:  rsr,
-		log:       log,
-
-		checks: integrityCheckJobs{
-			contracts: cm,
-			checks:    make(map[types.FileContractID]IntegrityCheckResult),
-		},
-		volumeJobs: volumeJobs{
-			volumes: vm,
-			jobs:    make(map[int64]context.CancelFunc),
-		},
+		log:     zap.NewNop(),
 	}
+	for _, opt := range opts {
+		opt(a)
+	}
+	a.checks = integrityCheckJobs{
+		contracts: a.contracts,
+		checks:    make(map[types.FileContractID]IntegrityCheckResult),
+	}
+	a.volumeJobs = volumeJobs{
+		volumes: a.volumes,
+		jobs:    make(map[int64]context.CancelFunc),
+	}
+
 	return jape.Mux(map[string]jape.Handler{
 		// state endpoints
-		"GET /state/host":      api.handleGETHostState,
-		"GET /state/consensus": api.handleGETConsensusState,
+		"GET /state/host":      a.handleGETHostState,
+		"GET /state/consensus": a.handleGETConsensusState,
 		// gateway endpoints
-		"GET /syncer/address":           api.handleGETSyncerAddr,
-		"GET /syncer/peers":             api.handleGETSyncerPeers,
-		"PUT /syncer/peers":             api.handlePUTSyncerPeer,
-		"DELETE /syncer/peers/:address": api.handleDeleteSyncerPeer,
+		"GET /syncer/address":           a.handleGETSyncerAddr,
+		"GET /syncer/peers":             a.handleGETSyncerPeers,
+		"PUT /syncer/peers":             a.handlePUTSyncerPeer,
+		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
 		// alerts endpoints
-		"GET /alerts":          api.handleGETAlerts,
-		"POST /alerts/dismiss": api.handlePOSTAlertsDismiss,
+		"GET /alerts":          a.handleGETAlerts,
+		"POST /alerts/dismiss": a.handlePOSTAlertsDismiss,
 		// settings endpoints
-		"GET /settings":             api.handleGETSettings,
-		"PATCH /settings":           api.handlePATCHSettings,
-		"POST /settings/announce":   api.handlePOSTAnnounce,
-		"PUT /settings/ddns/update": api.handlePUTDDNSUpdate,
+		"GET /settings":             a.handleGETSettings,
+		"PATCH /settings":           a.handlePATCHSettings,
+		"POST /settings/announce":   a.handlePOSTAnnounce,
+		"PUT /settings/ddns/update": a.handlePUTDDNSUpdate,
+		"GET /settings/pinned":      a.handleGETPinnedSettings,
+		"PUT /settings/pinned":      a.handlePUTPinnedSettings,
 		// metrics endpoints
-		"GET /metrics":         api.handleGETMetrics,
-		"GET /metrics/:period": api.handleGETPeriodMetrics,
+		"GET /metrics":         a.handleGETMetrics,
+		"GET /metrics/:period": a.handleGETPeriodMetrics,
 		// contract endpoints
-		"POST /contracts":                 api.handlePostContracts,
-		"GET /contracts/:id":              api.handleGETContract,
-		"GET /contracts/:id/integrity":    api.handleGETContractCheck,
-		"PUT /contracts/:id/integrity":    api.handlePUTContractCheck,
-		"DELETE /contracts/:id/integrity": api.handleDeleteContractCheck,
+		"POST /contracts":                 a.handlePostContracts,
+		"GET /contracts/:id":              a.handleGETContract,
+		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
+		"PUT /contracts/:id/integrity":    a.handlePUTContractCheck,
+		"DELETE /contracts/:id/integrity": a.handleDeleteContractCheck,
 		// account endpoints
-		"GET /accounts":                  api.handleGETAccounts,
-		"GET /accounts/:account/funding": api.handleGETAccountFunding,
+		"GET /accounts":                  a.handleGETAccounts,
+		"GET /accounts/:account/funding": a.handleGETAccountFunding,
 		// sector endpoints
-		"DELETE /sectors/:root":     api.handleDeleteSector,
-		"GET /sectors/:root/verify": api.handleGETVerifySector,
+		"DELETE /sectors/:root":     a.handleDeleteSector,
+		"GET /sectors/:root/verify": a.handleGETVerifySector,
 		// volume endpoints
-		"GET /volumes":               api.handleGETVolumes,
-		"POST /volumes":              api.handlePOSTVolume,
-		"GET /volumes/:id":           api.handleGETVolume,
-		"PUT /volumes/:id":           api.handlePUTVolume,
-		"DELETE /volumes/:id":        api.handleDeleteVolume,
-		"DELETE /volumes/:id/cancel": api.handleDELETEVolumeCancelOp,
-		"PUT /volumes/:id/resize":    api.handlePUTVolumeResize,
+		"GET /volumes":               a.handleGETVolumes,
+		"POST /volumes":              a.handlePOSTVolume,
+		"GET /volumes/:id":           a.handleGETVolume,
+		"PUT /volumes/:id":           a.handlePUTVolume,
+		"DELETE /volumes/:id":        a.handleDeleteVolume,
+		"DELETE /volumes/:id/cancel": a.handleDELETEVolumeCancelOp,
+		"PUT /volumes/:id/resize":    a.handlePUTVolumeResize,
 		// session endpoints
-		"GET /sessions":           api.handleGETSessions,
-		"GET /sessions/subscribe": api.handleGETSessionsSubscribe,
+		"GET /sessions":           a.handleGETSessions,
+		"GET /sessions/subscribe": a.handleGETSessionsSubscribe,
 		// tpool endpoints
-		"GET /tpool/fee": api.handleGETTPoolFee,
+		"GET /tpool/fee": a.handleGETTPoolFee,
 		// wallet endpoints
-		"GET /wallet":              api.handleGETWallet,
-		"GET /wallet/transactions": api.handleGETWalletTransactions,
-		"GET /wallet/pending":      api.handleGETWalletPending,
-		"POST /wallet/send":        api.handlePOSTWalletSend,
+		"GET /wallet":              a.handleGETWallet,
+		"GET /wallet/transactions": a.handleGETWalletTransactions,
+		"GET /wallet/pending":      a.handleGETWalletPending,
+		"POST /wallet/send":        a.handlePOSTWalletSend,
 		// system endpoints
-		"GET /system/dir": api.handleGETSystemDir,
-		"PUT /system/dir": api.handlePUTSystemDir,
+		"GET /system/dir": a.handleGETSystemDir,
+		"PUT /system/dir": a.handlePUTSystemDir,
 		// webhook endpoints
-		"GET /webhooks":           api.handleGETWebhooks,
-		"POST /webhooks":          api.handlePOSTWebhooks,
-		"PUT /webhooks/:id":       api.handlePUTWebhooks,
-		"POST /webhooks/:id/test": api.handlePOSTWebhooksTest,
-		"DELETE /webhooks/:id":    api.handleDELETEWebhooks,
+		"GET /webhooks":           a.handleGETWebhooks,
+		"POST /webhooks":          a.handlePOSTWebhooks,
+		"PUT /webhooks/:id":       a.handlePUTWebhooks,
+		"POST /webhooks/:id/test": a.handlePOSTWebhooksTest,
+		"DELETE /webhooks/:id":    a.handleDELETEWebhooks,
 	})
 }

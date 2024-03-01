@@ -39,7 +39,7 @@ func (a *api) checkServerError(c jape.Context, context string, err error) bool {
 	return err == nil
 }
 
-func (a *api) writeResponse(c jape.Context, code int, resp any) {
+func (a *api) writeResponse(c jape.Context, resp any) {
 	var responseFormat string
 	if err := c.DecodeForm("response", &responseFormat); err != nil {
 		return
@@ -74,7 +74,7 @@ func (a *api) handleGETHostState(c jape.Context) {
 		return
 	}
 
-	a.writeResponse(c, http.StatusOK, HostState{
+	a.writeResponse(c, HostState{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
 		WalletAddress:    a.wallet.Address(),
@@ -91,14 +91,14 @@ func (a *api) handleGETHostState(c jape.Context) {
 }
 
 func (a *api) handleGETConsensusState(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, ConsensusState{
+	a.writeResponse(c, ConsensusState{
 		Synced:     a.chain.Synced(),
 		ChainIndex: a.chain.TipState().Index,
 	})
 }
 
 func (a *api) handleGETSyncerAddr(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, SyncerAddrResp(a.syncer.Address()))
+	a.writeResponse(c, SyncerAddrResp(a.syncer.Address()))
 }
 
 func (a *api) handleGETSyncerPeers(c jape.Context) {
@@ -110,7 +110,7 @@ func (a *api) handleGETSyncerPeers(c jape.Context) {
 			Version: peer.Version,
 		}
 	}
-	a.writeResponse(c, http.StatusOK, PeerResp(peers))
+	a.writeResponse(c, PeerResp(peers))
 }
 
 func (a *api) handlePUTSyncerPeer(c jape.Context) {
@@ -132,7 +132,7 @@ func (a *api) handleDeleteSyncerPeer(c jape.Context) {
 }
 
 func (a *api) handleGETAlerts(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, AlertResp(a.alerts.Active()))
+	a.writeResponse(c, AlertResp(a.alerts.Active()))
 }
 
 func (a *api) handlePOSTAlertsDismiss(c jape.Context) {
@@ -153,7 +153,7 @@ func (a *api) handlePOSTAnnounce(c jape.Context) {
 
 func (a *api) handleGETSettings(c jape.Context) {
 	hs := HostSettings(a.settings.Settings())
-	a.writeResponse(c, http.StatusOK, hs)
+	a.writeResponse(c, hs)
 }
 
 func (a *api) handlePATCHSettings(c jape.Context) {
@@ -199,6 +199,28 @@ func (a *api) handlePATCHSettings(c jape.Context) {
 	c.Encode(a.settings.Settings())
 }
 
+func (a *api) handleGETPinnedSettings(c jape.Context) {
+	if a.pinned == nil {
+		c.Error(errors.New("pinned settings disabled"), http.StatusNotFound)
+		return
+	}
+	c.Encode(a.pinned.Pinned())
+}
+
+func (a *api) handlePUTPinnedSettings(c jape.Context) {
+	if a.pinned == nil {
+		c.Error(errors.New("pinned settings disabled"), http.StatusNotFound)
+		return
+	}
+
+	var req settings.PinnedSettings
+	if err := c.Decode(&req); err != nil {
+		return
+	}
+
+	a.checkServerError(c, "failed to update pinned settings", a.pinned.Update(req))
+}
+
 func (a *api) handlePUTDDNSUpdate(c jape.Context) {
 	err := a.settings.UpdateDDNS(true)
 	a.checkServerError(c, "failed to update dynamic DNS", err)
@@ -217,7 +239,7 @@ func (a *api) handleGETMetrics(c jape.Context) {
 		return
 	}
 
-	a.writeResponse(c, http.StatusOK, Metrics(metrics))
+	a.writeResponse(c, Metrics(metrics))
 }
 
 func (a *api) handleGETPeriodMetrics(c jape.Context) {
@@ -370,7 +392,7 @@ func (a *api) handleGETWallet(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet", err) {
 		return
 	}
-	a.writeResponse(c, http.StatusOK, WalletResponse{
+	a.writeResponse(c, WalletResponse{
 		ScanHeight:  a.wallet.ScanHeight(),
 		Address:     a.wallet.Address(),
 		Spendable:   spendable,
@@ -387,7 +409,7 @@ func (a *api) handleGETWalletTransactions(c jape.Context) {
 		return
 	}
 
-	a.writeResponse(c, http.StatusOK, WalletTransactionsResp(transactions))
+	a.writeResponse(c, WalletTransactionsResp(transactions))
 }
 
 func (a *api) handleGETWalletPending(c jape.Context) {
@@ -395,7 +417,7 @@ func (a *api) handleGETWalletPending(c jape.Context) {
 	if !a.checkServerError(c, "failed to get wallet pending", err) {
 		return
 	}
-	a.writeResponse(c, http.StatusOK, WalletPendingResp(pending))
+	a.writeResponse(c, WalletPendingResp(pending))
 }
 
 func (a *api) handlePOSTWalletSend(c jape.Context) {
@@ -534,7 +556,7 @@ func (a *api) handlePUTSystemDir(c jape.Context) {
 }
 
 func (a *api) handleGETTPoolFee(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, TPoolResp(a.tpool.RecommendedFee()))
+	a.writeResponse(c, TPoolResp(a.tpool.RecommendedFee()))
 }
 
 func (a *api) handleGETAccounts(c jape.Context) {
