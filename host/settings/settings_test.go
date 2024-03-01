@@ -37,7 +37,13 @@ func TestSettings(t *testing.T) {
 	}
 
 	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	manager, err := settings.NewConfigManager(dir, hostKey, "localhost:9882", db, node.ChainManager(), node.TPool(), node, am, log.Named("settings"))
+	manager, err := settings.NewConfigManager(settings.WithHostKey(hostKey),
+		settings.WithStore(db),
+		settings.WithChainManager(node.ChainManager()),
+		settings.WithTransactionPool(node.TPool()),
+		settings.WithWallet(node),
+		settings.WithAlertManager(am),
+		settings.WithLog(log.Named("settings")))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package settings
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
@@ -45,6 +47,20 @@ type (
 		RevertLastAnnouncement() error
 
 		LastSettingsConsensusChange() (modules.ConsensusChangeID, uint64, error)
+	}
+
+	// PinnedSettings contains the settings that can be optionally
+	// pinned to an external currency. This uses an external explorer
+	// to retrieve the current exchange rate.
+	PinnedSettings struct {
+		Currency  string          `json:"currency"`
+		Threshold decimal.Decimal `json:"threshold"`
+
+		Storage decimal.Decimal `json:"storage"`
+		Ingress decimal.Decimal `json:"ingress"`
+		Egress  decimal.Decimal `json:"egress"`
+
+		MaxCollateral decimal.Decimal `json:"maxCollateral"`
 	}
 
 	// Settings contains configuration options for the host.
@@ -113,9 +129,11 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
-		dir               string
 		hostKey           types.PrivateKey
 		discoveredRHPAddr string
+
+		certKeyFilePath  string
+		certCertFilePath string
 
 		store Store
 		a     Alerts
@@ -125,10 +143,11 @@ type (
 		tp     TransactionPool
 		wallet Wallet
 
-		mu                  sync.Mutex // guards the following fields
-		settings            Settings   // in-memory cache of the host's settings
-		scanHeight          uint64     // track the last block height that was scanned for announcements
-		lastAnnounceAttempt uint64     // debounce announcement transactions
+		mu                  sync.Mutex     // guards the following fields
+		settings            Settings       // in-memory cache of the host's settings
+		pinned              PinnedSettings // in-memory cache of the host's pinned settings
+		scanHeight          uint64         // track the last block height that was scanned for announcements
+		lastAnnounceAttempt uint64         // debounce announcement transactions
 
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
@@ -242,6 +261,22 @@ func (m *ConfigManager) Settings() Settings {
 	return m.settings
 }
 
+// Pinned returns the pinned settings
+func (m *ConfigManager) Pinned() PinnedSettings {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pinned
+}
+
+// UpdatePinned updates the pinned settings. If the exchange rate manager is not
+// initialized, an error is returned.
+func (m *ConfigManager) UpdatePinned(p PinnedSettings) error {
+	m.mu.Lock()
+	m.pinned = p
+	m.mu.Unlock()
+	return nil
+}
+
 // BandwidthLimiters returns the rate limiters for all traffic
 func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
@@ -275,19 +310,10 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, a Alerts, log *zap.Logger) (*ConfigManager, error) {
+func NewConfigManager(opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
-		dir:               dir,
-		hostKey:           hostKey,
-		discoveredRHPAddr: rhp2Addr,
-
-		store:  store,
-		a:      a,
-		log:    log,
-		cm:     cm,
-		tp:     tp,
-		wallet: w,
-		tg:     threadgroup.New(),
+		log: zap.NewNop(),
+		tg:  threadgroup.New(),
 
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
@@ -297,13 +323,21 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 		rhp3WSTLS: &tls.Config{},
 	}
 
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	if len(m.hostKey) != ed25519.PrivateKeySize {
+		panic("host key invalid")
+	}
+
 	if err := m.reloadCertificates(); err != nil {
 		return nil, fmt.Errorf("failed to load rhp3 WebSocket certificates: %w", err)
 	}
 
 	settings, err := m.store.Settings()
 	if errors.Is(err, ErrNoSettings) {
-		if err := store.UpdateSettings(DefaultSettings); err != nil {
+		if err := m.store.UpdateSettings(DefaultSettings); err != nil {
 			return nil, fmt.Errorf("failed to initialize settings: %w", err)
 		}
 		settings = DefaultSettings // use the default settings
@@ -319,13 +353,13 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 
 	go func() {
 		// subscribe to consensus changes
-		err := cm.Subscribe(m, lastChange, m.tg.Done())
+		err := m.cm.Subscribe(m, lastChange, m.tg.Done())
 		if errors.Is(err, chain.ErrInvalidChangeID) {
 			m.log.Warn("rescanning blockchain due to unknown consensus change ID")
 			// reset change ID and subscribe again
-			if err := store.RevertLastAnnouncement(); err != nil {
+			if err := m.store.RevertLastAnnouncement(); err != nil {
 				m.log.Fatal("failed to reset wallet", zap.Error(err))
-			} else if err = cm.Subscribe(m, modules.ConsensusChangeBeginning, m.tg.Done()); err != nil {
+			} else if err = m.cm.Subscribe(m, modules.ConsensusChangeBeginning, m.tg.Done()); err != nil {
 				m.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
 			}
 		} else if err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {
