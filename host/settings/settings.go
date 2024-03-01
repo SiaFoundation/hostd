@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shopspring/decimal"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
@@ -47,20 +46,6 @@ type (
 		RevertLastAnnouncement() error
 
 		LastSettingsConsensusChange() (modules.ConsensusChangeID, uint64, error)
-	}
-
-	// PinnedSettings contains the settings that can be optionally
-	// pinned to an external currency. This uses an external explorer
-	// to retrieve the current exchange rate.
-	PinnedSettings struct {
-		Currency  string          `json:"currency"`
-		Threshold decimal.Decimal `json:"threshold"`
-
-		Storage decimal.Decimal `json:"storage"`
-		Ingress decimal.Decimal `json:"ingress"`
-		Egress  decimal.Decimal `json:"egress"`
-
-		MaxCollateral decimal.Decimal `json:"maxCollateral"`
 	}
 
 	// Settings contains configuration options for the host.
@@ -143,11 +128,10 @@ type (
 		tp     TransactionPool
 		wallet Wallet
 
-		mu                  sync.Mutex     // guards the following fields
-		settings            Settings       // in-memory cache of the host's settings
-		pinned              PinnedSettings // in-memory cache of the host's pinned settings
-		scanHeight          uint64         // track the last block height that was scanned for announcements
-		lastAnnounceAttempt uint64         // debounce announcement transactions
+		mu                  sync.Mutex // guards the following fields
+		settings            Settings   // in-memory cache of the host's settings
+		scanHeight          uint64     // track the last block height that was scanned for announcements
+		lastAnnounceAttempt uint64     // debounce announcement transactions
 
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
@@ -259,22 +243,6 @@ func (m *ConfigManager) Settings() Settings {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.settings
-}
-
-// Pinned returns the pinned settings
-func (m *ConfigManager) Pinned() PinnedSettings {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.pinned
-}
-
-// UpdatePinned updates the pinned settings. If the exchange rate manager is not
-// initialized, an error is returned.
-func (m *ConfigManager) UpdatePinned(p PinnedSettings) error {
-	m.mu.Lock()
-	m.pinned = p
-	m.mu.Unlock()
-	return nil
 }
 
 // BandwidthLimiters returns the rate limiters for all traffic

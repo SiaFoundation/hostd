@@ -10,24 +10,25 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
 // PinnedSettings returns the host's pinned settings.
-func (s *Store) PinnedSettings() (pinned settings.PinnedSettings, err error) {
+func (s *Store) PinnedSettings() (pinned pin.PinnedSettings, err error) {
 	const query = `SELECT currency, threshold, storage_price, ingress_price, egress_price, max_collateral
 FROM host_pinned_settings;`
 
 	err = s.queryRow(query).Scan(&pinned.Currency, &pinned.Threshold, &pinned.Storage, &pinned.Ingress, &pinned.Egress, &pinned.MaxCollateral)
 	if errors.Is(err, sql.ErrNoRows) {
-		return settings.PinnedSettings{}, nil
+		return pin.PinnedSettings{}, nil
 	}
 	return
 }
 
 // UpdatePinnedSettings updates the host's pinned settings.
-func (s *Store) UpdatePinnedSettings(p settings.PinnedSettings) error {
+func (s *Store) UpdatePinnedSettings(p pin.PinnedSettings) error {
 	const query = `INSERT INTO host_pinned_settings (id, currency, threshold, storage_price, ingress_price, egress_price, max_collateral) VALUES (0, $1, $2, $3, $4, $5, $6) 
 ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.threshold, storage_price=EXCLUDED.storage_price, ingress_price=EXCLUDED.ingress_price, egress_price=EXCLUDED.egress_price, max_collateral=EXCLUDED.max_collateral
 RETURNING id;`

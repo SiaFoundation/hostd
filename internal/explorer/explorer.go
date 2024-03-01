@@ -13,6 +13,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// An Explorer retrieves data about the Sia network from an external source.
 type Explorer struct {
 	url string
 }

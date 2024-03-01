@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/internal/explorer"
@@ -43,7 +44,7 @@ type node struct {
 
 	metrics   *metrics.MetricManager
 	settings  *settings.ConfigManager
-	pinned    *settings.PinManager
+	pinned    *pin.Manager
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
 	registry  *registry.Manager
@@ -185,11 +186,11 @@ func newNode(ctx context.Context, walletKey types.PrivateKey, logger *zap.Logger
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
-	var pm *settings.PinManager
+	var pm *pin.Manager
 	if !cfg.Explorer.Disable {
 		ex := explorer.New(cfg.Explorer.URL)
 
-		pm, err = settings.NewPinManager(5*time.Minute, db, ex, sr, logger.Named("pin"))
+		pm, err = pin.NewManager(5*time.Minute, db, ex, sr, logger.Named("pin"))
 		if err != nil {
 			return nil, types.PrivateKey{}, fmt.Errorf("failed to create pin manager: %w", err)
 		}

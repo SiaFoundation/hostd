@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/wallet"
@@ -48,8 +49,8 @@ type (
 
 	// PinnedSettings updates and retrieves the host's pinned settings
 	PinnedSettings interface {
-		Update(p settings.PinnedSettings) error
-		Pinned() settings.PinnedSettings
+		Update(p pin.PinnedSettings) error
+		Pinned() pin.PinnedSettings
 	}
 
 	// A MetricManager retrieves metrics related to the host

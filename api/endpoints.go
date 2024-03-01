@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/disk"
 	"go.sia.tech/hostd/internal/prometheus"
@@ -213,7 +214,7 @@ func (a *api) handlePUTPinnedSettings(c jape.Context) {
 		return
 	}
 
-	var req settings.PinnedSettings
+	var req pin.PinnedSettings
 	if err := c.Decode(&req); err != nil {
 		return
 	}
