@@ -495,6 +495,8 @@ func TestRemoveCorrupt(t *testing.T) {
 		t.Fatalf("expected %v total sectors, got %v", expectedSectors-1, m.Storage.TotalSectors)
 	} else if m.Storage.PhysicalSectors != 9 {
 		t.Fatalf("expected 9 used sectors, got %v", m.Storage.PhysicalSectors)
+	} else if m.Storage.LostSectors != 1 {
+		t.Fatalf("expected 1 lost sectors, got %v", m.Storage.LostSectors)
 	}
 
 	if vol, err := vm.Volume(volume2.ID); err != nil {
@@ -680,6 +682,8 @@ func TestRemoveMissing(t *testing.T) {
 		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
 	} else if m.Storage.PhysicalSectors != 0 {
 		t.Fatalf("expected 0 used sectors, got %v", m.Storage.PhysicalSectors)
+	} else if m.Storage.LostSectors != 10 {
+		t.Fatalf("expected 10 lost sectors, got %v", m.Storage.LostSectors)
 	}
 
 	if _, err := vm.Volume(volume.ID); !errors.Is(err, storage.ErrVolumeNotFound) {

@@ -175,6 +175,8 @@ func (s *Store) batchRemoveVolumeSectors(id int64, force bool) (removed, lost in
 				// count.
 				if err := incrementNumericStat(tx, metricPhysicalSectors, -int(lost), time.Now()); err != nil {
 					return fmt.Errorf("failed to update physical sector metric: %w", err)
+				} else if err := incrementNumericStat(tx, metricLostSectors, int(lost), time.Now()); err != nil {
+					return fmt.Errorf("failed to update lost sector metric: %w", err)
 				}
 			}
 		} else {

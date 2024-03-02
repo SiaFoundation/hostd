@@ -28,6 +28,7 @@ const (
 	// storage
 	metricTotalSectors    = "totalSectors"
 	metricPhysicalSectors = "physicalSectors"
+	metricLostSectors     = "lostSectors"
 	metricContractSectors = "contractSectors"
 	metricTempSectors     = "tempSectors"
 	metricSectorReads     = "sectorReads"
@@ -362,6 +363,8 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Storage.TotalSectors = mustScanUint64(buf)
 	case metricPhysicalSectors:
 		m.Storage.PhysicalSectors = mustScanUint64(buf)
+	case metricLostSectors:
+		m.Storage.LostSectors = mustScanUint64(buf)
 	case metricContractSectors:
 		m.Storage.ContractSectors = mustScanUint64(buf)
 	case metricTempSectors:

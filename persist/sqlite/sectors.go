@@ -73,6 +73,8 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 		// decrement volume usage and metrics
 		if err = incrementVolumeUsage(tx, volumeID, -1); err != nil {
 			return fmt.Errorf("failed to update volume usage: %w", err)
+		} else if err := incrementNumericStat(tx, metricLostSectors, 1, time.Now()); err != nil {
+			return fmt.Errorf("failed to update metric: %w", err)
 		}
 		return nil
 	})

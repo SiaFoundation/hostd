@@ -84,6 +84,7 @@ type (
 	Storage struct {
 		TotalSectors    uint64 `json:"totalSectors"`
 		PhysicalSectors uint64 `json:"physicalSectors"`
+		LostSectors     uint64 `json:"lostSectors"`
 		ContractSectors uint64 `json:"contractSectors"`
 		TempSectors     uint64 `json:"tempSectors"`
 
