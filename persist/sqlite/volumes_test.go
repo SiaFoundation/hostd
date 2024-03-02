@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -390,7 +391,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the empty volume can be removed
-	if err := db.RemoveVolume(int64(volume.ID)); err != nil {
+	if err := db.RemoveVolume(volume.ID, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -435,7 +436,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the volume cannot be removed
-	if err := db.RemoveVolume(volume.ID); !errors.Is(err, storage.ErrVolumeNotEmpty) {
+	if err := db.RemoveVolume(volume.ID, false); !errors.Is(err, storage.ErrVolumeNotEmpty) {
 		t.Fatalf("expected ErrVolumeNotEmpty, got %v", err)
 	}
 
@@ -445,7 +446,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// check that the volume can be removed
-	if err := db.RemoveVolume(volume.ID); err != nil {
+	if err := db.RemoveVolume(volume.ID, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -508,24 +509,27 @@ func TestMigrateSectors(t *testing.T) {
 
 	roots = roots[initialSectors/2:]
 
-	var i int
 	// migrate the remaining sectors to the first half of the volume
-	err = db.MigrateSectors(volume.ID, initialSectors/2, func(loc storage.SectorLocation) error {
+	var i int
+	migrated, failed, err := db.MigrateSectors(context.Background(), volume.ID, initialSectors/2, func(loc storage.SectorLocation) error {
 		if loc.Volume != volume.ID {
 			t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 		} else if loc.Index != uint64(i) {
 			t.Fatalf("expected sector index %v, got %v", i, loc.Index)
 		} else if loc.Root != roots[i] {
-			t.Fatalf("expected sector root %v, got %v", roots[i], loc.Root)
+			t.Fatalf("expected sector root index %d %v, got %v", i, roots[i], loc.Root)
 		}
 		i++
-		// note: sync to disk
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	} else if i != 32 {
 		t.Fatalf("expected 32 sectors, got %v", i)
+	} else if migrated != 32 {
+		t.Fatalf("expected 32 migrated sectors, got %v", migrated)
+	} else if failed != 0 {
+		t.Fatalf("expected 0 failed sectors, got %v", failed)
 	}
 
 	// check that the sector metadata has been updated
@@ -548,16 +552,15 @@ func TestMigrateSectors(t *testing.T) {
 	}
 
 	// migrate the remaining sectors from the first volume; should partially complete
-	var n int
-	err = db.MigrateSectors(volume.ID, 0, func(loc storage.SectorLocation) error {
-		if n > initialSectors/4 {
-			t.Fatalf("expected only %v migrations, got %v", initialSectors/4, n)
-		}
-		n++
+	migrated, failed, err = db.MigrateSectors(context.Background(), volume.ID, 0, func(loc storage.SectorLocation) error {
 		return nil
 	})
-	if !errors.Is(err, storage.ErrNotEnoughStorage) {
-		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
+	if err != nil {
+		t.Fatal(err)
+	} else if migrated != initialSectors/4 {
+		t.Fatalf("expected %v migrated sectors, got %v", initialSectors/4, migrated)
+	} else if failed != len(roots)-(initialSectors/4) {
+		t.Fatalf("expected %v failed sectors, got %v", initialSectors-(initialSectors/4), failed)
 	}
 
 	// check that volume 2 is now full
@@ -880,10 +883,15 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 
 	// migrate all sectors from the first volume to the second
-	if err := db.MigrateSectors(volume1.ID, 0, func(loc storage.SectorLocation) error {
+	migrated, failed, err := db.MigrateSectors(context.Background(), volume1.ID, 0, func(loc storage.SectorLocation) error {
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		b.Fatal(err)
+	} else if migrated != b.N {
+		b.Fatalf("expected %v migrated sectors, got %v", b.N, migrated)
+	} else if failed != 0 {
+		b.Fatalf("expected 0 failed sectors, got %v", failed)
 	}
 }
 

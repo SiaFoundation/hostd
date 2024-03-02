@@ -156,7 +156,7 @@ func (vm *VolumeManager) loadVolumes() error {
 // migrateSector migrates a sector to a new location. The sector is read from
 // its current location and written to its new location. The volume is
 // immediately synced after the sector is written.
-func (vm *VolumeManager) migrateSector(loc SectorLocation, log *zap.Logger) error {
+func (vm *VolumeManager) migrateSector(loc SectorLocation) error {
 	// read the sector from the old location
 	sector, err := vm.Read(loc.Root)
 	if err != nil {
@@ -269,14 +269,8 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 
 	// migrate any sectors outside of the target range.
 	var migrated int
-	err := vm.vs.MigrateSectors(id, newMaxSectors, func(newLoc SectorLocation) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		if err := vm.migrateSector(newLoc, log.Named("migrate")); err != nil {
+	migrated, failed, err := vm.vs.MigrateSectors(ctx, id, newMaxSectors, func(newLoc SectorLocation) error {
+		if err := vm.migrateSector(newLoc); err != nil {
 			return err
 		}
 		migrated++
@@ -285,9 +279,11 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 		vm.a.Register(a)
 		return nil
 	})
-	log.Info("migrated sectors", zap.Int("count", migrated))
+	log.Info("migrated sectors", zap.Int("migrated", migrated), zap.Int("failed", failed))
 	if err != nil {
 		return err
+	} else if failed > 0 {
+		return ErrMigrationFailed
 	}
 
 	for current := oldMaxSectors; current > newMaxSectors; {
@@ -335,73 +331,6 @@ func (vm *VolumeManager) volumeStats(id int64) VolumeStats {
 		}
 	}
 	return v.Stats()
-}
-
-func (vm *VolumeManager) migrateForRemoval(ctx context.Context, id int64, localPath string, force bool, log *zap.Logger) (int, error) {
-	ctx, cancel, err := vm.tg.AddContext(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer cancel()
-
-	// add an alert for the migration
-	a := alerts.Alert{
-		ID:       frand.Entropy256(),
-		Message:  "Migrating sectors",
-		Severity: alerts.SeverityInfo,
-		Data: map[string]interface{}{
-			"volumeID": id,
-			"migrated": 0,
-			"force":    force,
-		},
-		Timestamp: time.Now(),
-	}
-	vm.a.Register(a)
-	// dismiss the alert when the function returns. It is the caller's
-	// responsibility to register a completion alert
-	defer vm.a.Dismiss(a.ID)
-
-	// migrate sectors to other volumes
-	var migrated, failed int
-	err = vm.vs.MigrateSectors(id, 0, func(newLoc SectorLocation) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		if err := vm.migrateSector(newLoc, log.Named("migrate")); err != nil {
-			log.Error("failed to migrate sector", zap.Stringer("sectorRoot", newLoc.Root), zap.Error(err))
-			if force {
-				failed++
-				a.Data["failed"] = failed
-				return nil
-			}
-			return err
-		}
-		migrated++
-		// update the alert
-		a.Data["migrated"] = migrated
-		vm.a.Register(a)
-		return nil
-	})
-	if err != nil {
-		return migrated, fmt.Errorf("failed to migrate sector data: %w", err)
-	} else if err := vm.vs.RemoveVolume(id); err != nil {
-		return migrated, fmt.Errorf("failed to remove volume: %w", err)
-	}
-
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-	// close the volume
-	vm.volumes[id].Close()
-	// delete the volume from memory
-	delete(vm.volumes, id)
-	// remove the volume file, ignore error if the file does not exist
-	if err := os.Remove(localPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return migrated, fmt.Errorf("failed to remove volume file: %w", err)
-	}
-	return migrated, nil
 }
 
 // Close gracefully shutsdown the volume manager.
@@ -592,7 +521,7 @@ func (vm *VolumeManager) SetReadOnly(id int64, readOnly bool) error {
 
 // RemoveVolume removes a volume from the manager.
 func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool, result chan<- error) error {
-	log := vm.log.Named("remove").With(zap.Int64("volumeID", id))
+	log := vm.log.Named("remove").With(zap.Int64("volumeID", id), zap.Bool("force", force))
 	done, err := vm.tg.Add()
 	if err != nil {
 		return err
@@ -604,7 +533,10 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 	vm.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("volume %v not found", id)
-	} else if err := vol.SetStatus(VolumeStatusRemoving); err != nil {
+	}
+
+	oldStatus := vol.Status()
+	if err := vol.SetStatus(VolumeStatusRemoving); err != nil {
 		return fmt.Errorf("failed to set volume status: %w", err)
 	}
 
@@ -618,38 +550,83 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
 
-	go func() {
-		start := time.Now()
-		defer vol.SetStatus(VolumeStatusReady)
+	alert := alerts.Alert{
+		ID:       frand.Entropy256(),
+		Message:  "Removing volume",
+		Severity: alerts.SeverityInfo,
+		Data: map[string]interface{}{
+			"volumeID": id,
+			"sectors":  stat.TotalSectors,
+			"used":     stat.UsedSectors,
+			"migrated": 0,
+			"failed":   0,
+		},
+		Timestamp: time.Now(),
+	}
 
-		migrated, err := vm.migrateForRemoval(ctx, id, stat.LocalPath, force, log)
+	go func() {
+		defer vol.SetStatus(oldStatus)
+
+		var migrated, failed int
+
+		updateRemovalAlert := func(message string, severity alerts.Severity, err error) {
+			alert.Message = message
+			alert.Severity = severity
+			alert.Data["migrated"] = migrated
+			alert.Data["failed"] = failed
+			if err != nil {
+				alert.Data["error"] = err.Error()
+			}
+			vm.a.Register(alert)
+		}
+
+		migrated, failed, err := vm.vs.MigrateSectors(ctx, id, 0, func(newLoc SectorLocation) error {
+			err := vm.migrateSector(newLoc)
+			if err != nil {
+				failed++
+			} else {
+				migrated++
+			}
+			updateRemovalAlert("Removing volume", alerts.SeverityInfo, nil) // error is ignored during migration
+			return err
+		})
 		if err != nil {
 			log.Error("failed to migrate sectors", zap.Error(err))
+			// update the alert
+			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
+			result <- err
+			return
+		} else if !force && failed > 0 {
+			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, ErrMigrationFailed)
+			result <- ErrMigrationFailed
+			return
 		}
 
-		alert := alerts.Alert{
-			ID: frand.Entropy256(),
-			Data: map[string]interface{}{
-				"volumeID":        id,
-				"elapsed":         time.Since(start),
-				"migratedSectors": migrated,
-			},
-			Timestamp: time.Now(),
+		// close the volume and remove it from memory
+		if err := vol.Close(); err != nil {
+			log.Error("failed to close volume", zap.Error(err))
+			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
+			result <- err
+			return
+		} else if err := os.Remove(stat.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Error("failed to remove volume file", zap.Error(err))
+			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
+			result <- err
+			return
 		}
-		if err != nil {
-			alert.Message = "Volume removal failed"
-			alert.Severity = alerts.SeverityError
-			alert.Data["error"] = err.Error()
-		} else {
-			alert.Message = "Volume removed"
-			alert.Severity = alerts.SeverityInfo
-		}
-		vm.a.Register(alert)
+		delete(vm.volumes, id)
 
-		select {
-		case result <- err:
-		default:
+		// remove the volume from the volume store
+		if err := vm.vs.RemoveVolume(id, force); err != nil {
+			log.Error("failed to remove volume", zap.Error(err))
+			// update the alert
+			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
+			result <- err
+			return
 		}
+
+		updateRemovalAlert("Volume removed", alerts.SeverityInfo, nil)
+		result <- nil
 	}()
 
 	return nil

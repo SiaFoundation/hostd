@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 
 	"go.sia.tech/core/types"
@@ -23,7 +24,7 @@ type (
 		// RemoveVolume removes a storage volume from the volume store. If there
 		// are used sectors in the volume, ErrVolumeNotEmpty is returned. If
 		// force is true, the volume is removed even if it is not empty.
-		RemoveVolume(volumeID int64) error
+		RemoveVolume(volumeID int64, force bool) error
 		// GrowVolume grows a storage volume's metadata to maxSectors. If the
 		// number of sectors in the volume is already greater than maxSectors,
 		// nil is returned.
@@ -39,9 +40,9 @@ type (
 
 		// MigrateSectors returns a new location for each occupied sector of a
 		// volume starting at min. The sector data should be copied to the new
-		// location and synced to disk during migrateFn. Iteration is stopped if
-		// migrateFn returns an error.
-		MigrateSectors(volumeID int64, min uint64, migrateFn func(SectorLocation) error) error
+		// location and synced to disk during migrateFn. If migrateFn returns an
+		// error, migration will continue, but that sector is not migrated.
+		MigrateSectors(ctx context.Context, volumeID int64, min uint64, migrateFn func(SectorLocation) error) (migrated, failed int, err error)
 		// StoreSector calls fn with an empty location in a writable volume. If
 		// the sector root already exists, fn is called with the existing
 		// location and exists is true. Unless exists is true, The sector must
@@ -74,6 +75,7 @@ type (
 )
 
 var (
+	ErrMigrationFailed = errors.New("migration failed")
 	// ErrNotEnoughStorage is returned when there is not enough storage space to
 	// store a sector.
 	ErrNotEnoughStorage = errors.New("not enough storage")

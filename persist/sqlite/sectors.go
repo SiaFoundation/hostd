@@ -11,11 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type tempSectorRef struct {
-	ID       int64
-	SectorID int64
-}
-
 func deleteTempSectors(tx txn, height uint64) (sectorIDs []int64, err error) {
 	const query = `DELETE FROM temp_storage_sector_roots 
 WHERE id IN (SELECT id FROM temp_storage_sector_roots WHERE expiration_height <= $1 LIMIT $2)
@@ -274,42 +269,42 @@ func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
 	for _, id := range ids {
 		var contractDBID int64
 		err := hasContractRefStmt.QueryRow(id).Scan(&contractDBID)
-		if err == nil {
-			continue // sector has a contract reference
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("failed to check contract references: %w", err)
+		} else if err == nil {
+			continue // sector has a contract reference
 		}
 
 		var tempDBID int64
 		err = hasTempRefStmt.QueryRow(id).Scan(&tempDBID)
-		if err == nil {
-			continue // sector has a temp storage reference
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("failed to check temp references: %w", err)
+		} else if err == nil {
+			continue // sector has a temp storage reference
 		}
 
 		var lockDBID int64
 		err = hasLockStmt.QueryRow(id).Scan(&lockDBID)
-		if err == nil {
-			continue // sector is locked
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("failed to check lock references: %w", err)
+		} else if err == nil {
+			continue // sector is locked
 		}
 
 		var volumeDBID int64
 		err = clearVolumeStmt.QueryRow(id).Scan(&volumeDBID)
-		if err == nil {
-			volumeDelta[volumeDBID]-- // sector was removed from a volume
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) { // ignore rows not found
+		if err != nil && !errors.Is(err, sql.ErrNoRows) { // ignore rows not found
 			return nil, fmt.Errorf("failed to clear volume references: %w", err)
+		} else if err == nil {
+			volumeDelta[volumeDBID]-- // sector was removed from a volume
 		}
 
 		var root types.Hash256
 		err = deleteSectorStmt.QueryRow(id).Scan((*sqlHash256)(&root))
-		if err == nil {
-			pruned = append(pruned, root)
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) { // ignore rows not found
+		if err != nil && !errors.Is(err, sql.ErrNoRows) { // ignore rows not found
 			return nil, fmt.Errorf("failed to delete sector: %w", err)
+		} else if err == nil {
+			pruned = append(pruned, root)
 		}
 	}
 
@@ -318,24 +313,6 @@ func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
 		if err := incrementVolumeUsage(tx, volumeDBID, delta); err != nil {
 			return nil, fmt.Errorf("failed to update volume usage: %w", err)
 		}
-	}
-	return
-}
-
-func expiredTempSectors(tx txn, height uint64, limit int) (sectors []tempSectorRef, _ error) {
-	const query = `SELECT ts.id, ts.sector_id FROM temp_storage_sector_roots ts
-WHERE expiration_height <= $1 LIMIT $2;`
-	rows, err := tx.Query(query, height, limit)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select sectors: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var ref tempSectorRef
-		if err := rows.Scan(&ref.ID, &ref.SectorID); err != nil {
-			return nil, fmt.Errorf("failed to scan sector id: %w", err)
-		}
-		sectors = append(sectors, ref)
 	}
 	return
 }
