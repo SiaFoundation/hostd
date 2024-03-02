@@ -8,6 +8,10 @@ import (
 )
 
 type (
+	// MigrateFunc is a callback function that is called for each sector that
+	// needs to be migrated If the function returns an error, the sector should
+	// be skipped and migration should continue.
+	MigrateFunc func(location SectorLocation) error
 
 	// A VolumeStore stores and retrieves information about storage volumes.
 	VolumeStore interface {
@@ -42,7 +46,7 @@ type (
 		// volume starting at min. The sector data should be copied to the new
 		// location and synced to disk during migrateFn. If migrateFn returns an
 		// error, migration will continue, but that sector is not migrated.
-		MigrateSectors(ctx context.Context, volumeID int64, min uint64, migrateFn func(SectorLocation) error) (migrated, failed int, err error)
+		MigrateSectors(ctx context.Context, volumeID int64, min uint64, migrateFn MigrateFunc) (migrated, failed int, err error)
 		// StoreSector calls fn with an empty location in a writable volume. If
 		// the sector root already exists, fn is called with the existing
 		// location and exists is true. Unless exists is true, The sector must
@@ -75,6 +79,8 @@ type (
 )
 
 var (
+	// ErrMigrationFailed is returned when a volume fails to migrate all
+	// of its sectors.
 	ErrMigrationFailed = errors.New("migration failed")
 	// ErrNotEnoughStorage is returned when there is not enough storage space to
 	// store a sector.

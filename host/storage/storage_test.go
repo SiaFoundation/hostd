@@ -285,13 +285,13 @@ func TestRemoveVolume(t *testing.T) {
 	}
 	defer release()
 
-	// attempt to remove the volume. Should return ErrNotEnoughStorage since
+	// attempt to remove the volume. Should return ErrMigrationFailed since
 	// there is only one volume.
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
 		// blocking error should be nil
 		t.Fatal(err)
-	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
-		// async error should be ErrNotEnoughStorage
+	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
+		// async error should be ErrMigrationFailed
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
@@ -477,6 +477,15 @@ func TestRemoveCorrupt(t *testing.T) {
 		t.Fatal(err)
 	} else if err := <-result; err != nil {
 		t.Fatal(err)
+	}
+
+	// check that the volume metrics doubled
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.TotalSectors != expectedSectors*2 {
+		t.Fatalf("expected %v total sectors, got %v", expectedSectors*2, m.Storage.TotalSectors)
+	} else if m.Storage.PhysicalSectors != 10 {
+		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
 	}
 
 	// force remove the volume
@@ -678,7 +687,7 @@ func TestRemoveMissing(t *testing.T) {
 	// check that the volume metrics did not change
 	if m, err := db.Metrics(time.Now()); err != nil {
 		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
+	} else if m.Storage.TotalSectors != 0 {
 		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
 	} else if m.Storage.PhysicalSectors != 0 {
 		t.Fatalf("expected 0 used sectors, got %v", m.Storage.PhysicalSectors)
@@ -1252,8 +1261,8 @@ func TestVolumeShrink(t *testing.T) {
 	remainingSectors := uint64(sectors - toRemove)
 	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors, result); err != nil {
 		t.Fatal(err)
-	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
-		t.Fatalf("expected not enough storage error, got %v", err)
+	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
+		t.Fatalf("expected ErrMigrationFailed, got %v", err)
 	}
 
 	// remove some sectors from the beginning of the volume

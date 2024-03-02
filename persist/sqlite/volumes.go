@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *Store) migrateSector(volumeID int64, minIndex uint64, marker int64, migrateFn func(location storage.SectorLocation) error, log *zap.Logger) (int64, bool, error) {
+func (s *Store) migrateSector(volumeID int64, minIndex uint64, marker int64, migrateFn storage.MigrateFunc, log *zap.Logger) (int64, bool, error) {
 	start := time.Now()
 
 	var locationLocks []int64
@@ -74,6 +74,7 @@ func (s *Store) migrateSector(volumeID int64, minIndex uint64, marker int64, mig
 	// call the migrateFn with the new location, data should be copied to the
 	// new location and synced to disk
 	if err := migrateFn(newLoc); err != nil {
+		log.Error("failed to migrate sector data", zap.Error(err))
 		return marker, false, nil
 	}
 
@@ -342,10 +343,10 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 // The sector data should be copied to the new location and synced
 // to disk immediately. If migrateFn returns an error, that sector will be
 // considered failed and the migration will continue. If the context is
-// canceled, the migration will stop and the error will be returned along. The
+// canceled, the migration will stop and the error will be returned. The
 // number of sectors migrated and failed will always be returned, even if an
 // error occurs.
-func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex uint64, migrateFn func(location storage.SectorLocation) error) (migrated, failed int, err error) {
+func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex uint64, migrateFn storage.MigrateFunc) (migrated, failed int, err error) {
 	log := s.log.Named("migrate").With(zap.Int64("oldVolume", volumeID), zap.Uint64("startIndex", startIndex))
 	// the migration function is called in a loop until all sectors are migrated
 	// marker is used to skip sectors that tried to migrate but failed.
