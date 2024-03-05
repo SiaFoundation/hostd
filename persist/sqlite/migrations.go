@@ -10,8 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// migrateVersion26 recalculates the contract and physical sectors metrics
-func migrateVersion26(tx txn, log *zap.Logger) error {
+// migrateVersion25 recalculates the contract and physical sectors metrics
+func migrateVersion25(tx txn, log *zap.Logger) error {
 	// recalculate the contract sectors metric
 	var contractSectorCount int64
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&contractSectorCount); err != nil {
@@ -50,11 +50,6 @@ func migrateVersion26(tx txn, log *zap.Logger) error {
 			return fmt.Errorf("failed to update volume stats: %w", err)
 		}
 	}
-	return nil
-}
-
-// migrateVersion25 is a no-op migration to trigger foreign key checks
-func migrateVersion25(tx txn, log *zap.Logger) error {
 	return nil
 }
 
@@ -738,4 +733,5 @@ var migrations = []func(tx txn, log *zap.Logger) error{
 	migrateVersion22,
 	migrateVersion23,
 	migrateVersion24,
+	migrateVersion25,
 }
