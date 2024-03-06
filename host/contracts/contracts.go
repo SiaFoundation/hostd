@@ -73,8 +73,6 @@ type (
 		StorageRevenue   types.Currency `json:"storage"`
 		EgressRevenue    types.Currency `json:"egress"`
 		IngressRevenue   types.Currency `json:"ingress"`
-		RegistryRead     types.Currency `json:"registryRead"`
-		RegistryWrite    types.Currency `json:"registryWrite"`
 		AccountFunding   types.Currency `json:"accountFunding"`
 		RiskedCollateral types.Currency `json:"riskedCollateral"`
 	}
@@ -173,8 +171,6 @@ func (u Usage) Add(b Usage) (c Usage) {
 		IngressRevenue:   u.IngressRevenue.Add(b.IngressRevenue),
 		AccountFunding:   u.AccountFunding.Add(b.AccountFunding),
 		RiskedCollateral: u.RiskedCollateral.Add(b.RiskedCollateral),
-		RegistryRead:     u.RegistryRead.Add(b.RegistryRead),
-		RegistryWrite:    u.RegistryWrite.Add(b.RegistryWrite),
 	}
 }
 

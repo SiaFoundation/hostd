@@ -232,8 +232,6 @@ func updateContractUsage(tx txn, accountID int64, usage accounts.Usage, log *zap
 		distributeFunds(&usage.StorageRevenue, &additionalUsage.StorageRevenue, &remainder)
 		distributeFunds(&usage.IngressRevenue, &additionalUsage.IngressRevenue, &remainder)
 		distributeFunds(&usage.EgressRevenue, &additionalUsage.EgressRevenue, &remainder)
-		distributeFunds(&usage.RegistryRead, &additionalUsage.RegistryRead, &remainder)
-		distributeFunds(&usage.RegistryWrite, &additionalUsage.RegistryWrite, &remainder)
 		distributeFunds(&usage.RPCRevenue, &additionalUsage.RPCRevenue, &remainder)
 
 		// add the additional usage to the contract

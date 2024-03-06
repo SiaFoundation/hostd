@@ -33,7 +33,6 @@ const (
 	settingIngressPrice        = "ingressPrice"
 	settingIngressLimit        = "ingressLimit"
 	settingEgressLimit         = "egressLimit"
-	settingMaxRegistryEntries  = "maxRegistryEntries"
 	settingAccountExpiry       = "accountExpiry"
 	settingPriceTableValidity  = "priceTableValidity"
 )
@@ -316,13 +315,6 @@ func SetIngressLimit(limit uint64) Setting {
 func SetEgressLimit(limit uint64) Setting {
 	return func(v map[string]any) {
 		v[settingEgressLimit] = limit
-	}
-}
-
-// SetMaxRegistryEntries sets the MaxRegistryEntries field of the request
-func SetMaxRegistryEntries(value uint64) Setting {
-	return func(v map[string]any) {
-		v[settingMaxRegistryEntries] = value
 	}
 }
 

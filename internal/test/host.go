@@ -14,7 +14,6 @@ import (
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/persist/sqlite"
@@ -43,7 +42,6 @@ type Host struct {
 	wallet    *wallet.SingleAddressWallet
 	settings  *settings.ConfigManager
 	storage   *storage.VolumeManager
-	registry  *registry.Manager
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
 
@@ -84,7 +82,6 @@ func (h *Host) Close() error {
 	h.settings.Close()
 	h.wallet.Close()
 	h.contracts.Close()
-	h.registry.Close()
 	h.storage.Close()
 	h.store.Close()
 	h.Node.Close()
@@ -230,7 +227,6 @@ func NewEmptyHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Log
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}
 
-	registry := registry.NewManager(privKey, db, log.Named("registry"))
 	accounts := accounts.NewManager(db, settings)
 
 	sessions := rhp.NewSessionReporter()
@@ -241,7 +237,7 @@ func NewEmptyHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Log
 	}
 	go rhp2.Serve()
 
-	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, registry, storage, settings, stubDataMonitor{}, sessions, log.Named("rhp3"))
+	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, privKey, node.cm, node.tp, wallet, accounts, contracts, storage, settings, stubDataMonitor{}, sessions, log.Named("rhp3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rhp3 session handler: %w", err)
 	}
@@ -271,7 +267,6 @@ func NewEmptyHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Log
 		wallet:    wallet,
 		settings:  settings,
 		storage:   storage,
-		registry:  registry,
 		accounts:  accounts,
 		contracts: contracts,
 

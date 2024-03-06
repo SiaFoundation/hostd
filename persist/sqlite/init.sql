@@ -89,8 +89,6 @@ CREATE TABLE contracts (
 	ingress_revenue BLOB NOT NULL,
 	egress_revenue BLOB NOT NULL,
 	account_funding BLOB NOT NULL,
-	registry_read BLOB NOT NULL,
-	registry_write BLOB NOT NULL,
 	risked_collateral BLOB NOT NULL,
 	confirmed_revision_number BLOB, -- stored as BLOB to support uint64_max on clearing revisions
 	host_sig BLOB NOT NULL,
@@ -133,16 +131,6 @@ CREATE TABLE temp_storage_sector_roots (
 );
 CREATE INDEX temp_storage_sector_roots_sector_id ON temp_storage_sector_roots(sector_id);
 CREATE INDEX temp_storage_sector_roots_expiration_height ON temp_storage_sector_roots(expiration_height);
-
-CREATE TABLE registry_entries (
-	registry_key BLOB PRIMARY KEY,
-	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max
-	entry_data BLOB NOT NULL,
-	entry_signature BLOB NOT NULL,
-	entry_type INTEGER NOT NULL,
-	expiration_height INTEGER NOT NULL
-);
-CREATE INDEX registry_entries_expiration_height ON registry_entries(expiration_height);
 
 CREATE TABLE accounts (
 	id INTEGER PRIMARY KEY,
@@ -192,7 +180,6 @@ CREATE TABLE host_settings (
 	ddns_update_v4 BOOLEAN NOT NULL,
 	ddns_update_v6 BOOLEAN NOT NULL,
 	ddns_opts BLOB,
-	registry_limit INTEGER NOT NULL,
 	sector_cache_size INTEGER NOT NULL DEFAULT 0
 );
 

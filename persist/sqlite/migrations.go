@@ -10,6 +10,15 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion26(tx txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`ALTER TABLE contracts DROP COLUMN registry_read;
+ALTER TABLE contracts DROP COLUMN registry_write;
+ALTER TABLE host_settings DROP COLUMN registry_limit;
+DROP TABLE registry_entries;
+DELETE FROM host_stats WHERE stat IN ('maxRegistryEntries','registryEntries','registryReads','registryWrites','potentialRegistryReadRevenue','potentialRegistryWriteRevenue','earnedRegistryReadRevenue','earnedRegistryWriteRevenue')`)
+	return err
+}
+
 // migrateVersion25 recalculates the contract and physical sectors metrics
 func migrateVersion25(tx txn, log *zap.Logger) error {
 	// recalculate the contract sectors metric
@@ -153,6 +162,25 @@ func migrateVersion23(tx txn, _ *zap.Logger) error {
 // potential and earned revenue metrics which will be bugged if the host rescans
 // the blockchain.
 func migrateVersion22(tx txn, log *zap.Logger) error {
+	const (
+		metricPotentialRegistryReadRevenue  = "potentialRegistryReadRevenue"
+		metricPotentialRegistryWriteRevenue = "potentialRegistryWriteRevenue"
+
+		metricEarnedRegistryReadRevenue  = "earnedRegistryReadRevenue"
+		metricEarnedRegistryWriteRevenue = "earnedRegistryWriteRevenue"
+	)
+
+	type version22Usage struct {
+		RPCRevenue       types.Currency `json:"rpc"`
+		StorageRevenue   types.Currency `json:"storage"`
+		EgressRevenue    types.Currency `json:"egress"`
+		IngressRevenue   types.Currency `json:"ingress"`
+		AccountFunding   types.Currency `json:"accountFunding"`
+		RiskedCollateral types.Currency `json:"riskedCollateral"`
+		RegistryRead     types.Currency `json:"registryRead"`
+		RegistryWrite    types.Currency `json:"registryWrite"`
+	}
+
 	rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write FROM contracts WHERE contract_status IN (?, ?, ?);`, contracts.ContractStatusPending, contracts.ContractStatusActive, contracts.ContractStatusSuccessful)
 	if err != nil {
 		return fmt.Errorf("failed to query contracts: %w", err)
@@ -160,11 +188,11 @@ func migrateVersion22(tx txn, log *zap.Logger) error {
 	defer rows.Close()
 
 	var totalLocked types.Currency
-	var totalPending, totalEarned contracts.Usage
+	var totalPending, totalEarned version22Usage
 	for rows.Next() {
 		var status contracts.ContractStatus
 		var lockedCollateral types.Currency
-		var usage contracts.Usage
+		var usage version22Usage
 
 		if err := rows.Scan(&status, (*sqlCurrency)(&lockedCollateral), (*sqlCurrency)(&usage.RiskedCollateral), (*sqlCurrency)(&usage.RPCRevenue), (*sqlCurrency)(&usage.StorageRevenue), (*sqlCurrency)(&usage.IngressRevenue), (*sqlCurrency)(&usage.EgressRevenue), (*sqlCurrency)(&usage.AccountFunding), (*sqlCurrency)(&usage.RegistryRead), (*sqlCurrency)(&usage.RegistryWrite)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
@@ -173,9 +201,23 @@ func migrateVersion22(tx txn, log *zap.Logger) error {
 		switch status {
 		case contracts.ContractStatusPending, contracts.ContractStatusActive:
 			totalLocked = totalLocked.Add(lockedCollateral)
-			totalPending = totalPending.Add(usage)
+			totalPending.RPCRevenue = totalPending.RPCRevenue.Add(usage.RPCRevenue)
+			totalPending.StorageRevenue = totalPending.StorageRevenue.Add(usage.StorageRevenue)
+			totalPending.EgressRevenue = totalPending.EgressRevenue.Add(usage.EgressRevenue)
+			totalPending.IngressRevenue = totalPending.IngressRevenue.Add(usage.IngressRevenue)
+			totalPending.AccountFunding = totalPending.AccountFunding.Add(usage.AccountFunding)
+			totalPending.RiskedCollateral = totalPending.RiskedCollateral.Add(usage.RiskedCollateral)
+			totalPending.RegistryRead = totalPending.RegistryRead.Add(usage.RegistryRead)
+			totalPending.RegistryWrite = totalPending.RegistryWrite.Add(usage.RegistryWrite)
 		case contracts.ContractStatusSuccessful:
-			totalEarned = totalEarned.Add(usage)
+			totalEarned.RPCRevenue = totalEarned.RPCRevenue.Add(usage.RPCRevenue)
+			totalEarned.StorageRevenue = totalEarned.StorageRevenue.Add(usage.StorageRevenue)
+			totalEarned.EgressRevenue = totalEarned.EgressRevenue.Add(usage.EgressRevenue)
+			totalEarned.IngressRevenue = totalEarned.IngressRevenue.Add(usage.IngressRevenue)
+			totalEarned.AccountFunding = totalEarned.AccountFunding.Add(usage.AccountFunding)
+			totalEarned.RiskedCollateral = totalEarned.RiskedCollateral.Add(usage.RiskedCollateral)
+			totalEarned.RegistryRead = totalEarned.RegistryRead.Add(usage.RegistryRead)
+			totalEarned.RegistryWrite = totalEarned.RegistryWrite.Add(usage.RegistryWrite)
 		}
 	}
 
@@ -734,4 +776,5 @@ var migrations = []func(tx txn, log *zap.Logger) error{
 	migrateVersion23,
 	migrateVersion24,
 	migrateVersion25,
+	migrateVersion26,
 }

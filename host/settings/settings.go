@@ -69,9 +69,6 @@ type (
 
 		PriceTableValidity time.Duration `json:"priceTableValidity"`
 
-		// Registry settings
-		MaxRegistryEntries uint64 `json:"maxRegistryEntries"`
-
 		// RHP3 settings
 		AccountExpiry     time.Duration  `json:"accountExpiry"`
 		MaxAccountBalance types.Currency `json:"maxAccountBalance"`
@@ -166,8 +163,6 @@ var (
 		AccountExpiry:     30 * 24 * time.Hour, // 30 days
 		MaxAccountBalance: types.Siacoins(10),  // 10SC
 		WindowSize:        144,                 // 144 blocks
-
-		MaxRegistryEntries: 100000,
 	}
 	// ErrNoSettings must be returned by the store if the host has no settings yet
 	ErrNoSettings = errors.New("no settings found")

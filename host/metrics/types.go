@@ -21,12 +21,10 @@ const (
 type (
 	// Revenue is a collection of metrics related to revenue.
 	Revenue struct {
-		RPC           types.Currency `json:"rpc"`
-		Storage       types.Currency `json:"storage"`
-		Ingress       types.Currency `json:"ingress"`
-		Egress        types.Currency `json:"egress"`
-		RegistryRead  types.Currency `json:"registryRead"`
-		RegistryWrite types.Currency `json:"registryWrite"`
+		RPC     types.Currency `json:"rpc"`
+		Storage types.Currency `json:"storage"`
+		Ingress types.Currency `json:"ingress"`
+		Egress  types.Currency `json:"egress"`
 	}
 
 	// DataMetrics is a collection of metrics related to data usage.
@@ -71,15 +69,6 @@ type (
 		CollateralMultiplier float64        `json:"collateralMultiplier"`
 	}
 
-	// Registry is a collection of metrics related to the host's registry.
-	Registry struct {
-		Entries    uint64 `json:"entries"`
-		MaxEntries uint64 `json:"maxEntries"`
-
-		Reads  uint64 `json:"reads"`
-		Writes uint64 `json:"writes"`
-	}
-
 	// Storage is a collection of metrics related to storage.
 	Storage struct {
 		TotalSectors    uint64 `json:"totalSectors"`
@@ -108,7 +97,6 @@ type (
 		Pricing   Pricing        `json:"pricing"`
 		Contracts Contracts      `json:"contracts"`
 		Storage   Storage        `json:"storage"`
-		Registry  Registry       `json:"registry"`
 		Data      DataMetrics    `json:"data"`
 		Balance   types.Currency `json:"balance"`
 		Timestamp time.Time      `json:"timestamp"`

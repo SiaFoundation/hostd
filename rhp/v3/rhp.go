@@ -73,13 +73,6 @@ type (
 		AddTemporarySectors([]storage.TempSector) error
 	}
 
-	// A RegistryManager manages registry entries stored in a RegistryStore.
-	RegistryManager interface {
-		Get(key rhp3.RegistryKey) (rhp3.RegistryValue, error)
-		Put(value rhp3.RegistryEntry, expirationHeight uint64) (rhp3.RegistryValue, error)
-		Entries() (count uint64, max uint64, err error)
-	}
-
 	// A ChainManager provides access to the current state of the blockchain.
 	ChainManager interface {
 		TipState() consensus.State
@@ -122,7 +115,6 @@ type (
 		accounts  AccountManager
 		contracts ContractManager
 		sessions  SessionReporter
-		registry  RegistryManager
 		storage   StorageManager
 		log       *zap.Logger
 
@@ -275,7 +267,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, sessions SessionReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, sessions SessionReporter, log *zap.Logger) (*SessionHandler, error) {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
@@ -290,7 +282,6 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainMana
 		accounts:  accounts,
 		contracts: contracts,
 		sessions:  sessions,
-		registry:  registry,
 		settings:  settings,
 		storage:   storage,
 		log:       log,

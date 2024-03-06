@@ -36,12 +36,6 @@ const (
 	metricSectorCacheHit  = "sectorCacheHit"
 	metricSectorCacheMiss = "sectorCacheMiss"
 
-	// registry
-	metricMaxRegistryEntries = "maxRegistryEntries"
-	metricRegistryEntries    = "registryEntries"
-	metricRegistryReads      = "registryReads"
-	metricRegistryWrites     = "registryWrites"
-
 	// bandwidth
 	metricDataRHPIngress = "dataIngress"
 	metricDataRHPEgress  = "dataEgress"
@@ -72,20 +66,16 @@ const (
 	metricWalletBalance = "walletBalance"
 
 	// potential revenue
-	metricPotentialRPCRevenue           = "potentialRPCRevenue"
-	metricPotentialStorageRevenue       = "potentialStorageRevenue"
-	metricPotentialIngressRevenue       = "potentialIngressRevenue"
-	metricPotentialEgressRevenue        = "potentialEgressRevenue"
-	metricPotentialRegistryReadRevenue  = "potentialRegistryReadRevenue"
-	metricPotentialRegistryWriteRevenue = "potentialRegistryWriteRevenue"
+	metricPotentialRPCRevenue     = "potentialRPCRevenue"
+	metricPotentialStorageRevenue = "potentialStorageRevenue"
+	metricPotentialIngressRevenue = "potentialIngressRevenue"
+	metricPotentialEgressRevenue  = "potentialEgressRevenue"
 
 	// earned revenue
-	metricEarnedRPCRevenue           = "earnedRPCRevenue"
-	metricEarnedStorageRevenue       = "earnedStorageRevenue"
-	metricEarnedIngressRevenue       = "earnedIngressRevenue"
-	metricEarnedEgressRevenue        = "earnedEgressRevenue"
-	metricEarnedRegistryReadRevenue  = "earnedRegistryReadRevenue"
-	metricEarnedRegistryWriteRevenue = "earnedRegistryWriteRevenue"
+	metricEarnedRPCRevenue     = "earnedRPCRevenue"
+	metricEarnedStorageRevenue = "earnedStorageRevenue"
+	metricEarnedIngressRevenue = "earnedIngressRevenue"
+	metricEarnedEgressRevenue  = "earnedEgressRevenue"
 
 	statInterval = 5 * time.Minute
 )
@@ -285,23 +275,6 @@ func (s *Store) IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) 
 	})
 }
 
-// IncrementRegistryAccess increments the registry read and write metrics.
-func (s *Store) IncrementRegistryAccess(read, write uint64) error {
-	return s.transaction(func(tx txn) error {
-		if read > 0 {
-			if err := incrementNumericStat(tx, metricRegistryReads, int(read), time.Now()); err != nil {
-				return fmt.Errorf("failed to track reads: %w", err)
-			}
-		}
-		if write > 0 {
-			if err := incrementNumericStat(tx, metricRegistryWrites, int(write), time.Now()); err != nil {
-				return fmt.Errorf("failed to track writes: %w", err)
-			}
-		}
-		return nil
-	})
-}
-
 func mustScanCurrency(b []byte) types.Currency {
 	var c sqlCurrency
 	if err := c.Scan(b); err != nil {
@@ -377,15 +350,6 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Storage.SectorCacheHits = mustScanUint64(buf)
 	case metricSectorCacheMiss:
 		m.Storage.SectorCacheMisses = mustScanUint64(buf)
-	// registry
-	case metricRegistryEntries:
-		m.Registry.Entries = mustScanUint64(buf)
-	case metricMaxRegistryEntries:
-		m.Registry.MaxEntries = mustScanUint64(buf)
-	case metricRegistryReads:
-		m.Registry.Reads = mustScanUint64(buf)
-	case metricRegistryWrites:
-		m.Registry.Writes = mustScanUint64(buf)
 	// bandwidth
 	case metricDataRHPIngress:
 		m.Data.RHP.Ingress = mustScanUint64(buf)
@@ -400,10 +364,6 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Revenue.Potential.Ingress = mustScanCurrency(buf)
 	case metricPotentialEgressRevenue:
 		m.Revenue.Potential.Egress = mustScanCurrency(buf)
-	case metricPotentialRegistryReadRevenue:
-		m.Revenue.Potential.RegistryRead = mustScanCurrency(buf)
-	case metricPotentialRegistryWriteRevenue:
-		m.Revenue.Potential.RegistryWrite = mustScanCurrency(buf)
 	// earnedRevenue
 	case metricEarnedRPCRevenue:
 		m.Revenue.Earned.RPC = mustScanCurrency(buf)
@@ -413,10 +373,6 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Revenue.Earned.Ingress = mustScanCurrency(buf)
 	case metricEarnedEgressRevenue:
 		m.Revenue.Earned.Egress = mustScanCurrency(buf)
-	case metricEarnedRegistryReadRevenue:
-		m.Revenue.Earned.RegistryRead = mustScanCurrency(buf)
-	case metricEarnedRegistryWriteRevenue:
-		m.Revenue.Earned.RegistryWrite = mustScanCurrency(buf)
 	// wallet
 	case metricWalletBalance:
 		m.Balance = mustScanCurrency(buf)

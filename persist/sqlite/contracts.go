@@ -943,9 +943,9 @@ func renterDBID(tx txn, renterKey types.PublicKey) (int64, error) {
 
 func insertContract(tx txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
-egress_revenue, registry_read, registry_write, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
+egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
 raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirmed, contract_status) VALUES
- ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING id;`
+ ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id;`
 	renterID, err := renterDBID(tx, revision.RenterKey())
 	if err != nil {
 		return 0, fmt.Errorf("failed to get renter id: %w", err)
@@ -958,8 +958,6 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, formation_confirm
 		sqlCurrency(initialUsage.StorageRevenue),
 		sqlCurrency(initialUsage.IngressRevenue),
 		sqlCurrency(initialUsage.EgressRevenue),
-		sqlCurrency(initialUsage.RegistryRead),
-		sqlCurrency(initialUsage.RegistryWrite),
 		sqlCurrency(initialUsage.AccountFunding),
 		sqlCurrency(initialUsage.RiskedCollateral),
 		sqlUint64(revision.Revision.RevisionNumber),
@@ -1245,10 +1243,6 @@ func incrementPotentialRevenueMetrics(tx txn, usage contracts.Usage, negative bo
 		return fmt.Errorf("failed to increment egress revenue stat: %w", err)
 	} else if err := incrementCurrencyStat(tx, metricPotentialIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to increment ingress revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricPotentialRegistryReadRevenue, usage.RegistryRead, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry read revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricPotentialRegistryWriteRevenue, usage.RegistryWrite, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry write revenue stat: %w", err)
 	}
 	return nil
 }
@@ -1262,10 +1256,6 @@ func incrementEarnedRevenueMetrics(tx txn, usage contracts.Usage, negative bool)
 		return fmt.Errorf("failed to increment egress revenue stat: %w", err)
 	} else if err := incrementCurrencyStat(tx, metricEarnedIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to increment ingress revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricEarnedRegistryReadRevenue, usage.RegistryRead, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry read revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricEarnedRegistryWriteRevenue, usage.RegistryWrite, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry write revenue stat: %w", err)
 	}
 	return nil
 }

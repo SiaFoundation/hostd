@@ -107,11 +107,6 @@ func (pm *priceTableManager) Register(pt rhp3.HostPriceTable) {
 // PriceTable returns the session handler's current price table.
 func (sh *SessionHandler) PriceTable() (rhp3.HostPriceTable, error) {
 	settings := sh.settings.Settings()
-	count, max, err := sh.registry.Entries()
-	if err != nil {
-		return rhp3.HostPriceTable{}, fmt.Errorf("failed to get registry entries: %w", err)
-	}
-
 	fee := sh.tpool.RecommendedFee()
 	currentHeight := sh.chain.TipState().Index.Height
 	oneHasting := types.NewCurrency64(1)
@@ -158,8 +153,8 @@ func (sh *SessionHandler) PriceTable() (rhp3.HostPriceTable, error) {
 		RenewContractCost: types.Siacoins(100).Div64(1e9),
 
 		// Registry related fields.
-		RegistryEntriesLeft:  max - count,
-		RegistryEntriesTotal: max,
+		RegistryEntriesLeft:  0,
+		RegistryEntriesTotal: 0,
 
 		// Subscription related fields.
 		SubscriptionMemoryCost:       oneHasting,

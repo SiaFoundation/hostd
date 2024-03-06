@@ -12,7 +12,6 @@ import (
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
-	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/chain"
@@ -42,7 +41,6 @@ type node struct {
 	settings  *settings.ConfigManager
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
-	registry  *registry.Manager
 	storage   *storage.VolumeManager
 
 	sessions *rhp.SessionReporter
@@ -55,7 +53,6 @@ func (n *node) Close() error {
 	n.rhp3.Close()
 	n.rhp2.Close()
 	n.data.Close()
-	n.registry.Close()
 	n.storage.Close()
 	n.contracts.Close()
 	n.w.Close()
@@ -76,8 +73,8 @@ func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhp
 	return rhp2, nil
 }
 
-func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhp3.ChainManager, tp rhp3.TransactionPool, w rhp3.Wallet, am rhp3.AccountManager, cm rhp3.ContractManager, rm rhp3.RegistryManager, sr rhp3.SettingsReporter, sm rhp3.StorageManager, monitor rhp.DataMonitor, sessions *rhp.SessionReporter, log *zap.Logger) (*rhp3.SessionHandler, error) {
-	rhp3, err := rhp3.NewSessionHandler(l, hostKey, cs, tp, w, am, cm, rm, sm, sr, monitor, sessions, log)
+func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhp3.ChainManager, tp rhp3.TransactionPool, w rhp3.Wallet, am rhp3.AccountManager, cm rhp3.ContractManager, sr rhp3.SettingsReporter, sm rhp3.StorageManager, monitor rhp.DataMonitor, sessions *rhp.SessionReporter, log *zap.Logger) (*rhp3.SessionHandler, error) {
+	rhp3, err := rhp3.NewSessionHandler(l, hostKey, cs, tp, w, am, cm, sm, sr, monitor, sessions, log)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +183,6 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create contract manager: %w", err)
 	}
-	registryManager := registry.NewManager(hostKey, db, logger.Named("registry"))
 
 	sessions := rhp.NewSessionReporter()
 
@@ -196,7 +192,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp2: %w", err)
 	}
 
-	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, tp, w, accountManager, contractManager, registryManager, sr, sm, dm, sessions, logger.Named("rhp3"))
+	rhp3, err := startRHP3(rhp3Listener, hostKey, cm, tp, w, accountManager, contractManager, sr, sm, dm, sessions, logger.Named("rhp3"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to start rhp3: %w", err)
 	}
@@ -215,7 +211,6 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 		accounts:  accountManager,
 		contracts: contractManager,
 		storage:   sm,
-		registry:  registryManager,
 
 		sessions: sessions,
 		data:     dm,

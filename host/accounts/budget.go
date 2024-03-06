@@ -14,8 +14,6 @@ type (
 		StorageRevenue types.Currency `json:"storage"`
 		EgressRevenue  types.Currency `json:"egress"`
 		IngressRevenue types.Currency `json:"ingress"`
-		RegistryRead   types.Currency `json:"registryRead"`
-		RegistryWrite  types.Currency `json:"registryWrite"`
 	}
 
 	// A Budget transactionally manages an account's balance. It is not safe for
@@ -34,9 +32,7 @@ func (u Usage) Total() types.Currency {
 	return u.RPCRevenue.
 		Add(u.StorageRevenue).
 		Add(u.EgressRevenue).
-		Add(u.IngressRevenue).
-		Add(u.RegistryRead).
-		Add(u.RegistryWrite)
+		Add(u.IngressRevenue)
 }
 
 // Add returns the sum of two Usages.
@@ -46,8 +42,6 @@ func (a Usage) Add(b Usage) Usage {
 		StorageRevenue: a.StorageRevenue.Add(b.StorageRevenue),
 		EgressRevenue:  a.EgressRevenue.Add(b.EgressRevenue),
 		IngressRevenue: a.IngressRevenue.Add(b.IngressRevenue),
-		RegistryRead:   a.RegistryRead.Add(b.RegistryRead),
-		RegistryWrite:  a.RegistryWrite.Add(b.RegistryWrite),
 	}
 }
 
@@ -58,8 +52,6 @@ func (a Usage) Sub(b Usage) Usage {
 		StorageRevenue: a.StorageRevenue.Sub(b.StorageRevenue),
 		EgressRevenue:  a.EgressRevenue.Sub(b.EgressRevenue),
 		IngressRevenue: a.IngressRevenue.Sub(b.IngressRevenue),
-		RegistryRead:   a.RegistryRead.Sub(b.RegistryRead),
-		RegistryWrite:  a.RegistryWrite.Sub(b.RegistryWrite),
 	}
 }
 

@@ -3,11 +3,9 @@ package rhp
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
@@ -18,12 +16,6 @@ import (
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
-)
-
-// read registry instruction versions
-const (
-	readRegistryNoType = 1
-	readRegistryType   = 2
 )
 
 type (
@@ -51,7 +43,6 @@ type (
 		log       *zap.Logger
 		contracts ContractManager
 		storage   StorageManager
-		registry  RegistryManager
 
 		committed bool
 	}
@@ -337,7 +328,7 @@ func (pe *programExecutor) executeSwapSector(instr *rhp3.InstrSwapSector, log *z
 	return output, proof, nil
 }
 
-func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, log *zap.Logger) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ *zap.Logger) ([]byte, []types.Hash256, error) {
 	offset, length := instr.Offset, instr.Length
 	// read the patch
 	patch, err := pe.programData.Bytes(instr.DataOffset, length)
@@ -419,7 +410,7 @@ func (pe *programExecutor) executeStoreSector(instr *rhp3.InstrStoreSector, log 
 	return root[:], nil
 }
 
-func (pe *programExecutor) executeRevision(instr *rhp3.InstrRevision) ([]byte, error) {
+func (pe *programExecutor) executeRevision(_ *rhp3.InstrRevision) ([]byte, error) {
 	// pay for execution
 	cost := pe.priceTable.RevisionCost()
 	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
@@ -437,126 +428,6 @@ func (pe *programExecutor) executeRevision(instr *rhp3.InstrRevision) ([]byte, e
 		return nil, fmt.Errorf("failed to encode revision: %w", err)
 	}
 	return buf.Bytes(), nil
-}
-
-func (pe *programExecutor) executeReadRegistry(instr *rhp3.InstrReadRegistry) ([]byte, error) {
-	if instr.Version != readRegistryNoType && instr.Version != readRegistryType {
-		return nil, fmt.Errorf("unsupported registry version: %v", instr.Version)
-	}
-
-	unlockKey, err := pe.programData.UnlockKey(instr.PublicKeyOffset, instr.PublicKeyLength)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read unlock key: %w", err)
-	} else if unlockKey.Algorithm != types.SpecifierEd25519 {
-		return nil, fmt.Errorf("unsupported unlock key algorithm: %v", unlockKey.Algorithm)
-	} else if len(unlockKey.Key) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid unlock key length: %v", len(unlockKey.Key))
-	}
-	publicKey := *(*types.PublicKey)(unlockKey.Key)
-
-	tweak, err := pe.programData.Hash(instr.TweakOffset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read tweak: %w", err)
-	}
-
-	// pay for execution
-	cost := pe.priceTable.ReadRegistryCost()
-	usage := accounts.Usage{
-		RPCRevenue:     cost.Base,
-		RegistryRead:   cost.Storage,
-		IngressRevenue: cost.Ingress,
-		EgressRevenue:  cost.Egress,
-	}
-	if err := pe.payForExecution(cost, usage); err != nil {
-		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
-	}
-
-	key := rhp3.RegistryKey{
-		PublicKey: publicKey,
-		Tweak:     tweak,
-	}
-
-	value, err := pe.registry.Get(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read registry value: %w", err)
-	}
-
-	var buf bytes.Buffer
-	enc := types.NewEncoder(&buf)
-	value.Signature.EncodeTo(enc)
-	enc.WriteUint64(value.Revision)
-	enc.Write(value.Data)
-	if instr.Version == readRegistryType {
-		enc.Write([]byte{value.Type})
-	}
-	if err := enc.Flush(); err != nil {
-		return nil, fmt.Errorf("failed to encode registry value: %w", err)
-	}
-	return buf.Bytes(), nil
-}
-
-func (pe *programExecutor) executeUpdateRegistry(instr *rhp3.InstrUpdateRegistry) ([]byte, error) {
-	tweak, err := pe.programData.Hash(instr.TweakOffset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read tweak: %w", err)
-	}
-	revision, err := pe.programData.Uint64(instr.RevisionOffset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read revision: %w", err)
-	}
-	signature, err := pe.programData.Signature(instr.SignatureOffset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read signature: %w", err)
-	}
-	uk, err := pe.programData.UnlockKey(instr.PublicKeyOffset, instr.PublicKeyLength)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read unlock key: %w", err)
-	} else if uk.Algorithm != types.SpecifierEd25519 {
-		return nil, fmt.Errorf("unsupported unlock key algorithm: %v", uk.Algorithm)
-	} else if len(uk.Key) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid unlock key length: %v", len(uk.Key))
-	}
-	publicKey := *(*types.PublicKey)(uk.Key)
-
-	data, err := pe.programData.Bytes(instr.DataOffset, instr.DataLength)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read data: %w", err)
-	}
-
-	// pay for execution
-	cost := pe.priceTable.ReadRegistryCost()
-	usage := accounts.Usage{
-		RPCRevenue:     cost.Base,
-		RegistryWrite:  cost.Storage,
-		IngressRevenue: cost.Ingress,
-		EgressRevenue:  cost.Egress,
-	}
-	if err := pe.payForExecution(cost, usage); err != nil {
-		return nil, fmt.Errorf("failed to pay for instruction: %w", err)
-	}
-
-	value := rhp3.RegistryEntry{
-		RegistryKey: rhp3.RegistryKey{
-			PublicKey: publicKey,
-			Tweak:     tweak,
-		},
-		RegistryValue: rhp3.RegistryValue{
-			Revision:  revision,
-			Type:      instr.EntryType,
-			Data:      data,
-			Signature: signature,
-		},
-	}
-	expiration := pe.priceTable.HostBlockHeight + (144 * 365) // expires in 1 year
-	updated, err := pe.registry.Put(value, expiration)
-	if err != nil && strings.Contains(err.Error(), "invalid registry update") {
-		// if the update failed send the old signature and data
-		return append(updated.Signature[:], updated.Data...), err
-	} else if err != nil {
-		return nil, err
-	}
-	// successful update has no output
-	return nil, nil
 }
 
 func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhp3.RPCExecuteProgramResponse {
@@ -600,15 +471,6 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhp3.RPCEx
 				output, err = pe.executeStoreSector(instr, log)
 			case *rhp3.InstrRevision:
 				output, err = pe.executeRevision(instr)
-			case *rhp3.InstrReadRegistry:
-				output, err = pe.executeReadRegistry(instr)
-			case *rhp3.InstrReadRegistryNoVersion:
-				instr.Version = 1 // override the version
-				output, err = pe.executeReadRegistry(&instr.InstrReadRegistry)
-			case *rhp3.InstrUpdateRegistry:
-				output, err = pe.executeUpdateRegistry(instr)
-			case *rhp3.InstrUpdateRegistryNoType:
-				output, err = pe.executeUpdateRegistry(&instr.InstrUpdateRegistry)
 			default:
 				// immediately return an error if the instruction is unknown
 				outputs <- pe.instructionOutput(nil, nil, fmt.Errorf("unknown instruction: %T", instr))
@@ -851,8 +713,6 @@ func (pe *programExecutor) Usage() (usage contracts.Usage) {
 	usage.StorageRevenue = pe.usage.StorageRevenue
 	usage.IngressRevenue = pe.usage.IngressRevenue
 	usage.EgressRevenue = pe.usage.EgressRevenue
-	usage.RegistryRead = pe.usage.RegistryRead
-	usage.RegistryWrite = pe.usage.RegistryWrite
 	usage.RiskedCollateral = pe.cost.Collateral
 	return usage
 }
@@ -873,7 +733,6 @@ func (sh *SessionHandler) newExecutor(instructions []rhp3.Instruction, data []by
 		log:       log,
 		contracts: sh.contracts,
 		storage:   sh.storage,
-		registry:  sh.registry,
 	}
 
 	if revision != nil {
@@ -909,10 +768,6 @@ func instrLabel(instr rhp3.Instruction) string {
 		return "StoreSector"
 	case *rhp3.InstrRevision:
 		return "Revision"
-	case *rhp3.InstrReadRegistry, *rhp3.InstrReadRegistryNoVersion:
-		return "ReadRegistry"
-	case *rhp3.InstrUpdateRegistry, *rhp3.InstrUpdateRegistryNoType:
-		return "UpdateRegistry"
 	default:
 		panic(fmt.Sprintf("unknown instruction type %T", instr))
 	}

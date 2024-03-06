@@ -291,7 +291,7 @@ func TestReviseContract(t *testing.T) {
 					return
 				}
 				t.Fatal(err)
-			} else if err == nil && test.errors {
+			} else if test.errors {
 				t.Fatal("expected error")
 			} else if err := checkConsistency(roots, test.sectors); err != nil {
 				t.Fatal(err)
