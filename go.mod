@@ -5,7 +5,7 @@ go 1.21.6
 require (
 	github.com/aws/aws-sdk-go v1.50.1
 	github.com/cloudflare/cloudflare-go v0.86.0
-	github.com/hashicorp/golang-lru/v2 v2.0.5
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.17
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	go.sia.tech/core v0.2.1
