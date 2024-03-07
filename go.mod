@@ -14,8 +14,8 @@ require (
 	go.sia.tech/renterd v0.6.0
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
 	go.sia.tech/web/hostd v0.39.0
-	go.uber.org/goleak v1.2.0
-	go.uber.org/zap v1.26.0
+	go.uber.org/goleak v1.3.0
+	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.16.0
 	golang.org/x/term v0.16.0
 	golang.org/x/time v0.5.0
