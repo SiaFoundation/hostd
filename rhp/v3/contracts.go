@@ -16,6 +16,13 @@ func hashFinalRevision(clearing types.FileContractRevision, renewal types.FileCo
 	return h.Sum()
 }
 
+func contractUnlockConditions(hostKey, renterKey types.UnlockKey) types.UnlockConditions {
+	return types.UnlockConditions{
+		PublicKeys:         []types.UnlockKey{renterKey, hostKey},
+		SignaturesRequired: 2,
+	}
+}
+
 // validateContractRenewal verifies that the renewed contract is valid given the
 // old contract. A renewal is valid if the contract fields match and the
 // revision number is 0.
@@ -45,6 +52,8 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for missed host output")
 	case renewal.MissedProofOutputs[2].Address != types.VoidAddress:
 		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")
+	case renewal.UnlockHash != types.Hash256(contractUnlockConditions(hostKey, renterKey).UnlockHash()):
+		return types.ZeroCurrency, types.ZeroCurrency, errors.New("incorrect unlock hash")
 	}
 
 	expectedBurn := baseStorageRevenue.Add(baseRiskedCollateral)
