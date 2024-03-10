@@ -15,6 +15,7 @@ func migrateVersion26(tx txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE TABLE host_pinned_settings (
 		id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 		currency TEXT NOT NULL,
+		threshold REAL NOT NULL,
 		storage_price REAL NOT NULL,
 		ingress_price REAL NOT NULL,
 		egress_price REAL NOT NULL,
