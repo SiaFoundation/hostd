@@ -266,5 +266,4 @@ func TestAutomaticUpdate(t *testing.T) {
 	if err := checkSettings(sm.Settings(), pin, 2); err != nil {
 		t.Fatal(err)
 	}
-
 }

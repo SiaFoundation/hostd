@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// An Option is a functional option for configuring a pin Manager.
 type Option func(*Manager)
 
 // WithLogger sets the logger for the manager.
