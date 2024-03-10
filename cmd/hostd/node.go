@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
@@ -190,7 +189,11 @@ func newNode(ctx context.Context, walletKey types.PrivateKey, logger *zap.Logger
 	if !cfg.Explorer.Disable {
 		ex := explorer.New(cfg.Explorer.URL)
 
-		pm, err = pin.NewManager(5*time.Minute, db, ex, sr, logger.Named("pin"))
+		pm, err = pin.NewManager(
+			pin.WithStore(db),
+			pin.WithSettings(sr),
+			pin.WithExchangeRateRetriever(ex),
+			pin.WithLogger(logger.Named("pin")))
 		if err != nil {
 			return nil, types.PrivateKey{}, fmt.Errorf("failed to create pin manager: %w", err)
 		}
