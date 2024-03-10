@@ -9,8 +9,6 @@ import (
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/shopspring/decimal"
 )
 
 // An Explorer retrieves data about the Sia network from an external source.
@@ -62,7 +60,7 @@ func makeRequest(ctx context.Context, method, url string, requestBody, response 
 }
 
 // SiacoinExchangeRate returns the exchange rate for the given currency.
-func (e *Explorer) SiacoinExchangeRate(ctx context.Context, currency string) (rate decimal.Decimal, err error) {
+func (e *Explorer) SiacoinExchangeRate(ctx context.Context, currency string) (rate float64, err error) {
 	err = makeRequest(ctx, http.MethodGet, fmt.Sprintf("%s/exchange-rate/siacoin/%s", e.url, currency), nil, &rate)
 	return
 }
