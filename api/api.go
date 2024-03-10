@@ -49,7 +49,7 @@ type (
 
 	// PinnedSettings updates and retrieves the host's pinned settings
 	PinnedSettings interface {
-		Update(p pin.PinnedSettings) error
+		Update(context.Context, pin.PinnedSettings) error
 		Pinned() pin.PinnedSettings
 	}
 

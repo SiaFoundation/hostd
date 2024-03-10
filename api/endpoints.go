@@ -219,7 +219,7 @@ func (a *api) handlePUTPinnedSettings(c jape.Context) {
 		return
 	}
 
-	a.checkServerError(c, "failed to update pinned settings", a.pinned.Update(req))
+	a.checkServerError(c, "failed to update pinned settings", a.pinned.Update(c.Request.Context(), req))
 }
 
 func (a *api) handlePUTDDNSUpdate(c jape.Context) {
