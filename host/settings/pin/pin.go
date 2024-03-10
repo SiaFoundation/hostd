@@ -133,7 +133,7 @@ func (m *Manager) updatePrices(ctx context.Context) error {
 	if err := m.sm.UpdateSettings(settings); err != nil {
 		return fmt.Errorf("failed to update settings: %w", err)
 	}
-	m.log.Debug("updated prices", zap.Stringer("storage", settings.StoragePrice), zap.Stringer("ingress", settings.IngressPrice), zap.Stringer("egress", settings.EgressPrice))
+	m.log.Info("updated prices", zap.Stringer("storage", settings.StoragePrice), zap.Stringer("ingress", settings.IngressPrice), zap.Stringer("egress", settings.EgressPrice))
 	return nil
 }
 
