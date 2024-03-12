@@ -46,7 +46,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	if pinned.Storage.IsPinned() {
 		storagePrice, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.Storage.Value), rate)
 		if err != nil {
-			return fmt.Errorf("failed to convert storage price: %v", err)
+			return fmt.Errorf("failed to convert storage price: %w", err)
 		} else if !storagePrice.Div64(4320).Div64(1e12).Equals(settings.StoragePrice) {
 			return fmt.Errorf("expected storage price %d, got %d", storagePrice, settings.StoragePrice)
 		}
@@ -55,7 +55,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	if pinned.Ingress.IsPinned() {
 		ingressPrice, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.Ingress.Value), rate)
 		if err != nil {
-			return fmt.Errorf("failed to convert storage price: %v", err)
+			return fmt.Errorf("failed to convert ingress price: %w", err)
 		} else if !ingressPrice.Div64(1e12).Equals(settings.IngressPrice) {
 			return fmt.Errorf("expected ingress price %d, got %d", ingressPrice, settings.IngressPrice)
 		}
@@ -64,7 +64,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	if pinned.Egress.IsPinned() {
 		egressPrice, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.Egress.Value), rate)
 		if err != nil {
-			return fmt.Errorf("failed to convert storage price: %v", err)
+			return fmt.Errorf("failed to convert egress price: %w", err)
 		} else if !egressPrice.Div64(1e12).Equals(settings.EgressPrice) {
 			return fmt.Errorf("expected egress price %d, got %d", egressPrice, settings.EgressPrice)
 		}
@@ -73,7 +73,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	if pinned.MaxCollateral.IsPinned() {
 		maxCollateral, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.MaxCollateral.Value), rate)
 		if err != nil {
-			return fmt.Errorf("failed to convert storage price: %v", err)
+			return fmt.Errorf("failed to convert max collateral: %w", err)
 		} else if !maxCollateral.Equals(settings.MaxCollateral) {
 			return fmt.Errorf("expected max collateral %d, got %d", maxCollateral, settings.MaxCollateral)
 		}
