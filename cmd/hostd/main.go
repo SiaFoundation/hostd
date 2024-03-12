@@ -377,10 +377,7 @@ func main() {
 		api.ServerWithSettings(node.settings),
 		api.ServerWithWallet(node.w),
 		api.ServerWithLogger(log.Named("api")),
-	}
-	if node.pinned != nil {
-		// pinner should be nil if explorer data is disabled
-		opts = append(opts, api.ServerWithPinnedSettings(node.pinned))
+		api.ServerWithPinnedSettings(node.pinned),
 	}
 
 	auth := jape.BasicAuth(cfg.HTTP.Password)

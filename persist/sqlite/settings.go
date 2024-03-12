@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
@@ -16,7 +17,7 @@ import (
 )
 
 // PinnedSettings returns the host's pinned settings.
-func (s *Store) PinnedSettings() (pinned pin.PinnedSettings, err error) {
+func (s *Store) PinnedSettings(context.Context) (pinned pin.PinnedSettings, err error) {
 	const query = `SELECT currency, threshold, storage_pinned, storage_price, ingress_pinned, ingress_price, egress_pinned, egress_price, max_collateral_pinned, max_collateral
 FROM host_pinned_settings;`
 
@@ -28,7 +29,7 @@ FROM host_pinned_settings;`
 }
 
 // UpdatePinnedSettings updates the host's pinned settings.
-func (s *Store) UpdatePinnedSettings(p pin.PinnedSettings) error {
+func (s *Store) UpdatePinnedSettings(_ context.Context, p pin.PinnedSettings) error {
 	const query = `INSERT INTO host_pinned_settings (id, currency, threshold, storage_pinned, storage_price, ingress_pinned, ingress_price, egress_pinned, egress_price, max_collateral_pinned, max_collateral) 
 VALUES (0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
 ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.threshold, 

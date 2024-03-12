@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"math"
@@ -60,9 +61,9 @@ func TestPinned(t *testing.T) {
 
 	for i := 0; i < 10000; i++ {
 		p := randomPinnedSettings()
-		if err := db.UpdatePinnedSettings(p); err != nil {
+		if err := db.UpdatePinnedSettings(context.Background(), p); err != nil {
 			t.Fatal(err)
-		} else if p2, err := db.PinnedSettings(); err != nil {
+		} else if p2, err := db.PinnedSettings(context.Background()); err != nil {
 			t.Fatal(err)
 		} else if !reflect.DeepEqual(p, p2) {
 			t.Fatalf("expected %v, got %v", p, p2)

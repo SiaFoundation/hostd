@@ -50,7 +50,7 @@ type (
 	// PinnedSettings updates and retrieves the host's pinned settings
 	PinnedSettings interface {
 		Update(context.Context, pin.PinnedSettings) error
-		Pinned() pin.PinnedSettings
+		Pinned(context.Context) pin.PinnedSettings
 	}
 
 	// A MetricManager retrieves metrics related to the host

@@ -52,8 +52,8 @@ type (
 
 	// A Store stores and retrieves pinned settings.
 	Store interface {
-		PinnedSettings() (PinnedSettings, error)
-		UpdatePinnedSettings(PinnedSettings) error
+		PinnedSettings(context.Context) (PinnedSettings, error)
+		UpdatePinnedSettings(context.Context, PinnedSettings) error
 	}
 
 	// An ExchangeRateRetriever retrieves the current exchange rate from
@@ -183,7 +183,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 }
 
 // Pinned returns the host's pinned settings.
-func (m *Manager) Pinned() PinnedSettings {
+func (m *Manager) Pinned(context.Context) PinnedSettings {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.settings
@@ -212,7 +212,7 @@ func (m *Manager) Update(ctx context.Context, p PinnedSettings) error {
 	}
 	m.settings = p
 	m.mu.Unlock()
-	if err := m.store.UpdatePinnedSettings(p); err != nil {
+	if err := m.store.UpdatePinnedSettings(ctx, p); err != nil {
 		return fmt.Errorf("failed to update pinned settings: %w", err)
 	} else if err := m.updatePrices(ctx, true); err != nil {
 		return fmt.Errorf("failed to update prices: %w", err)
@@ -287,7 +287,7 @@ func NewManager(opts ...Option) (*Manager, error) {
 	}
 
 	// load the current pinned settings
-	pinned, err := m.store.PinnedSettings()
+	pinned, err := m.store.PinnedSettings(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pinned settings: %w", err)
 	}

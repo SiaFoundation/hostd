@@ -205,7 +205,7 @@ func (a *api) handleGETPinnedSettings(c jape.Context) {
 		c.Error(errors.New("pinned settings disabled"), http.StatusNotFound)
 		return
 	}
-	c.Encode(a.pinned.Pinned())
+	c.Encode(a.pinned.Pinned(c.Request.Context()))
 }
 
 func (a *api) handlePUTPinnedSettings(c jape.Context) {
