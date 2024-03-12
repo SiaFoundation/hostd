@@ -98,20 +98,6 @@ func averageRate(rates []decimal.Decimal) decimal.Decimal {
 	return sum.Div(decimal.NewFromInt(int64(len(rates))))
 }
 
-func ConvertCurrencyToSC(target decimal.Decimal, rate decimal.Decimal) (types.Currency, error) {
-	if rate.IsZero() {
-		return types.Currency{}, nil
-	}
-
-	i := target.Div(rate).Mul(decimal.New(1, 24)).BigInt()
-	if i.Sign() < 0 {
-		return types.Currency{}, errors.New("negative currency")
-	} else if i.BitLen() > 128 {
-		return types.Currency{}, errors.New("currency overflow")
-	}
-	return types.NewCurrency(i.Uint64(), i.Rsh(i, 64).Uint64()), nil
-}
-
 func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -253,6 +239,22 @@ func (m *Manager) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// ConvertCurrencyToSC converts a value in an external currency and an exchange
+// rate to Siacoins.
+func ConvertCurrencyToSC(target decimal.Decimal, rate decimal.Decimal) (types.Currency, error) {
+	if rate.IsZero() {
+		return types.Currency{}, nil
+	}
+
+	i := target.Div(rate).Mul(decimal.New(1, 24)).BigInt()
+	if i.Sign() < 0 {
+		return types.Currency{}, errors.New("negative currency")
+	} else if i.BitLen() > 128 {
+		return types.Currency{}, errors.New("currency overflow")
+	}
+	return types.NewCurrency(i.Uint64(), i.Rsh(i, 64).Uint64()), nil
 }
 
 // NewManager creates a new pin manager.
