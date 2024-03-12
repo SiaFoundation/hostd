@@ -2,6 +2,7 @@ package pin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -79,21 +80,26 @@ func isOverThreshold(a, b, percentage decimal.Decimal) bool {
 	return diff.GreaterThanOrEqual(threshold)
 }
 
-func convertToCurrency(target decimal.Decimal, rate decimal.Decimal) types.Currency {
-	hastings := target.Div(rate).Mul(decimal.New(1, 24)).Round(0).String()
-	c, err := types.ParseCurrency(hastings)
-	if err != nil {
-		panic(err)
-	}
-	return c
-}
-
 func averageRate(rates []decimal.Decimal) decimal.Decimal {
 	var sum decimal.Decimal
 	for _, r := range rates {
 		sum = sum.Add(r)
 	}
 	return sum.Div(decimal.NewFromInt(int64(len(rates))))
+}
+
+func CurrencyToSiacoins(target decimal.Decimal, rate decimal.Decimal) (types.Currency, error) {
+	if rate.IsZero() {
+		return types.Currency{}, nil
+	}
+
+	i := target.Div(rate).Mul(decimal.New(1, 24)).BigInt()
+	if i.Sign() < 0 {
+		return types.Currency{}, errors.New("negative currency")
+	} else if i.BitLen() > 128 {
+		return types.Currency{}, errors.New("currency overflow")
+	}
+	return types.NewCurrency(i.Uint64(), i.Rsh(i, 64).Uint64()), nil
 }
 
 func (m *Manager) updatePrices(ctx context.Context, force bool) error {
@@ -142,19 +148,35 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 
 	settings := m.sm.Settings()
 	if m.pinned.Storage > 0 {
-		settings.StoragePrice = convertToCurrency(decimal.NewFromFloat(m.pinned.Storage), avgRate).Div64(4320).Div64(1e12)
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.Storage), avgRate)
+		if err != nil {
+			return fmt.Errorf("failed to convert storage price: %w", err)
+		}
+		settings.StoragePrice = value.Div64(4320).Div64(1e12)
 	}
 
 	if m.pinned.Ingress > 0 {
-		settings.IngressPrice = convertToCurrency(decimal.NewFromFloat(m.pinned.Ingress), avgRate).Div64(1e12)
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.Ingress), avgRate)
+		if err != nil {
+			return fmt.Errorf("failed to convert ingress price: %w", err)
+		}
+		settings.IngressPrice = value.Div64(1e12)
 	}
 
 	if m.pinned.Egress > 0 {
-		settings.EgressPrice = convertToCurrency(decimal.NewFromFloat(m.pinned.Egress), avgRate).Div64(1e12)
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.Egress), avgRate)
+		if err != nil {
+			return fmt.Errorf("failed to convert egress price: %w", err)
+		}
+		settings.EgressPrice = value.Div64(1e12)
 	}
 
 	if m.pinned.MaxCollateral > 0 {
-		settings.MaxCollateral = convertToCurrency(decimal.NewFromFloat(m.pinned.MaxCollateral), avgRate)
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.MaxCollateral), avgRate)
+		if err != nil {
+			return fmt.Errorf("failed to convert max collateral: %w", err)
+		}
+		settings.MaxCollateral = value
 	}
 
 	if err := m.sm.UpdateSettings(settings); err != nil {

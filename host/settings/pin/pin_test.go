@@ -41,45 +41,74 @@ func (e *exchangeRateRetrieverStub) SiacoinExchangeRate(_ context.Context, curre
 	return e.value, nil
 }
 
-func convertToCurrency(target decimal.Decimal, rate decimal.Decimal) types.Currency {
-	hastings := target.Div(rate).Mul(decimal.New(1, 24)).Round(0).String()
-	c, err := types.ParseCurrency(hastings)
-	if err != nil {
-		panic(err)
-	}
-	return c
-}
-
 func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expectedRate float64) error {
 	rate := decimal.NewFromFloat(expectedRate)
 	if pinned.Storage > 0 {
-		storagePrice := convertToCurrency(decimal.NewFromFloat(pinned.Storage), rate).Div64(4320).Div64(1e12)
-		if !storagePrice.Equals(settings.StoragePrice) {
+		storagePrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Storage), rate)
+		if err != nil {
+			return fmt.Errorf("failed to convert storage price: %v", err)
+		} else if !storagePrice.Div64(4320).Div64(1e12).Equals(settings.StoragePrice) {
 			return fmt.Errorf("expected storage price %d, got %d", storagePrice, settings.StoragePrice)
 		}
 	}
 
 	if pinned.Ingress > 0 {
-		ingressPrice := convertToCurrency(decimal.NewFromFloat(pinned.Ingress), rate).Div64(1e12)
-		if !ingressPrice.Equals(settings.IngressPrice) {
+		ingressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Ingress), rate)
+		if err != nil {
+			return fmt.Errorf("failed to convert storage price: %v", err)
+		} else if !ingressPrice.Div64(1e12).Equals(settings.IngressPrice) {
 			return fmt.Errorf("expected ingress price %d, got %d", ingressPrice, settings.IngressPrice)
 		}
 	}
 
 	if pinned.Egress > 0 {
-		egressPrice := convertToCurrency(decimal.NewFromFloat(pinned.Egress), rate).Div64(1e12)
-		if !egressPrice.Equals(settings.EgressPrice) {
+		egressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Egress), rate)
+		if err != nil {
+			return fmt.Errorf("failed to convert storage price: %v", err)
+		} else if !egressPrice.Div64(1e12).Equals(settings.EgressPrice) {
 			return fmt.Errorf("expected egress price %d, got %d", egressPrice, settings.EgressPrice)
 		}
 	}
 
 	if pinned.MaxCollateral > 0 {
-		maxCollateral := convertToCurrency(decimal.NewFromFloat(pinned.MaxCollateral), rate)
-		if !maxCollateral.Equals(settings.MaxCollateral) {
+		maxCollateral, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.MaxCollateral), rate)
+		if err != nil {
+			return fmt.Errorf("failed to convert storage price: %v", err)
+		} else if !maxCollateral.Equals(settings.MaxCollateral) {
 			return fmt.Errorf("expected max collateral %d, got %d", maxCollateral, settings.MaxCollateral)
 		}
 	}
 	return nil
+}
+
+func TestConvertCurrencyToSiacoins(t *testing.T) {
+	tests := []struct {
+		target   decimal.Decimal
+		rate     decimal.Decimal
+		expected types.Currency
+		err      error
+	}{
+		{decimal.NewFromFloat(1), decimal.NewFromFloat(1), types.Siacoins(1), nil},
+		{decimal.NewFromFloat(1), decimal.NewFromFloat(2), types.Siacoins(1).Div64(2), nil},
+		{decimal.NewFromFloat(1), decimal.NewFromFloat(0.5), types.Siacoins(2), nil},
+		{decimal.NewFromFloat(0.5), decimal.NewFromFloat(0.5), types.Siacoins(1), nil},
+		{decimal.NewFromFloat(1), decimal.NewFromFloat(0.001), types.Siacoins(1000), nil},
+		{decimal.NewFromFloat(1), decimal.NewFromFloat(0), types.Currency{}, nil},
+		{decimal.NewFromFloat(1), decimal.NewFromFloat(-1), types.Currency{}, errors.New("negative currency")},
+		{decimal.NewFromFloat(-1), decimal.NewFromFloat(1), types.Currency{}, errors.New("negative currency")},
+		{decimal.New(1, 50), decimal.NewFromFloat(0.1), types.Currency{}, errors.New("currency overflow")},
+	}
+	for i, test := range tests {
+		if result, err := pin.CurrencyToSiacoins(test.target, test.rate); test.err != nil {
+			if err == nil {
+				t.Fatalf("%d: expected error, got nil", i)
+			} else if err.Error() != test.err.Error() {
+				t.Fatalf("%d: expected %v, got %v", i, test.err, err)
+			}
+		} else if !test.expected.Equals(result) {
+			t.Fatalf("%d: expected %d, got %d", i, test.expected, result)
+		}
+	}
 }
 
 func TestPinnedFields(t *testing.T) {

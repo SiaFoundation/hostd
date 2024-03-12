@@ -30,11 +30,8 @@ FROM host_pinned_settings;`
 // UpdatePinnedSettings updates the host's pinned settings.
 func (s *Store) UpdatePinnedSettings(p pin.PinnedSettings) error {
 	const query = `INSERT INTO host_pinned_settings (id, currency, threshold, storage_price, ingress_price, egress_price, max_collateral) VALUES (0, $1, $2, $3, $4, $5, $6) 
-ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.threshold, storage_price=EXCLUDED.storage_price, ingress_price=EXCLUDED.ingress_price, egress_price=EXCLUDED.egress_price, max_collateral=EXCLUDED.max_collateral
-RETURNING id;`
-
-	var dummyID int64
-	err := s.queryRow(query, p.Currency, p.Threshold, p.Storage, p.Ingress, p.Egress, p.MaxCollateral).Scan(&dummyID)
+ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.threshold, storage_price=EXCLUDED.storage_price, ingress_price=EXCLUDED.ingress_price, egress_price=EXCLUDED.egress_price, max_collateral=EXCLUDED.max_collateral;`
+	_, err := s.exec(query, p.Currency, p.Threshold, p.Storage, p.Ingress, p.Egress, p.MaxCollateral)
 	return err
 }
 
