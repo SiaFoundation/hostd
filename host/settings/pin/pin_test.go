@@ -44,7 +44,7 @@ func (e *exchangeRateRetrieverStub) SiacoinExchangeRate(_ context.Context, curre
 func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expectedRate float64) error {
 	rate := decimal.NewFromFloat(expectedRate)
 	if pinned.Storage.IsPinned() {
-		storagePrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Storage.Value), rate)
+		storagePrice, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.Storage.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !storagePrice.Div64(4320).Div64(1e12).Equals(settings.StoragePrice) {
@@ -53,7 +53,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	}
 
 	if pinned.Ingress.IsPinned() {
-		ingressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Ingress.Value), rate)
+		ingressPrice, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.Ingress.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !ingressPrice.Div64(1e12).Equals(settings.IngressPrice) {
@@ -62,7 +62,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	}
 
 	if pinned.Egress.IsPinned() {
-		egressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Egress.Value), rate)
+		egressPrice, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.Egress.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !egressPrice.Div64(1e12).Equals(settings.EgressPrice) {
@@ -71,7 +71,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	}
 
 	if pinned.MaxCollateral.IsPinned() {
-		maxCollateral, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.MaxCollateral.Value), rate)
+		maxCollateral, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.MaxCollateral.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !maxCollateral.Equals(settings.MaxCollateral) {
@@ -81,7 +81,7 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 	return nil
 }
 
-func TestConvertCurrencyToSiacoins(t *testing.T) {
+func TestConvertConvertCurrencyToSC(t *testing.T) {
 	tests := []struct {
 		target   decimal.Decimal
 		rate     decimal.Decimal
@@ -99,7 +99,7 @@ func TestConvertCurrencyToSiacoins(t *testing.T) {
 		{decimal.New(1, 50), decimal.NewFromFloat(0.1), types.Currency{}, errors.New("currency overflow")},
 	}
 	for i, test := range tests {
-		if result, err := pin.CurrencyToSiacoins(test.target, test.rate); test.err != nil {
+		if result, err := pin.ConvertCurrencyToSC(test.target, test.rate); test.err != nil {
 			if err == nil {
 				t.Fatalf("%d: expected error, got nil", i)
 			} else if err.Error() != test.err.Error() {

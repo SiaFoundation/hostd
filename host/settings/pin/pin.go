@@ -98,7 +98,7 @@ func averageRate(rates []decimal.Decimal) decimal.Decimal {
 	return sum.Div(decimal.NewFromInt(int64(len(rates))))
 }
 
-func CurrencyToSiacoins(target decimal.Decimal, rate decimal.Decimal) (types.Currency, error) {
+func ConvertCurrencyToSC(target decimal.Decimal, rate decimal.Decimal) (types.Currency, error) {
 	if rate.IsZero() {
 		return types.Currency{}, nil
 	}
@@ -158,7 +158,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 
 	settings := m.sm.Settings()
 	if m.settings.Storage.IsPinned() {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.Storage.Value), avgRate)
+		value, err := ConvertCurrencyToSC(decimal.NewFromFloat(m.settings.Storage.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %w", err)
 		}
@@ -166,7 +166,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	}
 
 	if m.settings.Ingress.IsPinned() {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.Ingress.Value), avgRate)
+		value, err := ConvertCurrencyToSC(decimal.NewFromFloat(m.settings.Ingress.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert ingress price: %w", err)
 		}
@@ -174,7 +174,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	}
 
 	if m.settings.Egress.IsPinned() {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.Egress.Value), avgRate)
+		value, err := ConvertCurrencyToSC(decimal.NewFromFloat(m.settings.Egress.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert egress price: %w", err)
 		}
@@ -182,7 +182,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	}
 
 	if m.settings.MaxCollateral.IsPinned() {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.MaxCollateral.Value), avgRate)
+		value, err := ConvertCurrencyToSC(decimal.NewFromFloat(m.settings.MaxCollateral.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert max collateral: %w", err)
 		}
