@@ -43,8 +43,8 @@ func (e *exchangeRateRetrieverStub) SiacoinExchangeRate(_ context.Context, curre
 
 func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expectedRate float64) error {
 	rate := decimal.NewFromFloat(expectedRate)
-	if pinned.Storage > 0 {
-		storagePrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Storage), rate)
+	if pinned.Storage.IsPinned() {
+		storagePrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Storage.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !storagePrice.Div64(4320).Div64(1e12).Equals(settings.StoragePrice) {
@@ -52,8 +52,8 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 		}
 	}
 
-	if pinned.Ingress > 0 {
-		ingressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Ingress), rate)
+	if pinned.Ingress.IsPinned() {
+		ingressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Ingress.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !ingressPrice.Div64(1e12).Equals(settings.IngressPrice) {
@@ -61,8 +61,8 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 		}
 	}
 
-	if pinned.Egress > 0 {
-		egressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Egress), rate)
+	if pinned.Egress.IsPinned() {
+		egressPrice, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.Egress.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !egressPrice.Div64(1e12).Equals(settings.EgressPrice) {
@@ -70,8 +70,8 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 		}
 	}
 
-	if pinned.MaxCollateral > 0 {
-		maxCollateral, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.MaxCollateral), rate)
+	if pinned.MaxCollateral.IsPinned() {
+		maxCollateral, err := pin.CurrencyToSiacoins(decimal.NewFromFloat(pinned.MaxCollateral.Value), rate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %v", err)
 		} else if !maxCollateral.Equals(settings.MaxCollateral) {
@@ -150,11 +150,23 @@ func TestPinnedFields(t *testing.T) {
 	pin := pin.PinnedSettings{
 		Currency: "usd",
 
-		Threshold:     0.1,
-		Storage:       1.0,
-		Ingress:       0,
-		Egress:        0,
-		MaxCollateral: 0,
+		Threshold: 0.1,
+		Storage: pin.Pin{
+			Pinned: true,
+			Value:  1.0,
+		},
+		Ingress: pin.Pin{
+			Pinned: false,
+			Value:  1.0,
+		},
+		Egress: pin.Pin{
+			Pinned: false,
+			Value:  1.0,
+		},
+		MaxCollateral: pin.Pin{
+			Pinned: false,
+			Value:  1.0,
+		},
 	}
 
 	// only storage is pinned
@@ -174,7 +186,7 @@ func TestPinnedFields(t *testing.T) {
 	}
 
 	// pin ingress
-	pin.Ingress = 1.0
+	pin.Ingress.Pinned = true
 	if err := pm.Update(context.Background(), pin); err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +201,7 @@ func TestPinnedFields(t *testing.T) {
 	}
 
 	// pin egress
-	pin.Egress = 1.0
+	pin.Egress.Pinned = true
 	if err := pm.Update(context.Background(), pin); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +214,7 @@ func TestPinnedFields(t *testing.T) {
 	}
 
 	// pin max collateral
-	pin.MaxCollateral = 1.0
+	pin.MaxCollateral.Pinned = true
 	if err := pm.Update(context.Background(), pin); err != nil {
 		t.Fatal(err)
 	} else if err := checkSettings(sm.Settings(), pin, 1); err != nil {
@@ -263,11 +275,23 @@ func TestAutomaticUpdate(t *testing.T) {
 	pin := pin.PinnedSettings{
 		Currency: "usd",
 
-		Threshold:     1.0,
-		Storage:       1.0,
-		Ingress:       1.0,
-		Egress:        1.0,
-		MaxCollateral: 1.0,
+		Threshold: 1.0,
+		Storage: pin.Pin{
+			Pinned: true,
+			Value:  1.0,
+		},
+		Ingress: pin.Pin{
+			Pinned: true,
+			Value:  1.0,
+		},
+		Egress: pin.Pin{
+			Pinned: true,
+			Value:  1.0,
+		},
+		MaxCollateral: pin.Pin{
+			Pinned: true,
+			Value:  1.0,
+		},
 	}
 
 	// check that the settings have not changed

@@ -14,6 +14,12 @@ import (
 )
 
 type (
+	// A Pin is a pinned price in an external currency.
+	Pin struct {
+		Pinned bool    `json:"pinned"`
+		Value  float64 `json:"value"`
+	}
+
 	// PinnedSettings contains the settings that can be optionally
 	// pinned to an external currency. This uses an external explorer
 	// to retrieve the current exchange rate.
@@ -29,13 +35,13 @@ type (
 
 		// Storage, Ingress, and Egress are the pinned prices in the
 		// external currency.
-		Storage float64 `json:"storage"`
-		Ingress float64 `json:"ingress"`
-		Egress  float64 `json:"egress"`
+		Storage Pin `json:"storage"`
+		Ingress Pin `json:"ingress"`
+		Egress  Pin `json:"egress"`
 
 		// MaxCollateral is the maximum collateral that the host will
 		// accept in the external currency.
-		MaxCollateral float64 `json:"maxCollateral"`
+		MaxCollateral Pin `json:"maxCollateral"`
 	}
 
 	// A SettingsManager updates and retrieves the host's settings.
@@ -70,9 +76,13 @@ type (
 		mu       sync.Mutex
 		rates    []decimal.Decimal
 		lastRate decimal.Decimal
-		pinned   PinnedSettings // in-memory cache of pinned settings
+		settings PinnedSettings // in-memory cache of pinned settings
 	}
 )
+
+func (p Pin) IsPinned() bool {
+	return p.Pinned && p.Value > 0
+}
 
 func isOverThreshold(a, b, percentage decimal.Decimal) bool {
 	threshold := a.Mul(percentage)
@@ -107,7 +117,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	defer cancel()
 
 	m.mu.Lock()
-	currency := m.pinned.Currency
+	currency := m.settings.Currency
 	m.mu.Unlock()
 
 	if currency == "" {
@@ -132,12 +142,12 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	}
 
 	// skip updating prices if the pinned settings are zero
-	if m.pinned.Storage <= 0 && m.pinned.Ingress <= 0 && m.pinned.Egress <= 0 && m.pinned.MaxCollateral <= 0 {
+	if !m.settings.Storage.IsPinned() && !m.settings.Ingress.IsPinned() && !m.settings.Egress.IsPinned() && !m.settings.MaxCollateral.IsPinned() {
 		return nil
 	}
 
 	avgRate := averageRate(m.rates)
-	threshold := decimal.NewFromFloat(m.pinned.Threshold)
+	threshold := decimal.NewFromFloat(m.settings.Threshold)
 
 	log := m.log.With(zap.String("currency", currency), zap.Stringer("threshold", threshold), zap.Stringer("current", current), zap.Stringer("average", avgRate), zap.Stringer("last", m.lastRate))
 	if !force && !isOverThreshold(m.lastRate, avgRate, threshold) {
@@ -147,32 +157,32 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	m.lastRate = avgRate
 
 	settings := m.sm.Settings()
-	if m.pinned.Storage > 0 {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.Storage), avgRate)
+	if m.settings.Storage.IsPinned() {
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.Storage.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert storage price: %w", err)
 		}
 		settings.StoragePrice = value.Div64(4320).Div64(1e12)
 	}
 
-	if m.pinned.Ingress > 0 {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.Ingress), avgRate)
+	if m.settings.Ingress.IsPinned() {
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.Ingress.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert ingress price: %w", err)
 		}
 		settings.IngressPrice = value.Div64(1e12)
 	}
 
-	if m.pinned.Egress > 0 {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.Egress), avgRate)
+	if m.settings.Egress.IsPinned() {
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.Egress.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert egress price: %w", err)
 		}
 		settings.EgressPrice = value.Div64(1e12)
 	}
 
-	if m.pinned.MaxCollateral > 0 {
-		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.pinned.MaxCollateral), avgRate)
+	if m.settings.MaxCollateral.IsPinned() {
+		value, err := CurrencyToSiacoins(decimal.NewFromFloat(m.settings.MaxCollateral.Value), avgRate)
 		if err != nil {
 			return fmt.Errorf("failed to convert max collateral: %w", err)
 		}
@@ -190,7 +200,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 func (m *Manager) Pinned() PinnedSettings {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.pinned
+	return m.settings
 }
 
 // Update updates the host's pinned settings.
@@ -200,21 +210,21 @@ func (m *Manager) Update(ctx context.Context, p PinnedSettings) error {
 		return fmt.Errorf("currency must be set")
 	case p.Threshold < 0 || p.Threshold > 1:
 		return fmt.Errorf("threshold must be between 0 and 1")
-	case p.Storage < 0:
-		return fmt.Errorf("storage price must be non-negative")
-	case p.Ingress < 0:
-		return fmt.Errorf("ingress price must be non-negative")
-	case p.Egress < 0:
-		return fmt.Errorf("egress price must be non-negative")
-	case p.MaxCollateral < 0:
-		return fmt.Errorf("max collateral must be non-negative")
+	case p.Storage.Pinned && p.Storage.Value <= 0:
+		return fmt.Errorf("storage price must be greater than 0")
+	case p.Ingress.Pinned && p.Ingress.Value <= 0:
+		return fmt.Errorf("ingress price must be greater than 0")
+	case p.Egress.Pinned && p.Egress.Value <= 0:
+		return fmt.Errorf("egress price must be greater than 0")
+	case p.MaxCollateral.Pinned && p.MaxCollateral.Value <= 0:
+		return fmt.Errorf("max collateral must be greater than 0")
 	}
 
 	m.mu.Lock()
-	if m.pinned.Currency != p.Currency {
+	if m.settings.Currency != p.Currency {
 		m.rates = m.rates[:0] // currency has changed, reset rates
 	}
-	m.pinned = p
+	m.settings = p
 	m.mu.Unlock()
 	if err := m.store.UpdatePinnedSettings(p); err != nil {
 		return fmt.Errorf("failed to update pinned settings: %w", err)
@@ -279,6 +289,6 @@ func NewManager(opts ...Option) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pinned settings: %w", err)
 	}
-	m.pinned = pinned
+	m.settings = pinned
 	return m, nil
 }
