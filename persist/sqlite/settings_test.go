@@ -55,7 +55,6 @@ func TestPinned(t *testing.T) {
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "hostdb.db"), log.Named("sqlite"))
 	if err != nil {
 		t.Fatal(err)
-
 	}
 	defer db.Close()
 

@@ -80,6 +80,7 @@ type (
 	}
 )
 
+// IsPinned returns true if the pin is enabled and the value is greater than 0.
 func (p Pin) IsPinned() bool {
 	return p.Pinned && p.Value > 0
 }
