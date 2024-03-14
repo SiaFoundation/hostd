@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
@@ -10,9 +11,34 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
+
+// PinnedSettings returns the host's pinned settings.
+func (s *Store) PinnedSettings(context.Context) (pinned pin.PinnedSettings, err error) {
+	const query = `SELECT currency, threshold, storage_pinned, storage_price, ingress_pinned, ingress_price, egress_pinned, egress_price, max_collateral_pinned, max_collateral
+FROM host_pinned_settings;`
+
+	err = s.queryRow(query).Scan(&pinned.Currency, &pinned.Threshold, &pinned.Storage.Pinned, &pinned.Storage.Value, &pinned.Ingress.Pinned, &pinned.Ingress.Value, &pinned.Egress.Pinned, &pinned.Egress.Value, &pinned.MaxCollateral.Pinned, &pinned.MaxCollateral.Value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return pin.PinnedSettings{}, nil
+	}
+	return
+}
+
+// UpdatePinnedSettings updates the host's pinned settings.
+func (s *Store) UpdatePinnedSettings(_ context.Context, p pin.PinnedSettings) error {
+	const query = `INSERT INTO host_pinned_settings (id, currency, threshold, storage_pinned, storage_price, ingress_pinned, ingress_price, egress_pinned, egress_price, max_collateral_pinned, max_collateral) 
+VALUES (0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.threshold, 
+storage_pinned=EXCLUDED.storage_pinned, storage_price=EXCLUDED.storage_price, ingress_pinned=EXCLUDED.ingress_pinned, 
+ingress_price=EXCLUDED.ingress_price, egress_pinned=EXCLUDED.egress_pinned, egress_price=EXCLUDED.egress_price, 
+max_collateral_pinned=EXCLUDED.max_collateral_pinned, max_collateral=EXCLUDED.max_collateral;`
+	_, err := s.exec(query, p.Currency, p.Threshold, p.Storage.Pinned, p.Storage.Value, p.Ingress.Pinned, p.Ingress.Value, p.Egress.Pinned, p.Egress.Value, p.MaxCollateral.Pinned, p.MaxCollateral.Value)
+	return err
+}
 
 // Settings returns the current host settings.
 func (s *Store) Settings() (config settings.Settings, err error) {

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/jape"
@@ -24,7 +23,7 @@ func (rs *rhpSessionSubscriber) ReceiveSessionEvent(event rhp.SessionEvent) {
 }
 
 func (a *api) handleGETSessions(c jape.Context) {
-	a.writeResponse(c, http.StatusOK, SessionResp(a.sessions.Active()))
+	a.writeResponse(c, SessionResp(a.sessions.Active()))
 }
 
 func (a *api) handleGETSessionsSubscribe(c jape.Context) {

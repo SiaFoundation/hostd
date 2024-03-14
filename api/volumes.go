@@ -133,7 +133,7 @@ func (a *api) handleGETVolumes(c jape.Context) {
 	for _, volume := range volumes {
 		jsonVolumes = append(jsonVolumes, toJSONVolume(volume))
 	}
-	a.writeResponse(c, http.StatusOK, VolumeResp(jsonVolumes))
+	a.writeResponse(c, VolumeResp(jsonVolumes))
 }
 
 func (a *api) handlePOSTVolume(c jape.Context) {

@@ -10,6 +10,24 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion26 creates the host_pinned_settings table.
+func migrateVersion26(tx txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`CREATE TABLE host_pinned_settings (
+	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+	currency TEXT NOT NULL,
+	threshold REAL NOT NULL,
+	storage_pinned BOOLEAN NOT NULL,
+	storage_price REAL NOT NULL,
+	ingress_pinned BOOLEAN NOT NULL,
+	ingress_price REAL NOT NULL,
+	egress_pinned BOOLEAN NOT NULL,
+	egress_price REAL NOT NULL,
+	max_collateral_pinned BOOLEAN NOT NULL,
+	max_collateral REAL NOT NULL
+);`)
+	return err
+}
+
 // migrateVersion25 recalculates the contract and physical sectors metrics
 func migrateVersion25(tx txn, log *zap.Logger) error {
 	// recalculate the contract sectors metric
@@ -734,4 +752,5 @@ var migrations = []func(tx txn, log *zap.Logger) error{
 	migrateVersion23,
 	migrateVersion24,
 	migrateVersion25,
+	migrateVersion26,
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -37,6 +38,9 @@ var (
 		HTTP: config.HTTP{
 			Address:  defaultAPIAddr,
 			Password: os.Getenv(apiPasswordEnvVariable),
+		},
+		Explorer: config.ExplorerData{
+			URL: "https://api.siascan.com",
 		},
 		Consensus: config.Consensus{
 			GatewayAddress: defaultGatewayAddr,
@@ -227,6 +231,9 @@ func main() {
 		return
 	}
 
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	// check that the API password is set
 	if cfg.HTTP.Password == "" {
 		if disableStdin {
@@ -350,16 +357,33 @@ func main() {
 	}
 	defer rhp3WSListener.Close()
 
-	node, hostKey, err := newNode(walletKey, log)
+	node, hostKey, err := newNode(ctx, walletKey, log)
 	if err != nil {
 		log.Fatal("failed to create node", zap.Error(err))
 	}
 	defer node.Close()
 
+	opts := []api.ServerOption{
+		api.ServerWithAlerts(node.a),
+		api.ServerWithWebHooks(node.wh),
+		api.ServerWithSyncer(node.g),
+		api.ServerWithChainManager(node.cm),
+		api.ServerWithTransactionPool(node.tp),
+		api.ServerWithContractManager(node.contracts),
+		api.ServerWithAccountManager(node.accounts),
+		api.ServerWithVolumeManager(node.storage),
+		api.ServerWithRHPSessionReporter(node.sessions),
+		api.ServerWithMetricManager(node.metrics),
+		api.ServerWithSettings(node.settings),
+		api.ServerWithWallet(node.w),
+		api.ServerWithLogger(log.Named("api")),
+		api.ServerWithPinnedSettings(node.pinned),
+	}
+
 	auth := jape.BasicAuth(cfg.HTTP.Password)
 	web := http.Server{
 		Handler: webRouter{
-			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), node.a, node.wh, node.g, node.cm, node.tp, node.contracts, node.accounts, node.storage, node.sessions, node.metrics, node.settings, node.w, log.Named("api"))),
+			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), opts...)),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,
@@ -400,9 +424,7 @@ func main() {
 		}
 	}
 
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
-	<-signalCh
+	<-ctx.Done()
 	log.Info("shutting down...")
 	time.AfterFunc(5*time.Minute, func() {
 		log.Fatal("failed to shut down within 5 minutes")

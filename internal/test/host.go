@@ -225,7 +225,13 @@ func NewEmptyHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Log
 		return nil, fmt.Errorf("failed to create rhp2 listener: %w", err)
 	}
 
-	settings, err := settings.NewConfigManager(dir, privKey, rhp2Listener.Addr().String(), db, node.cm, node.tp, wallet, am, log.Named("settings"))
+	settings, err := settings.NewConfigManager(settings.WithHostKey(privKey),
+		settings.WithStore(db),
+		settings.WithChainManager(node.ChainManager()),
+		settings.WithTransactionPool(node.TPool()),
+		settings.WithWallet(wallet),
+		settings.WithAlertManager(am),
+		settings.WithLog(log.Named("settings")))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create settings manager: %w", err)
 	}

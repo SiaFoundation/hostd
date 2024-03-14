@@ -26,12 +26,6 @@ type (
 		Action string
 	}
 
-	contractSectorRef struct {
-		ID         int64
-		SectorID   int64
-		ContractID types.FileContractID
-	}
-
 	contractSectorRootRef struct {
 		dbID     int64
 		sectorID int64
@@ -1206,33 +1200,8 @@ func setContractStatus(tx txn, id types.FileContractID, status contracts.Contrac
 	return nil
 }
 
-func scanContractSectorRef(s scanner) (ref contractSectorRef, err error) {
-	err = s.Scan(&ref.ID, (*sqlHash256)(&ref.ContractID), &ref.SectorID)
-	return
-}
-
 func scanContractSectorRootRef(s scanner) (ref contractSectorRootRef, err error) {
 	err = s.Scan(&ref.dbID, &ref.sectorID, (*sqlHash256)(&ref.root))
-	return
-}
-
-func expiredContractSectors(tx txn, height uint64, batchSize int64) (sectors []contractSectorRef, _ error) {
-	const query = `SELECT csr.id, c.contract_id, csr.sector_id FROM contract_sector_roots csr
-INNER JOIN contracts c ON (csr.contract_id=c.id)
--- past proof window or not confirmed and past the rebroadcast height
-WHERE c.window_end < $1 OR c.contract_status=$2 LIMIT $3;`
-	rows, err := tx.Query(query, height, contracts.ContractStatusRejected, batchSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query expired sectors: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		ref, err := scanContractSectorRef(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan expired contract: %w", err)
-		}
-		sectors = append(sectors, ref)
-	}
 	return
 }
 

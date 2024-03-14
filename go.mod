@@ -7,6 +7,7 @@ require (
 	github.com/cloudflare/cloudflare-go v0.89.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/shopspring/decimal v1.3.1
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	go.sia.tech/core v0.2.1
 	go.sia.tech/coreutils v0.0.3

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -14,8 +15,10 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/registry"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/chain"
+	"go.sia.tech/hostd/internal/explorer"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/rhp"
 	rhp2 "go.sia.tech/hostd/rhp/v2"
@@ -40,6 +43,7 @@ type node struct {
 
 	metrics   *metrics.MetricManager
 	settings  *settings.ConfigManager
+	pinned    *pin.Manager
 	accounts  *accounts.AccountManager
 	contracts *contracts.ContractManager
 	registry  *registry.Manager
@@ -85,7 +89,7 @@ func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhp3.ChainManager, t
 	return rhp3, nil
 }
 
-func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.PrivateKey, error) {
+func newNode(ctx context.Context, walletKey types.PrivateKey, logger *zap.Logger) (*node, types.PrivateKey, error) {
 	gatewayDir := filepath.Join(cfg.Directory, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway dir: %w", err)
@@ -170,9 +174,30 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 	logger.Debug("discovered address", zap.String("addr", discoveredAddr))
 
 	am := alerts.NewManager(webhookReporter, logger.Named("alerts"))
-	sr, err := settings.NewConfigManager(cfg.Directory, hostKey, discoveredAddr, db, cm, tp, w, am, logger.Named("settings"))
+	sr, err := settings.NewConfigManager(settings.WithHostKey(hostKey),
+		settings.WithStore(db),
+		settings.WithChainManager(cm),
+		settings.WithTransactionPool(tp),
+		settings.WithWallet(w),
+		settings.WithAlertManager(am),
+		settings.WithLog(logger.Named("settings")))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create settings manager: %w", err)
+	}
+
+	var pm *pin.Manager
+	if !cfg.Explorer.Disable {
+		ex := explorer.New(cfg.Explorer.URL)
+
+		pm, err = pin.NewManager(
+			pin.WithStore(db),
+			pin.WithSettings(sr),
+			pin.WithExchangeRateRetriever(ex),
+			pin.WithLogger(logger.Named("pin")))
+		if err != nil {
+			return nil, types.PrivateKey{}, fmt.Errorf("failed to create pin manager: %w", err)
+		}
+		go pm.Run(ctx)
 	}
 
 	accountManager := accounts.NewManager(db, sr)
@@ -212,6 +237,7 @@ func newNode(walletKey types.PrivateKey, logger *zap.Logger) (*node, types.Priva
 
 		metrics:   metrics.NewManager(db),
 		settings:  sr,
+		pinned:    pm,
 		accounts:  accountManager,
 		contracts: contractManager,
 		storage:   sm,

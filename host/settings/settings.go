@@ -2,6 +2,7 @@ package settings
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -113,9 +114,11 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
-		dir               string
 		hostKey           types.PrivateKey
 		discoveredRHPAddr string
+
+		certKeyFilePath  string
+		certCertFilePath string
 
 		store Store
 		a     Alerts
@@ -275,19 +278,10 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, store Store, cm ChainManager, tp TransactionPool, w Wallet, a Alerts, log *zap.Logger) (*ConfigManager, error) {
+func NewConfigManager(opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
-		dir:               dir,
-		hostKey:           hostKey,
-		discoveredRHPAddr: rhp2Addr,
-
-		store:  store,
-		a:      a,
-		log:    log,
-		cm:     cm,
-		tp:     tp,
-		wallet: w,
-		tg:     threadgroup.New(),
+		log: zap.NewNop(),
+		tg:  threadgroup.New(),
 
 		// initialize the rate limiters
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
@@ -297,13 +291,21 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 		rhp3WSTLS: &tls.Config{},
 	}
 
+	for _, opt := range opts {
+		opt(m)
+	}
+
+	if len(m.hostKey) != ed25519.PrivateKeySize {
+		panic("host key invalid")
+	}
+
 	if err := m.reloadCertificates(); err != nil {
 		return nil, fmt.Errorf("failed to load rhp3 WebSocket certificates: %w", err)
 	}
 
 	settings, err := m.store.Settings()
 	if errors.Is(err, ErrNoSettings) {
-		if err := store.UpdateSettings(DefaultSettings); err != nil {
+		if err := m.store.UpdateSettings(DefaultSettings); err != nil {
 			return nil, fmt.Errorf("failed to initialize settings: %w", err)
 		}
 		settings = DefaultSettings // use the default settings
@@ -319,13 +321,13 @@ func NewConfigManager(dir string, hostKey types.PrivateKey, rhp2Addr string, sto
 
 	go func() {
 		// subscribe to consensus changes
-		err := cm.Subscribe(m, lastChange, m.tg.Done())
+		err := m.cm.Subscribe(m, lastChange, m.tg.Done())
 		if errors.Is(err, chain.ErrInvalidChangeID) {
 			m.log.Warn("rescanning blockchain due to unknown consensus change ID")
 			// reset change ID and subscribe again
-			if err := store.RevertLastAnnouncement(); err != nil {
+			if err := m.store.RevertLastAnnouncement(); err != nil {
 				m.log.Fatal("failed to reset wallet", zap.Error(err))
-			} else if err = cm.Subscribe(m, modules.ConsensusChangeBeginning, m.tg.Done()); err != nil {
+			} else if err = m.cm.Subscribe(m, modules.ConsensusChangeBeginning, m.tg.Done()); err != nil {
 				m.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
 			}
 		} else if err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {

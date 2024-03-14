@@ -11,37 +11,36 @@ import (
 	"math/big"
 	"net"
 	"os"
-	"path/filepath"
 	"time"
 )
 
 func (m *ConfigManager) reloadCertificates() error {
-	certPath := filepath.Join(m.dir, "certs")
-
-	var certificate tls.Certificate
-	if _, err := os.Stat(filepath.Join(certPath, "rhp3.crt")); err == nil {
-		certificate, err = tls.LoadX509KeyPair(filepath.Join(certPath, "rhp3.crt"), filepath.Join(certPath, "rhp3.key"))
-		if err != nil {
-			return fmt.Errorf("failed to load certificate: %w", err)
-		}
-	} else if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(m.certKeyFilePath); errors.Is(err, os.ErrNotExist) {
+		// if the certificate files do not exist, create a temporary certificate
 		addr := m.settings.NetAddress
 		if len(addr) == 0 {
 			addr = m.discoveredRHPAddr
 		}
 		addr, _, err := net.SplitHostPort(addr)
 		if err != nil {
-			return fmt.Errorf("failed to parse netaddress: %w", err)
+			addr = "localhost"
 		}
 
-		certificate, err = tempCertificate(addr)
+		certificate, err := tempCertificate(addr)
 		if err != nil {
 			return fmt.Errorf("failed to create temporary certificate: %w", err)
 		}
+		m.rhp3WSTLS.Certificates = []tls.Certificate{certificate}
+		return nil
 	} else if err != nil {
 		return fmt.Errorf("failed to check for certificate: %w", err)
 	}
 
+	// load the certificate from disk
+	certificate, err := tls.LoadX509KeyPair(m.certCertFilePath, m.certKeyFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to load certificate: %w", err)
+	}
 	m.rhp3WSTLS.Certificates = []tls.Certificate{certificate}
 	return nil
 }
