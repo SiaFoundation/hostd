@@ -4,7 +4,7 @@ go 1.21.6
 
 require (
 	github.com/aws/aws-sdk-go v1.51.2
-	github.com/cloudflare/cloudflare-go v0.89.0
+	github.com/cloudflare/cloudflare-go v0.90.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.3.1
@@ -60,8 +60,8 @@ require (
 	go.sia.tech/mux v1.2.0 // indirect
 	go.sia.tech/web v0.0.0-20231213145933-3f175a86abff // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.19.0 // indirect
-	golang.org/x/net v0.21.0 // indirect
+	golang.org/x/crypto v0.21.0 // indirect
+	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.16.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
