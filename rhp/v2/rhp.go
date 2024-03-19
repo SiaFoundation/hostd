@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/threadgroup"
@@ -216,6 +217,8 @@ func (sh *SessionHandler) Settings() (rhp2.HostSettings, error) {
 	}
 
 	return rhp2.HostSettings{
+		// build info
+		Release: "hostd " + build.Version(),
 		// protocol version
 		Version: Version,
 

@@ -9,7 +9,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.3.1
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	go.sia.tech/core v0.2.1
+	go.sia.tech/core v0.2.2-0.20240319144752-89e9456d4a2d
 	go.sia.tech/coreutils v0.0.3
 	go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640
 	go.sia.tech/renterd v1.0.5
