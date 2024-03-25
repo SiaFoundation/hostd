@@ -34,7 +34,7 @@ func (m *ConfigManager) Announce() error {
 	// get the current settings
 	settings := m.Settings()
 	// if no netaddress is set, override the field with the auto-discovered one
-	if len(settings.NetAddress) == 0 {
+	if settings.NetAddress == "" {
 		settings.NetAddress = m.discoveredRHPAddr
 	}
 

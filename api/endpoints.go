@@ -497,7 +497,7 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 	case "~":
 		var err error
 		path, err = os.UserHomeDir()
-		if err != nil || len(path) == 0 {
+		if err != nil || path == "" {
 			a.log.Debug("failed to get home dir", zap.Error(err), zap.String("path", path))
 			// try to get the working directory instead
 			path, err = os.Getwd()

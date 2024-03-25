@@ -487,7 +487,7 @@ func (s *RHP2Session) SectorRoots(ctx context.Context, offset, n uint64, price t
 
 	// execute the sector roots RPC
 	var resp rhp2.RPCSectorRootsResponse
-	if err = s.withTransport(ctx, func(t *rhp2.Transport) error {
+	err = s.withTransport(ctx, func(t *rhp2.Transport) error {
 		if err := t.WriteRequest(rhp2.RPCSectorRootsID, req); err != nil {
 			return err
 		} else if err := t.ReadResponse(&resp, uint64(4096+32*n)); err != nil {
@@ -497,7 +497,8 @@ func (s *RHP2Session) SectorRoots(ctx context.Context, offset, n uint64, price t
 		} else {
 			return nil
 		}
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 

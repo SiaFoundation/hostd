@@ -18,7 +18,7 @@ func (m *ConfigManager) reloadCertificates() error {
 	if _, err := os.Stat(m.certKeyFilePath); errors.Is(err, os.ErrNotExist) {
 		// if the certificate files do not exist, create a temporary certificate
 		addr := m.settings.NetAddress
-		if len(addr) == 0 {
+		if addr == "" {
 			addr = m.discoveredRHPAddr
 		}
 		addr, _, err := net.SplitHostPort(addr)

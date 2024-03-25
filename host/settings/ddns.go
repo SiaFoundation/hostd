@@ -75,7 +75,7 @@ func (m *ConfigManager) resetDDNS() {
 			}
 		}
 	}
-	if len(m.settings.DDNS.Provider) == 0 {
+	if m.settings.DDNS.Provider == "" {
 		return
 	} else if m.ddnsUpdateTimer == nil {
 		m.ddnsUpdateTimer = time.AfterFunc(0, m.triggerDNSUpdate)
@@ -188,7 +188,7 @@ func (m *ConfigManager) UpdateDDNS(force bool) error {
 // are invalid. The Options field will be rewritten to ensure the JSON object
 // matches the expected schema.
 func validateDNSSettings(s *DNSSettings) error {
-	if len(s.Provider) == 0 {
+	if s.Provider == "" {
 		// clear DNS settings if provider is empty
 		s.IPv4 = false
 		s.IPv6 = false
@@ -205,9 +205,9 @@ func validateDNSSettings(s *DNSSettings) error {
 			return fmt.Errorf("failed to unmarshal cloudflare settings: %w", err)
 		}
 		switch {
-		case len(opts.Token) == 0:
+		case opts.Token == "":
 			return errors.New("token must be set")
-		case len(opts.ZoneID) == 0:
+		case opts.ZoneID == "":
 			return errors.New("zone id must be set")
 		}
 		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
@@ -215,7 +215,7 @@ func validateDNSSettings(s *DNSSettings) error {
 		var opts DuckDNSSettings
 		if err := json.Unmarshal(s.Options, &opts); err != nil {
 			return fmt.Errorf("failed to unmarshal duckdns settings: %w", err)
-		} else if len(opts.Token) == 0 {
+		} else if opts.Token == "" {
 			return errors.New("token must be set")
 		}
 		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
@@ -225,9 +225,9 @@ func validateDNSSettings(s *DNSSettings) error {
 			return fmt.Errorf("failed to unmarshal noip settings: %w", err)
 		}
 		switch {
-		case len(opts.Email) == 0:
+		case opts.Email == "":
 			return errors.New("email must be set")
-		case len(opts.Password) == 0:
+		case opts.Password == "":
 			return errors.New("password must be set")
 		}
 		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
@@ -237,11 +237,11 @@ func validateDNSSettings(s *DNSSettings) error {
 			return fmt.Errorf("failed to unmarshal route53 settings: %w", err)
 		}
 		switch {
-		case len(opts.ID) == 0:
+		case opts.ID == "":
 			return errors.New("id must be set")
-		case len(opts.Secret) == 0:
+		case opts.Secret == "":
 			return errors.New("secret must be set")
-		case len(opts.ZoneID) == 0:
+		case opts.ZoneID == "":
 			return errors.New("zone id must be set")
 		}
 		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema

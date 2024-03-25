@@ -366,18 +366,9 @@ func TestRemoveCorrupt(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
-		var sector [rhp2.SectorSize]byte
-		if _, err := frand.Read(sector[:256]); err != nil {
+		if _, err := storeRandomSector(vm, 1); err != nil {
 			t.Fatal(err)
 		}
-		root := rhp2.SectorRoot(&sector)
-
-		// write the sector
-		release, err := vm.Write(root, &sector)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer release()
 	}
 
 	// check that the volume metrics did not change
@@ -575,18 +566,9 @@ func TestRemoveMissing(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
-		var sector [rhp2.SectorSize]byte
-		if _, err := frand.Read(sector[:256]); err != nil {
+		if _, err := storeRandomSector(vm, 1); err != nil {
 			t.Fatal(err)
 		}
-		root := rhp2.SectorRoot(&sector)
-
-		// write the sector
-		release, err := vm.Write(root, &sector)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer release()
 	}
 
 	// attempt to remove the volume. Should return ErrMigrationFailed since
@@ -789,7 +771,7 @@ func TestVolumeDistribution(t *testing.T) {
 
 		_, err := vm.Write(root, &sector)
 		if err != nil {
-			t.Fatal("failed to store sector")
+			return fmt.Errorf("failed to write sector: %w", err)
 		}
 		return nil
 	}
@@ -914,17 +896,10 @@ func TestVolumeConcurrency(t *testing.T) {
 	// add a few sectors while the volume is initializing
 	roots := make([]types.Hash256, writeSectors)
 	for i := range roots {
-		var sector [rhp2.SectorSize]byte
-		if _, err := frand.Read(sector[:256]); err != nil {
-			t.Fatal(err)
-		}
-		root := rhp2.SectorRoot(&sector)
-		release, err := vm.Write(root, &sector)
+		roots[i], err = storeRandomSector(vm, 1)
 		if err != nil {
 			t.Fatal(i, err)
 		}
-		defer release()
-		roots[i] = root
 	}
 
 	// read the sectors back
@@ -1086,16 +1061,10 @@ func TestVolumeGrow(t *testing.T) {
 	// fill the volume
 	roots := make([]types.Hash256, 0, initialSectors)
 	for i := 0; i < int(initialSectors); i++ {
-		var sector [rhp2.SectorSize]byte
-		if _, err := frand.Read(sector[:256]); err != nil {
+		root, err := storeRandomSector(vm, 1)
+		if err != nil {
 			t.Fatal(err)
 		}
-		root := rhp2.SectorRoot(&sector)
-		release, err := vm.Write(root, &sector)
-		if err != nil {
-			t.Fatal(i, err)
-		}
-		defer release()
 		roots = append(roots, root)
 	}
 
@@ -1208,16 +1177,10 @@ func TestVolumeShrink(t *testing.T) {
 	roots := make([]types.Hash256, 0, sectors)
 	// fill the volume
 	for i := 0; i < cap(roots); i++ {
-		var sector [rhp2.SectorSize]byte
-		if _, err := frand.Read(sector[:256]); err != nil {
+		root, err := storeRandomSector(vm, uint64(i))
+		if err != nil {
 			t.Fatal(err)
 		}
-		root := rhp2.SectorRoot(&sector)
-		release, err := vm.Write(root, &sector)
-		if err != nil {
-			t.Fatal(i, err)
-		}
-		defer release()
 		roots = append(roots, root)
 
 		// validate the volume stats are correct
@@ -1228,31 +1191,28 @@ func TestVolumeShrink(t *testing.T) {
 		if volumes[0].UsedSectors != uint64(i+1) {
 			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
 		}
+	}
 
-		// add a temp sector to bind the location
-		err = vm.AddTemporarySectors([]storage.TempSector{
-			{Root: root, Expiration: uint64(i)},
-		})
+	sectorLocation := func(root types.Hash256) (storage.SectorLocation, error) {
+		loc, release, err := db.SectorLocation(root)
 		if err != nil {
-			t.Fatal(err)
+			return loc, err
 		} else if err := release(); err != nil {
-			t.Fatal(err)
+			return loc, err
 		}
+		return loc, nil
 	}
 
 	// validate that each sector was stored in the expected location
 	for i, root := range roots {
-		loc, release, err := db.SectorLocation(root)
+		loc, err := sectorLocation(root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 		if loc.Volume != volume.ID {
 			t.Fatal(err)
 		} else if loc.Index != uint64(i) {
 			t.Fatalf("expected sector %v to be at index %v, got %v", root, i, loc.Index)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
 		}
 	}
 
@@ -1296,17 +1256,14 @@ func TestVolumeShrink(t *testing.T) {
 
 	// validate that the sectors were moved to the beginning of the volume
 	for i, root := range roots {
-		loc, release, err := db.SectorLocation(root)
+		loc, err := sectorLocation(root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 		if loc.Volume != volume.ID {
 			t.Fatal(err)
 		} else if loc.Index != uint64(i) {
 			t.Fatalf("expected sector %v to be at index %v, got %v", root, i, loc.Index)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
 		}
 	}
 }
@@ -1381,20 +1338,10 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	roots := make([]types.Hash256, 0, sectors)
 	// fill the volume
 	for i := 0; i < cap(roots); i++ {
-		var sector [rhp2.SectorSize]byte
-		if _, err := frand.Read(sector[:256]); err != nil {
+		root, err := storeRandomSector(vm, 1)
+		if err != nil {
 			t.Fatal(err)
 		}
-		root := rhp2.SectorRoot(&sector)
-		release, err := vm.Write(root, &sector)
-		if err != nil {
-			t.Fatal(i, err)
-		}
-		defer func() {
-			if err := release(); err != nil {
-				t.Fatal(err)
-			}
-		}()
 		roots = append(roots, root)
 
 		// validate the volume stats are correct
@@ -1419,6 +1366,25 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
 		}
 	}
+}
+
+func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash256, error) {
+	var sector [rhp2.SectorSize]byte
+	if _, err := frand.Read(sector[:256]); err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to generate random sector: %w", err)
+	}
+	root := rhp2.SectorRoot(&sector)
+	release, err := vm.Write(root, &sector)
+	if err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to write sector: %w", err)
+	}
+	defer release()
+
+	err = vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: expiration}})
+	if err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to add temporary sector: %w", err)
+	}
+	return root, release()
 }
 
 func TestSectorCache(t *testing.T) {
@@ -1491,24 +1457,11 @@ func TestSectorCache(t *testing.T) {
 	roots := make([]types.Hash256, 0, sectors)
 	// fill the volume
 	for i := 0; i < cap(roots); i++ {
-		var sector [rhp2.SectorSize]byte
-		if _, err := frand.Read(sector[:256]); err != nil {
+		root, err := storeRandomSector(vm, uint64(i))
+		if err != nil {
 			t.Fatal(err)
 		}
-		root := rhp2.SectorRoot(&sector)
-		release, err := vm.Write(root, &sector)
-		if err != nil {
-			t.Fatal(i, err)
-		}
-		defer release()
 		roots = append(roots, root)
-
-		err = vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: uint64(i)}})
-		if err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
-			t.Fatal(err)
-		}
 
 		// validate the volume stats are correct
 		volumes, err := vm.Volumes()

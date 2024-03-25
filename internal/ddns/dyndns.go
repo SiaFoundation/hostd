@@ -89,7 +89,7 @@ func getIP(client *http.Client) (net.IP, error) {
 	}
 	str := strings.TrimSpace(string(buf))
 
-	if len(str) == 0 {
+	if str == "" {
 		return nil, ErrEmptyResponse
 	}
 

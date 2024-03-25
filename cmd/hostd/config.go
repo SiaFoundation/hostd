@@ -235,7 +235,7 @@ func setAdvancedConfig() {
 }
 
 func setDataDirectory() {
-	if len(cfg.Directory) == 0 {
+	if cfg.Directory == "" {
 		cfg.Directory = "."
 	}
 

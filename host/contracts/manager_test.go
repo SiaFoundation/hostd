@@ -250,6 +250,15 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
 		}
 
+		var releaseFuncs []func() error
+		defer func() {
+			for _, release := range releaseFuncs {
+				if err := release(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}()
+
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
 			var sector [rhp2.SectorSize]byte
@@ -259,7 +268,7 @@ func TestContractLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer release()
+			releaseFuncs = append(releaseFuncs, release)
 			roots = append(roots, root)
 		}
 
@@ -294,7 +303,14 @@ func TestContractLifecycle(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+		}
+		for _, release := range releaseFuncs {
+			if err := release(); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if m, err := node.Store().Metrics(time.Now()); err != nil {
 			t.Fatal(err)
 		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
 			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
@@ -831,6 +847,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatalf("expected 0 risked collateral, got %v", m.Contracts.RiskedCollateral)
 		}
 
+		var releaseFuncs []func() error
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
 			var sector [rhp2.SectorSize]byte
@@ -840,7 +857,7 @@ func TestContractLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer release()
+			releaseFuncs = append(releaseFuncs, release)
 			roots = append(roots, root)
 		}
 
@@ -875,7 +892,16 @@ func TestContractLifecycle(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		} else if m, err := node.Store().Metrics(time.Now()); err != nil {
+		}
+
+		// release the sectors
+		for _, release := range releaseFuncs {
+			if err := release(); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if m, err := node.Store().Metrics(time.Now()); err != nil {
 			t.Fatal(err)
 		} else if !m.Contracts.LockedCollateral.Equals(hostCollateral) {
 			t.Fatalf("expected %v locked collateral, got %v", hostCollateral, m.Contracts.LockedCollateral)
@@ -1036,17 +1062,23 @@ func TestSectorRoots(t *testing.T) {
 
 	var roots []types.Hash256
 	for i := 0; i < sectors; i++ {
-		root := frand.Entropy256()
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer release()
+		root, err := func() (types.Hash256, error) {
+			root := frand.Entropy256()
+			release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+			if err != nil {
+				return types.Hash256{}, fmt.Errorf("failed to store sector: %w", err)
+			}
+			defer release()
 
-		// use the database method directly to avoid the sector cache
-		err = db.ReviseContract(rev, roots, contracts.Usage{}, []contracts.SectorChange{
-			{Action: contracts.SectorActionAppend, Root: root},
-		})
+			// use the database method directly to avoid the sector cache
+			err = db.ReviseContract(rev, roots, contracts.Usage{}, []contracts.SectorChange{
+				{Action: contracts.SectorActionAppend, Root: root},
+			})
+			if err != nil {
+				return types.Hash256{}, fmt.Errorf("failed to revise contract: %w", err)
+			}
+			return root, nil
+		}()
 		if err != nil {
 			t.Fatal(err)
 		}

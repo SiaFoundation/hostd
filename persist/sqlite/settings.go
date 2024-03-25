@@ -93,7 +93,7 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.ddns_provider, 
 	EXCLUDED.ddns_update_v4, EXCLUDED.ddns_update_v6, EXCLUDED.ddns_opts, EXCLUDED.sector_cache_size);`
 	var dnsOptsBuf []byte
-	if len(settings.DDNS.Provider) > 0 {
+	if settings.DDNS.Provider != "" {
 		var err error
 		dnsOptsBuf, err = json.Marshal(settings.DDNS.Options)
 		if err != nil {

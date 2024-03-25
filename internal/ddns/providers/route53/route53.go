@@ -96,13 +96,13 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 // ValidateOptions validates the options for the Route53 provider.
 func ValidateOptions(opts Options) error {
 	switch {
-	case len(opts.ID) == 0:
+	case opts.ID == "":
 		return errors.New("ID is required")
-	case len(opts.Secret) == 0:
+	case opts.Secret == "":
 		return errors.New("secret is required")
-	case len(opts.ZoneID) == 0:
+	case opts.ZoneID == "":
 		return errors.New("zone ID is required")
-	case len(opts.Hostname) == 0:
+	case opts.Hostname == "":
 		return errors.New("hostname is required")
 	}
 	return nil
