@@ -65,7 +65,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 			return fmt.Errorf("failed to get record id: %w", err)
 		}
 
-		if len(recordID) == 0 {
+		if recordID == "" {
 			_, err := client.CreateDNSRecord(ctx, zoneID, cloudflare.CreateDNSRecordParams{
 				Type:    "A",
 				Name:    p.opts.Hostname,
@@ -101,7 +101,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 			return fmt.Errorf("failed to get record id: %w", err)
 		}
 
-		if len(recordID) == 0 {
+		if recordID == "" {
 			_, err := client.CreateDNSRecord(ctx, zoneID, cloudflare.CreateDNSRecordParams{
 				Type:    "AAAA",
 				Name:    p.opts.Hostname,
@@ -136,11 +136,11 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 // ValidateOptions validates the options for the Cloudflare provider.
 func ValidateOptions(opts Options) error {
 	switch {
-	case len(opts.Token) == 0:
+	case opts.Token == "":
 		return errors.New("token is required")
-	case len(opts.ZoneID) == 0:
+	case opts.ZoneID == "":
 		return errors.New("zone id is required")
-	case len(opts.Hostname) == 0:
+	case opts.Hostname == "":
 		return errors.New("hostname is required")
 	}
 	return nil

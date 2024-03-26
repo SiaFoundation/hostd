@@ -105,6 +105,13 @@ func TestReviseContract(t *testing.T) {
 			} else if root != roots[i] {
 				return fmt.Errorf("sector root mismatch: expected %v, got %v", roots[i], root)
 			}
+
+			_, release, err := db.SectorLocation(root)
+			if err != nil {
+				return fmt.Errorf("failed to get sector location: %w", err)
+			} else if err := release(); err != nil {
+				return fmt.Errorf("failed to release sector location: %w", err)
+			}
 		}
 
 		m, err := db.Metrics(time.Now())
@@ -246,6 +253,14 @@ func TestReviseContract(t *testing.T) {
 			t.Log("revising contract:", test.name)
 			oldRoots := append([]types.Hash256(nil), roots...)
 			// update the expected roots
+			var releaseFuncs []func() error
+			defer func() {
+				for _, release := range releaseFuncs {
+					if err := release(); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}()
 			for i, change := range test.changes {
 				switch change.Action {
 				case contracts.SectorActionAppend:
@@ -255,7 +270,7 @@ func TestReviseContract(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					defer release()
+					releaseFuncs = append(releaseFuncs, release)
 					test.changes[i].Root = root
 					roots = append(roots, root)
 				case contracts.SectorActionUpdate:
@@ -265,7 +280,7 @@ func TestReviseContract(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					defer release()
+					releaseFuncs = append(releaseFuncs, release)
 					test.changes[i].Root = root
 
 					if test.errors && change.A >= uint64(len(roots)) { // test failure
@@ -291,9 +306,17 @@ func TestReviseContract(t *testing.T) {
 					return
 				}
 				t.Fatal(err)
-			} else if err == nil && test.errors {
+			} else if test.errors {
 				t.Fatal("expected error")
-			} else if err := checkConsistency(roots, test.sectors); err != nil {
+			}
+
+			for _, release := range releaseFuncs {
+				if err := release(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := checkConsistency(roots, test.sectors); err != nil {
 				t.Fatal(err)
 			}
 		}()

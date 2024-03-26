@@ -41,5 +41,5 @@ func (a *api) handleGETSessionsSubscribe(c jape.Context) {
 		conn: wsc,
 	}
 	a.sessions.Subscribe(sub)
-	defer a.sessions.Unsubscribe(sub)
+	a.sessions.Unsubscribe(sub)
 }

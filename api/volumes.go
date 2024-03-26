@@ -140,7 +140,7 @@ func (a *api) handlePOSTVolume(c jape.Context) {
 	var req AddVolumeRequest
 	if err := c.Decode(&req); err != nil {
 		return
-	} else if len(req.LocalPath) == 0 {
+	} else if req.LocalPath == "" {
 		c.Error(errors.New("local path is required"), http.StatusBadRequest)
 		return
 	} else if req.MaxSectors == 0 {

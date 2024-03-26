@@ -208,11 +208,11 @@ func (sh *SessionHandler) Settings() (rhp2.HostSettings, error) {
 	}
 
 	netaddr := settings.NetAddress
-	if len(netaddr) == 0 {
+	if netaddr == "" {
 		netaddr = sh.settings.DiscoveredRHP2Address()
 	}
 	// if the net address is still empty, return an error
-	if len(netaddr) == 0 {
+	if netaddr == "" {
 		return rhp2.HostSettings{}, errors.New("no net address found")
 	}
 

@@ -347,7 +347,7 @@ func patchSettings(a, b map[string]any) error {
 		va, ok := a[k]
 		if !ok || va == nil {
 			a[k] = vb // value doesn't exist, set it
-		} else if va != nil && vb != nil && reflect.TypeOf(va) != reflect.TypeOf(vb) {
+		} else if vb != nil && reflect.TypeOf(va) != reflect.TypeOf(vb) {
 			return fmt.Errorf("invalid type for setting %q: expected %T, got %T", k, va, vb)
 		}
 

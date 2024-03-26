@@ -26,6 +26,7 @@ import (
 	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/sys/cpu"
 	"gopkg.in/yaml.v3"
 )
 
@@ -118,7 +119,7 @@ func openBrowser(url string) error {
 // the config file does not exist, it will not be loaded.
 func tryLoadConfig() {
 	configPath := "hostd.yml"
-	if str := os.Getenv(configPathEnvVariable); len(str) != 0 {
+	if str := os.Getenv(configPathEnvVariable); str != "" {
 		configPath = str
 	}
 
@@ -406,6 +407,9 @@ func main() {
 	}()
 
 	log.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
+	if runtime.GOARCH == "amd64" && !cpu.X86.HasAVX2 {
+		log.Warn("hostd is running on a system without AVX2 support, performance may be degraded")
+	}
 
 	go func() {
 		err := web.Serve(apiListener)

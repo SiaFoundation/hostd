@@ -577,6 +577,15 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	}
 	defer contractUpdater.Close()
 
+	var releaseSectors []func() error
+	defer func() {
+		for _, release := range releaseSectors {
+			if err := release(); err != nil {
+				log.Warn("failed to release sector", zap.Error(err))
+			}
+		}
+	}()
+
 	oldRoots := contractUpdater.SectorRoots()
 	for _, action := range req.Actions {
 		switch action.Type {
@@ -594,7 +603,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-			defer release()
+			releaseSectors = append(releaseSectors, release)
 			contractUpdater.AppendSector(root)
 		case rhp2.RPCWriteActionTrim:
 			if err := contractUpdater.TrimSectors(action.A); err != nil {
@@ -647,7 +656,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-			defer release()
+			releaseSectors = append(releaseSectors, release)
 		}
 	}
 

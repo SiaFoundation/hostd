@@ -80,9 +80,9 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 // ValidateOptions validates the options for the DuckDNS provider.
 func ValidateOptions(opts Options) error {
 	switch {
-	case len(opts.Token) == 0:
+	case opts.Token == "":
 		return errors.New("token is required")
-	case len(opts.Hostname) == 0:
+	case opts.Hostname == "":
 		return errors.New("hostname is required")
 	}
 	return nil

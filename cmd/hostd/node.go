@@ -55,7 +55,7 @@ type node struct {
 	rhp3     *rhp3.SessionHandler
 }
 
-func (n *node) Close() error {
+func (n *node) Close() {
 	n.rhp3.Close()
 	n.rhp2.Close()
 	n.data.Close()
@@ -68,7 +68,6 @@ func (n *node) Close() error {
 	n.g.Close()
 	n.wh.Close()
 	n.store.Close()
-	return nil
 }
 
 func startRHP2(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cs rhp2.ChainManager, tp rhp2.TransactionPool, w rhp2.Wallet, cm rhp2.ContractManager, sr rhp2.SettingsReporter, sm rhp2.StorageManager, monitor rhp.DataMonitor, sessions *rhp.SessionReporter, log *zap.Logger) (*rhp2.SessionHandler, error) {
