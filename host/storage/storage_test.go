@@ -257,7 +257,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,18 +272,48 @@ func TestRemoveVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var sector [rhp2.SectorSize]byte
-	if _, err := frand.Read(sector[:256]); err != nil {
-		t.Fatal(err)
-	}
-	root := rhp2.SectorRoot(&sector)
+	roots := make([]types.Hash256, 10)
+	for i := range roots {
+		var sector [rhp2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal(err)
+		}
+		roots[i] = rhp2.SectorRoot(&sector)
 
-	// write the sector
-	release, err := vm.Write(root, &sector)
-	if err != nil {
-		t.Fatal(err)
+		// write the sector
+		release, err := vm.Write(roots[i], &sector)
+		if err != nil {
+			t.Fatal(err)
+		} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: roots[i], Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
+			t.Fatal(err)
+		} else if err := release(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	defer release()
+
+	checkRoots := func(roots []types.Hash256) error {
+		for _, root := range roots {
+			sector, err := vm.Read(root)
+			if err != nil {
+				return fmt.Errorf("failed to read sector: %w", err)
+			} else if rhp2.SectorRoot(sector) != root {
+				return errors.New("sector was corrupted")
+			}
+		}
+		return nil
+	}
+
+	checkVolume := func(id int64, used, total uint64) error {
+		vol, err := vm.Volume(id)
+		if err != nil {
+			return fmt.Errorf("failed to get volume: %w", err)
+		} else if vol.UsedSectors != used {
+			return fmt.Errorf("expected %v used sectors, got %v", used, vol.UsedSectors)
+		} else if vol.TotalSectors != total {
+			return fmt.Errorf("expected %v total sectors, got %v", total, vol.TotalSectors)
+		}
+		return nil
+	}
 
 	// attempt to remove the volume. Should return ErrMigrationFailed since
 	// there is only one volume.
@@ -295,12 +325,57 @@ func TestRemoveVolume(t *testing.T) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
-	// remove the sector
-	if err := vm.RemoveSector(root); err != nil {
+	// check that the volume metrics did not change
+	if err := checkRoots(roots); err != nil {
+		t.Fatal(err)
+	} else if err := checkVolume(volume.ID, 10, expectedSectors); err != nil {
 		t.Fatal(err)
 	}
 
-	// remove the volume
+	// add a second volume with enough space to migrate half the sectors
+	volume2, err := vm.AddVolume(context.Background(), filepath.Join(t.TempDir(), "hostdata2.dat"), uint64(len(roots)/2), result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkVolume(volume2.ID, 0, uint64(len(roots)/2)); err != nil {
+		t.Fatal(err)
+	}
+
+	// remove the volume first volume. Should still fail with ErrMigrationFailed,
+	// but some sectors should be migrated to the second volume.
+	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
+		t.Fatal(err)
+	}
+
+	if err := checkRoots(roots); err != nil {
+		t.Fatal(err)
+	} else if err := checkVolume(volume.ID, 5, expectedSectors); err != nil { // half the sectors should have been migrated
+		t.Fatal(err)
+	} else if err := checkVolume(volume2.ID, 5, uint64(len(roots)/2)); err != nil {
+		t.Fatal(err)
+	}
+
+	// expand the second volume to accept the remaining sectors
+	if err := vm.ResizeVolume(context.Background(), volume2.ID, expectedSectors, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkVolume(volume2.ID, 5, expectedSectors); err != nil {
+		t.Fatal(err)
+	} else if err := checkVolume(volume.ID, 5, expectedSectors); err != nil {
+		t.Fatal(err)
+	} else if err := checkRoots(roots); err != nil {
+		t.Fatal(err)
+	}
+
+	// remove the first volume
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
 		t.Fatal(err)
 	} else if err := <-result; err != nil {
@@ -550,7 +625,7 @@ func TestRemoveMissing(t *testing.T) {
 	}
 
 	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

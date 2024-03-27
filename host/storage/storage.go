@@ -602,25 +602,25 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 			return
 		}
 
-		// close the volume and remove it from memory
-		if err := vol.Close(); err != nil {
-			log.Error("failed to close volume", zap.Error(err))
-			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
-			result <- err
-			return
-		} else if err := os.Remove(stat.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Error("failed to remove volume file", zap.Error(err))
+		// remove the volume from the volume store
+		if err := vm.vs.RemoveVolume(id, force); err != nil {
+			log.Error("failed to remove volume", zap.Error(err))
+			// update the alert
 			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
 			result <- err
 			return
 		}
 		delete(vm.volumes, id)
 
-		// remove the volume from the volume store
-		if err := vm.vs.RemoveVolume(id, force); err != nil {
-			log.Error("failed to remove volume", zap.Error(err))
-			// update the alert
-			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
+		// close the volume file and remove it from disk
+		if err := vol.Close(); err != nil {
+			log.Error("failed to close volume", zap.Error(err))
+			updateRemovalAlert("Failed to close volume files", alerts.SeverityError, err)
+			result <- err
+			return
+		} else if err := os.Remove(stat.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Error("failed to remove volume file", zap.Error(err))
+			updateRemovalAlert("Failed to delete volume file", alerts.SeverityError, err)
 			result <- err
 			return
 		}
