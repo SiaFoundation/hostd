@@ -337,7 +337,7 @@ func (pe *programExecutor) executeSwapSector(instr *rhp3.InstrSwapSector, log *z
 	return output, proof, nil
 }
 
-func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, log *zap.Logger) ([]byte, []types.Hash256, error) {
+func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ *zap.Logger) ([]byte, []types.Hash256, error) {
 	offset, length := instr.Offset, instr.Length
 	// read the patch
 	patch, err := pe.programData.Bytes(instr.DataOffset, length)
@@ -419,7 +419,7 @@ func (pe *programExecutor) executeStoreSector(instr *rhp3.InstrStoreSector, log 
 	return root[:], nil
 }
 
-func (pe *programExecutor) executeRevision(instr *rhp3.InstrRevision) ([]byte, error) {
+func (pe *programExecutor) executeRevision(*rhp3.InstrRevision) ([]byte, error) {
 	// pay for execution
 	cost := pe.priceTable.RevisionCost()
 	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
