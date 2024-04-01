@@ -206,8 +206,8 @@ go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640 h1:mSaJ622P7T/M97dAK8iPV+
 go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640/go.mod h1:4QqmBB+t3W7cNplXPj++ZqpoUb2PeiS66RLpXmEGap4=
 go.sia.tech/mux v1.2.0 h1:ofa1Us9mdymBbGMY2XH/lSpY8itFsKIo/Aq8zwe+GHU=
 go.sia.tech/mux v1.2.0/go.mod h1:Yyo6wZelOYTyvrHmJZ6aQfRoer3o4xyKQ4NmQLJrBSo=
-go.sia.tech/renterd v1.0.5 h1:qb7tLBthF5ocHaSqgy+yGBkdFKOT4NAEEx8BIX3zzCs=
-go.sia.tech/renterd v1.0.5/go.mod h1:0y3agucuCIp1L7W2tRjksvcJIsTZfoC9TZc3h8ie1kU=
+go.sia.tech/renterd v1.0.6 h1:VgmgjDKANEmwoT0oMZ3F/cznDhuBL2sAU1AbV0gx/w4=
+go.sia.tech/renterd v1.0.6/go.mod h1:TEe/dtuI7B1GqZVsxcqY2qXM24eZ8MYAzkc5+c8p8Fk=
 go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca h1:aZMg2AKevn7jKx+wlusWQfwSM5pNU9aGtRZme29q3O4=
 go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca/go.mod h1:h/1afFwpxzff6/gG5i1XdAgPK7dEY6FaibhK7N5F86Y=
 go.sia.tech/web v0.0.0-20231213145933-3f175a86abff h1:/nE7nhewDRxzEdtSKT4SkiUwtjPSiy7Xz7CHEW3MaGQ=
