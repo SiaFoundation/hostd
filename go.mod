@@ -3,7 +3,7 @@ module go.sia.tech/hostd
 go 1.21.6
 
 require (
-	github.com/aws/aws-sdk-go v1.51.7
+	github.com/aws/aws-sdk-go v1.51.12
 	github.com/cloudflare/cloudflare-go v0.92.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
