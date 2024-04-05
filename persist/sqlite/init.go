@@ -35,18 +35,10 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 	log := s.log.Named("migrations")
 	log.Info("migrating database", zap.Int64("current", current), zap.Int64("target", target))
 
-	// disable foreign key constraints during migration
-	if _, err := s.db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
-		return fmt.Errorf("failed to disable foreign key constraints: %w", err)
-	}
-	defer func() {
-		// re-enable foreign key constraints
-		if _, err := s.db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-			log.Panic("failed to enable foreign key constraints", zap.Error(err))
-		}
-	}()
-
 	return s.transaction(func(tx txn) error {
+		if _, err := tx.Exec("PRAGMA defer_foreign_keys=ON"); err != nil {
+			return fmt.Errorf("failed to enable foreign key deferral: %w", err)
+		}
 		for _, fn := range migrations[current-1:] {
 			current++
 			start := time.Now()
