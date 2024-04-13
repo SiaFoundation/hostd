@@ -205,11 +205,6 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhp3.HostPriceTable, s *r
 	}
 
 	settings := sh.settings.Settings()
-	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
-	}
-
 	// credit the account with the deposit
 	hostSig := sh.privateKey.SignHash(sigHash)
 	fundReq := accounts.FundAccountWithContract{
