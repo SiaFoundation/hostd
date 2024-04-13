@@ -3,6 +3,7 @@ package rhp_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -83,6 +84,105 @@ func TestPriceTable(t *testing.T) {
 	pt.UID = retrieved.UID
 	if !reflect.DeepEqual(pt, retrieved) {
 		t.Fatal("price tables don't match")
+	}
+}
+
+func TestFundAccount(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	renter, host, err := test.NewTestingPair(t.TempDir(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer renter.Close()
+	defer host.Close()
+
+	store := host.Store()
+	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(1), types.Siacoins(2), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// register the price table
+	account := rhp3.Account(renter.PublicKey())
+	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
+	if _, err := session.RegisterPriceTable(payment); err != nil {
+		t.Fatal(err)
+	}
+
+	assertFunding := func(n int, value types.Currency) error {
+		funding, err := store.AccountFunding(account)
+		if err != nil {
+			return fmt.Errorf("failed to get funding")
+		} else if len(funding) != n {
+			return fmt.Errorf("expected %d sources, got %d", n, len(funding))
+		}
+		var total types.Currency
+		for _, source := range funding {
+			total = total.Add(source.Amount)
+		}
+		if !total.Equals(value) {
+			return fmt.Errorf("expected %d funded, got %d", total, value)
+		}
+		return nil
+	}
+
+	// assert that the funding didn't change
+	if err := assertFunding(0, types.ZeroCurrency); err != nil {
+		t.Fatal(err)
+	}
+
+	// try to fund more than the contract amount
+	if _, err := session.FundAccount(account, payment, types.Siacoins(2)); err == nil {
+		t.Fatalf("expected error")
+	} else {
+		t.Log(err)
+	}
+
+	// assert that the funding didn't change
+	if err := assertFunding(0, types.ZeroCurrency); err != nil {
+		t.Fatal(err)
+	}
+
+	// fund the account
+	fundAmount := types.Siacoins(1).Div64(100)
+	expectedBalance := fundAmount
+	if balance, err := session.FundAccount(account, payment, fundAmount); err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(expectedBalance) {
+		t.Fatalf("expected balance %d, got %d", expectedBalance, balance)
+	} else if err := assertFunding(1, expectedBalance); err != nil {
+		t.Fatal(err)
+	}
+
+	revision2, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(1), types.Siacoins(2), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payment = proto3.ContractPayment(&revision2, renter.PrivateKey(), account)
+	// try to fund more than the contract amount
+	if _, err := session.FundAccount(account, payment, types.Siacoins(2)); err == nil {
+		t.Fatalf("expected error")
+	} else if err := assertFunding(1, fundAmount); err != nil {
+		// funding shouldn't change
+		t.Fatal(err)
+	}
+
+	// fund the account with the second contract
+	fundAmount = types.Siacoins(1).Div64(2)
+	expectedBalance = expectedBalance.Add(fundAmount)
+	if balance, err := session.FundAccount(account, payment, fundAmount); err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(expectedBalance) {
+		t.Fatalf("expected balance %d, got %d", expectedBalance, balance)
+	} else if err := assertFunding(2, expectedBalance); err != nil {
+		t.Fatal(err)
 	}
 }
 
