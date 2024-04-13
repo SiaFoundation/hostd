@@ -14,7 +14,7 @@ import (
 )
 
 // processContractPayment initializes an RPC budget using funds from a contract.
-func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, height uint64) (rhp3.Account, types.Currency, error) {
+func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, _ uint64) (rhp3.Account, types.Currency, error) {
 	var req rhp3.PayByContractRequest
 	if err := s.ReadRequest(&req, maxRequestSize); err != nil {
 		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to read contract payment request: %w", err)
@@ -60,11 +60,6 @@ func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, height uint64) 
 	}
 
 	settings := sh.settings.Settings()
-	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
-		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
-	}
-
 	hostSig := sh.privateKey.SignHash(sigHash)
 	fundReq := accounts.FundAccountWithContract{
 		Account: req.RefundAccount,
