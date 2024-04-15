@@ -1,12 +1,12 @@
-//go:build debug
-
 package sqlite
 
 import (
 	"fmt"
 	"time"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/metrics"
+	"go.uber.org/zap"
 )
 
 func getMetrics(tx txn) (m metrics.Metrics, err error) {
@@ -77,6 +77,51 @@ func getVolumeCachedSectors(tx txn) (map[int64]uint64, error) {
 		volumes[volumeID] = count
 	}
 	return volumes, nil
+}
+
+func getAccountFunding(tx txn) (deposits []fundAmount, err error) {
+	rows, err := tx.Query(`SELECT id, contract_id, amount FROM contract_account_funding`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var deposit fundAmount
+		if err := rows.Scan(&deposit.ID, &deposit.ContractID, (*sqlCurrency)(&deposit.Amount)); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		deposits = append(deposits, deposit)
+	}
+	return deposits, rows.Err()
+}
+
+// VerifyAccountFunding checks the account_funding column for consitency with
+// the recorded deposits.
+func (s *Store) VerifyAccountFunding() error {
+	log := s.log.Named("VerifyAccountFunding")
+	return s.transaction(func(tx txn) error {
+		fundSources, err := getAccountFunding(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get fund sources: %w", err)
+		}
+
+		contractAccountFunding := make(map[int64]types.Currency)
+
+		for _, source := range fundSources {
+			contractAccountFunding[source.ContractID] = contractAccountFunding[source.ContractID].Add(source.Amount)
+		}
+
+		for contractID, expectedFunding := range contractAccountFunding {
+			contract, err := getContract(tx, contractID)
+			if err != nil {
+				return fmt.Errorf("failed to get source contract %q: %w", contractID, err)
+			} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
+				log.Error("inconsistent account funding", zap.Stringer("contractID", contract.Revision.ParentID), zap.Stringer("expected", expectedFunding), zap.Stringer("actual", contract.Usage.AccountFunding))
+			}
+		}
+		return nil
+	})
 }
 
 // VerifyContractSectors verifies that all of the counts in the database are
