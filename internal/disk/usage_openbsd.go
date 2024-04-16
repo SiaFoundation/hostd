@@ -1,4 +1,4 @@
-//go:build !windows && !openbsd
+//go:build openbsd
 
 package disk
 
@@ -11,7 +11,7 @@ func Usage(p string) (free, total uint64, err error) {
 	if err := unix.Statfs(p, &stat); err != nil {
 		return 0, 0, err
 	}
-	return stat.Bfree * uint64(stat.Bsize), stat.Blocks * uint64(stat.Bsize), nil
+	return stat.F_bfree * uint64(stat.F_bsize), stat.F_blocks * uint64(stat.F_bsize), nil
 }
 
 // Drives returns the paths of all drives on Windows. It is a no-op on other systems
