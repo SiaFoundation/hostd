@@ -11,6 +11,9 @@ func Usage(p string) (free, total uint64, err error) {
 	if err := unix.Statfs(p, &stat); err != nil {
 		return 0, 0, err
 	}
+	// Linux-based systems and Darwin use bfree and blocks to represent the
+	// number of free and total blocks in the filesystem. Multiplying by f_bsize
+	// converts that to the number of free and total bytes of a filesystem.
 	return stat.Bfree * uint64(stat.Bsize), stat.Blocks * uint64(stat.Bsize), nil
 }
 
