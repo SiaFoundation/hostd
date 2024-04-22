@@ -549,6 +549,8 @@ func TestMigrateSectors(t *testing.T) {
 	volume2, err := addTestVolume(db, "test2", initialSectors/4)
 	if err != nil {
 		t.Fatal(err)
+	} else if err := db.SetReadOnly(volume.ID, true); err != nil { // set the volume to read-onl
+		t.Fatal(err)
 	}
 
 	// migrate the remaining sectors from the first volume; should partially complete

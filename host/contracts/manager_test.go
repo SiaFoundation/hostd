@@ -851,7 +851,7 @@ func TestContractLifecycle(t *testing.T) {
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
 			var sector [rhp2.SectorSize]byte
-			frand.Read(sector[:256])
+			frand.Read(sector[:])
 			root := rhp2.SectorRoot(&sector)
 			release, err := s.Write(root, &sector)
 			if err != nil {
@@ -971,7 +971,7 @@ func TestContractLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		} else if contract.Status != contracts.ContractStatusFailed {
-			t.Fatal("expected contract to be successful")
+			t.Fatalf("expected contract to be failed, got %q", contract.Status)
 		} else if contract.ResolutionHeight != 0 {
 			t.Fatalf("expected resolution height %v, got %v", 0, contract.ResolutionHeight)
 		} else if m, err := node.Store().Metrics(time.Now()); err != nil {

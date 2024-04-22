@@ -9,7 +9,6 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"lukechampine.com/frand"
 )
 
 type (
@@ -209,32 +208,15 @@ func (v *volume) Sync() error {
 	return err
 }
 
-func (v *volume) Resize(oldSectors, newSectors uint64) error {
+// Resize resizes the volume to the new number of sectors
+func (v *volume) Resize(newSectors uint64) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	if v.data == nil {
 		return ErrVolumeNotAvailable
 	}
-
-	if newSectors > oldSectors {
-		size := (newSectors - oldSectors) * rhp2.SectorSize // should never be more than 256 MiB
-		buf := make([]byte, size)
-		_, _ = frand.Read(buf) // frand will never return an error
-
-		v.mu.Lock()
-		defer v.mu.Unlock()
-
-		// write the data to the end of the file
-		if _, err := v.data.WriteAt(buf, int64(oldSectors*rhp2.SectorSize)); err != nil {
-			return err
-		}
-	} else {
-		v.mu.Lock()
-		defer v.mu.Unlock()
-
-		if err := v.data.Truncate(int64(newSectors * rhp2.SectorSize)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return v.data.Truncate(int64(newSectors * rhp2.SectorSize))
 }
 
 func (v *volume) Stats() VolumeStats {
