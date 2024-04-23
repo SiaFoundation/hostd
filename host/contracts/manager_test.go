@@ -772,6 +772,7 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer node.Close()
 
+		cm := node.ChainManager()
 		webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
 		if err != nil {
 			t.Fatal(err)
@@ -797,11 +798,19 @@ func TestContractLifecycle(t *testing.T) {
 		}
 		defer c.Close()
 
+		// waitForScan is a helper func to wait for the contract manager
+		// to catch up with chain manager
+		waitForScan := func() {
+			for cm.TipState().Index.Height != c.ScanHeight() {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+
 		// note: many more blocks than necessary are mined to ensure all forks have activated
 		if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(100 * time.Millisecond) // sync time
+		waitForScan()
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -828,7 +837,7 @@ func TestContractLifecycle(t *testing.T) {
 		if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(100 * time.Millisecond) // sync time
+		waitForScan()
 
 		contract, err = c.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -851,7 +860,7 @@ func TestContractLifecycle(t *testing.T) {
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
 			var sector [rhp2.SectorSize]byte
-			frand.Read(sector[:256])
+			frand.Read(sector[:])
 			root := rhp2.SectorRoot(&sector)
 			release, err := s.Write(root, &sector)
 			if err != nil {
@@ -914,12 +923,13 @@ func TestContractLifecycle(t *testing.T) {
 		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(100 * time.Millisecond) // sync time
+		waitForScan()
+
 		// confirm the revision
 		if err := node.MineBlocks(types.VoidAddress, 1); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(100 * time.Millisecond) // sync time
+		waitForScan()
 
 		contract, err = c.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -935,7 +945,7 @@ func TestContractLifecycle(t *testing.T) {
 		if err := node.MineBlocks(types.VoidAddress, int(remainingBlocks)); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(time.Second) // sync time
+		waitForScan()
 
 		// check that the contract is still active
 		contract, err = c.Contract(rev.Revision.ParentID)
@@ -971,7 +981,7 @@ func TestContractLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		} else if contract.Status != contracts.ContractStatusFailed {
-			t.Fatal("expected contract to be successful")
+			t.Fatalf("expected contract to be failed, got %q", contract.Status)
 		} else if contract.ResolutionHeight != 0 {
 			t.Fatalf("expected resolution height %v, got %v", 0, contract.ResolutionHeight)
 		} else if m, err := node.Store().Metrics(time.Now()); err != nil {

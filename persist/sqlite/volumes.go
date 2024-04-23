@@ -569,63 +569,46 @@ WHERE v.sector_id=$1`
 	return
 }
 
-// emptyLocationInVolume returns an empty location in the given volume. If
-// there is no space available, ErrNotEnoughStorage is returned.
-func emptyLocationInVolume(tx txn, volumeID int64) (loc storage.SectorLocation, err error) {
+// emptyLocation returns an empty location in a writable volume. If there is no
+// space available, ErrNotEnoughStorage is returned.
+func emptyLocation(tx txn) (loc storage.SectorLocation, err error) {
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index 
-FROM volume_sectors vs INDEXED BY volume_sectors_volume_id_sector_id_volume_index_compound
-LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
-WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND vs.volume_id=$1
-LIMIT 1;`
-	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
+	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
+	LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
+	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
+	WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND sv.available=true AND sv.read_only=false
+	ORDER BY vs.sector_writes ASC
+	LIMIT 1;`
+	err = tx.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrNotEnoughStorage
+		return
+	} else if err != nil {
+		return
 	}
+	_, err = tx.Exec(`UPDATE volume_sectors SET sector_writes=sector_writes+1 WHERE id=$1`, loc.ID)
 	return
 }
 
-// emptyLocation returns an empty location in a writable volume. If there is no
+// emptyLocationForMigration returns an empty location in a writable volume. If there is no
 // space available, ErrNotEnoughStorage is returned.
-func emptyLocation(tx txn) (storage.SectorLocation, error) {
-	const query = `SELECT id 
-FROM storage_volumes
-WHERE available=true AND read_only=false AND total_sectors-used_sectors > 0
-ORDER BY used_sectors ASC LIMIT 1;`
-	var volumeID int64
-	err := tx.QueryRow(query).Scan(&volumeID)
+func emptyLocationForMigration(tx txn, volumeID int64) (loc storage.SectorLocation, err error) {
+	const query = `SELECT vs.id, vs.volume_id, vs.volume_index 
+	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
+	LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
+	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
+	WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND sv.available=true AND sv.read_only=false AND vs.volume_id <> $1
+	ORDER BY vs.sector_writes ASC
+	LIMIT 1;`
+	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
-		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
+		err = storage.ErrNotEnoughStorage
+		return
 	} else if err != nil {
-		return storage.SectorLocation{}, fmt.Errorf("failed to get empty location: %w", err)
+		return
 	}
-
-	// note: there is a slight race here where all sectors in a volume could be
-	// locked, but not committed. This is unlikely to happen in practice, and
-	// the worst case is that the host fails to store a sector. The performance
-	// benefits of choosing a volume first far outweigh the downsides.
-	return emptyLocationInVolume(tx, volumeID)
-}
-
-// emptyLocationForMigration returns an empty location in a writable volume
-// other than the given volumeID. If there is no space available,
-// ErrNotEnoughStorage is returned.
-func emptyLocationForMigration(tx txn, oldVolumeID int64) (loc storage.SectorLocation, err error) {
-	const query = `SELECT id FROM storage_volumes
-WHERE available=true AND read_only=false AND total_sectors-used_sectors > 0 AND id<>$1
-ORDER BY used_sectors ASC LIMIT 1;`
-	var newVolumeID int64
-	err = tx.QueryRow(query, oldVolumeID).Scan(&newVolumeID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
-	} else if err != nil {
-		return storage.SectorLocation{}, fmt.Errorf("failed to get empty location: %w", err)
-	}
-
-	// note: there is a slight race here where all sectors in a volume could be
-	// locked, but not committed. This is unlikely to happen in practice, and
-	// the worst case is that the host fails to store a sector. The performance
-	// benefits of choosing a volume first far outweigh the downsides.
-	return emptyLocationInVolume(tx, newVolumeID)
+	_, err = tx.Exec(`UPDATE volume_sectors SET sector_writes=sector_writes+1 WHERE id=$1`, loc.ID)
+	return
 }
 
 // sectorForMigration returns the location of the first occupied sector in the

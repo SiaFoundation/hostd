@@ -225,7 +225,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int64, volume *volum
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
 		// progress tracking.
-		if err := volume.Resize(current, target); err != nil {
+		if err := volume.Resize(target); err != nil {
 			return fmt.Errorf("failed to expand volume data: %w", err)
 		} else if err := vm.vs.GrowVolume(id, target); err != nil {
 			return fmt.Errorf("failed to expand volume metadata: %w", err)
@@ -305,7 +305,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 
 		if err := vm.vs.ShrinkVolume(id, target); err != nil {
 			return fmt.Errorf("failed to shrink volume metadata: %w", err)
-		} else if err := volume.Resize(current, target); err != nil {
+		} else if err := volume.Resize(target); err != nil {
 			return fmt.Errorf("failed to shrink volume data to %v sectors: %w", current, err)
 		}
 

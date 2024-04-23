@@ -10,6 +10,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion27 adds the sector_writes column to the volume_sectors table to
+// more evenly distribute sector writes across disks.
+func migrateVersion27(tx txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`ALTER TABLE volume_sectors ADD COLUMN sector_writes INTEGER NOT NULL DEFAULT 0;
+DROP INDEX volume_sectors_volume_id_sector_id_volume_index_compound;
+DROP INDEX volume_sectors_volume_id_sector_id_volume_index_set_compound;
+CREATE INDEX volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound ON volume_sectors(sector_writes ASC, volume_id, sector_id, volume_index) WHERE sector_id IS NULL;`)
+	return err
+}
+
 // migrateVersion26 creates the host_pinned_settings table.
 func migrateVersion26(tx txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE TABLE host_pinned_settings (
@@ -753,4 +763,5 @@ var migrations = []func(tx txn, log *zap.Logger) error{
 	migrateVersion24,
 	migrateVersion25,
 	migrateVersion26,
+	migrateVersion27,
 }

@@ -55,10 +55,10 @@ CREATE TABLE volume_sectors (
 	volume_id INTEGER NOT NULL REFERENCES storage_volumes (id), -- all sectors will need to be migrated first when deleting a volume
 	volume_index INTEGER NOT NULL,
 	sector_id INTEGER UNIQUE REFERENCES stored_sectors (id),
+	sector_writes INTEGER NOT NULL DEFAULT 0,
 	UNIQUE (volume_id, volume_index)
 );
-CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_compound ON volume_sectors(volume_id, sector_id, volume_index) WHERE sector_id IS NULL;
-CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_set_compound ON volume_sectors (volume_id, sector_id, volume_index) WHERE sector_id IS NOT NULL;
+CREATE INDEX volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound ON volume_sectors(sector_writes ASC, volume_id, sector_id, volume_index) WHERE sector_id IS NULL;
 CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sector_id);
 CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
 CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index ASC);
