@@ -6,7 +6,7 @@ toolchain go1.21.8
 
 require (
 	github.com/aws/aws-sdk-go v1.51.26
-	github.com/cloudflare/cloudflare-go v0.93.0
+	github.com/cloudflare/cloudflare-go v0.94.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.4.0
