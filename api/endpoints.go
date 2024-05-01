@@ -75,12 +75,21 @@ func (a *api) handleGETHostState(c jape.Context) {
 		return
 	}
 
+	var baseURL string
+	if a.explorer != nil {
+		baseURL = a.explorer.BaseURL()
+	}
+
 	a.writeResponse(c, HostState{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
 		WalletAddress:    a.wallet.Address(),
 		StartTime:        startTime,
 		LastAnnouncement: announcement,
+		Explorer: ExplorerState{
+			Enabled: !a.explorerDisabled,
+			URL:     baseURL,
+		},
 		BuildState: BuildState{
 			Network:   build.NetworkName(),
 			Version:   build.Version(),
@@ -201,19 +210,10 @@ func (a *api) handlePATCHSettings(c jape.Context) {
 }
 
 func (a *api) handleGETPinnedSettings(c jape.Context) {
-	if a.pinned == nil {
-		c.Error(errors.New("pinned settings disabled"), http.StatusNotFound)
-		return
-	}
 	c.Encode(a.pinned.Pinned(c.Request.Context()))
 }
 
 func (a *api) handlePUTPinnedSettings(c jape.Context) {
-	if a.pinned == nil {
-		c.Error(errors.New("pinned settings disabled"), http.StatusNotFound)
-		return
-	}
-
 	var req pin.PinnedSettings
 	if err := c.Decode(&req); err != nil {
 		return

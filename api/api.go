@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/internal/explorer"
 	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/hostd/webhooks"
@@ -156,13 +158,26 @@ type (
 		wallet    Wallet
 		metrics   MetricManager
 		settings  Settings
-		pinned    PinnedSettings
 		sessions  RHPSessionReporter
+
+		explorerDisabled bool
+		explorer         *explorer.Explorer
+		pinned           PinnedSettings
 
 		volumeJobs volumeJobs
 		checks     integrityCheckJobs
 	}
 )
+
+func (a *api) requiresExplorer(h jape.Handler) jape.Handler {
+	return func(ctx jape.Context) {
+		if a.explorerDisabled {
+			ctx.Error(errors.New("explorer data is disabled"), http.StatusNotFound)
+			return
+		}
+		h(ctx)
+	}
+}
 
 // NewServer initializes the API
 func NewServer(name string, hostKey types.PublicKey, opts ...ServerOption) http.Handler {
@@ -170,6 +185,8 @@ func NewServer(name string, hostKey types.PublicKey, opts ...ServerOption) http.
 		hostKey: hostKey,
 		name:    name,
 		log:     zap.NewNop(),
+
+		explorerDisabled: true,
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -200,8 +217,8 @@ func NewServer(name string, hostKey types.PublicKey, opts ...ServerOption) http.
 		"PATCH /settings":           a.handlePATCHSettings,
 		"POST /settings/announce":   a.handlePOSTAnnounce,
 		"PUT /settings/ddns/update": a.handlePUTDDNSUpdate,
-		"GET /settings/pinned":      a.handleGETPinnedSettings,
-		"PUT /settings/pinned":      a.handlePUTPinnedSettings,
+		"GET /settings/pinned":      a.requiresExplorer(a.handleGETPinnedSettings),
+		"PUT /settings/pinned":      a.requiresExplorer(a.handlePUTPinnedSettings),
 		// metrics endpoints
 		"GET /metrics":         a.handleGETMetrics,
 		"GET /metrics/:period": a.handleGETPeriodMetrics,

@@ -59,6 +59,11 @@ func makeRequest(ctx context.Context, method, url string, requestBody, response 
 	return nil
 }
 
+// BaseURL returns the base URL of the Explorer.
+func (e *Explorer) BaseURL() string {
+	return e.url
+}
+
 // SiacoinExchangeRate returns the exchange rate for the given currency.
 func (e *Explorer) SiacoinExchangeRate(ctx context.Context, currency string) (rate float64, err error) {
 	err = makeRequest(ctx, http.MethodGet, fmt.Sprintf("%s/exchange-rate/siacoin/%s", e.url, currency), nil, &rate)

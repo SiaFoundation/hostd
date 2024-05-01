@@ -88,7 +88,7 @@ func startRHP3(l net.Listener, hostKey types.PrivateKey, cs rhp3.ChainManager, t
 	return rhp3, nil
 }
 
-func newNode(ctx context.Context, walletKey types.PrivateKey, logger *zap.Logger) (*node, types.PrivateKey, error) {
+func newNode(ctx context.Context, walletKey types.PrivateKey, ex *explorer.Explorer, logger *zap.Logger) (*node, types.PrivateKey, error) {
 	gatewayDir := filepath.Join(cfg.Directory, "gateway")
 	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create gateway dir: %w", err)
@@ -186,8 +186,6 @@ func newNode(ctx context.Context, walletKey types.PrivateKey, logger *zap.Logger
 
 	var pm *pin.Manager
 	if !cfg.Explorer.Disable {
-		ex := explorer.New(cfg.Explorer.URL)
-
 		pm, err = pin.NewManager(
 			pin.WithStore(db),
 			pin.WithSettings(sr),
