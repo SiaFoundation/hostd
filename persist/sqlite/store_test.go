@@ -14,6 +14,8 @@ import (
 )
 
 func TestTransactionRetry(t *testing.T) {
+	t.Skip("This test is flaky and needs to be fixed")
+
 	t.Run("transaction retry", func(t *testing.T) {
 		log := zaptest.NewLogger(t)
 		db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)

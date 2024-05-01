@@ -22,6 +22,7 @@ import (
 	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/config"
+	"go.sia.tech/hostd/internal/explorer"
 	"go.sia.tech/jape"
 	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
@@ -358,7 +359,18 @@ func main() {
 	}
 	defer rhp3WSListener.Close()
 
-	node, hostKey, err := newNode(ctx, walletKey, log)
+	var ex *explorer.Explorer
+	if !cfg.Explorer.Disable {
+		ex = explorer.New(cfg.Explorer.URL)
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		if _, err := ex.SiacoinExchangeRate(ctx, "usd"); err != nil {
+			log.Fatal("failed to get exchange rate", zap.Error(err))
+		}
+	}
+
+	node, hostKey, err := newNode(ctx, walletKey, ex, log)
 	if err != nil {
 		log.Fatal("failed to create node", zap.Error(err))
 	}
@@ -378,7 +390,11 @@ func main() {
 		api.ServerWithSettings(node.settings),
 		api.ServerWithWallet(node.w),
 		api.ServerWithLogger(log.Named("api")),
-		api.ServerWithPinnedSettings(node.pinned),
+	}
+
+	if !cfg.Explorer.Disable {
+		opts = append(opts, api.ServerWithExplorer(ex))
+		opts = append(opts, api.ServerWithPinnedSettings(node.pinned))
 	}
 
 	auth := jape.BasicAuth(cfg.HTTP.Password)

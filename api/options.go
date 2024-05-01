@@ -1,6 +1,9 @@
 package api
 
-import "go.uber.org/zap"
+import (
+	"go.sia.tech/hostd/internal/explorer"
+	"go.uber.org/zap"
+)
 
 // ServerOption is a functional option to configure an API server.
 type ServerOption func(*api)
@@ -72,6 +75,14 @@ func ServerWithMetricManager(m MetricManager) ServerOption {
 func ServerWithPinnedSettings(p PinnedSettings) ServerOption {
 	return func(a *api) {
 		a.pinned = p
+	}
+}
+
+// ServerWithExplorer sets the explorer for the API server.
+func ServerWithExplorer(explorer *explorer.Explorer) ServerOption {
+	return func(a *api) {
+		a.explorerDisabled = false
+		a.explorer = explorer
 	}
 }
 

@@ -53,6 +53,12 @@ type (
 		BuildTime time.Time `json:"buildTime"`
 	}
 
+	// ExplorerState contains static information about explorer data sources.
+	ExplorerState struct {
+		Enabled bool   `json:"enabled"`
+		URL     string `json:"url"`
+	}
+
 	// HostState is the response body for the [GET] /state/host endpoint.
 	HostState struct {
 		Name             string                `json:"name,omitempty"`
@@ -60,6 +66,7 @@ type (
 		LastAnnouncement settings.Announcement `json:"lastAnnouncement"`
 		WalletAddress    types.Address         `json:"walletAddress"`
 		StartTime        time.Time             `json:"startTime"`
+		Explorer         ExplorerState         `json:"explorer"`
 		BuildState
 	}
 
