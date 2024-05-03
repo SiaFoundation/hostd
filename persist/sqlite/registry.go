@@ -40,10 +40,10 @@ func (s *Store) SetRegistryValue(entry rhp3.RegistryEntry, expiration uint64) er
 		err := tx.QueryRow(selectQuery, sqlHash256(registryKey)).Scan((*sqlHash256)(&registryKey))
 		if errors.Is(err, sql.ErrNoRows) {
 			// key doesn't exist, insert it
-			count, max, err := registryLimits(tx)
+			count, limit, err := registryLimits(tx)
 			if err != nil {
 				return fmt.Errorf("failed to get registry limits: %w", err)
-			} else if count >= max {
+			} else if count >= limit {
 				return registry.ErrNotEnoughSpace
 			}
 			err = tx.QueryRow(insertQuery, sqlHash256(registryKey), sqlUint64(entry.Revision), entry.Type, sqlHash512(entry.Signature), entry.Data, sqlUint64(expiration)).Scan((*sqlHash256)(&registryKey))
@@ -62,11 +62,11 @@ func (s *Store) SetRegistryValue(entry rhp3.RegistryEntry, expiration uint64) er
 
 // RegistryEntries returns the current number of entries as well as the
 // maximum number of entries the registry can hold.
-func (s *Store) RegistryEntries() (count, max uint64, err error) {
+func (s *Store) RegistryEntries() (count, limit uint64, err error) {
 	return registryLimits(&dbTxn{s})
 }
 
-func registryLimits(tx txn) (count, max uint64, err error) {
-	err = tx.QueryRow(`SELECT COALESCE(COUNT(re.registry_key), 0), COALESCE(hs.registry_limit, 0) FROM host_settings hs LEFT JOIN registry_entries re ON (true);`).Scan(&count, &max)
+func registryLimits(tx txn) (count, limit uint64, err error) {
+	err = tx.QueryRow(`SELECT COALESCE(COUNT(re.registry_key), 0), COALESCE(hs.registry_limit, 0) FROM host_settings hs LEFT JOIN registry_entries re ON (true);`).Scan(&count, &limit)
 	return
 }

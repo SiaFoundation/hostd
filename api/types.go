@@ -285,9 +285,9 @@ func SetMaxCollateral(collateral types.Currency) Setting {
 }
 
 // SetMaxAccountBalance sets the MaxAccountBalance
-func SetMaxAccountBalance(max types.Currency) Setting {
+func SetMaxAccountBalance(value types.Currency) Setting {
 	return func(v map[string]any) {
-		v[settingMaxAccountBalance] = max
+		v[settingMaxAccountBalance] = value
 	}
 }
 
