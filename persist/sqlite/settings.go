@@ -23,7 +23,10 @@ FROM host_pinned_settings;`
 
 	err = s.queryRow(query).Scan(&pinned.Currency, &pinned.Threshold, &pinned.Storage.Pinned, &pinned.Storage.Value, &pinned.Ingress.Pinned, &pinned.Ingress.Value, &pinned.Egress.Pinned, &pinned.Egress.Value, &pinned.MaxCollateral.Pinned, &pinned.MaxCollateral.Value)
 	if errors.Is(err, sql.ErrNoRows) {
-		return pin.PinnedSettings{}, nil
+		return pin.PinnedSettings{
+			Currency:  "usd",
+			Threshold: 0.02,
+		}, nil
 	}
 	return
 }
