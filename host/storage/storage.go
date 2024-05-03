@@ -461,8 +461,6 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 	vm.vs.SetAvailable(volumeID, true)
 
 	go func() {
-		defer vol.SetStatus(VolumeStatusReady)
-
 		log := vm.log.Named("initialize").With(zap.Int64("volumeID", volumeID), zap.Uint64("maxSectors", maxSectors))
 		start := time.Now()
 
@@ -486,7 +484,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 			alert.Severity = alerts.SeverityInfo
 		}
 		vm.a.Register(alert)
-
+		vol.SetStatus(VolumeStatusReady)
 		select {
 		case result <- err:
 		default:
@@ -565,8 +563,6 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 	}
 
 	go func() {
-		defer vol.SetStatus(oldStatus)
-
 		var migrated, failed int
 
 		updateRemovalAlert := func(message string, severity alerts.Severity, err error) {
@@ -580,53 +576,56 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 			vm.a.Register(alert)
 		}
 
-		migrated, failed, err := vm.vs.MigrateSectors(ctx, id, 0, func(newLoc SectorLocation) error {
-			err := vm.migrateSector(newLoc)
+		doMigration := func() error {
+			migrated, failed, err = vm.vs.MigrateSectors(ctx, id, 0, func(newLoc SectorLocation) error {
+				err := vm.migrateSector(newLoc)
+				if err != nil {
+					failed++
+				} else {
+					migrated++
+				}
+				updateRemovalAlert("Removing volume", alerts.SeverityInfo, nil) // error is ignored during migration
+				return err
+			})
 			if err != nil {
-				failed++
-			} else {
-				migrated++
+				log.Error("failed to migrate sectors", zap.Error(err))
+				// update the alert
+				updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
+				return err
+			} else if !force && failed > 0 {
+				updateRemovalAlert("Failed to remove volume", alerts.SeverityError, ErrMigrationFailed)
+				return ErrMigrationFailed
 			}
-			updateRemovalAlert("Removing volume", alerts.SeverityInfo, nil) // error is ignored during migration
-			return err
-		})
-		if err != nil {
-			log.Error("failed to migrate sectors", zap.Error(err))
-			// update the alert
-			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
-			result <- err
-			return
-		} else if !force && failed > 0 {
-			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, ErrMigrationFailed)
-			result <- ErrMigrationFailed
-			return
+
+			// remove the volume from the volume store
+			if err := vm.vs.RemoveVolume(id, force); err != nil {
+				log.Error("failed to remove volume", zap.Error(err))
+				// update the alert
+				updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
+				return err
+			}
+			delete(vm.volumes, id)
+
+			// close the volume file and remove it from disk
+			if err := vol.Close(); err != nil {
+				log.Error("failed to close volume", zap.Error(err))
+				updateRemovalAlert("Failed to close volume files", alerts.SeverityError, err)
+				return err
+			} else if err := os.Remove(stat.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				log.Error("failed to remove volume file", zap.Error(err))
+				updateRemovalAlert("Failed to delete volume file", alerts.SeverityError, err)
+				return err
+			}
+			updateRemovalAlert("Volume removed", alerts.SeverityInfo, nil)
+			return nil
 		}
 
-		// remove the volume from the volume store
-		if err := vm.vs.RemoveVolume(id, force); err != nil {
-			log.Error("failed to remove volume", zap.Error(err))
-			// update the alert
-			updateRemovalAlert("Failed to remove volume", alerts.SeverityError, err)
-			result <- err
-			return
+		err := doMigration()
+		vol.SetStatus(oldStatus)
+		select {
+		case result <- err:
+		default:
 		}
-		delete(vm.volumes, id)
-
-		// close the volume file and remove it from disk
-		if err := vol.Close(); err != nil {
-			log.Error("failed to close volume", zap.Error(err))
-			updateRemovalAlert("Failed to close volume files", alerts.SeverityError, err)
-			result <- err
-			return
-		} else if err := os.Remove(stat.LocalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Error("failed to remove volume file", zap.Error(err))
-			updateRemovalAlert("Failed to delete volume file", alerts.SeverityError, err)
-			result <- err
-			return
-		}
-
-		updateRemovalAlert("Volume removed", alerts.SeverityInfo, nil)
-		result <- nil
 	}()
 
 	return nil
@@ -670,20 +669,12 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 
 	go func() {
 		log := vm.log.Named("resize").With(zap.Int64("volumeID", id))
-
-		defer func() {
-			if resetReadOnly {
-				// reset the volume to read-write
-				if err := vm.vs.SetReadOnly(id, false); err != nil {
-					vm.log.Error("failed to set volume to read-write", zap.Error(err))
-				}
-			}
-			vol.SetStatus(VolumeStatusReady)
-		}()
-
 		ctx, cancel, err := vm.tg.AddContext(ctx)
 		if err != nil {
-			result <- err
+			select {
+			case result <- err:
+			default:
+			}
 			return
 		}
 		defer cancel()
@@ -722,6 +713,13 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 			alert.Severity = alerts.SeverityInfo
 		}
 		vm.a.Register(alert)
+		if resetReadOnly {
+			// reset the volume to read-write
+			if err := vm.vs.SetReadOnly(id, false); err != nil {
+				vm.log.Error("failed to set volume to read-write", zap.Error(err))
+			}
+		}
+		vol.SetStatus(VolumeStatusReady)
 		select {
 		case result <- err:
 		default:
