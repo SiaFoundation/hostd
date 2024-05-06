@@ -14,7 +14,6 @@ require (
 	go.sia.tech/core v0.2.3
 	go.sia.tech/coreutils v0.0.4-0.20240404011417-f2d64f9d898c
 	go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640
-	go.sia.tech/renterd v1.0.6
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
 	go.sia.tech/web/hostd v0.42.0
 	go.uber.org/goleak v1.3.0
@@ -35,8 +34,6 @@ require (
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.5 // indirect
-	github.com/jinzhu/inflection v1.0.0 // indirect
-	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
@@ -67,5 +64,4 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.16.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gorm.io/gorm v1.25.7 // indirect
 )
