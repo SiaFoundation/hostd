@@ -19,6 +19,7 @@ import (
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
+	"go.sia.tech/siad/modules/transactionpool"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -60,11 +61,17 @@ func TestVolumeLoad(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cm.Close()
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cm.Close()
 
 	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
@@ -170,11 +177,17 @@ func TestAddVolume(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cm.Close()
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cm.Close()
 
 	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
@@ -243,11 +256,17 @@ func TestRemoveVolume(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cm.Close()
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cm.Close()
 
 	// initialize the storage manager
@@ -411,11 +430,17 @@ func TestRemoveCorrupt(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cm.Close()
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cm.Close()
 
 	// initialize the storage manager
@@ -611,11 +636,17 @@ func TestRemoveMissing(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cm.Close()
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cm.Close()
 
 	// initialize the storage manager
@@ -788,11 +819,17 @@ func TestVolumeConcurrency(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cm.Close()
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cm.Close()
 
 	// initialize the storage manager
@@ -948,11 +985,17 @@ func TestVolumeGrow(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cm.Close()
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cm.Close()
 
 	// initialize the storage manager
@@ -1067,7 +1110,14 @@ func TestVolumeShrink(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1229,7 +1279,14 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1348,7 +1405,14 @@ func TestSectorCache(t *testing.T) {
 		}
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1477,7 +1541,14 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 		b.Fatal(err)
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1552,7 +1623,14 @@ func BenchmarkNewVolume(b *testing.B) {
 		b.Fatal(err)
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1610,7 +1688,14 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 		b.Fatal(err)
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1687,7 +1772,14 @@ func BenchmarkVolumeRemove(b *testing.B) {
 		b.Fatal(err)
 	default:
 	}
-	cm, err := chain.NewManager(cs)
+
+	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer tp.Close()
+
+	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
 	if err != nil {
 		b.Fatal(err)
 	}

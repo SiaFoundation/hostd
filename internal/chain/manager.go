@@ -49,12 +49,17 @@ func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
 // A Manager manages the current state of the blockchain.
 type Manager struct {
 	cs      modules.ConsensusSet
+	tp      *TransactionPool
 	network *consensus.Network
 
 	close  chan struct{}
 	mu     sync.Mutex
 	tip    consensus.State
 	synced bool
+}
+
+func (m *Manager) PoolTransactions() []types.Transaction {
+	return m.tp.Transactions()
 }
 
 // ProcessConsensusChange implements the modules.ConsensusSetSubscriber interface.
@@ -151,7 +156,7 @@ func synced(timestamp stypes.Timestamp) bool {
 }
 
 // NewManager creates a new chain manager.
-func NewManager(cs modules.ConsensusSet) (*Manager, error) {
+func NewManager(cs modules.ConsensusSet, tp *TransactionPool) (*Manager, error) {
 	height := cs.Height()
 	block, ok := cs.BlockAtHeight(height)
 	if !ok {
@@ -160,6 +165,7 @@ func NewManager(cs modules.ConsensusSet) (*Manager, error) {
 	n, _ := build.Network()
 	m := &Manager{
 		cs:      cs,
+		tp:      tp,
 		network: n,
 		tip: consensus.State{
 			Network: n,

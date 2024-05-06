@@ -88,15 +88,18 @@ func NewNode(dir string) (*Node, error) {
 	if err := <-errCh; err != nil {
 		return nil, fmt.Errorf("failed to create consensus set: %w", err)
 	}
-	cm, err := chain.NewManager(cs)
-	if err != nil {
-		return nil, err
-	}
 
 	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction pool: %w", err)
 	}
+	ctp := chain.NewTPool(tp)
+
+	cm, err := chain.NewManager(cs, ctp)
+	if err != nil {
+		return nil, err
+	}
+
 	m := NewMiner(cm)
 	if err := cs.ConsensusSetSubscribe(m, modules.ConsensusChangeBeginning, nil); err != nil {
 		return nil, fmt.Errorf("failed to subscribe miner to consensus set: %w", err)
@@ -106,7 +109,7 @@ func NewNode(dir string) (*Node, error) {
 		g:  g,
 		cs: cs,
 		cm: cm,
-		tp: chain.NewTPool(tp),
+		tp: ctp,
 		m:  m,
 	}, nil
 }

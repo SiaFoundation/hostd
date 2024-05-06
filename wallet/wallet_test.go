@@ -98,7 +98,6 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(250 * time.Millisecond) // sleep for tpool sync
 	// check that the wallet's spendable balance and unconfirmed balance are
 	// correct
 	spendable, balance, unconfirmed, err := w.Balance()
