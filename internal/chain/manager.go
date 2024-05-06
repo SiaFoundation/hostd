@@ -58,6 +58,7 @@ type Manager struct {
 	synced bool
 }
 
+// PoolTransactions returns all transactions in the transaction pool
 func (m *Manager) PoolTransactions() []types.Transaction {
 	return m.tp.Transactions()
 }
