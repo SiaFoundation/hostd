@@ -377,7 +377,6 @@ func TestWalletUTXOSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
 
 	if len(txn.SiacoinInputs) != 11 {
 		t.Fatalf("expected 10 additional defrag inputs, got %v", len(toSign)-1)
@@ -399,8 +398,10 @@ func TestWalletUTXOSelection(t *testing.T) {
 	}
 
 	if err := w.SignTransaction(w.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+		release()
 		t.Fatal(err)
 	} else if err := w.TPool().AcceptTransactionSet([]types.Transaction{txn}); err != nil {
+		release()
 		t.Fatal(err)
 	}
 }

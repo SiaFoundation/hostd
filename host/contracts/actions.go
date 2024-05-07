@@ -158,16 +158,17 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 
 		fee := cm.tpool.RecommendedFee().Mul64(1000)
 		revisionTxn.MinerFees = append(revisionTxn.MinerFees, fee)
-		toSign, discard, err := cm.wallet.FundTransaction(&revisionTxn, fee)
+		toSign, release, err := cm.wallet.FundTransaction(&revisionTxn, fee)
 		if err != nil {
 			log.Error("failed to fund revision transaction", zap.Error(err))
 			return
 		}
-		defer discard()
 		if err := cm.wallet.SignTransaction(cs, &revisionTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+			release()
 			log.Error("failed to sign revision transaction", zap.Error(err))
 			return
 		} else if err := cm.tpool.AcceptTransactionSet([]types.Transaction{revisionTxn}); err != nil {
+			release()
 			log.Error("failed to broadcast revision transaction", zap.Error(err))
 			return
 		}
@@ -215,14 +216,12 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 				StorageProofs: []types.StorageProof{sp},
 			},
 		}
-		intermediateToSign, discard, err := cm.wallet.FundTransaction(&resolutionTxnSet[0], fee)
+		intermediateToSign, release, err := cm.wallet.FundTransaction(&resolutionTxnSet[0], fee)
 		if err != nil {
 			log.Error("failed to fund resolution transaction", zap.Error(err))
 			registerContractAlert(alerts.SeverityError, "Failed to fund resolution transaction", err)
 			return
 		}
-		defer discard()
-
 		// add the intermediate output to the proof transaction
 		resolutionTxnSet[1].SiacoinInputs = append(resolutionTxnSet[1].SiacoinInputs, types.SiacoinInput{
 			ParentID:         resolutionTxnSet[0].SiacoinOutputID(0),
@@ -231,12 +230,15 @@ func (cm *ContractManager) handleContractAction(id types.FileContractID, height 
 		proofToSign := []types.Hash256{types.Hash256(resolutionTxnSet[1].SiacoinInputs[0].ParentID)}
 		start = time.Now()
 		if err := cm.wallet.SignTransaction(cs, &resolutionTxnSet[0], intermediateToSign, types.CoveredFields{WholeTransaction: true}); err != nil { // sign the intermediate transaction
+			release()
 			log.Error("failed to sign resolution intermediate transaction", zap.Error(err))
 			return
 		} else if err := cm.wallet.SignTransaction(cs, &resolutionTxnSet[1], proofToSign, types.CoveredFields{WholeTransaction: true}); err != nil { // sign the proof transaction
+			release()
 			log.Error("failed to sign resolution transaction", zap.Error(err))
 			return
 		} else if err := cm.tpool.AcceptTransactionSet(resolutionTxnSet); err != nil { // broadcast the transaction set
+			release()
 			buf, _ := json.Marshal(resolutionTxnSet)
 			log.Error("failed to broadcast resolution transaction set", zap.Error(err), zap.ByteString("transactionSet", buf))
 			registerContractAlert(alerts.SeverityError, "Failed to broadcast resolution transaction set", err)

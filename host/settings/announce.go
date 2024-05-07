@@ -56,15 +56,16 @@ func (m *ConfigManager) Announce() error {
 	if err != nil {
 		return fmt.Errorf("failed to fund transaction: %w", err)
 	}
-	defer release()
 	// sign the transaction
 	err = m.wallet.SignTransaction(m.cm.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
 	if err != nil {
+		release()
 		return fmt.Errorf("failed to sign transaction: %w", err)
 	}
 	// broadcast the transaction
 	err = m.tp.AcceptTransactionSet([]types.Transaction{txn})
 	if err != nil {
+		release()
 		return fmt.Errorf("failed to broadcast transaction: %w", err)
 	}
 	m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))

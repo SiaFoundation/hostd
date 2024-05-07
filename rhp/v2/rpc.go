@@ -158,7 +158,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 
 	// calculate the host's collateral and add the inputs to the transaction
 	renterInputs, renterOutputs := len(formationTxn.SiacoinInputs), len(formationTxn.SiacoinOutputs)
-	toSign, discard, err := sh.wallet.FundTransaction(formationTxn, hostCollateral)
+	toSign, release, err := sh.wallet.FundTransaction(formationTxn, hostCollateral)
 	if err != nil {
 		remoteErr := ErrHostInternalError
 		if errors.Is(err, wallet.ErrNotEnoughFunds) {
@@ -167,7 +167,6 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 		s.t.WriteResponseErr(fmt.Errorf("failed to fund formation transaction: %w", remoteErr))
 		return contracts.Usage{}, fmt.Errorf("failed to fund formation transaction: %w", err)
 	}
-	defer discard()
 
 	// create an initial revision for the contract
 	initialRevision := rhp.InitialRevision(formationTxn, hostPub.UnlockKey(), renterPub.UnlockKey())
@@ -180,14 +179,17 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 		Outputs: formationTxn.SiacoinOutputs[renterOutputs:],
 	}
 	if err := s.writeResponse(hostAdditionsResp, 30*time.Second); err != nil {
+		release()
 		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	// read and validate the renter's signatures
 	var renterSignaturesResp rhp2.RPCFormContractSignatures
 	if err := s.readResponse(&renterSignaturesResp, 10*minMessageSize, 30*time.Second); err != nil {
+		release()
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	} else if err := validateRenterRevisionSignature(renterSignaturesResp.RevisionSignature, initialRevision.ParentID, sigHash, renterPub); err != nil {
+		release()
 		err := fmt.Errorf("contract rejected: validation failed: %w", err)
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
@@ -198,9 +200,11 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 
 	// sign and broadcast the formation transaction
 	if err = sh.wallet.SignTransaction(sh.cm.TipState(), formationTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+		release()
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to sign formation transaction: %w", err)
 	} else if err = sh.tpool.AcceptTransactionSet(formationTxnSet); err != nil {
+		release()
 		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
 		buf, _ := json.Marshal(formationTxnSet)
 		log.Error("failed to broadcast formation transaction", zap.Error(err), zap.String("txnset", string(buf)))
@@ -325,7 +329,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	}
 
 	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
-	toSign, discard, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
+	toSign, release, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
 	if err != nil {
 		remoteErr := ErrHostInternalError
 		if errors.Is(err, wallet.ErrNotEnoughFunds) {
@@ -334,7 +338,6 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 		s.t.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", remoteErr))
 		return contracts.Usage{}, fmt.Errorf("failed to fund renewal transaction: %w", err)
 	}
-	defer discard()
 
 	// send the renter the host additions to the renewal txn
 	hostAdditionsResp := &rhp2.RPCFormContractAdditions{
@@ -342,14 +345,17 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 		Outputs: renewalTxn.SiacoinOutputs[renterOutputs:],
 	}
 	if err = s.writeResponse(hostAdditionsResp, 30*time.Second); err != nil {
+		release()
 		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	// read the renter's signatures for the renewal
 	var renterSigsResp rhp2.RPCRenewAndClearContractSignatures
 	if err = s.readResponse(&renterSigsResp, minMessageSize, 30*time.Second); err != nil {
+		release()
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	} else if len(renterSigsResp.RevisionSignature.Signature) != 64 {
+		release()
 		return contracts.Usage{}, fmt.Errorf("invalid renter signature length: %w", ErrInvalidRenterSignature)
 	}
 
@@ -357,6 +363,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	renewalTxn.Signatures = append(renewalTxn.Signatures, renterSigsResp.ContractSignatures...)
 	// sign the transaction
 	if err = sh.wallet.SignTransaction(state, &renewalTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+		release()
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to sign renewal transaction: %w", err)
 	}
@@ -368,6 +375,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	clearingRevSigHash := rhp.HashRevision(clearingRevision)
 	// important: verify using the existing contract's renter key
 	if !s.contract.RenterKey().VerifyHash(clearingRevSigHash, renterSigsResp.FinalRevisionSignature) {
+		release()
 		err := fmt.Errorf("failed to verify clearing revision signature: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
@@ -377,6 +385,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	renewalSigHash := rhp.HashRevision(initialRevision)
 	renterRenewalSig := *(*types.Signature)(renterSigsResp.RevisionSignature.Signature)
 	if !renterKey.VerifyHash(renewalSigHash, renterRenewalSig) {
+		release()
 		err := fmt.Errorf("failed to verify renewal revision signature: %w", ErrInvalidRenterSignature)
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
@@ -396,6 +405,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	// broadcast the transaction
 	renewalTxnSet = append(renewalParents, renewalTxn)
 	if err = sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
+		release()
 		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
