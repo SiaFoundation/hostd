@@ -44,14 +44,15 @@ func formContract(renterKey, hostKey types.PrivateKey, start, end uint64, renter
 	txn := types.Transaction{
 		FileContracts: []types.FileContract{contract},
 	}
-	toSign, discard, err := w.FundTransaction(&txn, formationCost.Add(hostPayout)) // we're funding both sides of the payout
+	toSign, release, err := w.FundTransaction(&txn, formationCost.Add(hostPayout)) // we're funding both sides of the payout
 	if err != nil {
 		return contracts.SignedRevision{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
-	defer discard()
 	if err := w.SignTransaction(state, &txn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+		release()
 		return contracts.SignedRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
 	} else if err := tp.AcceptTransactionSet([]types.Transaction{txn}); err != nil {
+		release()
 		return contracts.SignedRevision{}, fmt.Errorf("failed to accept transaction set: %w", err)
 	}
 	revision := types.FileContractRevision{

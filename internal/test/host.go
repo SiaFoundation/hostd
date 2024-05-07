@@ -194,7 +194,7 @@ func NewEmptyHost(privKey types.PrivateKey, dir string, node *Node, log *zap.Log
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
 
-	wallet, err := wallet.NewSingleAddressWallet(privKey, node.cm, node.tp, db, log.Named("wallet"))
+	wallet, err := wallet.NewSingleAddressWallet(privKey, node.cm, db, log.Named("wallet"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}

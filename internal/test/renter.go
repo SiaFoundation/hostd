@@ -109,14 +109,15 @@ func (r *Renter) FormContract(ctx context.Context, hostAddr string, hostKey type
 	if err != nil {
 		return crhp2.ContractRevision{}, fmt.Errorf("failed to fund transaction: %w", err)
 	}
-	defer release()
 
 	if err := r.wallet.SignTransaction(cs, &formationTxn, toSign, explicitCoveredFields(formationTxn)); err != nil {
+		release()
 		return crhp2.ContractRevision{}, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
 	revision, _, err := rhp2.RPCFormContract(ctx, t, r.privKey, []types.Transaction{formationTxn})
 	if err != nil {
+		release()
 		return crhp2.ContractRevision{}, fmt.Errorf("failed to form contract: %w", err)
 	}
 	return revision, nil
@@ -204,7 +205,7 @@ func NewRenter(privKey types.PrivateKey, dir string, node *Node, log *zap.Logger
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql store: %w", err)
 	}
-	wallet, err := wallet.NewSingleAddressWallet(privKey, node.ChainManager(), node.TPool(), db, log.Named("wallet"))
+	wallet, err := wallet.NewSingleAddressWallet(privKey, node.ChainManager(), db, log.Named("wallet"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}

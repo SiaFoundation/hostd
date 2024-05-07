@@ -140,12 +140,12 @@ func newNode(ctx context.Context, walletKey types.PrivateKey, ex *explorer.Explo
 	// load the host identity
 	hostKey := db.HostKey()
 
-	cm, err := chain.NewManager(cs)
+	cm, err := chain.NewManager(cs, tp)
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create chain manager: %w", err)
 	}
 
-	w, err := wallet.NewSingleAddressWallet(walletKey, cm, tp, db, logger.Named("wallet"))
+	w, err := wallet.NewSingleAddressWallet(walletKey, cm, db, logger.Named("wallet"))
 	if err != nil {
 		return nil, types.PrivateKey{}, fmt.Errorf("failed to create wallet: %w", err)
 	}

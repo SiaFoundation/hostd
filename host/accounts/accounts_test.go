@@ -60,13 +60,13 @@ func TestCredit(t *testing.T) {
 	tp := chain.NewTPool(stp)
 	defer tp.Close()
 
-	cm, err := chain.NewManager(cs)
+	cm, err := chain.NewManager(cs, tp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cm.Close()
 
-	w, err := wallet.NewSingleAddressWallet(types.NewPrivateKeyFromSeed(frand.Bytes(32)), cm, tp, db, log.Named("wallet"))
+	w, err := wallet.NewSingleAddressWallet(types.NewPrivateKeyFromSeed(frand.Bytes(32)), cm, db, log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -175,18 +175,19 @@ func TestRenew(t *testing.T) {
 		}
 
 		cost := rhp2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
-		toSign, discard, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
+		toSign, release, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer discard()
 
 		if err := renter.Wallet().SignTransaction(host.TipState(), &renewalTxn, toSign, wallet.ExplicitCoveredFields(renewalTxn)); err != nil {
+			release()
 			t.Fatal(err)
 		}
 
 		renewal, _, err := session.RenewContract(context.Background(), []types.Transaction{renewalTxn}, settings.BaseRPCPrice)
 		if err != nil {
+			release()
 			t.Fatal(err)
 		}
 
@@ -285,18 +286,19 @@ func TestRenew(t *testing.T) {
 		}
 
 		cost := rhp2.ContractRenewalCost(state, renewed, settings.ContractPrice, types.ZeroCurrency, basePrice)
-		toSign, discard, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
+		toSign, release, err := renter.Wallet().FundTransaction(&renewalTxn, cost)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer discard()
 
 		if err := renter.Wallet().SignTransaction(host.TipState(), &renewalTxn, toSign, wallet.ExplicitCoveredFields(renewalTxn)); err != nil {
+			release()
 			t.Fatal(err)
 		}
 
 		// try to renew the contract without paying the remaining value, should fail
 		if _, _, err := session.RenewContract(context.Background(), []types.Transaction{renewalTxn}, types.ZeroCurrency); err == nil {
+			release()
 			t.Fatal("expected renewal to fail")
 		} else if err := session.Close(); err != nil {
 			t.Fatal(err)

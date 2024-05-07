@@ -346,7 +346,6 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 		s.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", remoteErr))
 		return contracts.Usage{}, fmt.Errorf("failed to fund renewal transaction: %w", err)
 	}
-	defer release()
 
 	hostAdditions := &rhp3.RPCRenewContractHostAdditions{
 		SiacoinInputs:          renewalTxn.SiacoinInputs[renterInputs:],
@@ -354,11 +353,13 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 		FinalRevisionSignature: signedClearingRevision.HostSignature,
 	}
 	if err := s.WriteResponse(hostAdditions); err != nil {
+		release()
 		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	var renterSigsResp rhp3.RPCRenewSignatures
 	if err := s.ReadRequest(&renterSigsResp, 10*maxRequestSize); err != nil {
+		release()
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	}
 
@@ -366,6 +367,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	renewalRevision := rhp.InitialRevision(&renewalTxn, hostUnlockKey, req.RenterKey)
 	renewalSigHash := rhp.HashRevision(renewalRevision)
 	if err := validateRenterRevisionSignature(renterSigsResp.RevisionSignature, renewalRevision.ParentID, renewalSigHash, renterKey); err != nil {
+		release()
 		err := fmt.Errorf("failed to verify renter revision signature: %w", ErrInvalidRenterSignature)
 		s.WriteResponseErr(err)
 		return contracts.Usage{}, err
@@ -400,11 +402,13 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 
 	// sign and broadcast the transaction
 	if err := sh.wallet.SignTransaction(sh.chain.TipState(), &renewalTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
+		release()
 		s.WriteResponseErr(fmt.Errorf("failed to sign renewal transaction: %w", ErrHostInternalError))
 		return contracts.Usage{}, fmt.Errorf("failed to sign renewal transaction: %w", err)
 	}
 	renewalTxnSet := append(parents, renewalTxn)
 	if err := sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
+		release()
 		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
 		s.WriteResponseErr(err)
 		return contracts.Usage{}, err
