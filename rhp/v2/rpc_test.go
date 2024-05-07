@@ -11,8 +11,8 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/internal/test"
-	"go.sia.tech/renterd/wallet"
 	"go.uber.org/goleak"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
