@@ -229,6 +229,13 @@ func (cm *ContractManager) RenewContract(renewal SignedRevision, existing Signed
 		return err
 	}
 	cm.log.Debug("contract renewed", zap.Stringer("renewalID", renewal.Revision.ParentID), zap.Stringer("existingID", existing.Revision.ParentID))
+
+	// update roots cache
+	roots, ok := cm.rootsCache.Get(existing.Revision.ParentID)
+	if ok {
+		cm.rootsCache.Add(renewal.Revision.ParentID, roots)
+		cm.rootsCache.Remove(existing.Revision.ParentID)
+	}
 	return nil
 }
 
