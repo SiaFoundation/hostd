@@ -913,7 +913,7 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 				},
 				Timestamp: time.Now(),
 			})
-			return fmt.Errorf("failed to write sector data: %w", err)
+			return err
 		}
 		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 
