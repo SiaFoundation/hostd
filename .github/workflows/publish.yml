@@ -69,8 +69,11 @@ jobs:
       - name: Setup
         run: |
           sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu
           go generate ./...
+          if [ ${{ matrix.go-arch }} == "arm64" ]; then
+            sudo apt install -y gcc-aarch64-linux-gnu
+            echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          fi
       - name: Build ${{ matrix.go-arch }}
         env:
           CGO_ENABLED: 1
