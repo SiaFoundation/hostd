@@ -201,7 +201,7 @@ jobs:
 
   dispatch-homebrew: # only runs on full releases
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
-    needs: [ docker, build-linux, build-mac, build-windows ]
+    needs: [ build-mac ]
     runs-on: ubuntu-latest
     steps:
       - name: Extract Tag Name
@@ -222,7 +222,7 @@ jobs:
               "workflow_id": "${{ github.run_id }}"
             }
   dispatch-linux: # always runs
-    needs: [ docker, build-linux, build-mac, build-windows ]
+    needs: [ build-linux ]
     runs-on: ubuntu-latest
     steps:
       - name: Build Dispatch Payload
