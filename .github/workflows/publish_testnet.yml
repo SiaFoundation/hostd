@@ -200,4 +200,3 @@ jobs:
         uses: actions/upload-artifact/merge@v4
         with:
           name: hostd-release-assets-combined
-          pattern: *.zip

@@ -198,7 +198,7 @@ jobs:
         uses: actions/upload-artifact/merge@v4
         with:
           name: hostd-release-assets-combined
-          pattern: *.zip
+
   dispatch-homebrew: # only runs on full releases
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
     needs: [ docker, build-linux, build-mac, build-windows ]
