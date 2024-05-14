@@ -183,27 +183,43 @@ func (sw *SingleAddressWallet) isLocked(id types.SiacoinOutputID) bool {
 	return sw.locked[id].After(time.Now())
 }
 
-func (sw *SingleAddressWallet) tpoolUTXOs() (relevant map[types.SiacoinOutputID]types.SiacoinElement, spent map[types.SiacoinOutputID]bool) {
+func (sw *SingleAddressWallet) tpoolRelevant() (relevant []Transaction, utxos map[types.SiacoinOutputID]types.SiacoinElement, spent map[types.SiacoinOutputID]bool) {
 	txns := sw.cm.PoolTransactions()
-	relevant = make(map[types.SiacoinOutputID]types.SiacoinElement)
+	utxos = make(map[types.SiacoinOutputID]types.SiacoinElement)
 	spent = make(map[types.SiacoinOutputID]bool)
+	timestamp := time.Now()
 	for _, txn := range txns {
+		var input, output types.Currency
 		for _, sci := range txn.SiacoinInputs {
 			if sci.UnlockConditions.UnlockHash() == sw.addr {
 				spent[types.SiacoinOutputID(sci.ParentID)] = true
+				input = input.Add(utxos[types.SiacoinOutputID(sci.ParentID)].SiacoinOutput.Value)
 			}
 		}
 		for i, sco := range txn.SiacoinOutputs {
 			if sco.Address == sw.addr {
 				outputID := txn.SiacoinOutputID(i)
-				relevant[outputID] = types.SiacoinElement{
+				utxos[outputID] = types.SiacoinElement{
 					StateElement: types.StateElement{
 						ID: types.Hash256(outputID),
 					},
 					SiacoinOutput: sco,
 				}
+				output = output.Add(sco.Value)
 			}
 		}
+
+		if !transactionIsRelevant(txn, sw.addr) {
+			continue
+		}
+		relevant = append(relevant, Transaction{
+			ID:          txn.ID(),
+			Transaction: txn,
+			Inflow:      output,
+			Outflow:     input,
+			Source:      TxnSourceTransaction,
+			Timestamp:   timestamp,
+		})
 	}
 	return
 }
@@ -239,7 +255,7 @@ func (sw *SingleAddressWallet) Balance() (spendable, confirmed, unconfirmed type
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
-	tpoolUTXOs, spent := sw.tpoolUTXOs()
+	_, tpoolUTXOs, spent := sw.tpoolRelevant()
 
 	for _, sco := range outputs {
 		confirmed = confirmed.Add(sco.Value)
@@ -302,7 +318,7 @@ func (sw *SingleAddressWallet) FundTransaction(txn *types.Transaction, amount ty
 		return nil, nil, err
 	}
 
-	_, tpoolSpent := sw.tpoolUTXOs()
+	_, _, tpoolSpent := sw.tpoolRelevant()
 
 	// remove locked and spent outputs
 	usableUTXOs := utxos[:0]
@@ -420,38 +436,7 @@ func (sw *SingleAddressWallet) UnconfirmedTransactions() ([]Transaction, error) 
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
-	tpoolUTXOs, _ := sw.tpoolUTXOs()
-
-	var relevant []Transaction
-	txns := sw.cm.PoolTransactions()
-	for _, txn := range txns {
-		if transactionIsRelevant(txn, sw.addr) {
-			var inflow, outflow types.Currency
-			for _, out := range txn.SiacoinOutputs {
-				if out.Address == sw.addr {
-					inflow = inflow.Add(out.Value)
-				}
-			}
-			for _, in := range txn.SiacoinInputs {
-				if in.UnlockConditions.UnlockHash() == sw.addr {
-					out, ok := tpoolUTXOs[types.SiacoinOutputID(in.ParentID)]
-					if !ok {
-						panic("missing utxo")
-					}
-					outflow = outflow.Add(out.SiacoinOutput.Value)
-				}
-			}
-			relevant = append(relevant, Transaction{
-				ID:          txn.ID(),
-				Index:       types.ChainIndex{},
-				Transaction: txn,
-				Inflow:      inflow,
-				Outflow:     outflow,
-				Source:      TxnSourceTransaction,
-				Timestamp:   time.Now(),
-			})
-		}
-	}
+	relevant, _, _ := sw.tpoolRelevant()
 	return relevant, nil
 }
 
