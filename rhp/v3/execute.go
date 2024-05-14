@@ -104,8 +104,10 @@ func (pe *programExecutor) executeAppendSector(instr *rhp3.InstrAppendSector, lo
 	}
 
 	release, err := pe.storage.Write(root, sector)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
+	if errors.Is(err, storage.ErrNotEnoughStorage) {
+		return nil, nil, err
+	} else if err != nil {
+		return nil, nil, ErrHostInternalError
 	}
 	pe.releaseFuncs = append(pe.releaseFuncs, release)
 	pe.updater.AppendSector(root)
@@ -275,7 +277,8 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 
 	sector, err := pe.storage.Read(root)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read sector %q: %w", root, err)
+		log.Error("failed to read sector", zap.String("root", root.String()), zap.Error(err))
+		return nil, nil, ErrHostInternalError
 	}
 
 	// if no proof was requested, return the data

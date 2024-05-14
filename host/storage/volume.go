@@ -187,7 +187,11 @@ func (v *volume) WriteSector(data *[rhp2.SectorSize]byte, index uint64) error {
 	}
 	_, err := v.data.WriteAt(data[:], int64(index*rhp2.SectorSize))
 	if err != nil {
-		err = fmt.Errorf("failed to write sector to index %v: %w", index, err)
+		if isNotEnoughStorageErr(err) {
+			err = ErrNotEnoughStorage
+		} else {
+			err = fmt.Errorf("failed to write sector to index %v: %w", index, err)
+		}
 	}
 	go v.incrementWriteStats(err)
 	return err
