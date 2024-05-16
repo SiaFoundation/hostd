@@ -10,6 +10,9 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-**'
 
+concurrency:
+  group: ${{ github.workflow }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
