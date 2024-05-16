@@ -90,7 +90,7 @@ jobs:
           zip -qj $ZIP_OUTPUT bin/*
       - uses: actions/upload-artifact@v4
         with:
-          name: hostd-linux-${{ matrix.go-arch }}
+          name: hostd_linux_${{ matrix.go-arch }}
           path: release/*
   build-mac:
     runs-on: macos-latest
@@ -161,7 +161,7 @@ jobs:
           xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
-          name: hostd-darwin-${{ matrix.go-arch }}
+          name: hostd_darwin_${{ matrix.go-arch }}
           path: release/*
   build-windows:
     runs-on: windows-latest
@@ -191,7 +191,7 @@ jobs:
           7z a $ZIP_OUTPUT ./bin/*
       - uses: actions/upload-artifact@v4
         with:
-          name: hostd-windows-amd64
+          name: hostd_windows_amd64
           path: release/*
   combine-release-assets:
     runs-on: ubuntu-latest
@@ -200,7 +200,7 @@ jobs:
       - name: Merge Artifacts
         uses: actions/upload-artifact/merge@v4
         with:
-          name: hostd-release-assets-combined
+          name: hostd
 
   dispatch-homebrew: # only runs on full releases
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
