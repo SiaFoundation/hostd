@@ -262,7 +262,13 @@ func setDataDirectory() {
 }
 
 func buildConfig() {
-	if _, err := os.Stat("hostd.yml"); err == nil {
+	// write the config file
+	configPath := "hostd.yml"
+	if str := os.Getenv("HOSTD_CONFIG_FILE"); str != "" {
+		configPath = str
+	}
+
+	if _, err := os.Stat(configPath); err == nil {
 		if !promptYesNo("hostd.yml already exists. Would you like to overwrite it?") {
 			return
 		}
@@ -297,7 +303,7 @@ func buildConfig() {
 	setAdvancedConfig()
 
 	// write the config file
-	f, err := os.Create("hostd.yml")
+	f, err := os.Create(configPath)
 	if err != nil {
 		stdoutFatalError("failed to create config file: " + err.Error())
 		return
