@@ -93,6 +93,24 @@ type (
 	}
 )
 
+// initVolume adds a volume to the volume manager. If the volume is already
+// added, it is returned. The volume mutex must be held before calling this
+// function.
+func (vm *VolumeManager) initVolume(id int64, status string, d volumeData) *volume {
+	if v, ok := vm.volumes[id]; ok {
+		return v
+	}
+	v := &volume{
+		recorder: vm.recorder,
+		stats: VolumeStats{
+			Status: status,
+		},
+		data: d,
+	}
+	vm.volumes[id] = v
+	return v
+}
+
 // loadVolumes opens all volumes. Volumes that are already loaded are skipped.
 func (vm *VolumeManager) loadVolumes() error {
 	done, err := vm.tg.Add()
@@ -110,16 +128,7 @@ func (vm *VolumeManager) loadVolumes() error {
 	// load the volumes into memory
 	for _, vol := range volumes {
 		// if the volume has not been loaded yet, create a new volume
-		v := vm.volumes[vol.ID]
-		if v == nil {
-			v = &volume{
-				stats: VolumeStats{
-					Status: VolumeStatusUnavailable,
-				},
-			}
-			vm.volumes[vol.ID] = v
-		}
-
+		v := vm.initVolume(vol.ID, VolumeStatusUnavailable, nil)
 		if err := v.OpenVolume(vol.LocalPath, false); err != nil {
 			v.appendError(fmt.Errorf("failed to open volume: %w", err))
 			vm.log.Error("unable to open volume", zap.Error(err), zap.Int64("id", vol.ID), zap.String("path", vol.LocalPath))
@@ -449,13 +458,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 
 	// add the new volume to the volume map
 	vm.mu.Lock()
-	vol := &volume{
-		data: f,
-		stats: VolumeStats{
-			Status: VolumeStatusCreating,
-		},
-	}
-	vm.volumes[volumeID] = vol
+	vol := vm.initVolume(volumeID, VolumeStatusCreating, f)
 	vm.mu.Unlock()
 
 	vm.vs.SetAvailable(volumeID, true)
@@ -840,7 +843,6 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	vm.cache.Add(root, sector)
 	vm.recorder.AddCacheMiss()
 	atomic.AddUint64(&vm.cacheMisses, 1)
-	vm.recorder.AddRead()
 	return sector, nil
 }
 
@@ -926,9 +928,6 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 		vm.mu.Unlock()
 		return nil
 	})
-	if err == nil {
-		vm.recorder.AddWrite()
-	}
 	return release, err
 }
 

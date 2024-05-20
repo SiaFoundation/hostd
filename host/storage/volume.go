@@ -25,6 +25,8 @@ type (
 
 	// A volume stores and retrieves sector data from a local file
 	volume struct {
+		recorder *sectorAccessRecorder
+
 		// when reading or writing to the volume, a read lock should be held.
 		// When resizing or updating the volume's state, a write lock should be
 		// held.
@@ -72,6 +74,7 @@ func (v *volume) incrementReadStats(err error) {
 		v.stats.FailedReads++
 		v.appendError(err)
 	} else {
+		v.recorder.AddRead()
 		v.stats.SuccessfulReads++
 	}
 }
@@ -83,6 +86,7 @@ func (v *volume) incrementWriteStats(err error) {
 		v.stats.FailedWrites++
 		v.appendError(err)
 	} else {
+		v.recorder.AddWrite()
 		v.stats.SuccessfulWrites++
 	}
 }
@@ -169,7 +173,6 @@ func (v *volume) ReadSector(index uint64) (*[rhp2.SectorSize]byte, error) {
 
 	var sector [rhp2.SectorSize]byte
 	_, err := v.data.ReadAt(sector[:], int64(index*rhp2.SectorSize))
-
 	if err != nil {
 		err = fmt.Errorf("failed to read sector at index %v: %w", index, err)
 	}
