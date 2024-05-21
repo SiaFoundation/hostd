@@ -80,14 +80,23 @@ func recalcContractAccountFunding(tx txn, _ *zap.Logger) error {
 	return nil
 }
 
+// CheckContractAccountFunding checks that the contract account funding table
+// is correct.
 func (s *Store) CheckContractAccountFunding() error {
 	return s.transaction(func(tx txn) error {
 		return checkContractAccountFunding(tx, s.log)
 	})
 }
 
+// RecalcContractAccountFunding recalculates the contract account funding table.
 func (s *Store) RecalcContractAccountFunding() error {
 	return s.transaction(func(tx txn) error {
 		return recalcContractAccountFunding(tx, s.log)
 	})
+}
+
+// Vacuum runs the VACUUM command on the database.
+func (s *Store) Vacuum() error {
+	_, err := s.db.Exec(`VACUUM`)
+	return err
 }

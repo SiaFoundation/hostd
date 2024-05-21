@@ -257,6 +257,8 @@ func main() {
 			log.Fatal("failed to recalculate contract account funding", zap.Error(err))
 		} else if err := db.CheckContractAccountFunding(); err != nil {
 			log.Fatal("failed to check contract account funding", zap.Error(err))
+		} else if err := db.Vacuum(); err != nil {
+			log.Fatal("failed to vacuum database", zap.Error(err))
 		}
 		return
 	}
