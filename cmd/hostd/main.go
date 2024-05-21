@@ -23,6 +23,7 @@ import (
 	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/config"
 	"go.sia.tech/hostd/internal/explorer"
+	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/jape"
 	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
@@ -230,6 +231,33 @@ func main() {
 		return
 	case "config":
 		buildConfig()
+		return
+	case "rebuild":
+		fp := flag.Arg(1)
+
+		levelStr := cfg.Log.StdOut.Level
+		if levelStr == "" {
+			levelStr = cfg.Log.Level
+		}
+
+		level := parseLogLevel(levelStr)
+		core := zapcore.NewCore(humanEncoder(cfg.Log.StdOut.EnableANSI), zapcore.Lock(os.Stdout), level)
+		log := zap.New(core, zap.AddCaller())
+		defer log.Sync()
+
+		db, err := sqlite.OpenDatabase(fp, log)
+		if err != nil {
+			log.Fatal("failed to open database", zap.Error(err))
+		}
+		defer db.Close()
+
+		if err := db.CheckContractAccountFunding(); err != nil {
+			log.Fatal("failed to check contract account funding", zap.Error(err))
+		} else if err := db.RecalcContractAccountFunding(); err != nil {
+			log.Fatal("failed to recalculate contract account funding", zap.Error(err))
+		} else if err := db.CheckContractAccountFunding(); err != nil {
+			log.Fatal("failed to check contract account funding", zap.Error(err))
+		}
 		return
 	}
 
