@@ -154,10 +154,10 @@ func (lt *loggedTxn) Exec(query string, args ...any) (sql.Result, error) {
 func (lt *loggedTxn) Prepare(query string) (*loggedStmt, error) {
 	start := time.Now()
 	stmt, err := lt.Tx.Prepare(query)
-	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
-	} else if err != nil {
+	if err != nil {
 		return nil, err
+	} else if dur := time.Since(start); dur > longQueryDuration {
+		lt.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return &loggedStmt{
 		Stmt:  stmt,
