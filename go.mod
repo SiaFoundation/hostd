@@ -6,7 +6,7 @@ toolchain go1.21.8
 
 require (
 	github.com/aws/aws-sdk-go v1.53.6
-	github.com/cloudflare/cloudflare-go v0.95.0
+	github.com/cloudflare/cloudflare-go v0.96.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.4.0
@@ -33,14 +33,12 @@ require (
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.5 // indirect
+	github.com/hashicorp/go-retryablehttp v0.7.6 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
 	github.com/klauspost/reedsolomon v1.12.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	gitlab.com/NebulousLabs/bolt v1.4.4 // indirect
