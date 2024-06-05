@@ -677,7 +677,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	if req.MerkleProof {
 		writeResp.OldSubtreeHashes, writeResp.OldLeafHashes = rhp2.BuildDiffProof(req.Actions, oldRoots)
 	}
-	if err := s.writeResponse(writeResp, time.Minute); err != nil {
+	if err := s.writeResponse(writeResp, 5*time.Minute); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to write merkle proof: %w", err)
 	}
 
