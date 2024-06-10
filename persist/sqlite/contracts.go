@@ -658,64 +658,46 @@ ORDER BY root_index ASC;`, contractID, i, j)
 	}, nil
 }
 
-// lastNContractSectors returns the last n sector IDs for a contract.
-func lastNContractSectors(tx txn, contractID int64, n uint64) (roots []contractSectorRootRef, err error) {
-	const query = `SELECT csr.id, csr.sector_id, ss.sector_root FROM contract_sector_roots csr
-INNER JOIN stored_sectors ss ON (csr.sector_id=ss.id)
-WHERE csr.contract_id=$1 
-ORDER BY root_index DESC
-LIMIT $2;`
-
-	rows, err := tx.Query(query, contractID, n)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		ref, err := scanContractSectorRootRef(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan sector ref: %w", err)
-		}
-		roots = append(roots, ref)
-	}
-	return
-}
-
-// deleteContractSectorRoots deletes the contract sector roots with the given IDs.
-func deleteContractSectorRoots(tx txn, ids []int64) error {
-	query := `DELETE FROM contract_sector_roots WHERE id IN (` + queryPlaceHolders(len(ids)) + `);`
-	res, err := tx.Exec(query, queryArgs(ids)...)
-	if err != nil {
-		return fmt.Errorf("failed to delete contract sector roots: %w", err)
-	} else if n, err := res.RowsAffected(); err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	} else if n != int64(len(ids)) {
-		return fmt.Errorf("expected %v rows affected, got %v", len(ids), n)
-	}
-	return nil
-}
-
 // trimSectors deletes the last n sector roots for a contract and returns the
 // deleted sector roots in order.
 func trimSectors(tx txn, contractID int64, n uint64, log *zap.Logger) ([]types.Hash256, error) {
-	refs, err := lastNContractSectors(tx, contractID, n)
+	selectStmt, err := tx.Prepare(`SELECT csr.id, csr.sector_id, ss.sector_root FROM contract_sector_roots csr
+INNER JOIN stored_sectors ss ON (csr.sector_id=ss.id)
+WHERE csr.contract_id=$1 
+ORDER BY root_index DESC
+LIMIT 1`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sector roots: %w", err)
+		return nil, fmt.Errorf("failed to prepare select statement: %w", err)
+	}
+	defer selectStmt.Close()
+
+	deleteStmt, err := tx.Prepare(`DELETE FROM contract_sector_roots WHERE id=$1;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
 
-	var contractSectorRootIDs []int64
-	roots := make([]types.Hash256, len(refs))
-	var sectorIDs []int64
-	for i, ref := range refs {
-		contractSectorRootIDs = append(contractSectorRootIDs, ref.dbID)
-		roots[len(roots)-i-1] = ref.root // reverse the order to match the contract sector roots
-		sectorIDs = append(sectorIDs, ref.sectorID)
+	sectorIDs := make([]int64, 0, n)
+	roots := make([]types.Hash256, n)
+	for i := 0; i < int(n); i++ {
+		var contractSectorID int64
+		var root types.Hash256
+		var sectorID int64
+
+		if err := selectStmt.QueryRow(contractID).Scan(&contractSectorID, &sectorID, (*sqlHash256)(&root)); err != nil {
+			return nil, fmt.Errorf("failed to get sector root: %w", err)
+		} else if res, err := deleteStmt.Exec(contractSectorID); err != nil {
+			return nil, fmt.Errorf("failed to delete sector root: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return nil, fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return nil, fmt.Errorf("expected 1 row affected, got %v", n)
+		}
+
+		sectorIDs = append(sectorIDs, sectorID)
+		roots[len(roots)-i-1] = root // reverse order
 	}
 
-	if err := deleteContractSectorRoots(tx, contractSectorRootIDs); err != nil {
-		return nil, fmt.Errorf("failed to delete contract sector roots: %w", err)
-	} else if err := incrementNumericStat(tx, metricContractSectors, -len(contractSectorRootIDs), time.Now()); err != nil {
+	if err := incrementNumericStat(tx, metricContractSectors, -int(n), time.Now()); err != nil {
 		return nil, fmt.Errorf("failed to decrement contract sectors: %w", err)
 	}
 
@@ -723,6 +705,7 @@ func trimSectors(tx txn, contractID int64, n uint64, log *zap.Logger) ([]types.H
 	if err != nil {
 		return nil, fmt.Errorf("failed to prune sectors: %w", err)
 	}
+
 	log.Debug("trimmed sectors", zap.Stringers("trimmed", roots), zap.Stringers("removed", removed))
 	return roots, nil
 }
