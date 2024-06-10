@@ -399,3 +399,83 @@ func TestContracts(t *testing.T) {
 		t.Fatal("expected no contracts")
 	}
 }
+
+func BenchmarkTrimSectors(b *testing.B) {
+	log := zaptest.NewLogger(b)
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	contractUnlockConditions := types.UnlockConditions{
+		PublicKeys: []types.UnlockKey{
+			renterKey.PublicKey().UnlockKey(),
+			hostKey.PublicKey().UnlockKey(),
+		},
+		SignaturesRequired: 2,
+	}
+
+	// add a contract to the database
+	contract := contracts.SignedRevision{
+		Revision: types.FileContractRevision{
+			ParentID:         frand.Entropy256(),
+			UnlockConditions: contractUnlockConditions,
+			FileContract: types.FileContract{
+				UnlockHash:     types.Hash256(contractUnlockConditions.UnlockHash()),
+				RevisionNumber: 1,
+				WindowStart:    100,
+				WindowEnd:      200,
+			},
+		},
+	}
+
+	if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}, 0); err != nil {
+		b.Fatal(err)
+	}
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		b.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		b.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	roots := make([]types.Hash256, 0, b.N)
+	appendActions := make([]contracts.SectorChange, 0, b.N)
+	releaseFuncs := make([]func() error, 0, b.N)
+
+	for i := 0; i < b.N; i++ {
+		root := frand.Entropy256()
+		roots = append(roots, root)
+		appendActions = append(appendActions, contracts.SectorChange{Action: contracts.SectorActionAppend, Root: root})
+
+		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		if err != nil {
+			b.Fatal(err)
+		}
+		releaseFuncs = append(releaseFuncs, release)
+	}
+
+	if err := db.ReviseContract(contract, nil, contracts.Usage{}, appendActions); err != nil {
+		b.Fatal(err)
+	}
+	for _, fn := range releaseFuncs {
+		if err := fn(); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.ReportMetric(float64(b.N), "sectors")
+
+	if err := db.ReviseContract(contract, roots, contracts.Usage{}, []contracts.SectorChange{{Action: contracts.SectorActionTrim, A: uint64(b.N)}}); err != nil {
+		b.Fatal(err)
+	}
+}
