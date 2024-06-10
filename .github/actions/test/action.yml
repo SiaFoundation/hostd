@@ -11,7 +11,7 @@ runs:
       shell: bash
       run: go generate ./...
     - name: Lint
-      uses: golangci/golangci-lint-action@v4
+      uses: golangci/golangci-lint-action@v6
       with:
         skip-cache: true
     - name: Test
