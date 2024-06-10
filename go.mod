@@ -1,8 +1,8 @@
 module go.sia.tech/hostd
 
-go 1.21.7
+go 1.21.8
 
-toolchain go1.21.8
+toolchain go1.22.3
 
 require (
 	github.com/aws/aws-sdk-go v1.53.15
@@ -11,8 +11,8 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.4.0
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	go.sia.tech/core v0.2.5
-	go.sia.tech/coreutils v0.0.4
+	go.sia.tech/core v0.2.6
+	go.sia.tech/coreutils v0.0.5
 	go.sia.tech/jape v0.11.2-0.20240306154058-9832414a5385
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
 	go.sia.tech/web/hostd v0.43.0
