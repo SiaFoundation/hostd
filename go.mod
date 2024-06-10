@@ -2,6 +2,8 @@ module go.sia.tech/hostd
 
 go 1.21.8
 
+toolchain go1.22.3
+
 require (
 	github.com/aws/aws-sdk-go v1.53.19
 	github.com/cloudflare/cloudflare-go v0.97.0
