@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/hostd/wallet"
 	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap/zaptest"
+	"lukechampine.com/frand"
 )
 
 func TestWallet(t *testing.T) {
@@ -404,4 +405,108 @@ func TestWalletUTXOSelection(t *testing.T) {
 		release()
 		t.Fatal(err)
 	}
+}
+
+func TestTransactionUnconfirmedValue(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	w, err := test.NewWallet(types.GeneratePrivateKey(), t.TempDir(), log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	_, balance, _, err := w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero balance, got %v", balance)
+	}
+
+	initialState := w.TipState()
+
+	// mine a block to fund the wallet
+	if err := w.MineBlocks(w.Address(), 1); err != nil {
+		t.Fatal(err)
+	}
+
+	// the outputs have not matured yet
+	_, balance, _, err = w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero balance, got %v", balance)
+	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.Equals(types.ZeroCurrency) {
+		t.Fatalf("expected zero balance, got %d", m.Balance)
+	}
+
+	// mine until the first output has matured
+	if err := w.MineBlocks(types.VoidAddress, int(stypes.MaturityDelay)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond) // sleep for consensus sync
+
+	// check the wallet's reported balance
+	expectedBalance := initialState.BlockReward()
+	_, balance, _, err = w.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(expectedBalance) {
+		t.Fatalf("expected %d balance, got %d", expectedBalance, balance)
+	} else if m, err := w.Store().Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if !m.Balance.Equals(expectedBalance) {
+		t.Fatalf("expected %d balance, got %d", expectedBalance, m.Balance)
+	}
+
+	// check that the wallet has a single transaction
+	count, err := w.TransactionCount()
+	if err != nil {
+		t.Fatal(err)
+	} else if count != 1 {
+		t.Fatalf("expected 1 transaction, got %v", count)
+	}
+
+	// check that the payout transaction was created
+	txns, err := w.Transactions(100, 0)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(txns) != 1 {
+		t.Fatalf("expected 1 transaction, got %v", len(txns))
+	} else if txns[0].Source != wallet.TxnSourceMinerPayout {
+		t.Fatalf("expected miner payout, got %v", txns[0].Source)
+	} else if !txns[0].Inflow.Equals(expectedBalance) {
+		t.Fatalf("expected %v inflow, got %v", expectedBalance, txns[0].Inflow)
+	}
+
+	// create a transaction sending half of the balance to the void
+	sendAmount := types.Siacoins(uint32(frand.Uint64n(50000)))
+	_, err = w.SendSiacoins([]types.SiacoinOutput{
+		{Address: types.VoidAddress, Value: sendAmount},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedInflow := expectedBalance.Sub(sendAmount)
+	expectedOutflow := expectedBalance
+
+	unconfirmed, err := w.UnconfirmedTransactions()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unconfirmed) != 1 {
+		t.Fatalf("expected 1 unconfirmed transaction, got %v", len(unconfirmed))
+	} else if !unconfirmed[0].Inflow.Equals(expectedInflow) {
+		t.Fatalf("expected %v inflow, got %v", expectedBalance.Div64(2), unconfirmed[0].Inflow)
+	} else if !unconfirmed[0].Outflow.Equals(expectedOutflow) {
+		t.Fatalf("expected %v outflow, got %v", expectedBalance.Div64(2), unconfirmed[0].Outflow)
+	}
+
+	// this is reversed, but currency can't handle negatives
+	value := unconfirmed[0].Outflow.Sub(unconfirmed[0].Inflow)
+	if !value.Equals(sendAmount) {
+		t.Fatalf("expected %v value, got %v", sendAmount, value)
+	}
+
 }
