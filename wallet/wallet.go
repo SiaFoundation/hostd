@@ -183,8 +183,6 @@ func (sw *SingleAddressWallet) isLocked(id types.SiacoinOutputID) bool {
 	return sw.locked[id].After(time.Now())
 }
 
-// 49.904
-
 func (sw *SingleAddressWallet) tpoolRelevant(unspentElements []SiacoinElement) (relevant []Transaction, created map[types.SiacoinOutputID]types.SiacoinElement, spent map[types.SiacoinOutputID]bool) {
 	txns := sw.cm.PoolTransactions()
 	created = make(map[types.SiacoinOutputID]types.SiacoinElement)
