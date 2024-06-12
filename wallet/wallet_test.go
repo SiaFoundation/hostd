@@ -508,5 +508,4 @@ func TestTransactionUnconfirmedValue(t *testing.T) {
 	if !value.Equals(sendAmount) {
 		t.Fatalf("expected %v value, got %v", sendAmount, value)
 	}
-
 }
