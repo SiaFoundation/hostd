@@ -755,7 +755,6 @@ func taxAdjustedPayout(target types.Currency) types.Currency {
 
 func prepareContractRenewal(currentRevision types.FileContractRevision, renterAddress types.Address, renterKey types.PrivateKey, renterPayout, newCollateral types.Currency, hostKey types.PublicKey, hostAddr types.Address, host rhp3.HostPriceTable, endHeight uint64) (types.FileContract, types.Currency) {
 	hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice := calculateRenewalPayouts(currentRevision.FileContract, newCollateral, host, endHeight)
-	renterPub := renterKey.PublicKey()
 	return types.FileContract{
 		Filesize:       currentRevision.Filesize,
 		FileMerkleRoot: currentRevision.FileMerkleRoot,
@@ -764,9 +763,10 @@ func prepareContractRenewal(currentRevision types.FileContractRevision, renterAd
 		Payout:         taxAdjustedPayout(renterPayout.Add(hostValidPayout)),
 		UnlockHash: types.Hash256(types.UnlockConditions{
 			PublicKeys: []types.UnlockKey{
-				{Algorithm: types.SpecifierEd25519, Key: renterPub[:]},
-				{Algorithm: types.SpecifierEd25519, Key: hostKey[:]},
+				renterKey.PublicKey().UnlockKey(),
+				hostKey.UnlockKey(),
 			},
+			SignaturesRequired: 2,
 		}.UnlockHash()),
 		RevisionNumber: 0,
 		ValidProofOutputs: []types.SiacoinOutput{
