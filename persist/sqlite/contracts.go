@@ -988,20 +988,14 @@ func decodeRevision(b []byte, fcr *types.FileContractRevision) error {
 func encodeTxnSet(txns []types.Transaction) []byte {
 	var buf bytes.Buffer
 	e := types.NewEncoder(&buf)
-	e.WritePrefix(len(txns))
-	for i := range txns {
-		txns[i].EncodeTo(e)
-	}
+	types.EncodeSlice(e, txns)
 	e.Flush()
 	return buf.Bytes()
 }
 
 func decodeTxnSet(b []byte, txns *[]types.Transaction) error {
 	d := types.NewBufDecoder(b)
-	*txns = make([]types.Transaction, d.ReadPrefix())
-	for i := range *txns {
-		(*txns)[i].DecodeFrom(d)
-	}
+	types.DecodeSlice(d, txns)
 	return d.Err()
 }
 
