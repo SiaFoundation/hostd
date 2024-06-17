@@ -323,10 +323,9 @@ func (pe *programExecutor) executeSwapSector(instr *rhp3.InstrSwapSector, log *z
 		// encode the old leaf hashes
 		var buf bytes.Buffer
 		enc := types.NewEncoder(&buf)
-		enc.WritePrefix(len(oldLeafHashes))
-		for _, h := range oldLeafHashes {
+		types.EncodeSliceFn(enc, oldLeafHashes, func(enc *types.Encoder, h types.Hash256) {
 			enc.Write(h[:])
-		}
+		})
 		if err := enc.Flush(); err != nil {
 			return nil, nil, fmt.Errorf("failed to encode old leaf hashes: %w", err)
 		}
