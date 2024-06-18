@@ -5,7 +5,7 @@ go 1.21.8
 toolchain go1.22.3
 
 require (
-	github.com/aws/aws-sdk-go v1.53.20
+	github.com/aws/aws-sdk-go v1.54.3
 	github.com/cloudflare/cloudflare-go v0.97.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
