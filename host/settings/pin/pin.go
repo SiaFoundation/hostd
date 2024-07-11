@@ -9,9 +9,13 @@ import (
 
 	"github.com/shopspring/decimal"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/settings"
 	"go.uber.org/zap"
+	"lukechampine.com/frand"
 )
+
+var pinAlertID = frand.Entropy256()
 
 type (
 	// A Pin is a pinned price in an external currency.
@@ -44,6 +48,12 @@ type (
 		MaxCollateral Pin `json:"maxCollateral"`
 	}
 
+	// Alerts registers global alerts.
+	Alerts interface {
+		Register(alerts.Alert)
+		Dismiss(...types.Hash256)
+	}
+
 	// A SettingsManager updates and retrieves the host's settings.
 	SettingsManager interface {
 		Settings() settings.Settings
@@ -67,6 +77,7 @@ type (
 	Manager struct {
 		log      *zap.Logger
 		store    Store
+		alerts   Alerts
 		explorer ExchangeRateRetriever
 		sm       SettingsManager
 
@@ -97,6 +108,26 @@ func averageRate(rates []decimal.Decimal) decimal.Decimal {
 		sum = sum.Add(r)
 	}
 	return sum.Div(decimal.NewFromInt(int64(len(rates))))
+}
+
+func (m *Manager) registerPinFailureAlert(err error) {
+	if m.alerts != nil && err != nil {
+		m.alerts.Register(alerts.Alert{
+			ID:        pinAlertID,
+			Severity:  alerts.SeverityError,
+			Message:   "failed to update prices",
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"error": err.Error(),
+			},
+		})
+	}
+}
+
+func (m *Manager) dismissPinFailureAlert() {
+	if m.alerts != nil {
+		m.alerts.Dismiss(pinAlertID)
+	}
 }
 
 func (m *Manager) updatePrices(ctx context.Context, force bool) error {
@@ -227,6 +258,7 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	// update prices immediately
 	if err := m.updatePrices(ctx, true); err != nil {
+		m.registerPinFailureAlert(err)
 		m.log.Error("failed to update prices", zap.Error(err))
 	}
 
@@ -237,6 +269,9 @@ func (m *Manager) Run(ctx context.Context) error {
 		case <-t.C:
 			if err := m.updatePrices(ctx, false); err != nil {
 				m.log.Error("failed to update prices", zap.Error(err))
+				m.registerPinFailureAlert(err)
+			} else {
+				m.dismissPinFailureAlert()
 			}
 		}
 	}

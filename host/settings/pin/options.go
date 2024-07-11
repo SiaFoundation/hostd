@@ -16,6 +16,12 @@ func WithLogger(log *zap.Logger) Option {
 	}
 }
 
+func WithAlerts(a Alerts) Option {
+	return func(m *Manager) {
+		m.alerts = a
+	}
+}
+
 // WithFrequency sets the frequency at which the manager updates the host's
 // settings based on the current exchange rate.
 func WithFrequency(frequency time.Duration) Option {
