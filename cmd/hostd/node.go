@@ -187,6 +187,7 @@ func newNode(ctx context.Context, walletKey types.PrivateKey, ex *explorer.Explo
 	var pm *pin.Manager
 	if !cfg.Explorer.Disable {
 		pm, err = pin.NewManager(
+			pin.WithAlerts(am),
 			pin.WithStore(db),
 			pin.WithSettings(sr),
 			pin.WithExchangeRateRetriever(ex),
