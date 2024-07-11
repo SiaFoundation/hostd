@@ -16,6 +16,7 @@ func WithLogger(log *zap.Logger) Option {
 	}
 }
 
+// WithAlerts sets the alerts manager for the pinner to register alerts with.
 func WithAlerts(a Alerts) Option {
 	return func(m *Manager) {
 		m.alerts = a
