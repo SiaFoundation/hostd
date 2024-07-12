@@ -396,7 +396,7 @@ func main() {
 		defer cancel()
 
 		if _, err := ex.SiacoinExchangeRate(ctx, "usd"); err != nil {
-			log.Fatal("failed to get exchange rate", zap.Error(err))
+			log.Error("failed to get exchange rate. explorer features may not work correctly", zap.Error(err))
 		}
 	}
 
