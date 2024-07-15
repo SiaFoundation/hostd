@@ -5,14 +5,14 @@ go 1.21.8
 toolchain go1.22.3
 
 require (
-	github.com/aws/aws-sdk-go v1.54.16
+	github.com/aws/aws-sdk-go v1.54.19
 	github.com/cloudflare/cloudflare-go v0.99.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.4.0
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	go.sia.tech/core v0.3.0
-	go.sia.tech/coreutils v0.1.0
+	go.sia.tech/core v0.3.1
+	go.sia.tech/coreutils v0.1.2
 	go.sia.tech/jape v0.12.0
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
 	go.sia.tech/web/hostd v0.45.1
@@ -57,7 +57,7 @@ require (
 	go.sia.tech/mux v1.2.0 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/crypto v0.25.0 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	golang.org/x/tools v0.22.0 // indirect
