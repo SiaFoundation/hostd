@@ -10,9 +10,17 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion28(tx *txn, _ *zap.Logger) error {
+	// TODO: migrate for v2
+	//
+	// note: remember to recalculate contract metrics to exclude
+	// pending contracts
+	panic("implement me")
+}
+
 // migrateVersion27 adds the sector_writes column to the volume_sectors table to
 // more evenly distribute sector writes across disks.
-func migrateVersion27(tx txn, _ *zap.Logger) error {
+func migrateVersion27(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`ALTER TABLE volume_sectors ADD COLUMN sector_writes INTEGER NOT NULL DEFAULT 0;
 DROP INDEX volume_sectors_volume_id_sector_id_volume_index_compound;
 DROP INDEX volume_sectors_volume_id_sector_id_volume_index_set_compound;
@@ -21,7 +29,7 @@ CREATE INDEX volume_sectors_sector_writes_volume_id_sector_id_volume_index_compo
 }
 
 // migrateVersion26 creates the host_pinned_settings table.
-func migrateVersion26(tx txn, _ *zap.Logger) error {
+func migrateVersion26(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE TABLE host_pinned_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	currency TEXT NOT NULL,
@@ -39,7 +47,7 @@ func migrateVersion26(tx txn, _ *zap.Logger) error {
 }
 
 // migrateVersion25 recalculates the contract and physical sectors metrics
-func migrateVersion25(tx txn, log *zap.Logger) error {
+func migrateVersion25(tx *txn, log *zap.Logger) error {
 	// recalculate the contract sectors metric
 	var contractSectorCount int64
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&contractSectorCount); err != nil {
@@ -82,7 +90,7 @@ func migrateVersion25(tx txn, log *zap.Logger) error {
 }
 
 // migrateVersion24 combines the rhp2 and rhp3 data metrics
-func migrateVersion24(tx txn, log *zap.Logger) error {
+func migrateVersion24(tx *txn, log *zap.Logger) error {
 	rows, err := tx.Query(`SELECT date_created, stat, stat_value FROM host_stats WHERE stat IN (?, ?, ?, ?) ORDER BY date_created ASC`, metricRHP2Ingress, metricRHP2Egress, metricRHP3Ingress, metricRHP3Egress)
 	if err != nil {
 		return fmt.Errorf("failed to query host stats: %w", err)
@@ -103,7 +111,7 @@ func migrateVersion24(tx txn, log *zap.Logger) error {
 		var timestamp time.Time
 		var stat string
 		var value uint64
-		if err := rows.Scan((*sqlTime)(&timestamp), &stat, (*sqlUint64)(&value)); err != nil {
+		if err := rows.Scan(decode(&timestamp), &stat, decode(&value)); err != nil {
 			return fmt.Errorf("failed to scan host stat: %w", err)
 		}
 
@@ -165,7 +173,7 @@ func migrateVersion24(tx txn, log *zap.Logger) error {
 }
 
 // migrateVersion23 creates the webhooks table.
-func migrateVersion23(tx txn, _ *zap.Logger) error {
+func migrateVersion23(tx *txn, _ *zap.Logger) error {
 	const query = `CREATE TABLE webhooks (
 	id INTEGER PRIMARY KEY,
 	callback_url TEXT UNIQUE NOT NULL,
@@ -180,7 +188,7 @@ func migrateVersion23(tx txn, _ *zap.Logger) error {
 // migrateVersion22 recalculates the locked and risked collateral and the
 // potential and earned revenue metrics which will be bugged if the host rescans
 // the blockchain.
-func migrateVersion22(tx txn, log *zap.Logger) error {
+func migrateVersion22(tx *txn, log *zap.Logger) error {
 	rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write FROM contracts WHERE contract_status IN (?, ?, ?);`, contracts.ContractStatusPending, contracts.ContractStatusActive, contracts.ContractStatusSuccessful)
 	if err != nil {
 		return fmt.Errorf("failed to query contracts: %w", err)
@@ -194,7 +202,7 @@ func migrateVersion22(tx txn, log *zap.Logger) error {
 		var lockedCollateral types.Currency
 		var usage contracts.Usage
 
-		if err := rows.Scan(&status, (*sqlCurrency)(&lockedCollateral), (*sqlCurrency)(&usage.RiskedCollateral), (*sqlCurrency)(&usage.RPCRevenue), (*sqlCurrency)(&usage.StorageRevenue), (*sqlCurrency)(&usage.IngressRevenue), (*sqlCurrency)(&usage.EgressRevenue), (*sqlCurrency)(&usage.AccountFunding), (*sqlCurrency)(&usage.RegistryRead), (*sqlCurrency)(&usage.RegistryWrite)); err != nil {
+		if err := rows.Scan(&status, encode(&lockedCollateral), encode(&usage.RiskedCollateral), encode(&usage.RPCRevenue), encode(&usage.StorageRevenue), encode(&usage.IngressRevenue), encode(&usage.EgressRevenue), encode(&usage.AccountFunding), encode(&usage.RegistryRead), encode(&usage.RegistryWrite)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 
@@ -241,7 +249,7 @@ func migrateVersion22(tx txn, log *zap.Logger) error {
 	return nil
 }
 
-func migrateVersion21(tx txn, _ *zap.Logger) error {
+func migrateVersion21(tx *txn, _ *zap.Logger) error {
 	const query = `
 ALTER TABLE global_settings ADD COLUMN last_announce_key BLOB;
 ALTER TABLE global_settings ADD COLUMN settings_last_processed_change BLOB;
@@ -255,13 +263,13 @@ ALTER TABLE global_settings ADD COLUMN last_announce_address TEXT;
 }
 
 // migrateVersion20 adds a compound index to the volume_sectors table
-func migrateVersion20(tx txn, _ *zap.Logger) error {
+func migrateVersion20(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_set_compound ON volume_sectors (volume_id, sector_id, volume_index) WHERE sector_id IS NOT NULL;`)
 	return err
 }
 
 // migrateVersion19 adds a compound index to the volume_sectors table
-func migrateVersion19(tx txn, _ *zap.Logger) error {
+func migrateVersion19(tx *txn, _ *zap.Logger) error {
 	const query = `
 DROP INDEX storage_volumes_read_only_available;
 CREATE INDEX storage_volumes_id_available_read_only ON storage_volumes(id, available, read_only);
@@ -273,7 +281,7 @@ CREATE INDEX volume_sectors_volume_id_sector_id_volume_index_compound ON volume_
 
 // migrateVersion18 adds an index to the volume_sectors table to speed up
 // empty sector selection.
-func migrateVersion18(tx txn, _ *zap.Logger) error {
+func migrateVersion18(tx *txn, _ *zap.Logger) error {
 	const query = `CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sector_id);`
 	_, err := tx.Exec(query)
 	return err
@@ -282,7 +290,7 @@ func migrateVersion18(tx txn, _ *zap.Logger) error {
 // migrateVersion17 recalculates the indices of all contract sector roots.
 // Fixes a bug where the indices were not being properly updated if more than
 // one root was trimmed.
-func migrateVersion17(tx txn, _ *zap.Logger) error {
+func migrateVersion17(tx *txn, _ *zap.Logger) error {
 	const query = `
 -- create a temp table that contains the new indices
 CREATE TEMP TABLE temp_contract_sector_roots AS 
@@ -300,7 +308,7 @@ DROP TABLE temp_contract_sector_roots;`
 }
 
 // migrateVersion16 recalculates the contract and physical sector metrics.
-func migrateVersion16(tx txn, _ *zap.Logger) error {
+func migrateVersion16(tx *txn, _ *zap.Logger) error {
 	// recalculate the contract sectors metric
 	var contractSectorCount int64
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&contractSectorCount); err != nil {
@@ -345,7 +353,7 @@ func migrateVersion16(tx txn, _ *zap.Logger) error {
 // migrateVersion15 adds the registry usage fields to the contracts table,
 // removes the usage fields from the accounts table, and refactors the
 // contract_account_funding table.
-func migrateVersion15(tx txn, _ *zap.Logger) error {
+func migrateVersion15(tx *txn, _ *zap.Logger) error {
 	const query = `
 -- drop the tables that are being removed or refactored
 DROP TABLE account_financial_records;
@@ -413,7 +421,7 @@ CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_c
 CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(formation_confirmed, negotiation_height);`
 
 	// one query parameter to reset the contract's tracked revenue to zero
-	if _, err := tx.Exec(query, sqlCurrency(types.ZeroCurrency)); err != nil {
+	if _, err := tx.Exec(query, encode(types.ZeroCurrency)); err != nil {
 		return fmt.Errorf("failed to migrate contracts table: %w", err)
 	}
 
@@ -434,7 +442,7 @@ CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(forma
 
 	for rows.Next() {
 		var balance types.Currency
-		if err := rows.Scan((*sqlCurrency)(&balance)); err != nil {
+		if err := rows.Scan(encode(&balance)); err != nil {
 			return fmt.Errorf("failed to scan account balance: %w", err)
 		}
 		accountBalance = accountBalance.Add(balance)
@@ -449,7 +457,7 @@ CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(forma
 
 // migrateVersion14 adds the locked_sectors table, recalculates the contract
 // sectors metric, and recalculates the physical sectors metric.
-func migrateVersion14(tx txn, _ *zap.Logger) error {
+func migrateVersion14(tx *txn, _ *zap.Logger) error {
 	// create the new locked sectors table
 	const lockedSectorsTableQuery = `CREATE TABLE locked_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
 	id INTEGER PRIMARY KEY,
@@ -480,19 +488,19 @@ CREATE INDEX locked_sectors_sector_id ON locked_sectors(sector_id);`
 }
 
 // migrateVersion13 adds an index to the storage table to speed up location selection
-func migrateVersion13(tx txn, _ *zap.Logger) error {
+func migrateVersion13(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE INDEX storage_volumes_read_only_available_used_sectors ON storage_volumes(available, read_only, used_sectors);`)
 	return err
 }
 
 // migrateVersion12 adds an index to the contracts table to speed up sector pruning
-func migrateVersion12(tx txn, _ *zap.Logger) error {
+func migrateVersion12(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE INDEX contracts_window_end ON contracts(window_end);`)
 	return err
 }
 
 // migrateVersion11 recalculates the contract collateral metrics for existing contracts.
-func migrateVersion11(tx txn, _ *zap.Logger) error {
+func migrateVersion11(tx *txn, _ *zap.Logger) error {
 	rows, err := tx.Query(`SELECT locked_collateral, risked_collateral FROM contracts WHERE contract_status IN (?, ?)`, contracts.ContractStatusPending, contracts.ContractStatusActive)
 	if err != nil {
 		return fmt.Errorf("failed to query contracts: %w", err)
@@ -501,7 +509,7 @@ func migrateVersion11(tx txn, _ *zap.Logger) error {
 	var totalLocked, totalRisked types.Currency
 	for rows.Next() {
 		var locked, risked types.Currency
-		if err := rows.Scan((*sqlCurrency)(&locked), (*sqlCurrency)(&risked)); err != nil {
+		if err := rows.Scan(encode(&locked), encode(&risked)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 		totalLocked = totalLocked.Add(locked)
@@ -517,13 +525,13 @@ func migrateVersion11(tx txn, _ *zap.Logger) error {
 }
 
 // migrateVersion10 drops the log_lines table.
-func migrateVersion10(tx txn, _ *zap.Logger) error {
+func migrateVersion10(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`DROP TABLE log_lines;`)
 	return err
 }
 
 // migrateVersion9 recalculates the contract metrics for existing contracts.
-func migrateVersion9(tx txn, _ *zap.Logger) error {
+func migrateVersion9(tx *txn, _ *zap.Logger) error {
 	rows, err := tx.Query(`SELECT contract_status, COUNT(*) FROM contracts GROUP BY contract_status`)
 	if err != nil {
 		return fmt.Errorf("failed to query contracts: %w", err)
@@ -541,7 +549,7 @@ func migrateVersion9(tx txn, _ *zap.Logger) error {
 		var metric string
 		switch status {
 		case contracts.ContractStatusPending:
-			metric = metricPendingContracts
+			metric = "pendingContracts"
 		case contracts.ContractStatusRejected:
 			metric = metricRejectedContracts
 		case contracts.ContractStatusActive:
@@ -561,7 +569,7 @@ func migrateVersion9(tx txn, _ *zap.Logger) error {
 
 // migrateVersion8 sets the initial values for the locked and risked collateral
 // metrics for existing hosts
-func migrateVersion8(tx txn, _ *zap.Logger) error {
+func migrateVersion8(tx *txn, _ *zap.Logger) error {
 	rows, err := tx.Query(`SELECT locked_collateral, risked_collateral FROM contracts WHERE contract_status IN (?, ?)`, contracts.ContractStatusPending, contracts.ContractStatusActive)
 	if err != nil {
 		return fmt.Errorf("failed to query contracts: %w", err)
@@ -570,7 +578,7 @@ func migrateVersion8(tx txn, _ *zap.Logger) error {
 	var totalLocked, totalRisked types.Currency
 	for rows.Next() {
 		var locked, risked types.Currency
-		if err := rows.Scan((*sqlCurrency)(&locked), (*sqlCurrency)(&risked)); err != nil {
+		if err := rows.Scan(encode(&locked), encode(&risked)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 		totalLocked = totalLocked.Add(locked)
@@ -590,14 +598,14 @@ func migrateVersion8(tx txn, _ *zap.Logger) error {
 }
 
 // migrateVersion7 adds the sector_cache_size column to the host_settings table
-func migrateVersion7(tx txn, _ *zap.Logger) error {
+func migrateVersion7(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`ALTER TABLE host_settings ADD COLUMN sector_cache_size INTEGER NOT NULL DEFAULT 0;`)
 	return err
 }
 
 // migrateVersion6 fixes a bug where the physical sectors metric was not being
 // properly decreased when a volume is force removed.
-func migrateVersion6(tx txn, _ *zap.Logger) error {
+func migrateVersion6(tx *txn, _ *zap.Logger) error {
 	var count int64
 	if err := tx.QueryRow(`SELECT COUNT(id) FROM volume_sectors WHERE sector_id IS NOT NULL`).Scan(&count); err != nil {
 		return fmt.Errorf("failed to count volume sectors: %w", err)
@@ -610,7 +618,7 @@ func migrateVersion6(tx txn, _ *zap.Logger) error {
 // the contract sectors metric will drastically increase for existing hosts.
 // This is unavoidable, as we have no way of knowing how many sectors were
 // previously renewed.
-func migrateVersion5(tx txn, _ *zap.Logger) error {
+func migrateVersion5(tx *txn, _ *zap.Logger) error {
 	var count int64
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&count); err != nil {
 		return fmt.Errorf("failed to count contract sector roots: %w", err)
@@ -620,7 +628,7 @@ func migrateVersion5(tx txn, _ *zap.Logger) error {
 }
 
 // migrateVersion4 changes the collateral setting to collateral_multiplier
-func migrateVersion4(tx txn, _ *zap.Logger) error {
+func migrateVersion4(tx *txn, _ *zap.Logger) error {
 	const (
 		newSettingsSchema = `CREATE TABLE host_settings (
 			id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
@@ -676,13 +684,13 @@ egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry
 
 // migrateVersion3 adds a wallet hash to the global settings table to detect
 // when the private key has changed.
-func migrateVersion3(tx txn, _ *zap.Logger) error {
+func migrateVersion3(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`ALTER TABLE global_settings ADD COLUMN wallet_hash BLOB;`)
 	return err
 }
 
 // migrateVersion2 removes the min prefix from the price columns in host_settings
-func migrateVersion2(tx txn, _ *zap.Logger) error {
+func migrateVersion2(tx *txn, _ *zap.Logger) error {
 	const (
 		newSettingsSchema = `CREATE TABLE host_settings (
 			id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
@@ -737,7 +745,7 @@ egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, regi
 // migrations is a list of functions that are run to migrate the database from
 // one version to the next. Migrations are used to update existing databases to
 // match the schema in init.sql.
-var migrations = []func(tx txn, log *zap.Logger) error{
+var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion2,
 	migrateVersion3,
 	migrateVersion4,

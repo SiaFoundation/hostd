@@ -12,19 +12,11 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/persist/sqlite"
-	"go.sia.tech/hostd/webhooks"
-	"go.sia.tech/siad/modules/consensus"
-	"go.sia.tech/siad/modules/gateway"
-	"go.sia.tech/siad/modules/transactionpool"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
-
-const sectorCacheSize = 64
 
 func checkFileSize(fp string, expectedSize int64) error {
 	stat, err := os.Stat(fp)
@@ -47,40 +39,7 @@ func TestVolumeLoad(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +72,7 @@ func TestVolumeLoad(t *testing.T) {
 	}
 
 	// reopen the volume manager
-	vm, err = storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err = storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,40 +122,7 @@ func TestAddVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,41 +168,8 @@ func TestRemoveVolume(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,41 +309,8 @@ func TestRemoveCorrupt(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,41 +482,8 @@ func TestRemoveMissing(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,7 +542,7 @@ func TestRemoveMissing(t *testing.T) {
 	}
 
 	// reload the volume manager
-	vm, err = storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err = storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -805,41 +632,8 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -971,41 +765,8 @@ func TestVolumeGrow(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1096,41 +857,8 @@ func TestVolumeShrink(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1265,41 +993,8 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), 0)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1391,41 +1086,8 @@ func TestSectorCache(t *testing.T) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectors/2) // cache half the sectors
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(sectors/2)) // cache half the sectors
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1529,39 +1191,8 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		b.Fatal(err)
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1611,39 +1242,8 @@ func BenchmarkNewVolume(b *testing.B) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		b.Fatal(err)
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1676,39 +1276,8 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		b.Fatal(err)
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1760,39 +1329,8 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	}
 	defer db.Close()
 
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	select {
-	case err := <-errCh:
-		b.Fatal(err)
-	default:
-	}
-
-	tp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, chain.NewTPool(tp))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer cm.Close()
-
 	// initialize the storage manager
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	vm, err := storage.NewVolumeManager(db, am, cm, log.Named("volumes"), sectorCacheSize)
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		b.Fatal(err)
 	}

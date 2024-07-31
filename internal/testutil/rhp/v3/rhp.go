@@ -40,13 +40,15 @@ type (
 	// A Wallet funds and signs transactions
 	Wallet interface {
 		Address() types.Address
-		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
-		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
+		FundTransaction(txn *types.Transaction, amount types.Currency, unconfirmed bool) ([]types.Hash256, error)
+		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+		ReleaseInputs([]types.Transaction, []types.V2Transaction)
 	}
 
 	// A ChainManager is used to get the current consensus state
 	ChainManager interface {
 		TipState() consensus.State
+		Tip() types.ChainIndex
 	}
 )
 
@@ -459,7 +461,7 @@ func (s *Session) RenewContract(revision *rhp2.ContractRevision, hostAddr types.
 		FileContracts:         []types.FileContract{renewal},
 	}
 	renterCost := rhp2.ContractRenewalCost(state, renewal, pt.ContractPrice, txnFee, baseCost)
-	toSign, release, err := s.w.FundTransaction(&renewTxn, renterCost)
+	toSign, err := s.w.FundTransaction(&renewTxn, renterCost, true)
 	if err != nil {
 		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to fund transaction: %w", err)
 	}
@@ -471,16 +473,16 @@ func (s *Session) RenewContract(revision *rhp2.ContractRevision, hostAddr types.
 		FinalRevisionSignature: renterKey.SignHash(clearingSigHash),
 	}
 	if err := stream.WriteResponse(renewReq); err != nil {
-		release()
+		s.w.ReleaseInputs([]types.Transaction{renewTxn}, nil)
 		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to write renew request: %w", err)
 	}
 
 	var hostAdditions rhp3.RPCRenewContractHostAdditions
 	if err := stream.ReadResponse(&hostAdditions, 4096); err != nil {
-		release()
+		s.w.ReleaseInputs([]types.Transaction{renewTxn}, nil)
 		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to read host additions response: %w", err)
 	} else if !s.hostKey.VerifyHash(clearingSigHash, hostAdditions.FinalRevisionSignature) {
-		release()
+		s.w.ReleaseInputs([]types.Transaction{renewTxn}, nil)
 		return rhp2.ContractRevision{}, nil, fmt.Errorf("host final revision signature invalid")
 	}
 	// add the host's additions to the transaction set
@@ -489,11 +491,7 @@ func (s *Session) RenewContract(revision *rhp2.ContractRevision, hostAddr types.
 	renewTxn.SiacoinOutputs = append(renewTxn.SiacoinOutputs, hostAdditions.SiacoinOutputs...)
 
 	// sign the transaction
-	if err := s.w.SignTransaction(state, &renewTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
-		release()
-		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to sign transaction: %w", err)
-	}
-
+	s.w.SignTransaction(&renewTxn, toSign, types.CoveredFields{WholeTransaction: true})
 	renewRevision := initialRevision(&renewTxn, s.hostKey.UnlockKey(), renterKey.PublicKey().UnlockKey())
 	renewSigHash := hashRevision(renewRevision)
 	renterSig := renterKey.SignHash(renewSigHash)
@@ -509,16 +507,16 @@ func (s *Session) RenewContract(revision *rhp2.ContractRevision, hostAddr types.
 		},
 	}
 	if err := stream.WriteResponse(renterSigsResp); err != nil {
-		release()
+		s.w.ReleaseInputs([]types.Transaction{renewTxn}, nil)
 		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to write renter signatures: %w", err)
 	}
 
 	var hostSigsResp rhp3.RPCRenewSignatures
 	if err := stream.ReadResponse(&hostSigsResp, 4096); err != nil {
-		release()
+		s.w.ReleaseInputs([]types.Transaction{renewTxn}, nil)
 		return rhp2.ContractRevision{}, nil, fmt.Errorf("failed to read host signatures: %w", err)
 	} else if err := validateHostRevisionSignature(hostSigsResp.RevisionSignature, renewRevision.ParentID, renewSigHash, s.hostKey); err != nil {
-		release()
+		s.w.ReleaseInputs([]types.Transaction{renewTxn}, nil)
 		return rhp2.ContractRevision{}, nil, fmt.Errorf("invalid host revision signature: %w", err)
 	}
 	return rhp2.ContractRevision{

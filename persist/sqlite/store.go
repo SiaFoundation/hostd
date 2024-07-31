@@ -3,12 +3,17 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
+	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -21,66 +26,16 @@ type (
 	}
 )
 
-// exec executes a query without returning any rows. The args are for
-// any placeholder parameters in the query.
-func (s *Store) exec(query string, args ...any) (sql.Result, error) {
-	start := time.Now()
-	result, err := s.db.Exec(query, args...)
-	if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow exec", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
-	}
-	return result, err
-}
-
-// prepare creates a prepared statement for later queries or executions.
-// Multiple queries or executions may be run concurrently from the
-// returned statement. The caller must call the statement's Close method
-// when the statement is no longer needed.
-func (s *Store) prepare(query string) (*loggedStmt, error) {
-	start := time.Now()
-	stmt, err := s.db.Prepare(query)
-	if err != nil {
-		return nil, err
-	} else if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
-	}
-	return &loggedStmt{
-		Stmt:  stmt,
-		query: query,
-		log:   s.log.Named("statement"),
-	}, nil
-}
-
-// query executes a query that returns rows, typically a SELECT. The
-// args are for any placeholder parameters in the query.
-func (s *Store) query(query string, args ...any) (*loggedRows, error) {
-	start := time.Now()
-	rows, err := s.db.Query(query, args...)
-	if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
-	}
-	return &loggedRows{rows, s.log.Named("rows")}, err
-}
-
-// queryRow executes a query that is expected to return at most one row.
-// QueryRow always returns a non-nil value. Errors are deferred until
-// Row's Scan method is called. If the query selects no rows, the *Row's
-// Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
-// first selected row and discards the rest.
-func (s *Store) queryRow(query string, args ...any) *loggedRow {
-	start := time.Now()
-	row := s.db.QueryRow(query, args...)
-	if dur := time.Since(start); dur > longQueryDuration {
-		s.log.Debug("slow query row", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
-	}
-	return &loggedRow{row, s.log.Named("row")}
+// Close closes the underlying database.
+func (s *Store) Close() error {
+	return s.db.Close()
 }
 
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed. If the transaction fails due to a busy error, it is
-// retried up to 15 times before returning.
-func (s *Store) transaction(fn func(txn) error) error {
+// retried up to 10 times before returning.
+func (s *Store) transaction(fn func(*txn) error) error {
 	var err error
 	txnID := hex.EncodeToString(frand.Bytes(4))
 	log := s.log.Named("transaction").With(zap.String("id", txnID))
@@ -110,11 +65,6 @@ func (s *Store) transaction(fn func(txn) error) error {
 	return fmt.Errorf("transaction failed (attempt %d): %w", attempt, err)
 }
 
-// Close closes the underlying database.
-func (s *Store) Close() error {
-	return s.db.Close()
-}
-
 func sqliteFilepath(fp string) string {
 	params := []string{
 		fmt.Sprintf("_busy_timeout=%d", busyTimeout),
@@ -129,33 +79,35 @@ func sqliteFilepath(fp string) string {
 // doTransaction is a helper function to execute a function within a transaction. If fn returns
 // an error, the transaction is rolled back. Otherwise, the transaction is
 // committed.
-func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
-	start := time.Now()
-	tx, err := db.Begin()
+func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
+	dbtx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	start := time.Now()
 	defer func() {
+		if err := dbtx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Error("failed to rollback transaction", zap.Error(err))
+		}
 		// log the transaction if it took longer than txn duration
 		if time.Since(start) > longTxnDuration {
 			log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"), zap.Bool("failed", err != nil))
 		}
 	}()
 
-	ltx := &loggedTxn{
-		Tx:  tx,
+	tx := &txn{
+		Tx:  dbtx,
 		log: log,
 	}
-	if err := fn(ltx); err != nil {
+	if err := fn(tx); err != nil {
 		return err
-	} else if err = tx.Commit(); err != nil {
+	} else if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
 }
 
-func clearLockedSectors(tx txn, log *zap.Logger) error {
+func clearLockedSectors(tx *txn, log *zap.Logger) error {
 	rows, err := tx.Query(`DELETE FROM locked_sectors RETURNING sector_id`)
 	if err != nil {
 		return err
@@ -177,13 +129,13 @@ func clearLockedSectors(tx txn, log *zap.Logger) error {
 	return nil
 }
 
-func clearLockedLocations(tx txn) error {
+func clearLockedLocations(tx *txn) error {
 	_, err := tx.Exec(`DELETE FROM locked_volume_sectors`)
 	return err
 }
 
 func (s *Store) clearLocks() error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if err := clearLockedLocations(tx); err != nil {
 			return fmt.Errorf("failed to clear locked locations: %w", err)
 		} else if err = clearLockedSectors(tx, s.log.Named("clearLockedSectors")); err != nil {
@@ -215,3 +167,10 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	log.Debug("database initialized", zap.String("sqliteVersion", sqliteVersion), zap.Int("schemaVersion", len(migrations)+1), zap.String("path", fp))
 	return store, nil
 }
+
+var _ interface {
+	wallet.SingleAddressStore
+	contracts.ContractStore
+	storage.VolumeStore
+	settings.Store
+} = (*Store)(nil)

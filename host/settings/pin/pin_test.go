@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,8 +13,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/settings/pin"
-	"go.sia.tech/hostd/internal/test"
-	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/internal/testutil"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -113,34 +111,22 @@ func TestConvertConvertCurrencyToSC(t *testing.T) {
 
 func TestPinnedFields(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewConsensusNode(t, network, genesis, log)
 
-	rr := &exchangeRateRetrieverStub{
+	fr := &exchangeRateRetrieverStub{
 		value:    1,
 		currency: "usd",
 	}
 
-	node, err := test.NewNode(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer node.Close()
-
-	sm, err := settings.NewConfigManager(settings.WithHostKey(types.GeneratePrivateKey()), settings.WithStore(db), settings.WithChainManager(node.ChainManager()))
+	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sm.Close()
 
-	pm, err := pin.NewManager(pin.WithAverageRateWindow(time.Minute),
+	pm, err := pin.NewManager(node.Store, sm, fr, pin.WithAverageRateWindow(time.Minute),
 		pin.WithFrequency(100*time.Millisecond),
-		pin.WithExchangeRateRetriever(rr),
-		pin.WithSettings(sm),
-		pin.WithStore(db),
 		pin.WithLogger(log.Named("pin")))
 	if err != nil {
 		t.Fatal(err)
@@ -224,34 +210,22 @@ func TestPinnedFields(t *testing.T) {
 
 func TestAutomaticUpdate(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewConsensusNode(t, network, genesis, log)
 
-	rr := &exchangeRateRetrieverStub{
+	fr := &exchangeRateRetrieverStub{
 		value:    1,
 		currency: "usd",
 	}
 
-	node, err := test.NewNode(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer node.Close()
-
-	sm, err := settings.NewConfigManager(settings.WithHostKey(types.GeneratePrivateKey()), settings.WithStore(db), settings.WithChainManager(node.ChainManager()))
+	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sm.Close()
 
-	pm, err := pin.NewManager(pin.WithAverageRateWindow(time.Second/2),
+	pm, err := pin.NewManager(node.Store, sm, fr, pin.WithAverageRateWindow(time.Second/2),
 		pin.WithFrequency(100*time.Millisecond),
-		pin.WithExchangeRateRetriever(rr),
-		pin.WithSettings(sm),
-		pin.WithStore(db),
 		pin.WithLogger(log.Named("pin")))
 	if err != nil {
 		t.Fatal(err)
@@ -307,14 +281,14 @@ func TestAutomaticUpdate(t *testing.T) {
 	}
 
 	// update the exchange rate below the threshold
-	rr.updateRate(1.5)
+	fr.updateRate(1.5)
 	time.Sleep(time.Second)
 	if err := checkSettings(sm.Settings(), pin, 1); err != nil {
 		t.Fatal(err)
 	}
 
 	// update the exchange rate to put it over the threshold
-	rr.updateRate(2)
+	fr.updateRate(2)
 	time.Sleep(time.Second)
 	if err := checkSettings(sm.Settings(), pin, 2); err != nil {
 		t.Fatal(err)

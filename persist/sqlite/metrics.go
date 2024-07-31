@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -13,13 +14,17 @@ import (
 
 const (
 	// contracts
-	metricPendingContracts    = "pendingContracts"
 	metricActiveContracts     = "activeContracts"
 	metricRejectedContracts   = "rejectedContracts"
 	metricSuccessfulContracts = "successfulContracts"
 	metricFailedContracts     = "failedContracts"
-	metricLockedCollateral    = "lockedCollateral"
-	metricRiskedCollateral    = "riskedCollateral"
+
+	// v2
+	metricFinalizedContracts = "finalizedContracts"
+	metricRenewedContracts   = "renewedContracts"
+
+	metricLockedCollateral = "lockedCollateral"
+	metricRiskedCollateral = "riskedCollateral"
 
 	// accounts
 	metricActiveAccounts = "activeAccounts"
@@ -123,7 +128,7 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 	}
 
 	const query = `SELECT stat, stat_value, date_created FROM host_stats WHERE date_created BETWEEN $1 AND $2 ORDER BY date_created ASC`
-	rows, err := s.db.Query(query, sqlTime(start), sqlTime(end))
+	rows, err := s.db.Query(query, encode(start), encode(end))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
@@ -138,7 +143,7 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 		var value []byte
 		var timestamp time.Time
 
-		if err := rows.Scan(&stat, &value, (*sqlTime)(&timestamp)); err != nil {
+		if err := rows.Scan(&stat, &value, decode(&timestamp)); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
@@ -212,7 +217,8 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 
 // Metrics returns aggregate metrics for the host as of the timestamp.
 func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
-	const query = `SELECT s.stat, s.stat_value
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT s.stat, s.stat_value
 FROM host_stats s
 JOIN (
     SELECT stat, MAX(date_created) AS most_recent
@@ -220,28 +226,31 @@ JOIN (
     WHERE date_created <= $1
     GROUP BY stat
 ) AS sub ON s.stat = sub.stat AND s.date_created = sub.most_recent;`
-	rows, err := s.query(query, sqlTime(timestamp))
-	if err != nil {
-		return metrics.Metrics{}, fmt.Errorf("failed to query metrics: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var stat string
-		var value []byte
-
-		if err := rows.Scan(&stat, &value); err != nil {
-			return metrics.Metrics{}, fmt.Errorf("failed to scan row: %w", err)
+		rows, err := tx.Query(query, encode(timestamp))
+		if err != nil {
+			return fmt.Errorf("failed to query metrics: %w", err)
 		}
-		mustParseMetricValue(stat, value, &m)
-	}
-	m.Timestamp = timestamp
+		defer rows.Close()
+
+		for rows.Next() {
+			var stat string
+			var value []byte
+
+			if err := rows.Scan(&stat, &value); err != nil {
+				return fmt.Errorf("failed to scan row: %w", err)
+			}
+			mustParseMetricValue(stat, value, &m)
+		}
+		m.Timestamp = timestamp
+		return nil
+	})
+
 	return
 }
 
 // IncrementRHPDataUsage increments the RHP3 ingress and egress metrics.
 func (s *Store) IncrementRHPDataUsage(ingress, egress uint64) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if ingress > 0 {
 			if err := incrementNumericStat(tx, metricDataRHPIngress, int(ingress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track ingress: %w", err)
@@ -258,7 +267,7 @@ func (s *Store) IncrementRHPDataUsage(ingress, egress uint64) error {
 
 // IncrementSectorStats increments the sector read, write and cache metrics.
 func (s *Store) IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if reads > 0 {
 			if err := incrementNumericStat(tx, metricSectorReads, int(reads), time.Now()); err != nil {
 				return fmt.Errorf("failed to track reads: %w", err)
@@ -287,7 +296,7 @@ func (s *Store) IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) 
 
 // IncrementRegistryAccess increments the registry read and write metrics.
 func (s *Store) IncrementRegistryAccess(read, write uint64) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if read > 0 {
 			if err := incrementNumericStat(tx, metricRegistryReads, int(read), time.Now()); err != nil {
 				return fmt.Errorf("failed to track reads: %w", err)
@@ -302,20 +311,17 @@ func (s *Store) IncrementRegistryAccess(read, write uint64) error {
 	})
 }
 
-func mustScanCurrency(b []byte) types.Currency {
-	var c sqlCurrency
-	if err := c.Scan(b); err != nil {
-		panic(err)
+func mustScanCurrency(src []byte) (c types.Currency) {
+	if len(src) != 16 {
+		panic(fmt.Sprintf("cannot scan %d bytes into Currency", len(src)))
 	}
-	return types.Currency(c)
+	c.Lo = binary.LittleEndian.Uint64(src[:8])
+	c.Hi = binary.LittleEndian.Uint64(src[8:])
+	return
 }
 
 func mustScanUint64(b []byte) uint64 {
-	var u sqlUint64
-	if err := u.Scan(b); err != nil {
-		panic(err)
-	}
-	return uint64(u)
+	return binary.LittleEndian.Uint64(b)
 }
 
 // mustParseMetricValue parses the value of a metric from the database.
@@ -339,8 +345,6 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		value := mustScanUint64(buf)
 		m.Pricing.CollateralMultiplier = math.Float64frombits(value)
 	// contracts
-	case metricPendingContracts:
-		m.Contracts.Pending = mustScanUint64(buf)
 	case metricActiveContracts:
 		m.Contracts.Active = mustScanUint64(buf)
 	case metricRejectedContracts:
@@ -349,6 +353,10 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Contracts.Successful = mustScanUint64(buf)
 	case metricFailedContracts:
 		m.Contracts.Failed = mustScanUint64(buf)
+	case metricFinalizedContracts:
+		m.Contracts.Finalized = mustScanUint64(buf)
+	case metricRenewedContracts:
+		m.Contracts.Renewed = mustScanUint64(buf)
 	case metricLockedCollateral:
 		m.Contracts.LockedCollateral = mustScanCurrency(buf)
 	case metricRiskedCollateral:
@@ -425,15 +433,96 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 	}
 }
 
+// incrementNumericStatStmt tracks a numeric stat, incrementing the current value by
+// delta. If the resulting value is negative, the function panics. This function
+// should be used when lots of stats need to be batched together.
+func incrementNumericStatStmt(tx *txn) (func(stat string, delta int64, timestamp time.Time) error, func() error, error) {
+	getStatStmt, err := tx.Prepare(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to prepare get stat statement: %w", err)
+	}
+
+	insertStatStmt, err := tx.Prepare(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to prepare insert stat statement: %w", err)
+	}
+
+	return func(stat string, delta int64, timestamp time.Time) error {
+			if delta == 0 {
+				return nil
+			}
+			timestamp = timestamp.Truncate(statInterval)
+			var current int64
+			if err := getStatStmt.QueryRow(stat, encode(timestamp)).Scan(decode(&current)); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to query existing value: %w", err)
+			}
+
+			if current+delta < 0 {
+				panic(fmt.Errorf("negative stat value: %v %v%v", stat, current, delta))
+			}
+			value := current + delta
+			_, err = insertStatStmt.Exec(stat, encode(value), encode(timestamp))
+			return err
+		}, func() error {
+			getStatStmt.Close()
+			insertStatStmt.Close()
+			return nil
+		}, nil
+}
+
+// incrementCurrencyStatStmt increments a currency stat. If negative is false, the current
+// value is incremented by delta. Otherwise, the value is decremented. If the
+// resulting value would be negative, the function panics. This function should
+// be used when lots of stats need to be batched together.
+func incrementCurrencyStatStmt(tx *txn) (func(stat string, delta types.Currency, negative bool, timestamp time.Time) error, func() error, error) {
+	getStatStmt, err := tx.Prepare(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to prepare get stat statement: %w", err)
+	}
+
+	insertStatStmt, err := tx.Prepare(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to prepare insert stat statement: %w", err)
+	}
+
+	return func(stat string, delta types.Currency, negative bool, timestamp time.Time) error {
+			if delta.IsZero() {
+				return nil
+			}
+			timestamp = timestamp.Truncate(statInterval)
+			var current types.Currency
+			if err := getStatStmt.QueryRow(stat, encode(timestamp)).Scan(decode(&current)); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to query existing value: %w", err)
+			}
+
+			var value types.Currency
+			if negative {
+				if current.Cmp(delta) < 0 {
+					panic(fmt.Errorf("negative stat value: %v %v-%v", stat, current, delta))
+				}
+				value = current.Sub(delta)
+			} else {
+				value = current.Add(delta)
+			}
+
+			_, err = insertStatStmt.Exec(stat, encode(value), encode(timestamp))
+			return err
+		}, func() error {
+			getStatStmt.Close()
+			insertStatStmt.Close()
+			return nil
+		}, nil
+}
+
 // incrementNumericStat tracks a numeric stat, incrementing the current value by
 // delta. If the resulting value is negative, the function panics.
-func incrementNumericStat(tx txn, stat string, delta int, timestamp time.Time) error {
+func incrementNumericStat(tx *txn, stat string, delta int, timestamp time.Time) error {
 	if delta == 0 {
 		return nil
 	}
 	timestamp = timestamp.Truncate(statInterval)
 	var current uint64
-	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, encode(timestamp)).Scan(decode(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to query existing value: %w", err)
 	}
@@ -446,7 +535,7 @@ func incrementNumericStat(tx txn, stat string, delta int, timestamp time.Time) e
 	} else {
 		value = current + uint64(delta)
 	}
-	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlUint64(value), sqlTime(timestamp))
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, encode(value), encode(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
 	}
@@ -456,13 +545,13 @@ func incrementNumericStat(tx txn, stat string, delta int, timestamp time.Time) e
 // incrementCurrencyStat tracks a currency stat. If negative is false, the current
 // value is incremented by delta. Otherwise, the value is decremented. If the
 // resulting value would be negative, the function panics.
-func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative bool, timestamp time.Time) error {
+func incrementCurrencyStat(tx *txn, stat string, delta types.Currency, negative bool, timestamp time.Time) error {
 	if delta.IsZero() {
 		return nil
 	}
 	timestamp = timestamp.Truncate(statInterval)
 	var current types.Currency
-	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlCurrency)(&current))
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, encode(timestamp)).Scan(decode(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to query existing value: %w", err)
 	}
@@ -472,56 +561,56 @@ func incrementCurrencyStat(tx txn, stat string, delta types.Currency, negative b
 	} else {
 		value = value.Add(delta)
 	}
-	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlCurrency(value), sqlTime(timestamp))
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, encode(value), encode(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
 	}
 	return nil
 }
 
-func setCurrencyStat(tx txn, stat string, value types.Currency, timestamp time.Time) error {
+func setCurrencyStat(tx *txn, stat string, value types.Currency, timestamp time.Time) error {
 	timestamp = timestamp.Truncate(statInterval)
 	var current types.Currency
-	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlCurrency)(&current))
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, encode(timestamp)).Scan(decode(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to query existing value: %w", err)
 	} else if value.Equals(current) {
 		return nil
 	}
-	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlCurrency(value), sqlTime(timestamp))
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, encode(value), encode(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
 	}
 	return nil
 }
 
-func setNumericStat(tx txn, stat string, value uint64, timestamp time.Time) error {
+func setNumericStat(tx *txn, stat string, value uint64, timestamp time.Time) error {
 	timestamp = timestamp.Truncate(statInterval)
 	var current uint64
-	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, encode(timestamp)).Scan(decode(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to query existing value: %w", err)
 	} else if value == current {
 		return nil
 	}
-	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlUint64(value), sqlTime(timestamp))
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, encode(value), encode(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
 	}
 	return nil
 }
 
-func setFloat64Stat(tx txn, stat string, f float64, timestamp time.Time) error {
+func setFloat64Stat(tx *txn, stat string, f float64, timestamp time.Time) error {
 	timestamp = timestamp.Truncate(statInterval)
 	value := math.Float64bits(f)
 	var current uint64
-	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, sqlTime(timestamp)).Scan((*sqlUint64)(&current))
+	err := tx.QueryRow(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`, stat, encode(timestamp)).Scan(decode(&current))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to query existing value: %w", err)
 	} else if value == current {
 		return nil
 	}
-	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, sqlUint64(value), sqlTime(timestamp))
+	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, encode(value), encode(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
 	}
@@ -532,9 +621,9 @@ func setFloat64Stat(tx txn, stat string, f float64, timestamp time.Time) error {
 // negative is false, the current value is incremented by delta. Otherwise, the
 // value is decremented. If the resulting value would be negative, the function
 // panics.
-func reflowCurrencyStat(tx txn, stat string, startTime time.Time, value types.Currency, negative bool) error {
+func reflowCurrencyStat(tx *txn, stat string, startTime time.Time, value types.Currency, negative bool) error {
 	startTime = startTime.Truncate(statInterval)
-	rows, err := tx.Query(`SELECT stat_value, date_created FROM host_stats WHERE stat=$1 AND date_created > $2 ORDER BY date_created ASC`, stat, sqlTime(startTime))
+	rows, err := tx.Query(`SELECT stat_value, date_created FROM host_stats WHERE stat=$1 AND date_created > $2 ORDER BY date_created ASC`, stat, encode(startTime))
 	if err != nil {
 		return fmt.Errorf("failed to query existing value: %w", err)
 	}
@@ -544,7 +633,7 @@ func reflowCurrencyStat(tx txn, stat string, startTime time.Time, value types.Cu
 	for rows.Next() {
 		var v types.Currency
 		var timestamp time.Time
-		if err := rows.Scan((*sqlCurrency)(&v), (*sqlTime)(&timestamp)); err != nil {
+		if err := rows.Scan(decode(&v), decode(&timestamp)); err != nil {
 			return fmt.Errorf("failed to scan row: %w", err)
 		}
 		if negative {
@@ -563,7 +652,7 @@ func reflowCurrencyStat(tx txn, stat string, startTime time.Time, value types.Cu
 	defer stmt.Close()
 	for i := range values {
 		var dbTime time.Time
-		err := stmt.QueryRow(sqlCurrency(values[i]), stat, sqlTime(timestamps[i])).Scan((*sqlTime)(&dbTime))
+		err := stmt.QueryRow(encode(values[i]), stat, encode(timestamps[i])).Scan(decode(&dbTime))
 		if err != nil {
 			return fmt.Errorf("failed to update stat: %w", err)
 		}

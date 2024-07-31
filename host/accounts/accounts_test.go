@@ -1,23 +1,14 @@
 package accounts_test
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/internal/chain"
-	"go.sia.tech/hostd/persist/sqlite"
-	"go.sia.tech/hostd/wallet"
-	"go.sia.tech/hostd/webhooks"
-	"go.sia.tech/siad/modules/consensus"
-	"go.sia.tech/siad/modules/gateway"
-	"go.sia.tech/siad/modules/transactionpool"
+	"go.sia.tech/hostd/internal/testutil"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -34,61 +25,8 @@ func (s ephemeralSettings) Settings() settings.Settings {
 
 func TestCredit(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("accounts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	g, err := gateway.New(":0", false, filepath.Join(dir, "gateway"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer g.Close()
-
-	cs, errCh := consensus.New(g, false, filepath.Join(dir, "consensus"))
-	if err := <-errCh; err != nil {
-		t.Fatal(err)
-	}
-	defer cs.Close()
-
-	stp, err := transactionpool.New(cs, g, filepath.Join(dir, "transactionpool"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tp := chain.NewTPool(stp)
-	defer tp.Close()
-
-	cm, err := chain.NewManager(cs, tp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
-
-	w, err := wallet.NewSingleAddressWallet(types.NewPrivateKeyFromSeed(frand.Bytes(32)), cm, db, log.Named("wallet"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer w.Close()
-
-	webhookReporter, err := webhooks.NewManager(db, log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	a := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	sm, err := storage.NewVolumeManager(db, a, cm, log.Named("storage"), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sm.Close()
-
-	com, err := contracts.NewManager(db, a, sm, cm, tp, w, log.Named("contracts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cm.Close()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log)
 
 	rev := contracts.SignedRevision{
 		Revision: types.FileContractRevision{
@@ -101,11 +39,11 @@ func TestCredit(t *testing.T) {
 			},
 		},
 	}
-	if err := com.AddContract(rev, []types.Transaction{{}}, types.Siacoins(1), contracts.Usage{}); err != nil {
+	if err := node.Contracts.AddContract(rev, []types.Transaction{{}}, types.Siacoins(1), contracts.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 
-	am := accounts.NewManager(db, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
+	am := accounts.NewManager(node.Store, ephemeralSettings{maxBalance: types.NewCurrency64(100)})
 	accountID := frand.Entropy256()
 
 	// attempt to credit the account
@@ -120,7 +58,7 @@ func TestCredit(t *testing.T) {
 	}
 	if _, err := am.Credit(req, false); err != nil {
 		t.Fatal("expected successful credit", err)
-	} else if balance, err := db.AccountBalance(accountID); err != nil {
+	} else if balance, err := node.Store.AccountBalance(accountID); err != nil {
 		t.Fatal("expected successful balance", err)
 	} else if balance.Cmp(amount) != 0 {
 		t.Fatalf("expected balance %v to be equal to amount %v", balance, amount)
@@ -134,14 +72,14 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
-	contract, err := com.Contract(rev.Revision.ParentID)
+	contract, err := node.Contracts.Contract(rev.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
 		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
 	}
 
-	if m, err := db.Metrics(time.Now()); err != nil {
+	if m, err := node.Store.Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if !m.Accounts.Balance.Equals(expectedFunding) {
 		t.Fatalf("expected account balance to be %v, got %v", expectedFunding, m.Accounts.Balance)
@@ -170,14 +108,14 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
-	contract, err = com.Contract(rev.Revision.ParentID)
+	contract, err = node.Contracts.Contract(rev.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
 		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
 	}
 
-	if m, err := db.Metrics(time.Now()); err != nil {
+	if m, err := node.Store.Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if !m.Accounts.Balance.Equals(expectedFunding) {
 		t.Fatalf("expected account balance to be %v, got %v", expectedFunding, m.Accounts.Balance)
@@ -199,14 +137,14 @@ func TestCredit(t *testing.T) {
 		t.Fatalf("expected funding amount to be %v, got %v", expectedFunding, sources[0].Amount)
 	}
 
-	contract, err = com.Contract(rev.Revision.ParentID)
+	contract, err = node.Contracts.Contract(rev.Revision.ParentID)
 	if err != nil {
 		t.Fatal(err)
 	} else if !contract.Usage.AccountFunding.Equals(expectedFunding) {
 		t.Fatalf("expected contract usage to be %v, got %v", expectedFunding, contract.Usage.AccountFunding)
 	}
 
-	if m, err := db.Metrics(time.Now()); err != nil {
+	if m, err := node.Store.Metrics(time.Now()); err != nil {
 		t.Fatal(err)
 	} else if !m.Accounts.Balance.Equals(expectedFunding) {
 		t.Fatalf("expected account balance to be %v, got %v", expectedFunding, m.Accounts.Balance)

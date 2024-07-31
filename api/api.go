@@ -10,19 +10,19 @@ import (
 	rhp2 "go.sia.tech/core/rhp/v2"
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/syncer"
+	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/alerts"
+	"go.sia.tech/hostd/explorer"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/internal/explorer"
 	"go.sia.tech/hostd/rhp"
-	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
-	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
@@ -30,12 +30,19 @@ type (
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
-		ScanHeight() uint64
-		Balance() (spendable, confirmed, unconfirmed types.Currency, err error)
-		UnconfirmedTransactions() ([]wallet.Transaction, error)
-		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []types.Hash256, release func(), err error)
-		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
-		Transactions(limit, offset int) ([]wallet.Transaction, error)
+		Balance() (balance wallet.Balance, err error)
+		UnconfirmedTransactions() ([]wallet.Event, error)
+		Events(offset, limit int) ([]wallet.Event, error)
+
+		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
+
+		// v1
+		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
+		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+
+		// v2
+		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (consensus.State, []int, error)
+		SignV2Inputs(state consensus.State, txn *types.V2Transaction, toSign []int)
 	}
 
 	// Settings updates and retrieves the host's settings
@@ -47,6 +54,11 @@ type (
 		LastAnnouncement() (settings.Announcement, error)
 
 		UpdateDDNS(force bool) error
+	}
+
+	// An Index persists updates from the blockchain to a store
+	Index interface {
+		Tip() types.ChainIndex
 	}
 
 	// PinnedSettings updates and retrieves the host's pinned settings
@@ -105,30 +117,31 @@ type (
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
 	Syncer interface {
-		Address() modules.NetAddress
-		Peers() []modules.Peer
-		Connect(addr modules.NetAddress) error
-		Disconnect(addr modules.NetAddress) error
+		Addr() string
+		Peers() []*syncer.Peer
+		Connect(ctx context.Context, addr string) (*syncer.Peer, error)
+
+		BroadcastTransactionSet(txns []types.Transaction)
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction)
 	}
 
 	// A ChainManager retrieves the current blockchain state
 	ChainManager interface {
-		Synced() bool
+		Tip() types.ChainIndex
 		TipState() consensus.State
+
+		RecommendedFee() types.Currency
+		AddPoolTransactions(txns []types.Transaction) (known bool, err error)
+		AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (known bool, err error)
+		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
-	// A TPool manages the transaction pool
-	TPool interface {
-		RecommendedFee() (fee types.Currency)
-		AcceptTransactionSet(txns []types.Transaction) error
-	}
-
-	// WebHooks manages webhooks
-	WebHooks interface {
-		WebHooks() ([]webhooks.WebHook, error)
-		RegisterWebHook(callbackURL string, scopes []string) (webhooks.WebHook, error)
-		UpdateWebHook(id int64, callbackURL string, scopes []string) (webhooks.WebHook, error)
-		RemoveWebHook(id int64) error
+	// Webhooks manages webhooks
+	Webhooks interface {
+		Webhooks() ([]webhooks.Webhook, error)
+		RegisterWebhook(callbackURL string, scopes []string) (webhooks.Webhook, error)
+		UpdateWebhook(id int64, callbackURL string, scopes []string) (webhooks.Webhook, error)
+		RemoveWebhook(id int64) error
 		BroadcastToWebhook(id int64, event, scope string, data interface{}) error
 	}
 
@@ -145,20 +158,20 @@ type (
 		hostKey types.PublicKey
 		name    string
 
-		log *zap.Logger
+		log      *zap.Logger
+		alerts   Alerts
+		webhooks Webhooks
+		sessions RHPSessionReporter
 
-		alerts    Alerts
-		webhooks  WebHooks
 		syncer    Syncer
 		chain     ChainManager
-		tpool     TPool
 		accounts  AccountManager
 		contracts ContractManager
 		volumes   VolumeManager
 		wallet    Wallet
 		metrics   MetricManager
 		settings  Settings
-		sessions  RHPSessionReporter
+		index     Index
 
 		explorerDisabled bool
 		explorer         *explorer.Explorer
@@ -180,11 +193,34 @@ func (a *api) requiresExplorer(h jape.Handler) jape.Handler {
 }
 
 // NewServer initializes the API
-func NewServer(name string, hostKey types.PublicKey, opts ...ServerOption) http.Handler {
+// syncer
+// chain
+// accounts
+// contracts
+// volumes
+// wallet
+// metrics
+// settings
+// index
+func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, am AccountManager, c ContractManager, vm VolumeManager, wm Wallet, mm MetricManager, sm Settings, im Index, opts ...ServerOption) http.Handler {
 	a := &api{
 		hostKey: hostKey,
 		name:    name,
-		log:     zap.NewNop(),
+
+		sessions: noopSessionReporter{},
+		alerts:   noopAlerts{},
+		webhooks: noopWebhooks{},
+		log:      zap.NewNop(),
+
+		syncer:    s,
+		chain:     cm,
+		accounts:  am,
+		contracts: c,
+		volumes:   vm,
+		wallet:    wm,
+		metrics:   mm,
+		settings:  sm,
+		index:     im,
 
 		explorerDisabled: true,
 	}
@@ -202,13 +238,17 @@ func NewServer(name string, hostKey types.PublicKey, opts ...ServerOption) http.
 
 	return jape.Mux(map[string]jape.Handler{
 		// state endpoints
-		"GET /state/host":      a.handleGETHostState,
-		"GET /state/consensus": a.handleGETConsensusState,
-		// gateway endpoints
-		"GET /syncer/address":           a.handleGETSyncerAddr,
-		"GET /syncer/peers":             a.handleGETSyncerPeers,
-		"PUT /syncer/peers":             a.handlePUTSyncerPeer,
-		"DELETE /syncer/peers/:address": a.handleDeleteSyncerPeer,
+		"GET /state/host": a.handleGETHostState,
+		// consensus endpoints
+		"GET /consensus/tip":      a.handleGETConsensusTip,
+		"GET /consensus/tipstate": a.handleGETConsensusTipState,
+		"GET /consensus/network":  a.handleGETConsensusNetwork,
+		// syncer endpoints
+		"GET /syncer/address": a.handleGETSyncerAddr,
+		"GET /syncer/peers":   a.handleGETSyncerPeers,
+		"PUT /syncer/peers":   a.handlePUTSyncerPeer,
+		// index endpoints
+		"GET /index/tip": a.handleGETIndexTip,
 		// alerts endpoints
 		"GET /alerts":          a.handleGETAlerts,
 		"POST /alerts/dismiss": a.handlePOSTAlertsDismiss,
@@ -248,10 +288,10 @@ func NewServer(name string, hostKey types.PublicKey, opts ...ServerOption) http.
 		// tpool endpoints
 		"GET /tpool/fee": a.handleGETTPoolFee,
 		// wallet endpoints
-		"GET /wallet":              a.handleGETWallet,
-		"GET /wallet/transactions": a.handleGETWalletTransactions,
-		"GET /wallet/pending":      a.handleGETWalletPending,
-		"POST /wallet/send":        a.handlePOSTWalletSend,
+		"GET /wallet":         a.handleGETWallet,
+		"GET /wallet/events":  a.handleGETWalletEvents,
+		"GET /wallet/pending": a.handleGETWalletPending,
+		"POST /wallet/send":   a.handlePOSTWalletSend,
 		// system endpoints
 		"GET /system/dir": a.handleGETSystemDir,
 		"PUT /system/dir": a.handlePUTSystemDir,

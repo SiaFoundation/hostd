@@ -19,7 +19,7 @@ import (
 var initDatabase string
 
 func (s *Store) initNewDatabase(target int64) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if _, err := tx.Exec(initDatabase); err != nil {
 			return fmt.Errorf("failed to initialize database: %w", err)
 		} else if err := setDBVersion(tx, target); err != nil {
@@ -35,7 +35,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 	log := s.log.Named("migrations")
 	log.Info("migrating database", zap.Int64("current", current), zap.Int64("target", target))
 
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if _, err := tx.Exec("PRAGMA defer_foreign_keys=ON"); err != nil {
 			return fmt.Errorf("failed to enable foreign key deferral: %w", err)
 		}
@@ -73,7 +73,7 @@ func (s *Store) init() error {
 	return nil
 }
 
-func generateHostKey(tx txn) (err error) {
+func generateHostKey(tx *txn) (err error) {
 	key := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	var dbID int64
 	err = tx.QueryRow(`UPDATE global_settings SET host_key=? RETURNING id`, key).Scan(&dbID)

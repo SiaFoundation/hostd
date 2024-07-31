@@ -2,67 +2,59 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
-	stdlog "log"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"syscall"
-	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/api"
 	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/config"
-	"go.sia.tech/hostd/internal/explorer"
 	"go.sia.tech/hostd/persist/sqlite"
-	"go.sia.tech/jape"
-	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"golang.org/x/sys/cpu"
 	"gopkg.in/yaml.v3"
 )
 
 var (
 	cfg = config.Config{
-		Directory:      ".",                              // default to current directory
-		RecoveryPhrase: os.Getenv(walletSeedEnvVariable), // default to env variable
+		Directory:      ".",                            // default to current directory
+		RecoveryPhrase: os.Getenv("HOSTD_WALLET_SEED"), // default to env variable
 		AutoOpenWebUI:  true,
 
 		HTTP: config.HTTP{
-			Address:  defaultAPIAddr,
-			Password: os.Getenv(apiPasswordEnvVariable),
+			Address:  "127.0.0.1:9980",
+			Password: os.Getenv("HOSTD_API_PASSWORD"),
 		},
 		Explorer: config.ExplorerData{
 			URL: "https://api.siascan.com",
 		},
+		Syncer: config.Syncer{
+			Address:   ":9981",
+			Bootstrap: true,
+		},
 		Consensus: config.Consensus{
-			GatewayAddress: defaultGatewayAddr,
-			Bootstrap:      true,
+			Network:        "mainnet",
+			IndexBatchSize: 1000,
 		},
 		RHP2: config.RHP2{
-			Address: defaultRHP2Addr,
+			Address: ":9982",
 		},
 		RHP3: config.RHP3{
-			TCPAddress:       defaultRHP3TCPAddr,
-			WebSocketAddress: defaultRHP3WSAddr,
+			TCPAddress: ":9983",
 		},
 		Log: config.Log{
-			Path:  os.Getenv(logPathEnvVariable), // deprecated. included for compatibility.
+			Path:  os.Getenv("HOSTD_LOG_FILE_PATH"), // deprecated. included for compatibility.
 			Level: "info",
 			File: config.LogFile{
 				Enabled: true,
 				Format:  "json",
-				Path:    os.Getenv(logFileEnvVariable),
+				Path:    os.Getenv("HOSTD_LOG_FILE_PATH"),
 			},
 			StdOut: config.StdOut{
 				Enabled:    true,
@@ -74,35 +66,6 @@ var (
 
 	disableStdin bool
 )
-
-func startAPIListener(log *zap.Logger) (l net.Listener, err error) {
-	addr, port, err := net.SplitHostPort(cfg.HTTP.Address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse API address: %w", err)
-	}
-
-	// if the address is not localhost, listen on the address as-is
-	if addr != "localhost" {
-		return net.Listen("tcp", cfg.HTTP.Address)
-	}
-
-	// localhost fails on some new installs of Windows 11, so try a few
-	// different addresses
-	tryAddresses := []string{
-		net.JoinHostPort("localhost", port), // original address
-		net.JoinHostPort("127.0.0.1", port), // IPv4 loopback
-		net.JoinHostPort("::1", port),       // IPv6 loopback
-	}
-
-	for _, addr := range tryAddresses {
-		l, err = net.Listen("tcp", addr)
-		if err == nil {
-			return
-		}
-		log.Debug("failed to listen on fallback address", zap.String("address", addr), zap.Error(err))
-	}
-	return
-}
 
 func openBrowser(url string) error {
 	switch runtime.GOOS {
@@ -121,7 +84,7 @@ func openBrowser(url string) error {
 // the config file does not exist, it will not be loaded.
 func tryLoadConfig() {
 	configPath := "hostd.yml"
-	if str := os.Getenv(configPathEnvVariable); str != "" {
+	if str := os.Getenv("HOSTD_CONFIG_PATH"); str != "" {
 		configPath = str
 	}
 
@@ -198,13 +161,14 @@ func main() {
 	flag.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store hostd metadata")
 	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
 	flag.BoolVar(&cfg.AutoOpenWebUI, "openui", cfg.AutoOpenWebUI, "automatically open the web UI on startup")
+	// syncer
+	flag.StringVar(&cfg.Syncer.Address, "syncer.address", cfg.Syncer.Address, "address to listen on for peer connections")
+	flag.BoolVar(&cfg.Syncer.Bootstrap, "syncer.bootstrap", cfg.Syncer.Bootstrap, "bootstrap the gateway and consensus modules")
 	// consensus
-	flag.StringVar(&cfg.Consensus.GatewayAddress, "rpc", cfg.Consensus.GatewayAddress, "address to listen on for peer connections")
-	flag.BoolVar(&cfg.Consensus.Bootstrap, "bootstrap", cfg.Consensus.Bootstrap, "bootstrap the gateway and consensus modules")
+	flag.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network name (mainnet, testnet, etc)")
 	// rhp
 	flag.StringVar(&cfg.RHP2.Address, "rhp2", cfg.RHP2.Address, "address to listen on for RHP2 connections")
-	flag.StringVar(&cfg.RHP3.TCPAddress, "rhp3.tcp", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
-	flag.StringVar(&cfg.RHP3.WebSocketAddress, "rhp3.ws", cfg.RHP3.WebSocketAddress, "address to listen on for WebSocket RHP3 connections")
+	flag.StringVar(&cfg.RHP3.TCPAddress, "rhp3", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
 	// http
 	flag.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	// log
@@ -214,7 +178,6 @@ func main() {
 	switch flag.Arg(0) {
 	case "version":
 		fmt.Println("hostd", build.Version())
-		fmt.Println("Network", build.NetworkName())
 		fmt.Println("Commit:", build.Commit())
 		fmt.Println("Build Date:", build.Time())
 		return
@@ -369,7 +332,7 @@ func main() {
 	// redirect stdlib log to zap
 	zap.RedirectStdLog(log.Named("stdlib"))
 
-	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", build.NetworkName()), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
+	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", cfg.Consensus.Network), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
 
 	var seed [32]byte
 	if err := wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase); err != nil {
@@ -377,106 +340,7 @@ func main() {
 	}
 	walletKey := wallet.KeyFromSeed(&seed, 0)
 
-	apiListener, err := startAPIListener(log)
-	if err != nil {
-		log.Fatal("failed to listen on API address", zap.Error(err), zap.String("address", cfg.HTTP.Address))
+	if err := runNode(ctx, cfg, walletKey, log); err != nil {
+		log.Error("failed to start node", zap.Error(err))
 	}
-	defer apiListener.Close()
-
-	rhp3WSListener, err := net.Listen("tcp", cfg.RHP3.WebSocketAddress)
-	if err != nil {
-		log.Fatal("failed to listen on RHP3 WebSocket address", zap.Error(err), zap.String("address", cfg.RHP3.WebSocketAddress))
-	}
-	defer rhp3WSListener.Close()
-
-	var ex *explorer.Explorer
-	if !cfg.Explorer.Disable {
-		ex = explorer.New(cfg.Explorer.URL)
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-
-		if _, err := ex.SiacoinExchangeRate(ctx, "usd"); err != nil {
-			log.Error("failed to get exchange rate. explorer features may not work correctly", zap.Error(err))
-		}
-	}
-
-	node, hostKey, err := newNode(ctx, walletKey, ex, log)
-	if err != nil {
-		log.Fatal("failed to create node", zap.Error(err))
-	}
-	defer node.Close()
-
-	opts := []api.ServerOption{
-		api.ServerWithAlerts(node.a),
-		api.ServerWithWebHooks(node.wh),
-		api.ServerWithSyncer(node.g),
-		api.ServerWithChainManager(node.cm),
-		api.ServerWithTransactionPool(node.tp),
-		api.ServerWithContractManager(node.contracts),
-		api.ServerWithAccountManager(node.accounts),
-		api.ServerWithVolumeManager(node.storage),
-		api.ServerWithRHPSessionReporter(node.sessions),
-		api.ServerWithMetricManager(node.metrics),
-		api.ServerWithSettings(node.settings),
-		api.ServerWithWallet(node.w),
-		api.ServerWithLogger(log.Named("api")),
-	}
-
-	if !cfg.Explorer.Disable {
-		opts = append(opts, api.ServerWithExplorer(ex))
-		opts = append(opts, api.ServerWithPinnedSettings(node.pinned))
-	}
-
-	auth := jape.BasicAuth(cfg.HTTP.Password)
-	web := http.Server{
-		Handler: webRouter{
-			api: auth(api.NewServer(cfg.Name, hostKey.PublicKey(), opts...)),
-			ui:  hostd.Handler(),
-		},
-		ReadTimeout: 30 * time.Second,
-	}
-	defer web.Close()
-
-	rhp3WS := http.Server{
-		Handler:     node.rhp3.WebSocketHandler(),
-		ReadTimeout: 30 * time.Second,
-		TLSConfig:   node.settings.RHP3TLSConfig(),
-		ErrorLog:    stdlog.New(io.Discard, "", 0),
-	}
-	defer rhp3WS.Close()
-
-	go func() {
-		err := rhp3WS.ServeTLS(rhp3WSListener, "", "")
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("failed to serve rhp3 websocket", zap.Error(err))
-		}
-	}()
-
-	log.Info("hostd started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("api", apiListener.Addr().String()), zap.String("p2p", string(node.g.Address())), zap.String("rhp2", node.rhp2.LocalAddr()), zap.String("rhp3", node.rhp3.LocalAddr()))
-	if runtime.GOARCH == "amd64" && !cpu.X86.HasAVX2 {
-		log.Warn("hostd is running on a system without AVX2 support, performance may be degraded")
-	}
-
-	go func() {
-		err := web.Serve(apiListener)
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("failed to serve web", zap.Error(err))
-		}
-	}()
-
-	if cfg.AutoOpenWebUI {
-		time.Sleep(time.Millisecond) // give the web server a chance to start
-		_, port, err := net.SplitHostPort(apiListener.Addr().String())
-		if err != nil {
-			log.Debug("failed to parse API address", zap.Error(err))
-		} else if err := openBrowser(fmt.Sprintf("http://127.0.0.1:%s", port)); err != nil {
-			log.Debug("failed to open browser", zap.Error(err))
-		}
-	}
-
-	<-ctx.Done()
-	log.Info("shutting down...")
-	time.AfterFunc(5*time.Minute, func() {
-		log.Fatal("failed to shut down within 5 minutes")
-	})
 }

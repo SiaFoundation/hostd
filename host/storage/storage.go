@@ -10,12 +10,10 @@ import (
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
-	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
-	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -40,12 +38,6 @@ type (
 	Alerts interface {
 		Register(alerts.Alert)
 		Dismiss(...types.Hash256)
-	}
-
-	// A ChainManager is used to get the current consensus state.
-	ChainManager interface {
-		TipState() consensus.State
-		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
 	}
 
 	// A SectorLocation is a location of a sector within a volume.
@@ -75,18 +67,17 @@ type (
 	VolumeManager struct {
 		cacheHits   uint64 // ensure 64-bit alignment on 32-bit systems
 		cacheMisses uint64
+		cacheSize   int
 
-		a        Alerts
 		vs       VolumeStore
-		cm       ChainManager
-		log      *zap.Logger
 		recorder *sectorAccessRecorder
 
-		tg *threadgroup.ThreadGroup
+		alerts Alerts
+		tg     *threadgroup.ThreadGroup
+		log    *zap.Logger
 
-		mu          sync.Mutex // protects the following fields
-		lastCleanup time.Time
-		volumes     map[int64]*volume
+		mu      sync.Mutex // protects the following fields
+		volumes map[int64]*volume
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int64]bool
 		cache          *lru.Cache[types.Hash256, *[rhp2.SectorSize]byte] // Added cache
@@ -138,7 +129,7 @@ func (vm *VolumeManager) loadVolumes() error {
 			}
 
 			// register an alert
-			vm.a.Register(alerts.Alert{
+			vm.alerts.Register(alerts.Alert{
 				ID:       frand.Entropy256(),
 				Severity: alerts.SeverityError,
 				Message:  "Failed to open volume",
@@ -213,10 +204,10 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int64, volume *volum
 		},
 		Timestamp: time.Now(),
 	}
-	vm.a.Register(alert)
+	vm.alerts.Register(alert)
 	// dismiss the alert when the function returns. It is the caller's
 	// responsibility to register a completion alert
-	defer vm.a.Dismiss(alert.ID)
+	defer vm.alerts.Dismiss(alert.ID)
 
 	for current := oldMaxSectors; current < newMaxSectors; current += resizeBatchSize {
 		// stop early if the context is cancelled
@@ -243,7 +234,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int64, volume *volum
 
 		// update the alert
 		alert.Data["currentSectors"] = target
-		vm.a.Register(alert)
+		vm.alerts.Register(alert)
 		// sleep to allow other operations to run
 		time.Sleep(time.Millisecond)
 	}
@@ -271,10 +262,10 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 		},
 		Timestamp: time.Now(),
 	}
-	vm.a.Register(a)
+	vm.alerts.Register(a)
 	// dismiss the alert when the function returns. It is the caller's
 	// responsibility to register a completion alert
-	defer vm.a.Dismiss(a.ID)
+	defer vm.alerts.Dismiss(a.ID)
 
 	// migrate any sectors outside of the target range.
 	var migrated int
@@ -285,7 +276,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 		migrated++
 		// update the alert
 		a.Data["migratedSectors"] = migrated
-		vm.a.Register(a)
+		vm.alerts.Register(a)
 		return nil
 	})
 	log.Info("migrated sectors", zap.Int("migrated", migrated), zap.Int("failed", failed))
@@ -323,7 +314,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 		current = target
 		// update the alert
 		a.Data["currentSectors"] = current
-		vm.a.Register(a)
+		vm.alerts.Register(a)
 		// sleep to allow other operations to run
 		time.Sleep(time.Millisecond)
 	}
@@ -486,7 +477,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 			alert.Message = "Volume initialized"
 			alert.Severity = alerts.SeverityInfo
 		}
-		vm.a.Register(alert)
+		vm.alerts.Register(alert)
 		vol.SetStatus(VolumeStatusReady)
 		select {
 		case result <- err:
@@ -576,7 +567,7 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 			if err != nil {
 				alert.Data["error"] = err.Error()
 			}
-			vm.a.Register(alert)
+			vm.alerts.Register(alert)
 		}
 
 		doMigration := func() error {
@@ -715,7 +706,7 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 			alert.Message = "Volume resized"
 			alert.Severity = alerts.SeverityInfo
 		}
-		vm.a.Register(alert)
+		vm.alerts.Register(alert)
 		if resetReadOnly {
 			// reset the volume to read-write
 			if err := vm.vs.SetReadOnly(id, false); err != nil {
@@ -823,7 +814,7 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	sector, err := v.ReadSector(loc.Index)
 	if err != nil {
 		stats := v.Stats()
-		vm.a.Register(alerts.Alert{
+		vm.alerts.Register(alerts.Alert{
 			ID:       v.alertID("read"),
 			Severity: alerts.SeverityError,
 			Message:  "Failed to read sector",
@@ -902,7 +893,7 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 		// write the sector to the volume
 		if err := vol.WriteSector(data, loc.Index); err != nil {
 			stats := vol.Stats()
-			vm.a.Register(alerts.Alert{
+			vm.alerts.Register(alerts.Alert{
 				ID:       vol.alertID("write"),
 				Severity: alerts.SeverityError,
 				Message:  "Failed to write sector",
@@ -953,26 +944,34 @@ func (vm *VolumeManager) ResizeCache(size uint32) {
 	vm.cache.Resize(int(size))
 }
 
-// ProcessConsensusChange is called when the consensus set changes.
-func (vm *VolumeManager) ProcessConsensusChange(cc modules.ConsensusChange) {
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
-	delta := time.Since(vm.lastCleanup)
-	if delta < cleanupInterval {
-		return
+// ProcessActions processes the actions for the given chain index.
+func (vm *VolumeManager) ProcessActions(index types.ChainIndex) error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
 	}
-	vm.lastCleanup = time.Now()
+	defer done()
 
-	go func() {
-		log := vm.log.Named("cleanup").With(zap.Uint64("height", uint64(cc.BlockHeight)))
-		if err := vm.vs.ExpireTempSectors(uint64(cc.BlockHeight)); err != nil {
-			log.Error("failed to expire temp sectors", zap.Error(err))
-		}
-	}()
+	return vm.vs.ExpireTempSectors(index.Height)
 }
 
 // NewVolumeManager creates a new VolumeManager.
-func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger, sectorCacheSize uint32) (*VolumeManager, error) {
+func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManager, error) {
+	vm := &VolumeManager{
+		vs: vs,
+
+		log:    zap.NewNop(),
+		alerts: alerts.NewNop(),
+		tg:     threadgroup.New(),
+
+		volumes:        make(map[int64]*volume),
+		changedVolumes: make(map[int64]bool),
+	}
+
+	for _, opt := range opts {
+		opt(vm)
+	}
+
 	// Initialize cache with LRU eviction and a max capacity of 64
 	cache, err := lru.New[types.Hash256, *[rhp2.SectorSize]byte](64)
 	if err != nil {
@@ -980,27 +979,16 @@ func NewVolumeManager(vs VolumeStore, a Alerts, cm ChainManager, log *zap.Logger
 	}
 	// resize the cache, prevents an error in lru.New when initializing the
 	// cache to 0
-	cache.Resize(int(sectorCacheSize))
+	cache.Resize(int(vm.cacheSize))
+	vm.cache = cache
 
-	vm := &VolumeManager{
-		vs:  vs,
-		a:   a,
-		cm:  cm,
-		log: log,
-		recorder: &sectorAccessRecorder{
-			store: vs,
-			log:   log.Named("recorder"),
-		},
-
-		volumes:        make(map[int64]*volume),
-		changedVolumes: make(map[int64]bool),
-		cache:          cache,
-		tg:             threadgroup.New(),
+	vm.recorder = &sectorAccessRecorder{
+		store: vs,
+		log:   vm.log.Named("recorder"),
 	}
+
 	if err := vm.loadVolumes(); err != nil {
 		return nil, err
-	} else if err := vm.cm.Subscribe(vm, modules.ConsensusChangeRecent, vm.tg.Done()); err != nil {
-		return nil, fmt.Errorf("failed to subscribe to consensus set: %w", err)
 	}
 	go vm.recorder.Run(vm.tg.Done())
 	return vm, nil
