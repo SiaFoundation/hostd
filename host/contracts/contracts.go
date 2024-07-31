@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.uber.org/zap"
@@ -43,6 +42,31 @@ const (
 	ContractStatusFailed
 )
 
+// V2ContractStatus is an enum that indicates the current status of a v2 contract.
+const (
+	// V2ContractStatusPending indicates that the contract has been formed but
+	// has not yet been confirmed on the blockchain. The contract is still
+	// usable, but there is a risk that the contract will never be confirmed.
+	V2ContractStatusPending V2ContractStatus = "pending"
+	// V2ContractStatusRejected indicates that the contract formation transaction
+	// was never confirmed on the blockchain
+	V2ContractStatusRejected V2ContractStatus = "rejected"
+	// V2ContractStatusActive indicates that the contract has been confirmed on
+	// the blockchain and is currently active.
+	V2ContractStatusActive V2ContractStatus = "active"
+	// V2ContractStatusFinalized indicates that the contract has been finalized.
+	V2ContractStatusFinalized V2ContractStatus = "finalized"
+	// V2ContractStatusRenewed indicates that the contract has been renewed.
+	V2ContractStatusRenewed V2ContractStatus = "renewed"
+	// V2ContractStatusSuccessful indicates that a storage proof has been
+	// confirmed or the contract expired without requiring the host to burn
+	// Siacoin.
+	V2ContractStatusSuccessful V2ContractStatus = "successful"
+	// V2ContractStatusFailed indicates that the contract ended without a storage proof
+	// and the host was required to burn Siacoin.
+	V2ContractStatusFailed V2ContractStatus = "failed"
+)
+
 // fields that the contracts can be sorted by.
 const (
 	ContractSortStatus            = "status"
@@ -57,6 +81,9 @@ type (
 
 	// ContractStatus is an enum that indicates the current status of a contract.
 	ContractStatus uint8
+
+	// V2ContractStatus is an enum that indicates the current status of a v2 contract.
+	V2ContractStatus string
 
 	// A SignedRevision pairs a contract revision with the signatures of the host
 	// and renter needed to broadcast the revision.
@@ -79,6 +106,42 @@ type (
 		RiskedCollateral types.Currency `json:"riskedCollateral"`
 	}
 
+	// A V2Contract contains metadata on the current state of a v2 file contract.
+	V2Contract struct {
+		types.V2FileContract
+
+		ID               types.FileContractID
+		Status           V2ContractStatus `json:"status"`
+		LockedCollateral types.Currency   `json:"lockedCollateral"` // TODO: remove?
+		Usage            Usage            `json:"usage"`
+
+		// NegotiationHeight is the height the contract was negotiated at.
+		NegotiationHeight uint64 `json:"negotiationHeight"`
+		// FormationConfirmed is true if the contract formation transaction
+		// has been confirmed on the blockchain.
+		FormationConfirmed bool `json:"formationConfirmed"`
+		// RevisionConfirmed is true if the contract revision transaction has
+		// been confirmed on the blockchain.
+		RevisionConfirmed bool `json:"revisionConfirmed"`
+		// ResolutionIndex is the height the resolution was confirmed
+		// at. If the contract has not been resolved, the field is the zero
+		// value.
+		ResolutionIndex types.ChainIndex `json:"resolutionHeight"`
+		// RenewedTo is the ID of the contract that renewed this contract. If
+		// this contract was not renewed, this field is the zero value.
+		RenewedTo types.FileContractID `json:"renewedTo"`
+		// RenewedFrom is the ID of the contract that this contract renewed. If
+		// this contract is not a renewal, the field is the zero value.
+		RenewedFrom types.FileContractID `json:"renewedFrom"`
+	}
+
+	// A V2FormationTransactionSet contains the formation transaction set for a
+	// v2 contract.
+	V2FormationTransactionSet struct {
+		TransactionSet []types.V2Transaction
+		Basis          types.ChainIndex
+	}
+
 	// A Contract contains metadata on the current state of a file contract.
 	Contract struct {
 		SignedRevision
@@ -95,10 +158,10 @@ type (
 		// RevisionConfirmed is true if the contract revision transaction has
 		// been confirmed on the blockchain.
 		RevisionConfirmed bool `json:"revisionConfirmed"`
-		// ResolutionHeight is the height the storage proof was confirmed
+		// ResolutionIndex is the height the storage proof was confirmed
 		// at. If the contract has not been resolved, the field is the zero
 		// value.
-		ResolutionHeight uint64 `json:"resolutionHeight"`
+		ResolutionIndex types.ChainIndex `json:"resolutionHeight"`
 		// RenewedTo is the ID of the contract that renewed this contract. If
 		// this contract was not renewed, this field is the zero value.
 		RenewedTo types.FileContractID `json:"renewedTo"`
@@ -131,6 +194,30 @@ type (
 		SortDesc  bool   `json:"sortDesc"`
 	}
 
+	// V2ContractFilter defines the filter criteria for a contract query.
+	V2ContractFilter struct {
+		// filters
+		Statuses    []V2ContractStatus     `json:"statuses"`
+		ContractIDs []types.FileContractID `json:"contractIDs"`
+		RenewedFrom []types.FileContractID `json:"renewedFrom"`
+		RenewedTo   []types.FileContractID `json:"renewedTo"`
+		RenterKey   []types.PublicKey      `json:"renterKey"`
+
+		MinNegotiationHeight uint64 `json:"minNegotiationHeight"`
+		MaxNegotiationHeight uint64 `json:"maxNegotiationHeight"`
+
+		MinExpirationHeight uint64 `json:"minExpirationHeight"`
+		MaxExpirationHeight uint64 `json:"maxExpirationHeight"`
+
+		// pagination
+		Limit  int `json:"limit"`
+		Offset int `json:"offset"`
+
+		// sorting
+		SortField string `json:"sortField"`
+		SortDesc  bool   `json:"sortDesc"`
+	}
+
 	// A SectorChange defines an action to be performed on a contract's sectors.
 	SectorChange struct {
 		Action SectorAction
@@ -141,12 +228,12 @@ type (
 	// A ContractUpdater is used to atomically update a contract's sectors
 	// and metadata.
 	ContractUpdater struct {
-		store ContractStore
-		log   *zap.Logger
+		manager *Manager
+		store   ContractStore
+		log     *zap.Logger
 
-		rootsCache *lru.TwoQueueCache[types.FileContractID, []types.Hash256] // reference to the cache in the contract manager
-		once       sync.Once
-		done       func() // done is called when the updater is closed.
+		once sync.Once
+		done func() // done is called when the updater is closed.
 
 		contractID    types.FileContractID
 		sectorActions []SectorChange
@@ -164,17 +251,31 @@ var (
 	ErrContractExists = errors.New("contract already exists")
 )
 
-// Add returns the sum of two usages.
-func (u Usage) Add(b Usage) (c Usage) {
+// Add returns u + b
+func (a Usage) Add(b Usage) (c Usage) {
 	return Usage{
-		RPCRevenue:       u.RPCRevenue.Add(b.RPCRevenue),
-		StorageRevenue:   u.StorageRevenue.Add(b.StorageRevenue),
-		EgressRevenue:    u.EgressRevenue.Add(b.EgressRevenue),
-		IngressRevenue:   u.IngressRevenue.Add(b.IngressRevenue),
-		AccountFunding:   u.AccountFunding.Add(b.AccountFunding),
-		RiskedCollateral: u.RiskedCollateral.Add(b.RiskedCollateral),
-		RegistryRead:     u.RegistryRead.Add(b.RegistryRead),
-		RegistryWrite:    u.RegistryWrite.Add(b.RegistryWrite),
+		RPCRevenue:       a.RPCRevenue.Add(b.RPCRevenue),
+		StorageRevenue:   a.StorageRevenue.Add(b.StorageRevenue),
+		EgressRevenue:    a.EgressRevenue.Add(b.EgressRevenue),
+		IngressRevenue:   a.IngressRevenue.Add(b.IngressRevenue),
+		AccountFunding:   a.AccountFunding.Add(b.AccountFunding),
+		RiskedCollateral: a.RiskedCollateral.Add(b.RiskedCollateral),
+		RegistryRead:     a.RegistryRead.Add(b.RegistryRead),
+		RegistryWrite:    a.RegistryWrite.Add(b.RegistryWrite),
+	}
+}
+
+// Sub returns a - b
+func (a Usage) Sub(b Usage) (c Usage) {
+	return Usage{
+		RPCRevenue:       a.RPCRevenue.Sub(b.RPCRevenue),
+		StorageRevenue:   a.StorageRevenue.Sub(b.StorageRevenue),
+		EgressRevenue:    a.EgressRevenue.Sub(b.EgressRevenue),
+		IngressRevenue:   a.IngressRevenue.Sub(b.IngressRevenue),
+		AccountFunding:   a.AccountFunding.Sub(b.AccountFunding),
+		RiskedCollateral: a.RiskedCollateral.Sub(b.RiskedCollateral),
+		RegistryRead:     a.RegistryRead.Sub(b.RegistryRead),
+		RegistryWrite:    a.RegistryWrite.Sub(b.RegistryWrite),
 	}
 }
 
@@ -339,7 +440,7 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 	// clear the committed sector actions
 	cu.sectorActions = cu.sectorActions[:0]
 	// update the roots cache
-	cu.rootsCache.Add(revision.Revision.ParentID, append([]types.Hash256(nil), cu.sectorRoots...))
+	cu.manager.setSectorRoots(cu.contractID, cu.sectorRoots)
 	cu.log.Debug("contract update committed", zap.String("contractID", revision.Revision.ParentID.String()), zap.Uint64("revision", revision.Revision.RevisionNumber), zap.Duration("elapsed", time.Since(start)))
 	return nil
 }

@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func checkContractAccountFunding(tx txn, log *zap.Logger) error {
+func checkContractAccountFunding(tx *txn, log *zap.Logger) error {
 	rows, err := tx.Query(`SELECT contract_id, amount FROM contract_account_funding`)
 	if err != nil {
 		return fmt.Errorf("failed to query contract account funding: %w", err)
@@ -18,7 +18,7 @@ func checkContractAccountFunding(tx txn, log *zap.Logger) error {
 	for rows.Next() {
 		var contractID int64
 		var amount types.Currency
-		if err := rows.Scan(&contractID, (*sqlCurrency)(&amount)); err != nil {
+		if err := rows.Scan(&contractID, decode(&amount)); err != nil {
 			return fmt.Errorf("failed to scan contract account funding: %w", err)
 		}
 		contractFunding[contractID] = contractFunding[contractID].Add(amount)
@@ -32,7 +32,7 @@ func checkContractAccountFunding(tx txn, log *zap.Logger) error {
 
 	for contractID, amount := range contractFunding {
 		var actualAmount types.Currency
-		err := tx.QueryRow(`SELECT account_funding FROM contracts WHERE id=$1`, contractID).Scan((*sqlCurrency)(&actualAmount))
+		err := tx.QueryRow(`SELECT account_funding FROM contracts WHERE id=$1`, contractID).Scan(decode(&actualAmount))
 		if err != nil {
 			return fmt.Errorf("failed to query contract account funding: %w", err)
 		}
@@ -44,7 +44,7 @@ func checkContractAccountFunding(tx txn, log *zap.Logger) error {
 	return nil
 }
 
-func recalcContractAccountFunding(tx txn, _ *zap.Logger) error {
+func recalcContractAccountFunding(tx *txn, _ *zap.Logger) error {
 	rows, err := tx.Query(`SELECT contract_id, amount FROM contract_account_funding`)
 	if err != nil {
 		return fmt.Errorf("failed to query contract account funding: %w", err)
@@ -55,7 +55,7 @@ func recalcContractAccountFunding(tx txn, _ *zap.Logger) error {
 	for rows.Next() {
 		var contractID int64
 		var amount types.Currency
-		if err := rows.Scan(&contractID, (*sqlCurrency)(&amount)); err != nil {
+		if err := rows.Scan(&contractID, decode(&amount)); err != nil {
 			return fmt.Errorf("failed to scan contract account funding: %w", err)
 		}
 		contractFunding[contractID] = contractFunding[contractID].Add(amount)
@@ -68,7 +68,7 @@ func recalcContractAccountFunding(tx txn, _ *zap.Logger) error {
 	}
 
 	for contractID, amount := range contractFunding {
-		res, err := tx.Exec(`UPDATE contracts SET account_funding=$1 WHERE id=$2`, sqlCurrency(amount), contractID)
+		res, err := tx.Exec(`UPDATE contracts SET account_funding=$1 WHERE id=$2`, encode(amount), contractID)
 		if err != nil {
 			return fmt.Errorf("failed to query contract account funding: %w", err)
 		} else if rowsAffected, err := res.RowsAffected(); err != nil {
@@ -83,14 +83,14 @@ func recalcContractAccountFunding(tx txn, _ *zap.Logger) error {
 // CheckContractAccountFunding checks that the contract account funding table
 // is correct.
 func (s *Store) CheckContractAccountFunding() error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		return checkContractAccountFunding(tx, s.log)
 	})
 }
 
 // RecalcContractAccountFunding recalculates the contract account funding table.
 func (s *Store) RecalcContractAccountFunding() error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		return recalcContractAccountFunding(tx, s.log)
 	})
 }

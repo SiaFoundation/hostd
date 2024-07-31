@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func deleteTempSectors(tx txn, height uint64) (sectorIDs []int64, err error) {
+func deleteTempSectors(tx *txn, height uint64) (sectorIDs []int64, err error) {
 	const query = `DELETE FROM temp_storage_sector_roots 
 WHERE id IN (SELECT id FROM temp_storage_sector_roots WHERE expiration_height <= $1 LIMIT $2)
 RETURNING sector_id;`
@@ -33,7 +33,7 @@ RETURNING sector_id;`
 }
 
 func (s *Store) batchExpireTempSectors(height uint64) (expired int, pruned []types.Hash256, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		sectorIDs, err := deleteTempSectors(tx, height)
 		if err != nil {
 			return fmt.Errorf("failed to delete sectors: %w", err)
@@ -56,7 +56,7 @@ func (s *Store) batchExpireTempSectors(height uint64) (expired int, pruned []typ
 // RemoveSector removes the metadata of a sector and returns its
 // location in the volume.
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		sectorID, err := sectorDBID(tx, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector: %w", err)
@@ -86,7 +86,7 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func() error, error) {
 	var lockID int64
 	var location storage.SectorLocation
-	err := s.transaction(func(tx txn) error {
+	err := s.transaction(func(tx *txn) error {
 		sectorID, err := sectorDBID(tx, root)
 		if errors.Is(err, sql.ErrNoRows) {
 			return storage.ErrSectorNotFound
@@ -107,7 +107,7 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 		return storage.SectorLocation{}, nil, err
 	}
 	unlock := func() error {
-		return s.transaction(func(tx txn) error {
+		return s.transaction(func(tx *txn) error {
 			return unlockSector(tx, s.log.Named("SectorLocation"), lockID)
 		})
 	}
@@ -117,7 +117,7 @@ func (s *Store) SectorLocation(root types.Hash256) (storage.SectorLocation, func
 // AddTemporarySectors adds the roots of sectors that are temporarily stored
 // on the host. The sectors will be deleted after the expiration height.
 func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		stmt, err := tx.Prepare(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) SELECT id, $1 FROM stored_sectors WHERE sector_root=$2 RETURNING id;`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare query: %w", err)
@@ -125,7 +125,7 @@ func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
 		defer stmt.Close()
 		for _, sector := range sectors {
 			var dbID int64
-			err := stmt.QueryRow(sector.Expiration, sqlHash256(sector.Root)).Scan(&dbID)
+			err := stmt.QueryRow(sector.Expiration, encode(sector.Root)).Scan(&dbID)
 			if err != nil {
 				return fmt.Errorf("failed to add temp sector root: %w", err)
 			}
@@ -154,21 +154,9 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 	}
 }
 
-// HasSector returns true if the sector is stored on the host.
-func (s *Store) HasSector(root types.Hash256) (bool, error) {
-	var dbID int64
-	err := s.queryRow(`SELECT id FROM stored_sectors WHERE sector_root=$1`, sqlHash256(root)).Scan(&dbID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 // SectorReferences returns the references, if any of a sector root
 func (s *Store) SectorReferences(root types.Hash256) (refs storage.SectorReference, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		dbID, err := sectorDBID(tx, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector id: %w", err)
@@ -196,7 +184,7 @@ func (s *Store) SectorReferences(root types.Hash256) (refs storage.SectorReferen
 	return
 }
 
-func contractSectorRefs(tx txn, sectorID int64) (contractIDs []types.FileContractID, err error) {
+func contractSectorRefs(tx *txn, sectorID int64) (contractIDs []types.FileContractID, err error) {
 	rows, err := tx.Query(`SELECT DISTINCT contract_id FROM contract_sector_roots WHERE sector_id=$1;`, sectorID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select contracts: %w", err)
@@ -205,7 +193,7 @@ func contractSectorRefs(tx txn, sectorID int64) (contractIDs []types.FileContrac
 
 	for rows.Next() {
 		var contractID types.FileContractID
-		if err := rows.Scan((*sqlHash256)(&contractID)); err != nil {
+		if err := rows.Scan(decode(&contractID)); err != nil {
 			return nil, fmt.Errorf("failed to scan contract id: %w", err)
 		}
 		contractIDs = append(contractIDs, contractID)
@@ -213,17 +201,17 @@ func contractSectorRefs(tx txn, sectorID int64) (contractIDs []types.FileContrac
 	return
 }
 
-func getTempStorageCount(tx txn, sectorID int64) (n int, err error) {
+func getTempStorageCount(tx *txn, sectorID int64) (n int, err error) {
 	err = tx.QueryRow(`SELECT COUNT(*) FROM temp_storage_sector_roots WHERE sector_id=$1;`, sectorID).Scan(&n)
 	return
 }
 
-func getSectorLockCount(tx txn, sectorID int64) (n int, err error) {
+func getSectorLockCount(tx *txn, sectorID int64) (n int, err error) {
 	err = tx.QueryRow(`SELECT COUNT(*) FROM locked_sectors WHERE sector_id=$1;`, sectorID).Scan(&n)
 	return
 }
 
-func incrementVolumeUsage(tx txn, volumeID int64, delta int) error {
+func incrementVolumeUsage(tx *txn, volumeID int64, delta int) error {
 	var used int64
 	err := tx.QueryRow(`UPDATE storage_volumes SET used_sectors=used_sectors+$1 WHERE id=$2 RETURNING used_sectors;`, delta, volumeID).Scan(&used)
 	if err != nil {
@@ -236,20 +224,26 @@ func incrementVolumeUsage(tx txn, volumeID int64, delta int) error {
 	return nil
 }
 
-func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
-	hasContractRefStmt, err := tx.Prepare(`SELECT id FROM contract_sector_roots WHERE sector_id=$1 LIMIT 1`)
+func pruneSectors(tx *txn, ids []int64) (pruned []types.Hash256, err error) {
+	hasContractRefStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM contract_sector_roots WHERE sector_id=$1)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare contract reference query: %w", err)
 	}
 	defer hasContractRefStmt.Close()
 
-	hasTempRefStmt, err := tx.Prepare(`SELECT id FROM temp_storage_sector_roots WHERE sector_id=$1 LIMIT 1`)
+	hasV2ContractRefStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM contract_v2_sector_roots WHERE sector_id=$1)`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare v2 contract reference query: %w", err)
+	}
+	defer hasV2ContractRefStmt.Close()
+
+	hasTempRefStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM temp_storage_sector_roots WHERE sector_id=$1)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare temp reference query: %w", err)
 	}
 	defer hasTempRefStmt.Close()
 
-	hasLockStmt, err := tx.Prepare(`SELECT id FROM locked_sectors WHERE sector_id=$1 LIMIT 1`)
+	hasLockStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM locked_sectors WHERE sector_id=$1)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare lock reference query: %w", err)
 	}
@@ -269,27 +263,32 @@ func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
 
 	volumeDelta := make(map[int64]int)
 	for _, id := range ids {
-		var contractDBID int64
-		err := hasContractRefStmt.QueryRow(id).Scan(&contractDBID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		var exists bool
+		err := hasContractRefStmt.QueryRow(id).Scan(&exists)
+		if err != nil {
 			return nil, fmt.Errorf("failed to check contract references: %w", err)
-		} else if err == nil {
+		} else if exists {
 			continue // sector has a contract reference
 		}
 
-		var tempDBID int64
-		err = hasTempRefStmt.QueryRow(id).Scan(&tempDBID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		err = hasV2ContractRefStmt.QueryRow(id).Scan(&exists)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check v2 contract references: %w", err)
+		} else if exists {
+			continue // sector has a contract reference
+		}
+
+		err = hasTempRefStmt.QueryRow(id).Scan(&exists)
+		if err != nil {
 			return nil, fmt.Errorf("failed to check temp references: %w", err)
-		} else if err == nil {
+		} else if exists {
 			continue // sector has a temp storage reference
 		}
 
-		var lockDBID int64
-		err = hasLockStmt.QueryRow(id).Scan(&lockDBID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		err = hasLockStmt.QueryRow(id).Scan(&exists)
+		if err != nil {
 			return nil, fmt.Errorf("failed to check lock references: %w", err)
-		} else if err == nil {
+		} else if exists {
 			continue // sector is locked
 		}
 
@@ -302,7 +301,7 @@ func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
 		}
 
 		var root types.Hash256
-		err = deleteSectorStmt.QueryRow(id).Scan((*sqlHash256)(&root))
+		err = deleteSectorStmt.QueryRow(id).Scan(decode(&root))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) { // ignore rows not found
 			return nil, fmt.Errorf("failed to delete sector: %w", err)
 		} else if err == nil {
@@ -322,14 +321,14 @@ func pruneSectors(tx txn, ids []int64) (pruned []types.Hash256, err error) {
 // lockSector locks a sector root. The lock must be released by calling
 // unlockSector. A sector must be locked when it is being read or written
 // to prevent it from being removed by prune sector.
-func lockSector(tx txn, sectorDBID int64) (lockID int64, err error) {
+func lockSector(tx *txn, sectorDBID int64) (lockID int64, err error) {
 	err = tx.QueryRow(`INSERT INTO locked_sectors (sector_id) VALUES ($1) RETURNING id;`, sectorDBID).Scan(&lockID)
 	return
 }
 
 // deleteLocks removes the lock records with the given ids and returns the
 // sector ids of the deleted locks.
-func deleteLocks(tx txn, ids []int64) (sectorIDs []int64, err error) {
+func deleteLocks(tx *txn, ids []int64) (sectorIDs []int64, err error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -352,17 +351,17 @@ func deleteLocks(tx txn, ids []int64) (sectorIDs []int64, err error) {
 }
 
 // unlockSector unlocks a sector root.
-func unlockSector(txn txn, log *zap.Logger, lockIDs ...int64) error {
+func unlockSector(tx *txn, log *zap.Logger, lockIDs ...int64) error {
 	if len(lockIDs) == 0 {
 		return nil
 	}
 
-	sectorIDs, err := deleteLocks(txn, lockIDs)
+	sectorIDs, err := deleteLocks(tx, lockIDs)
 	if err != nil {
 		return fmt.Errorf("failed to delete locks: %w", err)
 	}
 
-	pruned, err := pruneSectors(txn, sectorIDs)
+	pruned, err := pruneSectors(tx, sectorIDs)
 	if err != nil {
 		return fmt.Errorf("failed to prune sectors: %w", err)
 	}
@@ -374,7 +373,7 @@ func unlockSector(txn txn, log *zap.Logger, lockIDs ...int64) error {
 // IDs. The lock ids must be unlocked by unlockLocations. Volume locations
 // should be locked during writes to prevent the location from being written
 // to by another goroutine.
-func lockLocations(tx txn, locations []storage.SectorLocation) (locks []int64, err error) {
+func lockLocations(tx *txn, locations []storage.SectorLocation) (locks []int64, err error) {
 	if len(locations) == 0 {
 		return nil, nil
 	}
@@ -396,7 +395,7 @@ func lockLocations(tx txn, locations []storage.SectorLocation) (locks []int64, e
 
 // unlockLocations unlocks multiple locked sector locations. It is safe to
 // call multiple times.
-func unlockLocations(tx txn, ids []int64) error {
+func unlockLocations(tx *txn, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
 	}

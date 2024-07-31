@@ -12,10 +12,10 @@ import (
 
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
-	"go.sia.tech/hostd/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -337,7 +337,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 		return contracts.Usage{}, err
 	}
 	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
-	toSign, release, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral)
+	toSign, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral, false)
 	if err != nil {
 		remoteErr := ErrHostInternalError
 		if errors.Is(err, wallet.ErrNotEnoughFunds) {
@@ -353,21 +353,21 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 		FinalRevisionSignature: signedClearingRevision.HostSignature,
 	}
 	if err := s.WriteResponse(hostAdditions); err != nil {
-		release()
+		sh.wallet.ReleaseInputs([]types.Transaction{renewalTxn}, nil)
 		return contracts.Usage{}, fmt.Errorf("failed to write host additions: %w", err)
 	}
 
 	var renterSigsResp rhp3.RPCRenewSignatures
 	if err := s.ReadRequest(&renterSigsResp, 10*maxRequestSize); err != nil {
-		release()
+		sh.wallet.ReleaseInputs([]types.Transaction{renewalTxn}, nil)
 		return contracts.Usage{}, fmt.Errorf("failed to read renter signatures: %w", err)
 	}
 
 	// create the initial revision and verify the renter's signature
-	renewalRevision := rhp.InitialRevision(&renewalTxn, hostUnlockKey, req.RenterKey)
+	renewalRevision := rhp.InitialRevision(renewalTxn, hostUnlockKey, req.RenterKey)
 	renewalSigHash := rhp.HashRevision(renewalRevision)
 	if err := validateRenterRevisionSignature(renterSigsResp.RevisionSignature, renewalRevision.ParentID, renewalSigHash, renterKey); err != nil {
-		release()
+		sh.wallet.ReleaseInputs([]types.Transaction{renewalTxn}, nil)
 		err := fmt.Errorf("failed to verify renter revision signature: %w", ErrInvalidRenterSignature)
 		s.WriteResponseErr(err)
 		return contracts.Usage{}, err
@@ -401,14 +401,10 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	renterSigs := len(renewalTxn.Signatures)
 
 	// sign and broadcast the transaction
-	if err := sh.wallet.SignTransaction(sh.chain.TipState(), &renewalTxn, toSign, types.CoveredFields{WholeTransaction: true}); err != nil {
-		release()
-		s.WriteResponseErr(fmt.Errorf("failed to sign renewal transaction: %w", ErrHostInternalError))
-		return contracts.Usage{}, fmt.Errorf("failed to sign renewal transaction: %w", err)
-	}
+	sh.wallet.SignTransaction(&renewalTxn, toSign, types.CoveredFields{WholeTransaction: true})
 	renewalTxnSet := append(parents, renewalTxn)
-	if err := sh.tpool.AcceptTransactionSet(renewalTxnSet); err != nil {
-		release()
+	if _, err := sh.chain.AddPoolTransactions(renewalTxnSet); err != nil {
+		sh.wallet.ReleaseInputs([]types.Transaction{renewalTxn}, nil)
 		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
 		s.WriteResponseErr(err)
 		return contracts.Usage{}, err

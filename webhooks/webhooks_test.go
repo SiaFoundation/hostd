@@ -23,20 +23,20 @@ type jsonEvent struct {
 	Error error           `json:"-"`
 }
 
-func registerWebhook(t testing.TB, wr *webhooks.Manager, scopes []string) (webhooks.WebHook, <-chan jsonEvent, error) {
+func registerWebhook(t testing.TB, wr *webhooks.Manager, scopes []string) (webhooks.Webhook, <-chan jsonEvent, error) {
 	// create a listener for the webhook
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
-		return webhooks.WebHook{}, nil, fmt.Errorf("failed to create listener: %w", err)
+		return webhooks.Webhook{}, nil, fmt.Errorf("failed to create listener: %w", err)
 	}
 	t.Cleanup(func() {
 		l.Close()
 	})
 
 	// add a webhook
-	hook, err := wr.RegisterWebHook("http://"+l.Addr().String(), scopes)
+	hook, err := wr.RegisterWebhook("http://"+l.Addr().String(), scopes)
 	if err != nil {
-		return webhooks.WebHook{}, nil, fmt.Errorf("failed to register webhook: %w", err)
+		return webhooks.Webhook{}, nil, fmt.Errorf("failed to register webhook: %w", err)
 	}
 
 	// create an http server to listen for the webhook
@@ -65,7 +65,7 @@ func registerWebhook(t testing.TB, wr *webhooks.Manager, scopes []string) (webho
 	return hook, recv, nil
 }
 
-func TestWebHooks(t *testing.T) {
+func TestWebhooks(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
 	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "hostd.db"), log.Named("sqlite"))
@@ -126,10 +126,10 @@ func TestWebHooks(t *testing.T) {
 	}
 
 	// update the webhook to have the "all scope"
-	hook, err = wr.UpdateWebHook(hook.ID, hook.CallbackURL, []string{"all"})
+	hook, err = wr.UpdateWebhook(hook.ID, hook.CallbackURL, []string{"all"})
 	if err != nil {
 		t.Fatal(err)
-	} else if hooks, err := wr.WebHooks(); err != nil {
+	} else if hooks, err := wr.Webhooks(); err != nil {
 		t.Fatal(err)
 	} else if len(hooks) != 1 {
 		t.Fatal("expected 1 webhook")
@@ -145,9 +145,9 @@ func TestWebHooks(t *testing.T) {
 	}
 
 	// unregister the webhook
-	if err := wr.RemoveWebHook(hook.ID); err != nil {
+	if err := wr.RemoveWebhook(hook.ID); err != nil {
 		t.Fatal(err)
-	} else if hooks, err := wr.WebHooks(); err != nil {
+	} else if hooks, err := wr.Webhooks(); err != nil {
 		t.Fatal(err)
 	} else if len(hooks) != 0 {
 		t.Fatal("expected no webhooks")

@@ -15,21 +15,25 @@ import (
 
 // AccountBalance returns the balance of the account with the given ID.
 func (s *Store) AccountBalance(accountID rhp3.Account) (balance types.Currency, err error) {
-	_, balance, err = accountBalance(&dbTxn{s}, accountID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return types.ZeroCurrency, nil
-	}
+	err = s.transaction(func(tx *txn) error {
+		_, balance, err = accountBalance(tx, accountID)
+		if errors.Is(err, sql.ErrNoRows) {
+			err = nil
+			return nil
+		}
+		return err
+	})
 	return
 }
 
-func incrementContractAccountFunding(tx txn, accountID, contractID int64, amount types.Currency) error {
+func incrementContractAccountFunding(tx *txn, accountID, contractID int64, amount types.Currency) error {
 	var fundingValue types.Currency
-	err := tx.QueryRow(`SELECT amount FROM contract_account_funding WHERE contract_id=$1 AND account_id=$2`, contractID, accountID).Scan((*sqlCurrency)(&fundingValue))
+	err := tx.QueryRow(`SELECT amount FROM contract_account_funding WHERE contract_id=$1 AND account_id=$2`, contractID, accountID).Scan(decode(&fundingValue))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to get fund amount: %w", err)
 	}
 	fundingValue = fundingValue.Add(amount)
-	_, err = tx.Exec(`INSERT INTO contract_account_funding (contract_id, account_id, amount) VALUES ($1, $2, $3) ON CONFLICT (contract_id, account_id) DO UPDATE SET amount=EXCLUDED.amount`, contractID, accountID, sqlCurrency(fundingValue))
+	_, err = tx.Exec(`INSERT INTO contract_account_funding (contract_id, account_id, amount) VALUES ($1, $2, $3) ON CONFLICT (contract_id, account_id) DO UPDATE SET amount=EXCLUDED.amount`, contractID, accountID, encode(fundingValue))
 	if err != nil {
 		return fmt.Errorf("failed to update funding source: %w", err)
 	}
@@ -38,7 +42,7 @@ func incrementContractAccountFunding(tx txn, accountID, contractID int64, amount
 
 // CreditAccountWithContract adds the specified amount to the account with the given ID.
 func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		// get current balance
 		accountID, balance, err := accountBalance(tx, fund.Account)
 		exists := err == nil
@@ -48,7 +52,7 @@ func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract)
 		// update balance
 		balance = balance.Add(fund.Amount)
 		const query = `INSERT INTO accounts (account_id, balance, expiration_timestamp) VALUES ($1, $2, $3) ON CONFLICT (account_id) DO UPDATE SET balance=EXCLUDED.balance, expiration_timestamp=EXCLUDED.expiration_timestamp RETURNING id`
-		err = tx.QueryRow(query, sqlHash256(fund.Account), sqlCurrency(balance), sqlTime(fund.Expiration)).Scan(&accountID)
+		err = tx.QueryRow(query, encode(fund.Account), encode(balance), encode(fund.Expiration)).Scan(&accountID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
 		}
@@ -94,7 +98,7 @@ func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract)
 // ID. Returns the remaining balance of the account.
 func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) error {
 	amount := usage.Total()
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		dbID, balance, err := accountBalance(tx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to query balance: %w", err)
@@ -105,7 +109,7 @@ func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) error
 		// update balance
 		balance = balance.Sub(amount)
 		const query = `UPDATE accounts SET balance=$1 WHERE id=$8 RETURNING id`
-		err = tx.QueryRow(query, sqlCurrency(balance), dbID).Scan(&dbID)
+		err = tx.QueryRow(query, encode(balance), dbID).Scan(&dbID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
 		} else if err := updateContractUsage(tx, dbID, usage, s.log); err != nil {
@@ -123,19 +127,22 @@ func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) error
 
 // Accounts returns all accounts in the database paginated.
 func (s *Store) Accounts(limit, offset int) (acc []accounts.Account, err error) {
-	rows, err := s.query(`SELECT account_id, balance, expiration_timestamp FROM accounts LIMIT $1 OFFSET $2`, limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var a accounts.Account
-		if err := rows.Scan((*sqlHash256)(&a.ID), (*sqlCurrency)(&a.Balance), (*sqlTime)(&a.Expiration)); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+	err = s.transaction(func(tx *txn) error {
+		rows, err := tx.Query(`SELECT account_id, balance, expiration_timestamp FROM accounts LIMIT $1 OFFSET $2`, limit, offset)
+		if err != nil {
+			return err
 		}
-		acc = append(acc, a)
-	}
+		defer rows.Close()
+
+		for rows.Next() {
+			var a accounts.Account
+			if err := rows.Scan(decode(&a.ID), decode(&a.Balance), decode(&a.Expiration)); err != nil {
+				return fmt.Errorf("failed to scan row: %w", err)
+			}
+			acc = append(acc, a)
+		}
+		return rows.Err()
+	})
 	return
 }
 
@@ -147,30 +154,35 @@ INNER JOIN accounts a ON a.id=caf.account_id
 INNER JOIN contracts c ON c.id=caf.contract_id
 WHERE a.account_id=$1`
 
-	rows, err := s.query(query, sqlHash256(account))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var src accounts.FundingSource
-		if err := rows.Scan((*sqlHash256)(&src.AccountID), (*sqlHash256)(&src.ContractID), (*sqlCurrency)(&src.Amount)); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+	err = s.transaction(func(tx *txn) error {
+		rows, err := tx.Query(query, encode(account))
+		if err != nil {
+			return err
 		}
-		srcs = append(srcs, src)
-	}
+		defer rows.Close()
+
+		for rows.Next() {
+			var src accounts.FundingSource
+			if err := rows.Scan(decode((*types.PublicKey)(&src.AccountID)), decode(&src.ContractID), decode(&src.Amount)); err != nil {
+				return fmt.Errorf("failed to scan row: %w", err)
+			}
+			srcs = append(srcs, src)
+		}
+		return rows.Err()
+	})
 	return
 }
 
 // PruneAccounts removes all accounts that have expired
 func (s *Store) PruneAccounts(height uint64) error {
-	_, err := s.exec(`DELETE FROM accounts WHERE expiration_height<$1`, height)
-	return err
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`DELETE FROM accounts WHERE expiration_height<$1`, height)
+		return err
+	})
 }
 
-func accountBalance(tx txn, accountID rhp3.Account) (dbID int64, balance types.Currency, err error) {
-	err = tx.QueryRow(`SELECT id, balance FROM accounts WHERE account_id=$1`, sqlHash256(accountID)).Scan(&dbID, (*sqlCurrency)(&balance))
+func accountBalance(tx *txn, accountID rhp3.Account) (dbID int64, balance types.Currency, err error) {
+	err = tx.QueryRow(`SELECT id, balance FROM accounts WHERE account_id=$1`, encode(accountID)).Scan(&dbID, decode(&balance))
 	return
 }
 
@@ -181,7 +193,7 @@ type fundAmount struct {
 }
 
 // contractFunding returns all contracts that were used to fund the account.
-func contractFunding(tx txn, accountID int64) (fund []fundAmount, err error) {
+func contractFunding(tx *txn, accountID int64) (fund []fundAmount, err error) {
 	rows, err := tx.Query(`SELECT id, contract_id, amount FROM contract_account_funding WHERE account_id=$1`, accountID)
 	if err != nil {
 		return nil, err
@@ -190,7 +202,7 @@ func contractFunding(tx txn, accountID int64) (fund []fundAmount, err error) {
 
 	for rows.Next() {
 		var f fundAmount
-		if err := rows.Scan(&f.ID, &f.ContractID, (*sqlCurrency)(&f.Amount)); err != nil {
+		if err := rows.Scan(&f.ID, &f.ContractID, decode(&f.Amount)); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		} else if f.Amount.IsZero() {
 			continue
@@ -202,7 +214,7 @@ func contractFunding(tx txn, accountID int64) (fund []fundAmount, err error) {
 
 // updateContractUsage distributes account usage to the contracts that funded
 // the account.
-func updateContractUsage(tx txn, accountID int64, usage accounts.Usage, log *zap.Logger) error {
+func updateContractUsage(tx *txn, accountID int64, usage accounts.Usage, log *zap.Logger) error {
 	funding, err := contractFunding(tx, accountID)
 	if err != nil {
 		return fmt.Errorf("failed to get contract funding: %w", err)
@@ -274,16 +286,16 @@ func updateContractUsage(tx txn, accountID int64, usage accounts.Usage, log *zap
 	return nil
 }
 
-func setContractRemainingFunds(tx txn, contractID int64, amount types.Currency) error {
-	return tx.QueryRow(`UPDATE contracts SET account_funding=$1 WHERE id=$2 RETURNING id`, sqlCurrency(amount), contractID).Scan(&contractID)
+func setContractRemainingFunds(tx *txn, contractID int64, amount types.Currency) error {
+	return tx.QueryRow(`UPDATE contracts SET account_funding=$1 WHERE id=$2 RETURNING id`, encode(amount), contractID).Scan(&contractID)
 }
 
-func setContractAccountFunding(tx txn, fundingID int64, amount types.Currency) error {
+func setContractAccountFunding(tx *txn, fundingID int64, amount types.Currency) error {
 	if amount.IsZero() {
 		_, err := tx.Exec(`DELETE FROM contract_account_funding WHERE id=$1`, fundingID)
 		return err
 	}
 
-	_, err := tx.Exec(`UPDATE contract_account_funding SET amount=$1 WHERE id=$2`, sqlCurrency(amount), fundingID)
+	_, err := tx.Exec(`UPDATE contract_account_funding SET amount=$1 WHERE id=$2`, encode(amount), fundingID)
 	return err
 }
