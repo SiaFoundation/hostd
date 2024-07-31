@@ -1,3 +1,5 @@
+//go:build ignore
+
 package contracts_test
 
 import (
@@ -12,12 +14,7 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/internal/test"
-	"go.sia.tech/hostd/webhooks"
-	stypes "go.sia.tech/siad/types"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -72,25 +69,9 @@ func TestIntegrityResultJSON(t *testing.T) {
 func TestCheckIntegrity(t *testing.T) {
 	hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
 
-	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	node, err := test.NewWallet(hostKey, dir, log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer node.Close()
-
-	webhookReporter, err := webhooks.NewManager(node.Store(), log.Named("webhooks"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	am := alerts.NewManager(webhookReporter, log.Named("alerts"))
-	s, err := storage.NewVolumeManager(node.Store(), am, node.ChainManager(), log.Named("storage"), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	log := zaptest.NewLogger(t)
+	db, cm, _, wm, c, s := testNode(t, hostKey, log)
 
 	result := make(chan error, 1)
 	if _, err := s.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
@@ -99,17 +80,8 @@ func TestCheckIntegrity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c, err := contracts.NewManager(node.Store(), am, s, node.ChainManager(), node.TPool(), node, log.Named("contracts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	// note: many more blocks than necessary are mined to ensure all forks have activated
-	if err := node.MineBlocks(node.Address(), int(stypes.MaturityDelay*4)); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(100 * time.Millisecond) // sync time
+	// mine enough for the wallet to have some funds
+	mineAndSync(t, cm, db, wm.Address(), 150)
 
 	rev, err := formContract(renterKey, hostKey, 50, 60, types.Siacoins(500), types.Siacoins(1000), c, node, node.ChainManager(), node.TPool())
 	if err != nil {

@@ -46,7 +46,7 @@ type (
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 
 		// SectorRoots returns the sector roots of the contract with the given ID.
-		SectorRoots(id types.FileContractID) ([]types.Hash256, error)
+		SectorRoots(id types.FileContractID) []types.Hash256
 	}
 
 	// A StorageManager manages the storage of sectors on disk.
@@ -65,25 +65,29 @@ type (
 
 	// A ChainManager provides access to the current state of the blockchain.
 	ChainManager interface {
+		Tip() types.ChainIndex
 		TipState() consensus.State
+		UnconfirmedParents(txn types.Transaction) []types.Transaction
+		AddPoolTransactions([]types.Transaction) (known bool, err error)
+		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
+	}
+
+	// A Syncer broadcasts transactions to the network
+	Syncer interface {
+		BroadcastTransactionSet([]types.Transaction)
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
 	}
 
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.Address
-		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
-		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
-	}
-
-	// A TransactionPool broadcasts transactions to the network.
-	TransactionPool interface {
-		AcceptTransactionSet([]types.Transaction) error
-		RecommendedFee() types.Currency
+		FundTransaction(txn *types.Transaction, amount types.Currency, unconfirmed bool) ([]types.Hash256, error)
+		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+		ReleaseInputs(txn []types.Transaction, v2txn []types.V2Transaction)
 	}
 
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
-		DiscoveredRHP2Address() string
 		Settings() settings.Settings
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
@@ -104,8 +108,8 @@ type (
 		monitor  rhp.DataMonitor
 		tg       *threadgroup.ThreadGroup
 
-		cm     ChainManager
-		tpool  TransactionPool
+		chain  ChainManager
+		syncer Syncer
 		wallet Wallet
 
 		contracts ContractManager
@@ -207,15 +211,6 @@ func (sh *SessionHandler) Settings() (rhp2.HostSettings, error) {
 		return rhp2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
 	}
 
-	netaddr := settings.NetAddress
-	if netaddr == "" {
-		netaddr = sh.settings.DiscoveredRHP2Address()
-	}
-	// if the net address is still empty, return an error
-	if netaddr == "" {
-		return rhp2.HostSettings{}, errors.New("no net address found")
-	}
-
 	return rhp2.HostSettings{
 		// build info
 		Release: "hostd " + build.Version(),
@@ -225,7 +220,7 @@ func (sh *SessionHandler) Settings() (rhp2.HostSettings, error) {
 		// host info
 		Address:          sh.wallet.Address(),
 		SiaMuxPort:       sh.rhp3Port,
-		NetAddress:       netaddr,
+		NetAddress:       settings.NetAddress,
 		TotalStorage:     totalSectors * rhp2.SectorSize,
 		RemainingStorage: (totalSectors - usedSectors) * rhp2.SectorSize,
 
@@ -285,7 +280,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, tpool TransactionPool, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, monitor rhp.DataMonitor, sessions SessionReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, s Syncer, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, opts ...SessionHandlerOption) (*SessionHandler, error) {
 	_, rhp3Port, err := net.SplitHostPort(rhp3Addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse rhp3 addr: %w", err)
@@ -293,20 +288,26 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string
 
 	sh := &SessionHandler{
 		privateKey: hostKey,
-		tg:         threadgroup.New(),
 		rhp3Port:   rhp3Port,
 
 		listener: l,
-		monitor:  monitor,
-		cm:       cm,
-		tpool:    tpool,
-		wallet:   wallet,
+
+		chain:  cm,
+		syncer: s,
+		wallet: wallet,
 
 		contracts: contracts,
-		sessions:  sessions,
 		settings:  settings,
 		storage:   storage,
-		log:       log,
+
+		log:      zap.NewNop(),
+		monitor:  rhp.NewNoOpMonitor(),
+		sessions: noopSessionReporter{},
+
+		tg: threadgroup.New(),
+	}
+	for _, opt := range opts {
+		opt(sh)
 	}
 	return sh, nil
 }

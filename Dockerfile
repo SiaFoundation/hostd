@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.21 AS builder
+FROM docker.io/library/golang:1.22 AS builder
 
 WORKDIR /hostd
 
@@ -13,7 +13,8 @@ RUN go generate ./...
 # build
 RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/hostd
 
-FROM docker.io/library/alpine:3
+FROM scratch
+
 LABEL maintainer="The Sia Foundation <info@sia.tech>" \
       org.opencontainers.image.description.vendor="The Sia Foundation" \
       org.opencontainers.image.description="A hostd container - provide storage on the Sia network and earn Siacoin" \
@@ -29,6 +30,7 @@ ENV HOSTD_CONFIG_FILE=/data/hostd.yml
 
 # copy binary and prepare data dir.
 COPY --from=builder /hostd/bin/* /usr/bin/
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 VOLUME [ "/data" ]
 
 # API port
@@ -39,8 +41,6 @@ EXPOSE 9981/tcp
 EXPOSE 9982/tcp
 # RHP3 TCP port
 EXPOSE 9983/tcp
-# RHP3 WebSocket port
-EXPOSE 9984/tcp
 
 USER ${PUID}:${PGID}
 

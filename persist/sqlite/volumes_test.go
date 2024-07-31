@@ -677,7 +677,7 @@ func TestPrune(t *testing.T) {
 	// lock the remaining sectors
 	var locks []int64
 	for _, root := range lockedSectors {
-		err := db.transaction(func(tx txn) error {
+		err := db.transaction(func(tx *txn) error {
 			sectorID, err := sectorDBID(tx, root)
 			if err != nil {
 				return err
@@ -760,7 +760,10 @@ func TestPrune(t *testing.T) {
 	}
 
 	// unlock locked sectors
-	if err := unlockSector(&dbTxn{db}, log.Named("unlockSector"), locks...); err != nil {
+	err = db.transaction(func(tx *txn) error {
+		return unlockSector(tx, log.Named("unlockSector"), locks...)
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 

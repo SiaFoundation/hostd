@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/rhp"
-	"go.sia.tech/hostd/wallet"
 )
 
 // JSON keys for host setting fields
@@ -46,7 +46,6 @@ type (
 
 	// BuildState contains static information about the build.
 	BuildState struct {
-		Network   string    `json:"network"`
 		Version   string    `json:"version"`
 		Commit    string    `json:"commit"`
 		OS        string    `json:"os"`
@@ -75,12 +74,6 @@ type (
 
 	// Metrics is the response body for the [GET] /metrics endpoint.
 	Metrics metrics.Metrics
-
-	// ConsensusState is the response body for the [GET] /consensus endpoint.
-	ConsensusState struct {
-		Synced     bool             `json:"synced"`
-		ChainIndex types.ChainIndex `json:"chainIndex"`
-	}
 
 	// ContractIntegrityResponse is the response body for the [POST] /contracts/:id/check endpoint.
 	ContractIntegrityResponse struct {
@@ -123,11 +116,9 @@ type (
 
 	// WalletResponse is the response body for the [GET] /wallet endpoint.
 	WalletResponse struct {
-		ScanHeight  uint64         `json:"scanHeight"`
-		Address     types.Address  `json:"address"`
-		Spendable   types.Currency `json:"spendable"`
-		Confirmed   types.Currency `json:"confirmed"`
-		Unconfirmed types.Currency `json:"unconfirmed"`
+		wallet.Balance
+
+		Address types.Address `json:"address"`
 	}
 
 	// WalletSendSiacoinsRequest is the request body for the [POST] /wallet/send endpoint.
@@ -188,10 +179,10 @@ type (
 	SyncerAddrResp string
 
 	// WalletTransactionsResp is the response body for the [GET] /wallet/transactions endpoint
-	WalletTransactionsResp []wallet.Transaction
+	WalletTransactionsResp []wallet.Event
 
 	// WalletPendingResp is the response body for the [GET] /wallet/pending endpoint
-	WalletPendingResp []wallet.Transaction
+	WalletPendingResp []wallet.Event
 
 	// SessionResp is the response body for the [GET] /sessions endpoint
 	SessionResp []rhp.Session

@@ -12,7 +12,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/settings/pin"
-	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
@@ -21,13 +20,17 @@ func (s *Store) PinnedSettings(context.Context) (pinned pin.PinnedSettings, err 
 	const query = `SELECT currency, threshold, storage_pinned, storage_price, ingress_pinned, ingress_price, egress_pinned, egress_price, max_collateral_pinned, max_collateral
 FROM host_pinned_settings;`
 
-	err = s.queryRow(query).Scan(&pinned.Currency, &pinned.Threshold, &pinned.Storage.Pinned, &pinned.Storage.Value, &pinned.Ingress.Pinned, &pinned.Ingress.Value, &pinned.Egress.Pinned, &pinned.Egress.Value, &pinned.MaxCollateral.Pinned, &pinned.MaxCollateral.Value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return pin.PinnedSettings{
-			Currency:  "usd",
-			Threshold: 0.02,
-		}, nil
-	}
+	err = s.transaction(func(tx *txn) error {
+		err = tx.QueryRow(query).Scan(&pinned.Currency, &pinned.Threshold, &pinned.Storage.Pinned, &pinned.Storage.Value, &pinned.Ingress.Pinned, &pinned.Ingress.Value, &pinned.Egress.Pinned, &pinned.Egress.Value, &pinned.MaxCollateral.Pinned, &pinned.MaxCollateral.Value)
+		if errors.Is(err, sql.ErrNoRows) {
+			pinned = pin.PinnedSettings{
+				Currency:  "usd",
+				Threshold: 0.02,
+			}
+			return nil
+		}
+		return err
+	})
 	return
 }
 
@@ -39,8 +42,11 @@ ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.th
 storage_pinned=EXCLUDED.storage_pinned, storage_price=EXCLUDED.storage_price, ingress_pinned=EXCLUDED.ingress_pinned, 
 ingress_price=EXCLUDED.ingress_price, egress_pinned=EXCLUDED.egress_pinned, egress_price=EXCLUDED.egress_price, 
 max_collateral_pinned=EXCLUDED.max_collateral_pinned, max_collateral=EXCLUDED.max_collateral;`
-	_, err := s.exec(query, p.Currency, p.Threshold, p.Storage.Pinned, p.Storage.Value, p.Ingress.Pinned, p.Ingress.Value, p.Egress.Pinned, p.Egress.Value, p.MaxCollateral.Pinned, p.MaxCollateral.Value)
-	return err
+
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(query, p.Currency, p.Threshold, p.Storage.Pinned, p.Storage.Value, p.Ingress.Pinned, p.Ingress.Value, p.Egress.Pinned, p.Egress.Value, p.MaxCollateral.Pinned, p.MaxCollateral.Value)
+		return err
+	})
 }
 
 // Settings returns the current host settings.
@@ -52,24 +58,28 @@ func (s *Store) Settings() (config settings.Settings, err error) {
 	max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
 	ingress_limit, egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size
 FROM host_settings;`
-	err = s.queryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
-		&config.NetAddress, (*sqlCurrency)(&config.ContractPrice),
-		(*sqlCurrency)(&config.BaseRPCPrice), (*sqlCurrency)(&config.SectorAccessPrice),
-		&config.CollateralMultiplier, (*sqlCurrency)(&config.MaxCollateral),
-		(*sqlCurrency)(&config.StoragePrice), (*sqlCurrency)(&config.EgressPrice),
-		(*sqlCurrency)(&config.IngressPrice), (*sqlCurrency)(&config.MaxAccountBalance),
-		&config.AccountExpiry, &config.PriceTableValidity, &config.MaxContractDuration, &config.WindowSize,
-		&config.IngressLimit, &config.EgressLimit, &config.MaxRegistryEntries,
-		&config.DDNS.Provider, &config.DDNS.IPv4, &config.DDNS.IPv6, &dyndnsBuf, &config.SectorCacheSize)
-	if errors.Is(err, sql.ErrNoRows) {
-		return settings.Settings{}, settings.ErrNoSettings
-	}
-	if dyndnsBuf != nil {
-		err = json.Unmarshal(dyndnsBuf, &config.DDNS.Options)
-		if err != nil {
-			return settings.Settings{}, fmt.Errorf("failed to unmarshal ddns options: %w", err)
+
+	err = s.transaction(func(tx *txn) error {
+		err = tx.QueryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
+			&config.NetAddress, decode(&config.ContractPrice),
+			decode(&config.BaseRPCPrice), decode(&config.SectorAccessPrice),
+			&config.CollateralMultiplier, decode(&config.MaxCollateral),
+			decode(&config.StoragePrice), decode(&config.EgressPrice),
+			decode(&config.IngressPrice), decode(&config.MaxAccountBalance),
+			&config.AccountExpiry, &config.PriceTableValidity, &config.MaxContractDuration, &config.WindowSize,
+			&config.IngressLimit, &config.EgressLimit, &config.MaxRegistryEntries,
+			&config.DDNS.Provider, &config.DDNS.IPv4, &config.DDNS.IPv6, &dyndnsBuf, &config.SectorCacheSize)
+		if errors.Is(err, sql.ErrNoRows) {
+			return settings.ErrNoSettings
 		}
-	}
+		if dyndnsBuf != nil {
+			err = json.Unmarshal(dyndnsBuf, &config.DDNS.Options)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal ddns options: %w", err)
+			}
+		}
+		return nil
+	})
 	return
 }
 
@@ -104,13 +114,13 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 		}
 	}
 
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		_, err := tx.Exec(query, settings.AcceptingContracts,
-			settings.NetAddress, sqlCurrency(settings.ContractPrice),
-			sqlCurrency(settings.BaseRPCPrice), sqlCurrency(settings.SectorAccessPrice),
-			settings.CollateralMultiplier, sqlCurrency(settings.MaxCollateral),
-			sqlCurrency(settings.StoragePrice), sqlCurrency(settings.EgressPrice),
-			sqlCurrency(settings.IngressPrice), sqlCurrency(settings.MaxAccountBalance),
+			settings.NetAddress, encode(settings.ContractPrice),
+			encode(settings.BaseRPCPrice), encode(settings.SectorAccessPrice),
+			settings.CollateralMultiplier, encode(settings.MaxCollateral),
+			encode(settings.StoragePrice), encode(settings.EgressPrice),
+			encode(settings.IngressPrice), encode(settings.MaxAccountBalance),
 			settings.AccountExpiry, settings.PriceTableValidity, settings.MaxContractDuration, settings.WindowSize,
 			settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries,
 			settings.DDNS.Provider, settings.DDNS.IPv4, settings.DDNS.IPv6, dnsOptsBuf, settings.SectorCacheSize)
@@ -143,7 +153,9 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 
 // HostKey returns the host's private key.
 func (s *Store) HostKey() (pk types.PrivateKey) {
-	err := s.queryRow(`SELECT host_key FROM global_settings WHERE id=0;`).Scan(&pk)
+	err := s.transaction(func(tx *txn) error {
+		return tx.QueryRow(`SELECT host_key FROM global_settings WHERE id=0;`).Scan(&pk)
+	})
 	if err != nil {
 		s.log.Panic("failed to get host key", zap.Error(err), zap.Stack("stacktrace"))
 	} else if n := len(pk); n != ed25519.PrivateKeySize {
@@ -154,18 +166,15 @@ func (s *Store) HostKey() (pk types.PrivateKey) {
 
 // LastAnnouncement returns the last announcement.
 func (s *Store) LastAnnouncement() (ann settings.Announcement, err error) {
-	var height sql.NullInt64
 	var address sql.NullString
-	err = s.queryRow(`SELECT last_announce_id, last_announce_height, last_announce_address, last_announce_key FROM global_settings`).
-		Scan(nullable((*sqlHash256)(&ann.Index.ID)), &height, &address, nullable((*sqlHash256)(&ann.PublicKey)))
+
+	err = s.transaction(func(tx *txn) error {
+		return tx.QueryRow(`SELECT last_announce_index, last_announce_address FROM global_settings`).
+			Scan(decodeNullable(&ann.Index), &address)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return settings.Announcement{}, nil
-	}
-
-	if height.Valid {
-		ann.Index.Height = uint64(height.Int64)
-	}
-	if address.Valid {
+	} else if address.Valid {
 		ann.Address = address.String
 	}
 	return
@@ -173,30 +182,19 @@ func (s *Store) LastAnnouncement() (ann settings.Announcement, err error) {
 
 // UpdateLastAnnouncement updates the last announcement.
 func (s *Store) UpdateLastAnnouncement(ann settings.Announcement) error {
-	const query = `UPDATE global_settings SET 
-last_announce_id=$1, last_announce_height=$2, last_announce_address=$3, last_announce_key=$4;`
-	_, err := s.exec(query, sqlHash256(ann.Index.ID), ann.Index.Height, ann.Address, sqlHash256(ann.PublicKey))
-	return err
+	const query = `UPDATE global_settings SET last_announce_index=$1, last_announce_address=$2;`
+
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(query, encode(ann.Index), ann.Address)
+		return err
+	})
 }
 
 // RevertLastAnnouncement reverts the last announcement.
 func (s *Store) RevertLastAnnouncement() error {
-	const query = `UPDATE global_settings SET
-last_announce_id=NULL, last_announce_height=NULL, last_announce_address=NULL, last_announce_key=NULL;`
-	_, err := s.exec(query)
-	return err
-}
-
-// LastSettingsConsensusChange returns the last processed consensus change ID of
-// the settings manager
-func (s *Store) LastSettingsConsensusChange() (cc modules.ConsensusChangeID, height uint64, err error) {
-	var nullHeight sql.NullInt64
-	n := nullable((*sqlHash256)(&cc))
-	err = s.queryRow(`SELECT settings_last_processed_change, settings_height FROM global_settings WHERE id=0;`).Scan(n, &nullHeight)
-	if errors.Is(err, sql.ErrNoRows) || !n.Valid {
-		return modules.ConsensusChangeRecent, 0, nil // as a special case don't scan the chain for new announcements
-	} else if nullHeight.Valid {
-		height = uint64(nullHeight.Int64)
-	}
-	return
+	const query = `UPDATE global_settings SET last_announce_index=NULL, last_announce_address=NULL, last_announce_key=NULL;`
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(query)
+		return err
+	})
 }

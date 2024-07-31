@@ -66,20 +66,20 @@ type (
 		UpdatePinnedSettings(context.Context, PinnedSettings) error
 	}
 
-	// An ExchangeRateRetriever retrieves the current exchange rate from
+	// A Forex retrieves the current exchange rate from
 	// an external source.
-	ExchangeRateRetriever interface {
+	Forex interface {
 		SiacoinExchangeRate(ctx context.Context, currency string) (float64, error)
 	}
 
 	// A Manager manages the host's pinned settings and updates the host's
 	// settings based on the current exchange rate.
 	Manager struct {
-		log      *zap.Logger
-		store    Store
-		alerts   Alerts
-		explorer ExchangeRateRetriever
-		sm       SettingsManager
+		log    *zap.Logger
+		store  Store
+		alerts Alerts
+		forex  Forex
+		sm     SettingsManager
 
 		frequency  time.Duration
 		rateWindow time.Duration
@@ -142,7 +142,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 		return nil
 	}
 
-	rate, err := m.explorer.SiacoinExchangeRate(ctx, currency)
+	rate, err := m.forex.SiacoinExchangeRate(ctx, currency)
 	if err != nil {
 		return fmt.Errorf("failed to get exchange rate: %w", err)
 	} else if rate <= 0 {
@@ -294,9 +294,14 @@ func ConvertCurrencyToSC(target decimal.Decimal, rate decimal.Decimal) (types.Cu
 }
 
 // NewManager creates a new pin manager.
-func NewManager(opts ...Option) (*Manager, error) {
+func NewManager(store Store, settings SettingsManager, f Forex, opts ...Option) (*Manager, error) {
 	m := &Manager{
-		log: zap.NewNop(),
+		store: store,
+		sm:    settings,
+		forex: f,
+
+		alerts: alerts.NewNop(),
+		log:    zap.NewNop(),
 
 		frequency:  5 * time.Minute,
 		rateWindow: 6 * time.Hour,
@@ -306,15 +311,7 @@ func NewManager(opts ...Option) (*Manager, error) {
 		opt(m)
 	}
 
-	if m.store == nil {
-		return nil, fmt.Errorf("store is required")
-	} else if m.explorer == nil {
-		return nil, fmt.Errorf("exchange rate retriever is required")
-	} else if m.sm == nil {
-		return nil, fmt.Errorf("settings manager is required")
-	} else if m.log == nil {
-		return nil, fmt.Errorf("logger is required")
-	} else if m.frequency <= 0 {
+	if m.frequency <= 0 {
 		return nil, fmt.Errorf("frequency must be positive")
 	} else if m.rateWindow <= 0 {
 		return nil, fmt.Errorf("rate window must be positive")

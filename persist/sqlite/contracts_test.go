@@ -15,12 +15,37 @@ import (
 )
 
 func (s *Store) rootAtIndex(contractID types.FileContractID, rootIndex int64) (root types.Hash256, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT s.sector_root FROM contract_sector_roots csr
 INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
 INNER JOIN contracts c ON (csr.contract_id = c.id)
 WHERE c.contract_id=$1 AND csr.root_index=$2;`
-		return tx.QueryRow(query, sqlHash256(contractID), rootIndex).Scan((*sqlHash256)(&root))
+		return tx.QueryRow(query, encode(contractID), rootIndex).Scan(decode(&root))
+	})
+	return
+}
+
+func (s *Store) dbRoots(contractID types.FileContractID) (roots []types.Hash256, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT s.sector_root FROM contract_sector_roots cr
+INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
+INNER JOIN contracts c ON (cr.contract_id = c.id)
+WHERE c.contract_id=$1 ORDER BY cr.root_index ASC;`
+
+		rows, err := tx.Query(query, encode(contractID))
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var root types.Hash256
+			if err := rows.Scan(decode(&root)); err != nil {
+				return err
+			}
+			roots = append(roots, root)
+		}
+		return rows.Err()
 	})
 	return
 }
@@ -86,7 +111,7 @@ func TestReviseContract(t *testing.T) {
 	// checkConsistency is a helper function that verifies the expected sector
 	// roots are consistent with the database
 	checkConsistency := func(roots []types.Hash256, expected int) error {
-		dbRoot, err := db.SectorRoots(contract.Revision.ParentID)
+		dbRoot, err := db.dbRoots(contract.Revision.ParentID)
 		if err != nil {
 			return fmt.Errorf("failed to get sector roots: %w", err)
 		} else if len(dbRoot) != expected {

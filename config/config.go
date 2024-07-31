@@ -7,11 +7,18 @@ type (
 		Password string `yaml:"password,omitempty"`
 	}
 
+	// Syncer contains the configuration for the p2p syncer.
+	Syncer struct {
+		Address    string   `yaml:"address,omitempty"`
+		Bootstrap  bool     `yaml:"bootstrap,omitempty"`
+		EnableUPnP bool     `yaml:"enableUPnP,omitempty"`
+		Peers      []string `yaml:"peers,omitempty"`
+	}
+
 	// Consensus contains the configuration for the consensus set.
 	Consensus struct {
-		GatewayAddress string   `yaml:"gatewayAddress,omitempty"`
-		Bootstrap      bool     `yaml:"bootstrap,omitempty"`
-		Peers          []string `yaml:"peers,omitempty"`
+		Network        string `yaml:"network,omitempty"`
+		IndexBatchSize int    `yaml:"indexBatchSize,omitempty"`
 	}
 
 	// RHP2 contains the configuration for the RHP2 server.
@@ -27,10 +34,7 @@ type (
 
 	// RHP3 contains the configuration for the RHP3 server.
 	RHP3 struct {
-		TCPAddress       string `yaml:"tcp,omitempty"`
-		WebSocketAddress string `yaml:"websocket,omitempty"`
-		CertPath         string `yaml:"certPath,omitempty"`
-		KeyPath          string `yaml:"keyPath,omitempty"`
+		TCPAddress string `yaml:"tcp,omitempty"`
 	}
 
 	// LogFile configures the file output of the logger.
@@ -68,6 +72,7 @@ type (
 		AutoOpenWebUI  bool   `yaml:"autoOpenWebUI,omitempty"`
 
 		HTTP      HTTP         `yaml:"http,omitempty"`
+		Syncer    Syncer       `yaml:"syncer,omitempty"`
 		Consensus Consensus    `yaml:"consensus,omitempty"`
 		Explorer  ExplorerData `yaml:"explorer,omitempty"`
 		RHP2      RHP2         `yaml:"rhp2,omitempty"`

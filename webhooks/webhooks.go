@@ -36,8 +36,8 @@ type (
 		hooks    map[int64]bool
 	}
 
-	// A WebHook is a callback that is invoked when an event occurs.
-	WebHook struct {
+	// A Webhook is a callback that is invoked when an event occurs.
+	Webhook struct {
 		ID          int64    `json:"id"`
 		CallbackURL string   `json:"callbackURL"`
 		SecretKey   string   `json:"secretKey"`
@@ -47,7 +47,7 @@ type (
 	// A UID is a unique identifier for an event.
 	UID [32]byte
 
-	// An Event is a notification sent to a WebHook callback.
+	// An Event is a notification sent to a Webhook callback.
 	Event struct {
 		ID    UID    `json:"id"`
 		Event string `json:"event"`
@@ -55,25 +55,27 @@ type (
 		Data  any    `json:"data"`
 	}
 
-	// A Store stores and retrieves WebHooks.
+	// A Store stores and retrieves Webhooks.
 	Store interface {
-		RegisterWebHook(url, secret string, scopes []string) (int64, error)
-		UpdateWebHook(id int64, url string, scopes []string) error
-		RemoveWebHook(id int64) error
-		WebHooks() ([]WebHook, error)
+		RegisterWebhook(url, secret string, scopes []string) (int64, error)
+		UpdateWebhook(id int64, url string, scopes []string) error
+		RemoveWebhook(id int64) error
+		Webhooks() ([]Webhook, error)
 	}
 
-	// A Manager manages WebHook subscribers and broadcasts events
+	// A Manager manages Webhook subscribers and broadcasts events
 	Manager struct {
 		store Store
 		log   *zap.Logger
 		tg    *threadgroup.ThreadGroup
 
 		mu     sync.Mutex
-		hooks  map[int64]WebHook
+		hooks  map[int64]Webhook
 		scopes *scope
 	}
 )
+
+var _ WebhookBroadcaster = (*Manager)(nil)
 
 // Close closes the Manager.
 func (m *Manager) Close() error {
@@ -81,7 +83,7 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-func (m *Manager) findMatchingHooks(s string) (hooks []WebHook) {
+func (m *Manager) findMatchingHooks(s string) (hooks []Webhook) {
 	// recursively match hooks
 	var match func(scopeParts []string, parent *scope)
 	match = func(scopeParts []string, parent *scope) {
@@ -139,8 +141,8 @@ func (m *Manager) removeHookScopes(id int64) {
 	remove(m.scopes)
 }
 
-// WebHooks returns all registered WebHooks.
-func (m *Manager) WebHooks() (hooks []WebHook, _ error) {
+// Webhooks returns all registered Webhooks.
+func (m *Manager) Webhooks() (hooks []Webhook, _ error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, hook := range m.hooks {
@@ -149,26 +151,26 @@ func (m *Manager) WebHooks() (hooks []WebHook, _ error) {
 	return
 }
 
-// RegisterWebHook registers a new WebHook.
-func (m *Manager) RegisterWebHook(url string, scopes []string) (WebHook, error) {
+// RegisterWebhook registers a new Webhook.
+func (m *Manager) RegisterWebhook(url string, scopes []string) (Webhook, error) {
 	done, err := m.tg.Add()
 	if err != nil {
-		return WebHook{}, err
+		return Webhook{}, err
 	}
 	defer done()
 
 	secret := hex.EncodeToString(frand.Bytes(16))
 
 	// register the hook in the database
-	id, err := m.store.RegisterWebHook(url, secret, scopes)
+	id, err := m.store.RegisterWebhook(url, secret, scopes)
 	if err != nil {
-		return WebHook{}, fmt.Errorf("failed to register WebHook: %w", err)
+		return Webhook{}, fmt.Errorf("failed to register Webhook: %w", err)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// add the hook to the in-memory map
-	hook := WebHook{
+	hook := Webhook{
 		ID:          id,
 		CallbackURL: url,
 		SecretKey:   secret,
@@ -180,8 +182,8 @@ func (m *Manager) RegisterWebHook(url string, scopes []string) (WebHook, error) 
 	return hook, nil
 }
 
-// RemoveWebHook removes a registered WebHook.
-func (m *Manager) RemoveWebHook(id int64) error {
+// RemoveWebhook removes a registered Webhook.
+func (m *Manager) RemoveWebhook(id int64) error {
 	done, err := m.tg.Add()
 	if err != nil {
 		return err
@@ -189,7 +191,7 @@ func (m *Manager) RemoveWebHook(id int64) error {
 	defer done()
 
 	// remove the hook from the database
-	if err := m.store.RemoveWebHook(id); err != nil {
+	if err := m.store.RemoveWebhook(id); err != nil {
 		return err
 	}
 
@@ -201,18 +203,18 @@ func (m *Manager) RemoveWebHook(id int64) error {
 	return nil
 }
 
-// UpdateWebHook updates the URL and scopes of a registered WebHook.
-func (m *Manager) UpdateWebHook(id int64, url string, scopes []string) (WebHook, error) {
+// UpdateWebhook updates the URL and scopes of a registered Webhook.
+func (m *Manager) UpdateWebhook(id int64, url string, scopes []string) (Webhook, error) {
 	done, err := m.tg.Add()
 	if err != nil {
-		return WebHook{}, err
+		return Webhook{}, err
 	}
 	defer done()
 
 	// update the hook in the database
-	err = m.store.UpdateWebHook(id, url, scopes)
+	err = m.store.UpdateWebhook(id, url, scopes)
 	if err != nil {
-		return WebHook{}, err
+		return Webhook{}, err
 	}
 
 	m.mu.Lock()
@@ -220,7 +222,7 @@ func (m *Manager) UpdateWebHook(id int64, url string, scopes []string) (WebHook,
 	// update the hook in the in-memory map
 	hook, ok := m.hooks[id]
 	if !ok {
-		panic("UpdateWebHook called on nonexistent WebHook") // developer error
+		panic("UpdateWebhook called on nonexistent Webhook") // developer error
 	}
 	hook.CallbackURL = url
 	hook.Scopes = scopes
@@ -232,10 +234,10 @@ func (m *Manager) UpdateWebHook(id int64, url string, scopes []string) (WebHook,
 	return hook, nil
 }
 
-func sendEventData(ctx context.Context, hook WebHook, buf []byte) error {
+func sendEventData(ctx context.Context, hook Webhook, buf []byte) error {
 	req, err := http.NewRequestWithContext(ctx, "POST", hook.CallbackURL, bytes.NewReader(buf))
 	if err != nil {
-		return fmt.Errorf("failed to create WebHook request: %w", err)
+		return fmt.Errorf("failed to create Webhook request: %w", err)
 	}
 
 	// set the secret key and content type
@@ -255,7 +257,7 @@ func sendEventData(ctx context.Context, hook WebHook, buf []byte) error {
 	return nil
 }
 
-// BroadcastToWebhook sends an event to a specific WebHook subscriber.
+// BroadcastToWebhook sends an event to a specific Webhook subscriber.
 func (m *Manager) BroadcastToWebhook(hookID int64, event string, scope string, data any) error {
 	done, err := m.tg.Add()
 	if err != nil {
@@ -281,7 +283,7 @@ func (m *Manager) BroadcastToWebhook(hookID int64, event string, scope string, d
 
 	hook, ok := m.hooks[hookID]
 	if !ok {
-		return fmt.Errorf("webhook not found")
+		return fmt.Errorf("Webhook not found")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -291,13 +293,13 @@ func (m *Manager) BroadcastToWebhook(hookID int64, event string, scope string, d
 
 	start := time.Now()
 	if err := sendEventData(ctx, hook, buf); err != nil {
-		return fmt.Errorf("failed to send webhook event: %w", err)
+		return fmt.Errorf("failed to send Webhook event: %w", err)
 	}
-	log.Debug("sent webhook event", zap.Duration("elapsed", time.Since(start)))
+	log.Debug("sent Webhook event", zap.Duration("elapsed", time.Since(start)))
 	return nil
 }
 
-// BroadcastEvent sends an event to all registered WebHooks that match the
+// BroadcastEvent sends an event to all registered Webhooks that match the
 // event's scope.
 func (m *Manager) BroadcastEvent(event string, scope string, data any) error {
 	done, err := m.tg.Add()
@@ -326,7 +328,7 @@ func (m *Manager) BroadcastEvent(event string, scope string, data any) error {
 	hooks := m.findMatchingHooks(scope)
 
 	for _, hook := range hooks {
-		go func(hook WebHook) {
+		go func(hook Webhook) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
@@ -334,29 +336,29 @@ func (m *Manager) BroadcastEvent(event string, scope string, data any) error {
 
 			start := time.Now()
 			if err := sendEventData(ctx, hook, buf); err != nil {
-				log.Error("failed to send webhook event", zap.Error(err))
+				log.Error("failed to send Webhook event", zap.Error(err))
 				return
 			}
-			log.Debug("sent webhook event", zap.Duration("elapsed", time.Since(start)))
+			log.Debug("sent Webhook event", zap.Duration("elapsed", time.Since(start)))
 		}(hook)
 	}
 	return nil
 }
 
-// NewManager creates a new WebHook Manager
+// NewManager creates a new Webhook Manager
 func NewManager(store Store, log *zap.Logger) (*Manager, error) {
 	m := &Manager{
 		store: store,
 		log:   log,
 		tg:    threadgroup.New(),
 
-		hooks:  make(map[int64]WebHook),
+		hooks:  make(map[int64]Webhook),
 		scopes: &scope{children: make(map[string]*scope), hooks: make(map[int64]bool)},
 	}
 
-	_, err := store.WebHooks()
+	_, err := store.Webhooks()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load WebHooks: %w", err)
+		return nil, fmt.Errorf("failed to load Webhooks: %w", err)
 	}
 	return m, nil
 }
