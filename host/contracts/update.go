@@ -524,22 +524,19 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		return fmt.Errorf("failed to get chain index state elements: %w", err)
 	}
 
+	contractStateElements, err := tx.ContractStateElements()
+	if err != nil {
+		return fmt.Errorf("failed to get contract state elements: %w", err)
+	}
+	contractElementMap := make(map[types.Hash256]*types.StateElement, len(contractStateElements))
+	for _, ele := range contractStateElements {
+		contractElementMap[ele.ID] = &ele
+	}
+
 	for _, cru := range reverted {
 		revertedIndex := types.ChainIndex{
 			ID:     cru.Block.ID(),
 			Height: cru.State.Index.Height + 1,
-		}
-
-		// update existing contract state elements
-		cse, err := tx.ContractStateElements()
-		if err != nil {
-			return fmt.Errorf("failed to get contract state elements: %w", err)
-		}
-		for i := range cse {
-			cru.UpdateElementProof(&cse[i])
-		}
-		if err := tx.UpdateContractStateElements(cse); err != nil {
-			return fmt.Errorf("failed to update contract state elements: %w", err)
 		}
 
 		// revert contract state changes
@@ -550,39 +547,47 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 			return fmt.Errorf("failed to revert chain index state element: %w", err)
 		}
 
+		// delete reverted contract state elements
+		for _, reverted := range state.ConfirmedV2 {
+			delete(contractElementMap, reverted.ID)
+		}
+
+		// update remaining contract state elements
+		for id := range contractElementMap {
+			cru.UpdateElementProof(contractElementMap[id])
+		}
+
+		// revert last chain index element
 		if chainElements[len(chainElements)-1].ChainIndex != revertedIndex {
 			return fmt.Errorf("chain index element mismatch. expected %v, got %v", revertedIndex, chainElements[len(chainElements)-1].ChainIndex)
 		}
 		chainElements = chainElements[:len(chainElements)-1]
+		// update remaining chain index elements
 		for i := range chainElements {
 			cru.UpdateElementProof(&chainElements[i].StateElement)
 		}
 	}
 
 	for _, cau := range applied {
-		// update existing contract state elements
-		elements, err := tx.ContractStateElements()
-		if err != nil {
-			return fmt.Errorf("failed to get contract state elements: %w", err)
-		}
-		for i := range elements {
-			cau.UpdateElementProof(&elements[i])
-		}
-		if err := tx.UpdateContractStateElements(elements); err != nil {
-			return fmt.Errorf("failed to update contract state elements: %w", err)
-		}
-
 		// apply state changes
 		state := buildContractState(tx, cau, false, log.Named("apply").With(zap.Stringer("index", cau.State.Index)))
 		if err := tx.ApplyContracts(cau.State.Index, state); err != nil {
 			return fmt.Errorf("failed to revert contracts: %w", err)
 		}
 
-		// only keep the last 144 chain index elements
+		// update existing contract state elements
+		for id := range contractElementMap {
+			cau.UpdateElementProof(contractElementMap[id])
+		}
+		// add new contract state elements
+		for _, applied := range state.ConfirmedV2 {
+			contractElementMap[applied.ID] = &applied.StateElement
+		}
+
+		// update chain index elements
 		if len(chainElements) > 144 {
 			chainElements = chainElements[len(chainElements)-144:]
 		}
-
 		for i := range chainElements {
 			cau.UpdateElementProof(&chainElements[i].StateElement)
 		}
@@ -591,6 +596,17 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 
 	if err := tx.ApplyContractChainIndexElements(chainElements); err != nil {
 		return fmt.Errorf("failed to update chain index state elements: %w", err)
+	}
+
+	if len(contractElementMap) > 0 {
+		// batch update contract state elements
+		contractStateElements = contractStateElements[:0]
+		for _, ele := range contractElementMap {
+			contractStateElements = append(contractStateElements, *ele)
+		}
+		if err := tx.UpdateContractStateElements(contractStateElements); err != nil {
+			return fmt.Errorf("failed to update contract state elements: %w", err)
+		}
 	}
 
 	if len(applied) == 0 {
