@@ -174,7 +174,7 @@ func main() {
 	flag.StringVar(&cfg.Syncer.Address, "syncer.address", cfg.Syncer.Address, "address to listen on for peer connections")
 	flag.BoolVar(&cfg.Syncer.Bootstrap, "syncer.bootstrap", cfg.Syncer.Bootstrap, "bootstrap the gateway and consensus modules")
 	// consensus
-	flag.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network name (mainnet, testnet, etc)")
+	flag.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network name (mainnet, zen, etc)")
 	// rhp
 	flag.StringVar(&cfg.RHP2.Address, "rhp2", cfg.RHP2.Address, "address to listen on for RHP2 connections")
 	flag.StringVar(&cfg.RHP3.TCPAddress, "rhp3", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
