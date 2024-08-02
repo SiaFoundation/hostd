@@ -41,24 +41,28 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 
 ### CLI Flags
 ```sh
--bootstrap
-	bootstrap the gateway and consensus modules
 -dir string
-	directory to store hostd metadata (default ".")
--env
-	disable stdin prompts for environment variables (default false)
+	directory to store hostd metadata (default "/Users/n8maninger/Downloads/hostd-core-tmp")
 -http string
-	address to serve API on (default ":9980")
+	address to serve API on (default "localhost:9980")
 -log.level string
-	log level (debug, info, warn, error) (default "info")
+	log level (debug, info, warn, error) (default "debug")
 -name string
 	a friendly name for the host, only used for display
--rpc string
+-network string
+	network name (mainnet, testnet, etc) (default "mainnet")
+-openui
+	automatically open the web UI on startup (default true)
+-syncer.address string
 	address to listen on for peer connections (default ":9981")
+-syncer.bootstrap
+	bootstrap the gateway and consensus modules (default true)
 -rhp2 string
 	address to listen on for RHP2 connections (default ":9982")
--rhp3.tcp string
+-rhp3 string
 	address to listen on for TCP RHP3 connections (default ":9983")
+-env
+	disable stdin prompts for environment variables (default false)
 ```
 
 ### YAML
