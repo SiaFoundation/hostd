@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"time"
 
-	"go.etcd.io/bbolt"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
@@ -69,32 +68,28 @@ func migrateDB(dir string) error {
 	return os.Rename(oldPath, newPath)
 }
 
-// migrateV1Consensus deletes the v1 consensus database if it exists
-func migrateV1Consensus(dir string) error {
-	dbFile := filepath.Join(dir, "consensus.db")
-	if _, err := os.Stat(dbFile); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
+// deleteSiadData deletes the siad specific databases if they exist
+func deleteSiadData(dir string) error {
+	paths := []string{
+		filepath.Join(dir, "consensus"),
+		filepath.Join(dir, "gateway"),
+		filepath.Join(dir, "tpool"),
 	}
 
-	db, err := bbolt.Open(dbFile, 0600, nil)
-	if err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
-	}
-	defer db.Close()
+	for _, path := range paths {
+		if dir, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		} else if !dir.IsDir() {
+			return fmt.Errorf("expected %s to be a directory", path)
+		}
 
-	var isV1DB bool
-	err = db.View(func(tx *bbolt.Tx) error {
-		isV1DB = tx.Bucket([]byte("ChangeLog")) != nil
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to check for v1 consensus database: %w", err)
-	} else if !isV1DB {
-		return nil
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("failed to delete %s: %w", path, err)
+		}
 	}
-	return os.Remove(dbFile)
+	return nil
 }
 
 // startLocalhostListener https://github.com/SiaFoundation/hostd/issues/202
@@ -130,7 +125,7 @@ func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener,
 func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
 	if err := migrateDB(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
-	} else if err := migrateV1Consensus(cfg.Directory); err != nil {
+	} else if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
 	}
 
