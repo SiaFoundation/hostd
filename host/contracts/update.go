@@ -343,7 +343,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 		proofElement, err := cm.store.ContractChainIndexElement(proofIndex)
 		if err != nil {
-			log.Error("failed to get proof index", zap.Error(err))
+			log.Error("failed to get proof index element", zap.Stringer("proofIndex", proofIndex), zap.Error(err))
 			continue
 		}
 
