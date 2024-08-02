@@ -10,7 +10,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	go.etcd.io/bbolt v1.3.10
 	go.sia.tech/core v0.4.2-0.20240723013228-2b1c3d890e25
-	go.sia.tech/coreutils v0.2.2-0.20240801210246-680456645e42
+	go.sia.tech/coreutils v0.2.2-0.20240802164332-71608c6ec7b9
 	go.sia.tech/jape v0.12.0
 	go.sia.tech/web/hostd v0.45.1
 	go.uber.org/goleak v1.3.0
