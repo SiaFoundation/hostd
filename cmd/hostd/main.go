@@ -21,15 +21,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	walletSeedEnvVar  = "HOSTD_WALLET_SEED"
+	apiPasswordEnvVar = "HOSTD_API_PASSWORD"
+	configFileEnvVar  = "HOSTD_CONFIG_FILE"
+	logFileEnvVar     = "HOSTD_LOG_FILE_PATH"
+)
+
 var (
 	cfg = config.Config{
-		Directory:      ".",                            // default to current directory
-		RecoveryPhrase: os.Getenv("HOSTD_WALLET_SEED"), // default to env variable
+		Directory:      ".",                         // default to current directory
+		RecoveryPhrase: os.Getenv(walletSeedEnvVar), // default to env variable
 		AutoOpenWebUI:  true,
 
 		HTTP: config.HTTP{
 			Address:  "127.0.0.1:9980",
-			Password: os.Getenv("HOSTD_API_PASSWORD"),
+			Password: os.Getenv(apiPasswordEnvVar),
 		},
 		Explorer: config.ExplorerData{
 			URL: "https://api.siascan.com",
@@ -49,12 +56,12 @@ var (
 			TCPAddress: ":9983",
 		},
 		Log: config.Log{
-			Path:  os.Getenv("HOSTD_LOG_FILE_PATH"), // deprecated. included for compatibility.
+			Path:  os.Getenv(logFileEnvVar), // deprecated. included for compatibility.
 			Level: "info",
 			File: config.LogFile{
 				Enabled: true,
 				Format:  "json",
-				Path:    os.Getenv("HOSTD_LOG_FILE_PATH"),
+				Path:    os.Getenv(logFileEnvVar),
 			},
 			StdOut: config.StdOut{
 				Enabled:    true,
@@ -80,11 +87,11 @@ func openBrowser(url string) error {
 	}
 }
 
-// tryLoadConfig loads the config file specified by the HOSTD_CONFIG_PATH. If
+// tryLoadConfig loads the config file specified by the HOSTD_CONFIG_FILE. If
 // the config file does not exist, it will not be loaded.
 func tryLoadConfig() {
 	configPath := "hostd.yml"
-	if str := os.Getenv("HOSTD_CONFIG_PATH"); str != "" {
+	if str := os.Getenv(configFileEnvVar); str != "" {
 		configPath = str
 	}
 

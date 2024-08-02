@@ -264,7 +264,7 @@ func setDataDirectory() {
 func buildConfig() {
 	// write the config file
 	configPath := "hostd.yml"
-	if str := os.Getenv("HOSTD_CONFIG_FILE"); str != "" {
+	if str := os.Getenv(configFileEnvVar); str != "" {
 		configPath = str
 	}
 
