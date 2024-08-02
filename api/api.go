@@ -238,7 +238,7 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 
 	return jape.Mux(map[string]jape.Handler{
 		// state endpoints
-		"GET /state/host": a.handleGETHostState,
+		"GET /state": a.handleGETState,
 		// consensus endpoints
 		"GET /consensus/tip":      a.handleGETConsensusTip,
 		"GET /consensus/tipstate": a.handleGETConsensusTipState,

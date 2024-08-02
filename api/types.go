@@ -58,12 +58,11 @@ type (
 		URL     string `json:"url"`
 	}
 
-	// HostState is the response body for the [GET] /state/host endpoint.
-	HostState struct {
+	// State is the response body for the [GET] /state endpoint.
+	State struct {
 		Name             string                `json:"name,omitempty"`
 		PublicKey        types.PublicKey       `json:"publicKey"`
 		LastAnnouncement settings.Announcement `json:"lastAnnouncement"`
-		WalletAddress    types.Address         `json:"walletAddress"`
 		StartTime        time.Time             `json:"startTime"`
 		Explorer         ExplorerState         `json:"explorer"`
 		BuildState

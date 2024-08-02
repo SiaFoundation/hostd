@@ -10,34 +10,33 @@ import (
 )
 
 // PrometheusMetric returns a Prometheus metric for the host state.
-func (hs HostState) PrometheusMetric() []prometheus.Metric {
+func (s State) PrometheusMetric() []prometheus.Metric {
 	return []prometheus.Metric{
 		{
 			Name: "hostd_host_state",
 			Labels: map[string]any{
-				"name":           hs.Name,
-				"public_key":     hs.PublicKey,
-				"wallet_address": hs.WalletAddress,
-				"version":        hs.Version,
-				"commit":         hs.Commit,
-				"os":             hs.OS,
-				"build_time":     hs.BuildTime,
+				"name":       s.Name,
+				"public_key": s.PublicKey,
+				"version":    s.Version,
+				"commit":     s.Commit,
+				"os":         s.OS,
+				"build_time": s.BuildTime,
 			},
 			Value: 1,
 		},
 		{
 			Name:  "hostd_start_time",
-			Value: float64(hs.StartTime.UTC().UnixMilli()),
+			Value: float64(s.StartTime.UTC().UnixMilli()),
 		},
 		{
 			Name:      "hostd_runtime",
-			Value:     float64(time.Since(hs.StartTime).Milliseconds()),
+			Value:     float64(time.Since(s.StartTime).Milliseconds()),
 			Timestamp: time.Now(),
 		},
 		{
 			Name:   "hostd_last_announcement",
-			Labels: map[string]any{"address": hs.LastAnnouncement.Address, "id": hs.LastAnnouncement.Index.ID},
-			Value:  float64(hs.LastAnnouncement.Index.Height),
+			Labels: map[string]any{"address": s.LastAnnouncement.Address, "id": s.LastAnnouncement.Index.ID},
+			Value:  float64(s.LastAnnouncement.Index.Height),
 		},
 	}
 }
