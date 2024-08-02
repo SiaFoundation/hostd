@@ -388,8 +388,8 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		} else if contract.Status != contracts.ContractStatusSuccessful {
 			t.Fatal("expected contract to be successful")
-		} else if contract.ResolutionIndex.Height != contract.Revision.WindowEnd {
-			t.Fatalf("expected resolution height %v, got %v", contract.Revision.WindowEnd, contract.ResolutionIndex)
+		} else if contract.ResolutionHeight != contract.Revision.WindowEnd {
+			t.Fatalf("expected resolution height %v, got %v", contract.Revision.WindowEnd, contract.ResolutionHeight)
 		}
 	})
 
@@ -492,8 +492,8 @@ func TestContractLifecycle(t *testing.T) {
 		contract, err = node.Contracts.Contract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
-		} else if contract.ResolutionIndex == (types.ChainIndex{}) {
-			t.Fatalf("expected contract to have resolution got %v", contract.ResolutionIndex)
+		} else if contract.ResolutionHeight == 0 {
+			t.Fatalf("expected contract to have resolution got %v", contract.ResolutionHeight)
 		}
 
 		assertContractStatus(contracts.ContractStatusSuccessful)

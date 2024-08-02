@@ -10,12 +10,136 @@ import (
 	"go.uber.org/zap"
 )
 
-func migrateVersion28(tx *txn, _ *zap.Logger) error {
-	// TODO: migrate for v2
-	//
-	// note: remember to recalculate contract metrics to exclude
-	// pending contracts
-	panic("implement me")
+func migrateVersion28(tx *txn, log *zap.Logger) error {
+	_, err := tx.Exec(`
+-- Drop v1 tables	
+DROP TABLE wallet_utxos;
+DROP TABLE wallet_transactions;
+
+-- Create v2 tables
+CREATE TABLE wallet_siacoin_elements (
+	id BLOB PRIMARY KEY,
+	siacoin_value BLOB NOT NULL,
+	sia_address BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL,
+	leaf_index BLOB NOT NULL,
+	maturity_height INTEGER NOT NULL
+);
+
+CREATE TABLE wallet_events (
+	id BLOB PRIMARY KEY,
+	chain_index BLOB NOT NULL,
+	maturity_height INTEGER NOT NULL,
+	event_type TEXT NOT NULL,
+	raw_data BLOB NOT NULL
+);
+CREATE INDEX wallet_events_chain_index ON wallet_events(chain_index);
+CREATE INDEX wallet_events_maturity_height ON wallet_events(maturity_height DESC);
+
+CREATE TABLE contract_v2_state_elements (
+	contract_id INTEGER PRIMARY KEY REFERENCES contracts_v2(id),
+	leaf_index BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL,
+	raw_contract BLOB NOT NULL, -- binary serialized contract
+	revision_number BLOB NOT NULL -- for comparison
+);
+
+CREATE TABLE contracts_v2_chain_index_elements (
+	id BLOB PRIMARY KEY,
+	height INTEGER NOT NULL,
+	leaf_index BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL
+);
+
+CREATE TABLE contracts_v2 (
+	id INTEGER PRIMARY KEY,
+	renter_id INTEGER NOT NULL REFERENCES contract_renters(id),
+	renewed_to INTEGER REFERENCES contracts_v2(id) ON DELETE SET NULL,
+	renewed_from INTEGER REFERENCES contracts_v2(id) ON DELETE SET NULL,
+	contract_id BLOB UNIQUE NOT NULL,
+	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max on clearing revisions
+	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
+	formation_txn_set_basis BLOB NOT NULL,
+	locked_collateral BLOB NOT NULL,
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	account_funding BLOB NOT NULL,
+	registry_read BLOB NOT NULL,
+	registry_write BLOB NOT NULL,
+	risked_collateral BLOB NOT NULL,
+	raw_revision BLOB NOT NULL, -- binary serialized contract revision
+	confirmation_index BLOB, -- null if the contract has not been confirmed on the blockchain, otherwise the chain index of the block containing the confirmation transaction
+	resolution_index BLOB, -- null if the storage proof/resolution has not been confirmed on the blockchain, otherwise the chain index of the block containing the resolution transaction
+	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
+	window_start INTEGER NOT NULL,
+	window_end INTEGER NOT NULL,
+	contract_status TEXT NOT NULL
+);
+CREATE INDEX contracts_v2_contract_id ON contracts_v2(contract_id);
+CREATE INDEX contracts_v2_renter_id ON contracts_v2(renter_id);
+CREATE INDEX contracts_v2_renewed_to ON contracts_v2(renewed_to);
+CREATE INDEX contracts_v2_renewed_from ON contracts_v2(renewed_from);
+CREATE INDEX contracts_v2_negotiation_height ON contracts_v2(negotiation_height);
+CREATE INDEX contracts_v2_window_start ON contracts_v2(window_start);
+CREATE INDEX contracts_v2_window_end ON contracts_v2(window_end);
+CREATE INDEX contracts_v2_contract_status ON contracts_v2(contract_status);
+CREATE INDEX contracts_v2_confirmation_index_resolution_index_window_start ON contracts_v2(confirmation_index, resolution_index, window_start);
+CREATE INDEX contracts_v2_confirmation_index_resolution_index_window_end ON contracts_v2(confirmation_index, resolution_index, window_end);
+CREATE INDEX contracts_v2_confirmation_index_window_start ON contracts_v2(confirmation_index, window_start);
+CREATE INDEX contracts_v2_confirmation_index_negotiation_height ON contracts_v2(confirmation_index, negotiation_height);
+
+CREATE TABLE contract_v2_sector_roots (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULl REFERENCES contracts_v2(id),
+	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
+	root_index INTEGER NOT NULL,
+	UNIQUE(contract_id, root_index)
+);
+CREATE INDEX contract_v2_sector_roots_sector_id ON contract_v2_sector_roots(sector_id);
+CREATE INDEX contract_v2_sector_roots_contract_id_root_index ON contract_v2_sector_roots(contract_id, root_index);
+
+CREATE TABLE syncer_peers (
+	peer_address TEXT PRIMARY KEY NOT NULL,
+	first_seen INTEGER NOT NULL
+);
+
+CREATE TABLE syncer_bans (
+	net_cidr TEXT PRIMARY KEY NOT NULL,
+	expiration INTEGER NOT NULL,
+	reason TEXT NOT NULL
+);
+CREATE INDEX syncer_bans_expiration_index_idx ON syncer_bans (expiration);
+
+-- Create the new settings table. Will trigger a rescan and reannounce
+
+CREATE TABLE global_settings_v2 (
+	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+	db_version INTEGER NOT NULL, -- used for migrations
+	host_key BLOB,
+	wallet_hash BLOB, -- used to prevent wallet seed changes
+	last_scanned_index BLOB, -- chain index of the last scanned block
+	last_announce_index BLOB, -- chain index of the last host announcement
+	last_announce_address TEXT -- address of the last host announcement
+);
+
+-- Migrate the existing settings table
+INSERT INTO global_settings_v2 (id, db_version, host_key, wallet_hash) SELECT 0, db_version, host_key, wallet_hash FROM global_settings;
+
+DROP TABLE global_settings;
+
+ALTER TABLE global_settings_v2 RENAME TO global_settings;
+
+-- drop pending contract metrics
+DELETE FROM host_stats WHERE stat='pendingContracts';`)
+	if err != nil {
+		return fmt.Errorf("failed to migrate to version 28: %w", err)
+	} else if err := recalcContractMetrics(tx, log); err != nil {
+		// recalculate contract revenue to remove pending from the metrics
+		return fmt.Errorf("failed to recalculate contract metrics: %w", err)
+	}
+	return nil
 }
 
 // migrateVersion27 adds the sector_writes column to the volume_sectors table to
@@ -202,7 +326,7 @@ func migrateVersion22(tx *txn, log *zap.Logger) error {
 		var lockedCollateral types.Currency
 		var usage contracts.Usage
 
-		if err := rows.Scan(&status, encode(&lockedCollateral), encode(&usage.RiskedCollateral), encode(&usage.RPCRevenue), encode(&usage.StorageRevenue), encode(&usage.IngressRevenue), encode(&usage.EgressRevenue), encode(&usage.AccountFunding), encode(&usage.RegistryRead), encode(&usage.RegistryWrite)); err != nil {
+		if err := rows.Scan(&status, decode(&lockedCollateral), decode(&usage.RiskedCollateral), decode(&usage.RPCRevenue), decode(&usage.StorageRevenue), decode(&usage.IngressRevenue), decode(&usage.EgressRevenue), decode(&usage.AccountFunding), decode(&usage.RegistryRead), decode(&usage.RegistryWrite)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 
@@ -442,7 +566,7 @@ CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(forma
 
 	for rows.Next() {
 		var balance types.Currency
-		if err := rows.Scan(encode(&balance)); err != nil {
+		if err := rows.Scan(decode(&balance)); err != nil {
 			return fmt.Errorf("failed to scan account balance: %w", err)
 		}
 		accountBalance = accountBalance.Add(balance)
@@ -509,7 +633,7 @@ func migrateVersion11(tx *txn, _ *zap.Logger) error {
 	var totalLocked, totalRisked types.Currency
 	for rows.Next() {
 		var locked, risked types.Currency
-		if err := rows.Scan(encode(&locked), encode(&risked)); err != nil {
+		if err := rows.Scan(decode(&locked), decode(&risked)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 		totalLocked = totalLocked.Add(locked)
@@ -578,7 +702,7 @@ func migrateVersion8(tx *txn, _ *zap.Logger) error {
 	var totalLocked, totalRisked types.Currency
 	for rows.Next() {
 		var locked, risked types.Currency
-		if err := rows.Scan(encode(&locked), encode(&risked)); err != nil {
+		if err := rows.Scan(decode(&locked), decode(&risked)); err != nil {
 			return fmt.Errorf("failed to scan contract: %w", err)
 		}
 		totalLocked = totalLocked.Add(locked)
@@ -772,4 +896,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion25,
 	migrateVersion26,
 	migrateVersion27,
+	migrateVersion28,
 }

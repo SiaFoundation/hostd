@@ -239,7 +239,7 @@ func (ux *updateTx) UpdateContractStateElements(elements []types.StateElement) e
 // ApplyContracts applies relevant contract changes to the contract
 // store
 func (ux *updateTx) ApplyContracts(index types.ChainIndex, state contracts.StateChanges) error {
-	if err := applyContractFormation(ux.tx, index, state.Confirmed); err != nil {
+	if err := applyContractFormation(ux.tx, state.Confirmed); err != nil {
 		return fmt.Errorf("failed to apply contract formation: %w", err)
 	} else if err := applyContractRevision(ux.tx, state.Revised); err != nil {
 		return fmt.Errorf("failed to apply contract revisions: %w", err)
@@ -429,26 +429,6 @@ func (ux *updateTx) RejectV2Contracts(height uint64) ([]types.FileContractID, er
 		}
 	}
 	return rejected, nil
-}
-
-func (ux *updateTx) UnconfirmedContracts(height uint64) (rejected []types.FileContractID, err error) {
-	rows, err := ux.tx.Query(`SELECT contract_id FROM contracts WHERE confirmation_index IS NULL AND negotiation_height <= ? AND contract_status <> ?`, height, contracts.ContractStatusRejected)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id types.FileContractID
-		if err := rows.Scan(decode(&id)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		rejected = append(rejected, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan contracts: %w", err)
-	}
-	return
 }
 
 // ContractRelevant returns true if a contract is relevant to the host. Otherwise,
@@ -806,7 +786,7 @@ func applyContractRevision(tx *txn, revisions []types.FileContractElement) error
 }
 
 // applyContractFormation updates the contract table with the confirmation index and new status.
-func applyContractFormation(tx *txn, index types.ChainIndex, confirmed []types.FileContractElement) error {
+func applyContractFormation(tx *txn, confirmed []types.FileContractElement) error {
 	if len(confirmed) == 0 {
 		return nil
 	}
@@ -829,7 +809,7 @@ func applyContractFormation(tx *txn, index types.ChainIndex, confirmed []types.F
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts SET confirmation_index=$1, contract_status=$2 WHERE id=$3`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts SET formation_confirmed=true, contract_status=$1 WHERE id=$2`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare confirmation statement: %w", err)
 	}
@@ -846,7 +826,7 @@ func applyContractFormation(tx *txn, index types.ChainIndex, confirmed []types.F
 		}
 
 		// update the contract table with the confirmation index and new status.
-		res, err := updateStmt.Exec(encode(index), contracts.ContractStatusActive, state.ID)
+		res, err := updateStmt.Exec(contracts.ContractStatusActive, state.ID)
 		if err != nil {
 			return fmt.Errorf("failed to update state %q: %w", fce.ID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
@@ -885,7 +865,7 @@ func applySuccessfulContracts(tx *txn, index types.ChainIndex, successful []type
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_index=?, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_height=?, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -919,7 +899,7 @@ func applySuccessfulContracts(tx *txn, index types.ChainIndex, successful []type
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(encode(index), contracts.ContractStatusSuccessful, state.ID); err != nil {
+		if res, err := updateStmt.Exec(index.Height, contracts.ContractStatusSuccessful, state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -958,7 +938,7 @@ func applyFailedContracts(tx *txn, failed []types.FileContractID) error {
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_index=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_height=NULL, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1028,7 +1008,7 @@ func revertContractFormation(tx *txn, reverted []types.FileContractElement) erro
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts SET confirmation_index=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts SET formation_confirmed=false, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1094,7 +1074,7 @@ func revertSuccessfulContracts(tx *txn, successful []types.FileContractID) error
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_index=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_height=NULL, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1126,7 +1106,7 @@ func revertSuccessfulContracts(tx *txn, successful []types.FileContractID) error
 		}
 
 		if res, err := updateStmt.Exec(encode(contractID)); err != nil {
-			return fmt.Errorf("failed to apply contract resolution %q: %w", contractID, err)
+			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
@@ -1164,7 +1144,7 @@ func revertFailedContracts(tx *txn, failed []types.FileContractID) error {
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_index=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts SET resolution_height=NULL, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1681,7 +1661,7 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 // have not been confirmed and have a negotiation height less than the given
 // height.
 func rejectContracts(tx *txn, height uint64) (rejected []types.FileContractID, err error) {
-	rows, err := tx.Query(`UPDATE contracts SET contract_status=? WHERE confirmation_index IS NULL AND negotiation_height < ? RETURNING contract_id`, contracts.ContractStatusRejected, height)
+	rows, err := tx.Query(`UPDATE contracts SET contract_status=? WHERE formation_confirmed=false AND negotiation_height < ? RETURNING contract_id`, contracts.ContractStatusRejected, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}

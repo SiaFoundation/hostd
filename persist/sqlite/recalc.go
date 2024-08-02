@@ -2,8 +2,10 @@ package sqlite
 
 import (
 	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/host/contracts"
 	"go.uber.org/zap"
 )
 
@@ -76,6 +78,67 @@ func recalcContractAccountFunding(tx *txn, _ *zap.Logger) error {
 		} else if rowsAffected != 1 {
 			return fmt.Errorf("failed to update contract account funding: %w", err)
 		}
+	}
+	return nil
+}
+
+func recalcContractMetrics(tx *txn, log *zap.Logger) error {
+	rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write FROM contracts WHERE contract_status IN (?, ?);`, contracts.ContractStatusActive, contracts.ContractStatusSuccessful)
+	if err != nil {
+		return fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var totalLocked types.Currency
+	var totalPending, totalEarned contracts.Usage
+	for rows.Next() {
+		var status contracts.ContractStatus
+		var lockedCollateral types.Currency
+		var usage contracts.Usage
+
+		if err := rows.Scan(&status, decode(&lockedCollateral), decode(&usage.RiskedCollateral), decode(&usage.RPCRevenue), decode(&usage.StorageRevenue), decode(&usage.IngressRevenue), decode(&usage.EgressRevenue), decode(&usage.AccountFunding), decode(&usage.RegistryRead), decode(&usage.RegistryWrite)); err != nil {
+			return fmt.Errorf("failed to scan contract: %w", err)
+		}
+
+		switch status {
+		case contracts.ContractStatusActive:
+			totalLocked = totalLocked.Add(lockedCollateral)
+			totalPending = totalPending.Add(usage)
+		case contracts.ContractStatusSuccessful:
+			totalEarned = totalEarned.Add(usage)
+		}
+	}
+
+	log.Debug("resetting metrics", zap.Stringer("lockedCollateral", totalLocked), zap.Stringer("riskedCollateral", totalPending.RiskedCollateral))
+
+	if err := setCurrencyStat(tx, metricLockedCollateral, totalLocked, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment locked collateral: %w", err)
+	} else if err := setCurrencyStat(tx, metricRiskedCollateral, totalPending.RiskedCollateral, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment risked collateral: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialRPCRevenue, totalPending.RPCRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment rpc revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialStorageRevenue, totalPending.StorageRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment storage revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialIngressRevenue, totalPending.IngressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment ingress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialEgressRevenue, totalPending.EgressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment egress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialRegistryReadRevenue, totalPending.RegistryRead, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment read registry revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricPotentialRegistryWriteRevenue, totalPending.RegistryWrite, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment write registry revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedRPCRevenue, totalEarned.RPCRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment rpc revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedStorageRevenue, totalEarned.StorageRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment storage revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedIngressRevenue, totalEarned.IngressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment ingress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedEgressRevenue, totalEarned.EgressRevenue, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment egress revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedRegistryReadRevenue, totalEarned.RegistryRead, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment read registry revenue: %w", err)
+	} else if err := setCurrencyStat(tx, metricEarnedRegistryWriteRevenue, totalEarned.RegistryWrite, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment write registry revenue: %w", err)
 	}
 	return nil
 }
