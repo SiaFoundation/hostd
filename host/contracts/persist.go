@@ -12,7 +12,7 @@ type (
 		// given index.
 		ContractActions(index types.ChainIndex, revisionBroadcastHeight uint64) (LifecycleActions, error)
 		// ContractChainIndexElement returns the chain index element for the given height.
-		ContractChainIndexElement(height uint64) (index types.ChainIndexElement, err error)
+		ContractChainIndexElement(types.ChainIndex) (types.ChainIndexElement, error)
 
 		// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
 		// are returned.

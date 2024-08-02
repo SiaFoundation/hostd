@@ -549,10 +549,11 @@ func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight 
 }
 
 // ContractChainIndexElement returns the chain index element for the given height.
-func (s *Store) ContractChainIndexElement(height uint64) (index types.ChainIndexElement, err error) {
+func (s *Store) ContractChainIndexElement(index types.ChainIndex) (element types.ChainIndexElement, err error) {
 	err = s.transaction(func(tx *txn) error {
-		err := tx.QueryRow(`SELECT id, height, leaf_index, merkle_proof FROM contracts_v2_chain_index_elements WHERE height=$1`, height).Scan(decode(&index.ID), &index.ChainIndex.Height, decode(&index.LeafIndex), decode(&index.MerkleProof))
-		index.ChainIndex.ID = types.BlockID(index.ID)
+		err := tx.QueryRow(`SELECT leaf_index, merkle_proof FROM contracts_v2_chain_index_elements WHERE id=? AND height=?`, encode(index.ID), index.Height).Scan(decode(&element.LeafIndex), decode(&element.MerkleProof))
+		element.ChainIndex = index
+		element.ID = types.Hash256(index.ID)
 		return err
 	})
 	return
