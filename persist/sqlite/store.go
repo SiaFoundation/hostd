@@ -157,7 +157,7 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 		log: log,
 	}
 	if err := store.init(); err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		return nil, err
 	} else if err = store.clearLocks(); err != nil {
 		// clear any locked sectors, metadata not synced to disk is safe to
 		// overwrite.
