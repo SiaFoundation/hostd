@@ -226,123 +226,125 @@ func main() {
 			log.Fatal("failed to vacuum database", zap.Error(err))
 		}
 		return
-	}
+	case "":
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	// check that the API password is set
-	if cfg.HTTP.Password == "" {
-		if disableStdin {
-			stdoutFatalError("API password must be set via environment variable or config file when --env flag is set")
-			return
-		}
-		setAPIPassword()
-	}
-
-	// check that the wallet seed is set
-	if cfg.RecoveryPhrase == "" {
-		if disableStdin {
-			stdoutFatalError("Wallet seed must be set via environment variable or config file when --env flag is set")
-			return
-		}
-		setSeedPhrase()
-	}
-
-	// create the data directory if it does not already exist
-	if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
-		stdoutFatalError("unable to create config directory: " + err.Error())
-	}
-
-	// configure the logger
-	if !cfg.Log.StdOut.Enabled && !cfg.Log.File.Enabled {
-		stdoutFatalError("At least one of stdout or file logging must be enabled")
-		return
-	}
-
-	// normalize log level
-	if cfg.Log.Level == "" {
-		cfg.Log.Level = "info"
-	}
-
-	var logCores []zapcore.Core
-	if cfg.Log.StdOut.Enabled {
-		// if no log level is set for stdout, use the global log level
-		if cfg.Log.StdOut.Level == "" {
-			cfg.Log.StdOut.Level = cfg.Log.Level
-		}
-
-		var encoder zapcore.Encoder
-		switch cfg.Log.StdOut.Format {
-		case "json":
-			encoder = jsonEncoder()
-		default: // stdout defaults to human
-			encoder = humanEncoder(cfg.Log.StdOut.EnableANSI)
-		}
-
-		// create the stdout logger
-		level := parseLogLevel(cfg.Log.StdOut.Level)
-		logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level))
-	}
-
-	if cfg.Log.File.Enabled {
-		// if no log level is set for file, use the global log level
-		if cfg.Log.File.Level == "" {
-			cfg.Log.File.Level = cfg.Log.Level
-		}
-
-		// normalize log path
-		if cfg.Log.File.Path == "" {
-			// If the log path is not set, try the deprecated log path. If that
-			// is also not set, default to hostd.log in the data directory.
-			if cfg.Log.Path != "" {
-				cfg.Log.File.Path = filepath.Join(cfg.Log.Path, "hostd.log")
-			} else {
-				cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
+		// check that the API password is set
+		if cfg.HTTP.Password == "" {
+			if disableStdin {
+				stdoutFatalError("API password must be set via environment variable or config file when --env flag is set")
+				return
 			}
+			setAPIPassword()
 		}
 
-		// configure file logging
-		var encoder zapcore.Encoder
-		switch cfg.Log.File.Format {
-		case "human":
-			encoder = humanEncoder(false) // disable colors in file log
-		default: // log file defaults to JSON
-			encoder = jsonEncoder()
+		// check that the wallet seed is set
+		if cfg.RecoveryPhrase == "" {
+			if disableStdin {
+				stdoutFatalError("Wallet seed must be set via environment variable or config file when --env flag is set")
+				return
+			}
+			setSeedPhrase()
 		}
 
-		fileWriter, closeFn, err := zap.Open(cfg.Log.File.Path)
-		if err != nil {
-			stdoutFatalError("failed to open log file: " + err.Error())
+		// create the data directory if it does not already exist
+		if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
+			stdoutFatalError("unable to create config directory: " + err.Error())
+		}
+
+		// configure the logger
+		if !cfg.Log.StdOut.Enabled && !cfg.Log.File.Enabled {
+			stdoutFatalError("At least one of stdout or file logging must be enabled")
 			return
 		}
-		defer closeFn()
 
-		// create the file logger
-		level := parseLogLevel(cfg.Log.File.Level)
-		logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), level))
-	}
+		// normalize log level
+		if cfg.Log.Level == "" {
+			cfg.Log.Level = "info"
+		}
 
-	var log *zap.Logger
-	if len(logCores) == 1 {
-		log = zap.New(logCores[0], zap.AddCaller())
-	} else {
-		log = zap.New(zapcore.NewTee(logCores...), zap.AddCaller())
-	}
-	defer log.Sync()
+		var logCores []zapcore.Core
+		if cfg.Log.StdOut.Enabled {
+			// if no log level is set for stdout, use the global log level
+			if cfg.Log.StdOut.Level == "" {
+				cfg.Log.StdOut.Level = cfg.Log.Level
+			}
 
-	// redirect stdlib log to zap
-	zap.RedirectStdLog(log.Named("stdlib"))
+			var encoder zapcore.Encoder
+			switch cfg.Log.StdOut.Format {
+			case "json":
+				encoder = jsonEncoder()
+			default: // stdout defaults to human
+				encoder = humanEncoder(cfg.Log.StdOut.EnableANSI)
+			}
 
-	log.Info("hostd", zap.String("version", build.Version()), zap.String("network", cfg.Consensus.Network), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
+			// create the stdout logger
+			level := parseLogLevel(cfg.Log.StdOut.Level)
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level))
+		}
 
-	var seed [32]byte
-	if err := wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase); err != nil {
-		log.Fatal("failed to load wallet", zap.Error(err))
-	}
-	walletKey := wallet.KeyFromSeed(&seed, 0)
+		if cfg.Log.File.Enabled {
+			// if no log level is set for file, use the global log level
+			if cfg.Log.File.Level == "" {
+				cfg.Log.File.Level = cfg.Log.Level
+			}
 
-	if err := runNode(ctx, cfg, walletKey, log); err != nil {
-		log.Error("failed to start node", zap.Error(err))
+			// normalize log path
+			if cfg.Log.File.Path == "" {
+				// If the log path is not set, try the deprecated log path. If that
+				// is also not set, default to hostd.log in the data directory.
+				if cfg.Log.Path != "" {
+					cfg.Log.File.Path = filepath.Join(cfg.Log.Path, "hostd.log")
+				} else {
+					cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
+				}
+			}
+
+			// configure file logging
+			var encoder zapcore.Encoder
+			switch cfg.Log.File.Format {
+			case "human":
+				encoder = humanEncoder(false) // disable colors in file log
+			default: // log file defaults to JSON
+				encoder = jsonEncoder()
+			}
+
+			fileWriter, closeFn, err := zap.Open(cfg.Log.File.Path)
+			if err != nil {
+				stdoutFatalError("failed to open log file: " + err.Error())
+				return
+			}
+			defer closeFn()
+
+			// create the file logger
+			level := parseLogLevel(cfg.Log.File.Level)
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), level))
+		}
+
+		var log *zap.Logger
+		if len(logCores) == 1 {
+			log = zap.New(logCores[0], zap.AddCaller())
+		} else {
+			log = zap.New(zapcore.NewTee(logCores...), zap.AddCaller())
+		}
+		defer log.Sync()
+
+		// redirect stdlib log to zap
+		zap.RedirectStdLog(log.Named("stdlib"))
+
+		log.Info("hostd", zap.String("version", build.Version()), zap.String("network", cfg.Consensus.Network), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
+
+		var seed [32]byte
+		if err := wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase); err != nil {
+			log.Fatal("failed to load wallet", zap.Error(err))
+		}
+		walletKey := wallet.KeyFromSeed(&seed, 0)
+
+		if err := runNode(ctx, cfg, walletKey, log); err != nil {
+			log.Error("failed to start node", zap.Error(err))
+		}
+	default:
+		stdoutFatalError("unknown command: " + flag.Arg(0))
 	}
 }
