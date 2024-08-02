@@ -1667,7 +1667,7 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 // have not been confirmed and have a negotiation height less than the given
 // height.
 func rejectContracts(tx *txn, height uint64) (rejected []types.FileContractID, err error) {
-	rows, err := tx.Query(`UPDATE contracts SET contract_status=? WHERE formation_confirmed=false AND negotiation_height < ? RETURNING contract_id`, contracts.ContractStatusRejected, height)
+	rows, err := tx.Query(`UPDATE contracts SET contract_status=$1 WHERE contract_status <> $1 AND formation_confirmed=false AND negotiation_height < $2 RETURNING contract_id`, contracts.ContractStatusRejected, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
@@ -1690,7 +1690,7 @@ func rejectContracts(tx *txn, height uint64) (rejected []types.FileContractID, e
 // have not been confirmed and have a negotiation height less than the given
 // height.
 func rejectV2Contracts(tx *txn, height uint64) (rejected []types.FileContractID, err error) {
-	rows, err := tx.Query(`UPDATE contracts_v2 SET contract_status=? WHERE confirmation_index IS NULL AND negotiation_height < ? RETURNING contract_id`, contracts.V2ContractStatusRejected, height)
+	rows, err := tx.Query(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_status <> $1 AND confirmation_index IS NULL AND negotiation_height < $2 RETURNING contract_id`, contracts.V2ContractStatusRejected, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
