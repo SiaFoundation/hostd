@@ -234,7 +234,7 @@ func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey,
 		NetAddress: syncerAddr,
 	}, syncer.WithLogger(log.Named("syncer")))
 	defer s.Close()
-	go s.Run()
+	go s.Run(ctx)
 
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {
