@@ -12,6 +12,7 @@ import (
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/index"
+	"go.uber.org/zap"
 )
 
 type (
@@ -230,7 +231,7 @@ func (ux *updateTx) UpdateContractStateElements(elements []types.StateElement) e
 // ApplyContracts applies relevant contract changes to the contract
 // store
 func (ux *updateTx) ApplyContracts(index types.ChainIndex, state contracts.StateChanges) error {
-	if err := applyContractFormation(ux.tx, state.Confirmed); err != nil {
+	if err := applyContractFormation(ux.tx, state.Confirmed, ux.tx.log.Named("applyContractFormation")); err != nil {
 		return fmt.Errorf("failed to apply contract formation: %w", err)
 	} else if err := applyContractRevision(ux.tx, state.Revised); err != nil {
 		return fmt.Errorf("failed to apply contract revisions: %w", err)
@@ -241,7 +242,7 @@ func (ux *updateTx) ApplyContracts(index types.ChainIndex, state contracts.State
 	}
 
 	// v2
-	if err := applyV2ContractFormation(ux.tx, index, state.ConfirmedV2); err != nil {
+	if err := applyV2ContractFormation(ux.tx, index, state.ConfirmedV2, ux.tx.log.Named("applyV2ContractFormation")); err != nil {
 		return fmt.Errorf("failed to apply v2 contract formation: %w", err)
 	} else if err := applyV2ContractRevision(ux.tx, state.RevisedV2); err != nil {
 		return fmt.Errorf("failed to apply v2 contract revisions: %w", err)
@@ -777,7 +778,7 @@ func applyContractRevision(tx *txn, revisions []types.FileContractElement) error
 }
 
 // applyContractFormation updates the contract table with the confirmation index and new status.
-func applyContractFormation(tx *txn, confirmed []types.FileContractElement) error {
+func applyContractFormation(tx *txn, confirmed []types.FileContractElement, log *zap.Logger) error {
 	if len(confirmed) == 0 {
 		return nil
 	}
@@ -812,8 +813,11 @@ func applyContractFormation(tx *txn, confirmed []types.FileContractElement) erro
 			return fmt.Errorf("failed to get contract state %q: %w", fce.ID, err)
 		}
 
+		// skip the update if the contract is not active, rejected, or pending.
+		// This should only happen during a rescan.
 		if state.Status != contracts.ContractStatusPending && state.Status != contracts.ContractStatusRejected && state.Status != contracts.ContractStatusActive {
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.V2ContractStatusActive))
+			log.Debug("skipping rescan state transition", zap.Stringer("contractID", fce.ID), zap.Stringer("current", state.Status))
+			continue
 		}
 
 		// update the contract table with the confirmation index and new status.
@@ -885,7 +889,7 @@ func applySuccessfulContracts(tx *txn, index types.ChainIndex, successful []type
 			continue
 		} else if state.Status != contracts.ContractStatusActive {
 			// panic if the contract is not active. Proper reverts should have
-			//  ensured that this never happens.
+			// ensured that this never happens.
 			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusSuccessful))
 		}
 
@@ -1194,7 +1198,7 @@ func revertFailedContracts(tx *txn, failed []types.FileContractID) error {
 
 // applyV2ContractFormation updates the contract table with the confirmation index
 // and new status.
-func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types.V2FileContractElement) error {
+func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types.V2FileContractElement, log *zap.Logger) error {
 	if len(confirmed) == 0 {
 		return nil
 	}
@@ -1239,8 +1243,11 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 			return fmt.Errorf("failed to insert contract state element %q: %w", fce.ID, err)
 		}
 
+		// skip the update if the contract is not active, rejected, or pending.
+		// This should only happen during a rescan.
 		if state.Status != contracts.V2ContractStatusPending && state.Status != contracts.V2ContractStatusRejected && state.Status != contracts.V2ContractStatusActive {
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.V2ContractStatusActive))
+			log.Debug("skipping rescan state transition", zap.Stringer("contractID", fce.ID), zap.String("current", string(state.Status)))
+			continue
 		}
 
 		// update the contract table with the confirmation index and new status.
@@ -1408,7 +1415,11 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 			return fmt.Errorf("failed to get contract state %q: %w", contractID, err)
 		}
 
-		if state.Status != contracts.V2ContractStatusActive {
+		if state.Status == status {
+			// skip update if the contract was already successful.
+			// This should only happen during a rescan
+			continue
+		} else if state.Status != contracts.V2ContractStatusActive {
 			// panic if the contract is not active. Proper reverts should have
 			// ensured that this never happens.
 			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusSuccessful))
@@ -1478,7 +1489,11 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 			return fmt.Errorf("failed to get contract state %q: %w", contractID, err)
 		}
 
-		if state.Status != contracts.V2ContractStatusActive {
+		// skip update if the contract is already failed.
+		// This should only happen during a rescan
+		if state.Status == contracts.V2ContractStatusFailed {
+			continue
+		} else if state.Status != contracts.V2ContractStatusActive {
 			// panic if the contract is not active. Proper reverts should have
 			//  ensured that this never happens.
 			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.V2ContractStatusFailed))
