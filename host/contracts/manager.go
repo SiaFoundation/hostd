@@ -313,7 +313,6 @@ func (cm *Manager) AddV2Contract(formation V2FormationTransactionSet, initialUsa
 		ID:                contractID,
 		Status:            V2ContractStatusPending,
 		NegotiationHeight: cm.chain.Tip().Height,
-		LockedCollateral:  fc.TotalCollateral, // TODO: remove?
 		Usage:             initialUsage,
 	}
 
@@ -379,7 +378,6 @@ func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, finalUsage
 		ID:                renewedID.V2RenewalID(),
 		Status:            V2ContractStatusPending,
 		NegotiationHeight: cm.chain.Tip().Height,
-		LockedCollateral:  fc.TotalCollateral, // TODO: remove?
 		RenewedFrom:       renewedID,
 		Usage:             initialUsage,
 	}

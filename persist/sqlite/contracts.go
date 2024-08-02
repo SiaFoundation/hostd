@@ -72,8 +72,8 @@ func (s *Store) Contracts(filter contracts.ContractFilter) (contracts []contract
 		return nil, 0, fmt.Errorf("failed to build where clause: %w", err)
 	}
 
-	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index IS NOT NULL AS formation_confirmed, 
-	COALESCE(c.revision_number=c.confirmed_revision_number, false) AS revision_confirmed, c.resolution_index, c.locked_collateral, c.rpc_revenue,
+	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	COALESCE(c.revision_number=c.confirmed_revision_number, false) AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 FROM contracts c
 INNER JOIN contract_renters r ON (c.renter_id=r.id)
@@ -146,8 +146,8 @@ WHERE c.contract_id=?`
 // V2Contract returns the contract with the given ID.
 func (s *Store) V2Contract(id types.FileContractID) (contract contracts.V2Contract, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index IS NOT NULL AS formation_confirmed, 
-COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_index, c.locked_collateral, c.rpc_revenue,
+		const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index, 
+COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_index, c.rpc_revenue,
 c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision
 FROM contracts_v2 c
 LEFT JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
@@ -524,30 +524,6 @@ func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight 
 			return fmt.Errorf("failed to get proof broadcast actions: %w", err)
 		}
 
-		err := func() error {
-			rows, err := tx.Query(`SELECT c.contract_id, c.revision_number, cs.revision_number, c.contract_status, c.window_start, c.window_end, c.confirmation_index, c.resolution_index 
-FROM contracts_v2 c
-INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)`)
-			if err != nil {
-				return fmt.Errorf("failed to query contracts: %w", err)
-			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var contractID types.FileContractID
-				var revisionNumber, confirmedRevisionNumber, windowStart, windowEnd uint64
-				var confirmationIndex, resolutionIndex types.ChainIndex
-				var status contracts.V2ContractStatus
-				if err := rows.Scan(decode(&contractID), decode(&revisionNumber), decodeNullable(&confirmedRevisionNumber), &status, &windowStart, &windowEnd, decode(&confirmationIndex), decodeNullable(&resolutionIndex)); err != nil {
-					return fmt.Errorf("failed to scan contract: %w", err)
-				}
-			}
-			return rows.Err()
-		}()
-		if err != nil {
-			panic(err)
-		}
-
 		// v2
 		actions.RebroadcastV2Formation, err = rebroadcastV2Contracts(tx)
 		if err != nil {
@@ -617,8 +593,8 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 }
 
 func getContract(tx *txn, contractID int64) (contracts.Contract, error) {
-	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index IS NOT NULL AS formation_confirmed, 
-	COALESCE(c.revision_number=c.confirmed_revision_number, false) AS revision_confirmed, c.resolution_index, c.locked_collateral, c.rpc_revenue,
+	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	COALESCE(c.revision_number=c.confirmed_revision_number, false) AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
 	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
 	FROM contracts c
 	LEFT JOIN contracts rt ON (c.renewed_to = rt.id)
@@ -917,7 +893,7 @@ func reviseContract(tx *txn, revision contracts.SignedRevision) (dbID int64, err
 }
 
 func rebroadcastContracts(tx *txn) (rebroadcast [][]types.Transaction, err error) {
-	rows, err := tx.Query(`SELECT formation_txn_set FROM contracts WHERE confirmation_index IS NULL AND contract_status <> ?`, contracts.ContractStatusRejected)
+	rows, err := tx.Query(`SELECT formation_txn_set FROM contracts WHERE formation_confirmed=false AND contract_status <> ?`, contracts.ContractStatusRejected)
 	if err != nil {
 		return nil, err
 	}
@@ -943,7 +919,7 @@ func rebroadcastContracts(tx *txn) (rebroadcast [][]types.Transaction, err error
 func broadcastRevision(tx *txn, index types.ChainIndex, revisionBroadcastHeight uint64) (revisions []contracts.SignedRevision, err error) {
 	const query = `SELECT raw_revision, host_sig, renter_sig
 	FROM contracts
-	WHERE confirmation_index IS NOT NULL AND confirmed_revision_number != revision_number AND window_start BETWEEN ? AND ?`
+	WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN ? AND ?`
 
 	rows, err := tx.Query(query, index.Height, revisionBroadcastHeight)
 	if err != nil {
@@ -971,7 +947,7 @@ func broadcastRevision(tx *txn, index types.ChainIndex, revisionBroadcastHeight 
 func proofContracts(tx *txn, index types.ChainIndex) (revisions []contracts.SignedRevision, err error) {
 	const query = `SELECT raw_revision, host_sig, renter_sig 
 	FROM contracts
-	WHERE confirmation_index IS NOT NULL AND resolution_index IS NULL AND window_start <= $1 AND window_end > $1`
+	WHERE formation_confirmed AND resolution_height IS NULL AND window_start <= $1 AND window_end > $1`
 
 	rows, err := tx.Query(query, index.Height)
 	if err != nil {
@@ -1143,8 +1119,8 @@ func renterDBID(tx *txn, renterKey types.PublicKey) (int64, error) {
 func insertContract(tx *txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
 egress_revenue, registry_read, registry_write, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
-raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status) VALUES
- ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) RETURNING id;`
+raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, formation_confirmed) VALUES
+ ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, false) RETURNING id;`
 	renterID, err := renterDBID(tx, revision.RenterKey())
 	if err != nil {
 		return 0, fmt.Errorf("failed to get renter id: %w", err)
@@ -1191,7 +1167,7 @@ formation_txn_set_basis, raw_revision, contract_status) VALUES
 	err = tx.QueryRow(query,
 		encode(contract.ID),
 		renterID,
-		encode(contract.LockedCollateral),
+		encode(contract.V2FileContract.TotalCollateral),
 		encode(contract.Usage.RPCRevenue),
 		encode(contract.Usage.StorageRevenue),
 		encode(contract.Usage.IngressRevenue),
@@ -1323,7 +1299,7 @@ func scanContract(row scanner) (c contracts.Contract, err error) {
 		&c.NegotiationHeight,
 		&c.FormationConfirmed,
 		&c.RevisionConfirmed,
-		decodeNullable(&c.ResolutionIndex),
+		decodeNullable(&c.ResolutionHeight),
 		decode(&c.LockedCollateral),
 		decode(&c.Usage.RPCRevenue),
 		decode(&c.Usage.StorageRevenue),
@@ -1349,10 +1325,9 @@ func scanV2Contract(row scanner) (c contracts.V2Contract, err error) {
 		decodeNullable(&c.RenewedFrom),
 		&c.Status,
 		&c.NegotiationHeight,
-		&c.FormationConfirmed,
+		decodeNullable(&c.FormationIndex),
 		&c.RevisionConfirmed,
 		decodeNullable(&c.ResolutionIndex),
-		decode(&c.LockedCollateral),
 		decode(&c.Usage.RPCRevenue),
 		decode(&c.Usage.StorageRevenue),
 		decode(&c.Usage.IngressRevenue),

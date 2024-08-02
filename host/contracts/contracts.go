@@ -110,19 +110,18 @@ type (
 	V2Contract struct {
 		types.V2FileContract
 
-		ID               types.FileContractID
-		Status           V2ContractStatus `json:"status"`
-		LockedCollateral types.Currency   `json:"lockedCollateral"` // TODO: remove?
-		Usage            Usage            `json:"usage"`
+		ID     types.FileContractID `json:"id"`
+		Status V2ContractStatus     `json:"status"`
+		Usage  Usage                `json:"usage"`
 
 		// NegotiationHeight is the height the contract was negotiated at.
 		NegotiationHeight uint64 `json:"negotiationHeight"`
-		// FormationConfirmed is true if the contract formation transaction
-		// has been confirmed on the blockchain.
-		FormationConfirmed bool `json:"formationConfirmed"`
 		// RevisionConfirmed is true if the contract revision transaction has
 		// been confirmed on the blockchain.
 		RevisionConfirmed bool `json:"revisionConfirmed"`
+		// FormationConfirmed is true if the contract formation transaction
+		// has been confirmed on the blockchain.
+		FormationIndex types.ChainIndex `json:"formationIndex"`
 		// ResolutionIndex is the height the resolution was confirmed
 		// at. If the contract has not been resolved, the field is the zero
 		// value.
@@ -158,10 +157,10 @@ type (
 		// RevisionConfirmed is true if the contract revision transaction has
 		// been confirmed on the blockchain.
 		RevisionConfirmed bool `json:"revisionConfirmed"`
-		// ResolutionIndex is the height the storage proof was confirmed
+		// ResolutionHeight is the height the storage proof was confirmed
 		// at. If the contract has not been resolved, the field is the zero
 		// value.
-		ResolutionIndex types.ChainIndex `json:"resolutionHeight"`
+		ResolutionHeight uint64 `json:"resolutionHeight"`
 		// RenewedTo is the ID of the contract that renewed this contract. If
 		// this contract was not renewed, this field is the zero value.
 		RenewedTo types.FileContractID `json:"renewedTo"`
