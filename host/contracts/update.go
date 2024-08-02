@@ -460,11 +460,11 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 			state.Successful = append(state.Successful, types.FileContractID(fce.ID))
 			log.Debug("successful contract")
 		case resolved && !valid:
-			successful := fce.FileContract.ValidHostPayout().Cmp(fce.FileContract.MissedHostPayout()) > 0
+			successful := fce.FileContract.MissedHostPayout().Cmp(fce.FileContract.ValidHostPayout()) >= 0
 			if successful {
-				state.Failed = append(state.Failed, types.FileContractID(fce.ID))
-			} else {
 				state.Successful = append(state.Successful, types.FileContractID(fce.ID))
+			} else {
+				state.Failed = append(state.Failed, types.FileContractID(fce.ID))
 			}
 			log.Debug("expired contract", zap.Bool("successful", successful))
 		default:
