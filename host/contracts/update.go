@@ -10,6 +10,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// chainIndexBuffer is the number of chain index elements to store and update
+// in the database. Older elements will be deleted. The number of elements
+// corresponds to the default proof window.
+//
+// This is less complex than storing an element per contract or
+// tracking each contract's proof window.
+const chainIndexBuffer = 144
+
 type (
 	stateUpdater interface {
 		ForEachFileContractElement(func(types.FileContractElement, bool, *types.FileContractElement, bool, bool))
@@ -629,11 +637,10 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		}
 	}
 
-	if index.Height > cs.MaturityHeight() {
-		if err := tx.DeleteExpiredContractChainIndexElements(index.Height - cs.MaturityHeight()); err != nil {
+	if index.Height > chainIndexBuffer {
+		if err := tx.DeleteExpiredContractChainIndexElements(index.Height - chainIndexBuffer); err != nil {
 			return fmt.Errorf("failed to delete expired chain index elements: %w", err)
 		}
-		log.Debug("deleted expired elements")
 	}
 	return nil
 }
