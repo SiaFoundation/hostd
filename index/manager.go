@@ -121,16 +121,16 @@ func NewManager(store Store, chain *chain.Manager, contracts ContractManager, wa
 		opt(m)
 	}
 
-	go func() {
-		reorgCh := make(chan struct{}, 1)
-		reorgCh <- struct{}{} // trigger initial check
+	reorgCh := make(chan struct{}, 1)
+	reorgCh <- struct{}{} // trigger initial check
+	stop := m.chain.OnReorg(func(index types.ChainIndex) {
+		select {
+		case reorgCh <- struct{}{}:
+		default:
+		}
+	})
 
-		stop := m.chain.OnReorg(func(index types.ChainIndex) {
-			select {
-			case reorgCh <- struct{}{}:
-			default:
-			}
-		})
+	go func() {
 		defer stop()
 
 		ctx, cancel, err := m.tg.AddContext(context.Background())
