@@ -67,7 +67,7 @@ func (a *api) writeResponse(jc jape.Context, resp any) {
 	}
 }
 
-func (a *api) handleGETHostState(jc jape.Context) {
+func (a *api) handleGETState(jc jape.Context) {
 	announcement, err := a.settings.LastAnnouncement()
 	if err != nil {
 		jc.Error(err, http.StatusInternalServerError)
@@ -79,10 +79,9 @@ func (a *api) handleGETHostState(jc jape.Context) {
 		baseURL = a.explorer.BaseURL()
 	}
 
-	a.writeResponse(jc, HostState{
+	a.writeResponse(jc, State{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
-		WalletAddress:    a.wallet.Address(),
 		StartTime:        startTime,
 		LastAnnouncement: announcement,
 		Explorer: ExplorerState{
