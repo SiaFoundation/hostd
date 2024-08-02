@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"time"
 
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
@@ -456,10 +457,12 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		opt(cm)
 	}
 
+	start := time.Now()
 	roots, err := store.SectorRoots()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sector roots: %w", err)
 	}
 	cm.sectorRoots = roots
+	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))
 	return cm, nil
 }
