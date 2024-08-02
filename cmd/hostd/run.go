@@ -330,7 +330,7 @@ func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey,
 		}
 	}
 
-	log.Info("node started", zap.String("hostKey", hostKey.PublicKey().String()), zap.String("http", httpListener.Addr().String()), zap.String("p2p", string(s.Addr())), zap.String("rhp2", rhp2.LocalAddr()), zap.String("rhp3", rhp3.LocalAddr()))
+	log.Info("node started", zap.String("network", cm.TipState().Network.Name), zap.String("hostKey", hostKey.PublicKey().String()), zap.String("http", httpListener.Addr().String()), zap.String("p2p", string(s.Addr())), zap.String("rhp2", rhp2.LocalAddr()), zap.String("rhp3", rhp3.LocalAddr()))
 	<-ctx.Done()
 	log.Info("shutting down...")
 	time.AfterFunc(5*time.Minute, func() {
