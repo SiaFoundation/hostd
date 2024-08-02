@@ -26,9 +26,9 @@ type Client struct {
 	n  *consensus.Network
 }
 
-// Host returns the current state of the host
-func (c *Client) Host() (resp HostState, err error) {
-	err = c.c.GET("/state/host", &resp)
+// State returns the current state of the host
+func (c *Client) State() (resp State, err error) {
+	err = c.c.GET("/state", &resp)
 	return
 }
 
