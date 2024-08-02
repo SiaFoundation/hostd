@@ -137,6 +137,7 @@ CREATE TABLE contracts_v2_chain_index_elements (
 	leaf_index BLOB NOT NULL,
 	merkle_proof BLOB NOT NULL
 );
+CREATE INDEX contracts_v2_chain_index_elements_height ON contracts_v2_chain_index_elements(height);
 
 CREATE TABLE contracts_v2 (
 	id INTEGER PRIMARY KEY,

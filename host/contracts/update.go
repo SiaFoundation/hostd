@@ -73,17 +73,15 @@ type (
 		// been confirmed to rejected
 		RejectContracts(height uint64) (v1, v2 []types.FileContractID, err error)
 
-		// ApplyContractChainIndex adds a chain index element to the store to use
-		// for future proofs
-		ApplyContractChainIndex(types.ChainIndexElement) error
-		// RevertContractChainIndex removes a reverted chain index from the store
-		RevertContractChainIndex(types.ChainIndex) error
-		// ContractChainIndexStateElements returns chain index state elements that
-		// need to be updated
-		ContractChainIndexStateElements() (elements []types.StateElement, err error)
-		// UpdateContractChainIndexElements updates the merkle proof of existing
+		// ContractChainIndexElements returns all chain index elements from the
+		// contract store
+		ContractChainIndexElements() (elements []types.ChainIndexElement, err error)
+		// ApplyContractChainIndexElements adds or updates the merkle proof of
 		// chain index state elements
-		UpdateContractChainIndexElements(elements []types.StateElement) error
+		ApplyContractChainIndexElements(elements []types.ChainIndexElement) error
+		// RevertContractChainIndexElements removes chain index state elements
+		// that were reverted
+		RevertContractChainIndexElement(types.ChainIndex) error
 		// DeleteExpiredContractChainIndexElements deletes chain index state
 		// elements that are no long necessary
 		DeleteExpiredContractChainIndexElements(height uint64) error
@@ -330,14 +328,18 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 
 	for _, fce := range actions.BroadcastV2Proof {
 		log := log.Named("v2 proof").With(zap.Stringer("contractID", fce.ID))
-
-		pe, err := cm.store.ContractChainIndexElement(fce.V2FileContract.ProofHeight)
+		proofIndex, ok := cm.chain.BestIndex(fce.V2FileContract.ProofHeight)
+		if !ok {
+			log.Error("proof index not found", zap.Uint64("proofHeight", fce.V2FileContract.ProofHeight))
+			continue
+		}
+		proofElement, err := cm.store.ContractChainIndexElement(proofIndex)
 		if err != nil {
 			log.Error("failed to get proof index", zap.Error(err))
 			continue
 		}
 
-		sp, err := cm.buildV2StorageProof(cs, fce, pe, log.Named("proof"))
+		sp, err := cm.buildV2StorageProof(cs, fce, proofElement, log.Named("proof"))
 		if err != nil {
 			log.Error("failed to build storage proof", zap.Error(err))
 			continue
@@ -517,6 +519,11 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
 	log := cm.log.Named("updateChainState")
 
+	chainElements, err := tx.ContractChainIndexElements()
+	if err != nil {
+		return fmt.Errorf("failed to get chain index state elements: %w", err)
+	}
+
 	for _, cru := range reverted {
 		revertedIndex := types.ChainIndex{
 			ID:     cru.Block.ID(),
@@ -539,22 +546,16 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		state := buildContractState(tx, cru, true, log.Named("revert").With(zap.Stringer("index", revertedIndex)))
 		if err := tx.RevertContracts(revertedIndex, state); err != nil {
 			return fmt.Errorf("failed to revert contracts: %w", err)
+		} else if err := tx.RevertContractChainIndexElement(revertedIndex); err != nil {
+			return fmt.Errorf("failed to revert chain index state element: %w", err)
 		}
 
-		// update chain index state elements)
-		if err := tx.RevertContractChainIndex(cru.State.Index); err != nil {
-			return fmt.Errorf("failed to revert chain index: %w", err)
+		if chainElements[len(chainElements)-1].ChainIndex != revertedIndex {
+			return fmt.Errorf("chain index element mismatch. expected %v, got %v", revertedIndex, chainElements[len(chainElements)-1].ChainIndex)
 		}
-
-		cie, err := tx.ContractChainIndexStateElements()
-		if err != nil {
-			return fmt.Errorf("failed to get chain index state elements: %w", err)
-		}
-		for i := range cie {
-			cru.UpdateElementProof(&cie[i])
-		}
-		if err := tx.UpdateContractChainIndexElements(cie); err != nil {
-			return fmt.Errorf("failed to update chain index state elements: %w", err)
+		chainElements = chainElements[:len(chainElements)-1]
+		for i := range chainElements {
+			cru.UpdateElementProof(&chainElements[i].StateElement)
 		}
 	}
 
@@ -577,21 +578,19 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 			return fmt.Errorf("failed to revert contracts: %w", err)
 		}
 
-		// update chain index state elements)
-		if err := tx.ApplyContractChainIndex(cau.ChainIndexElement()); err != nil {
-			return fmt.Errorf("failed to apply chain index: %w", err)
+		// only keep the last 144 chain index elements
+		if len(chainElements) > 144 {
+			chainElements = chainElements[len(chainElements)-144:]
 		}
 
-		cie, err := tx.ContractChainIndexStateElements()
-		if err != nil {
-			return fmt.Errorf("failed to get chain index state elements: %w", err)
+		for i := range chainElements {
+			cau.UpdateElementProof(&chainElements[i].StateElement)
 		}
-		for i := range cie {
-			cau.UpdateElementProof(&cie[i])
-		}
-		if err := tx.UpdateContractChainIndexElements(cie); err != nil {
-			return fmt.Errorf("failed to update chain index state elements: %w", err)
-		}
+		chainElements = append(chainElements, cau.ChainIndexElement())
+	}
+
+	if err := tx.ApplyContractChainIndexElements(chainElements); err != nil {
+		return fmt.Errorf("failed to update chain index state elements: %w", err)
 	}
 
 	if len(applied) == 0 {
@@ -618,6 +617,7 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		if err := tx.DeleteExpiredContractChainIndexElements(index.Height - cs.MaturityHeight()); err != nil {
 			return fmt.Errorf("failed to delete expired chain index elements: %w", err)
 		}
+		log.Debug("deleted expired elements")
 	}
 	return nil
 }

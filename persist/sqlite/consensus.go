@@ -126,37 +126,28 @@ func (ux *updateTx) WalletRevertIndex(index types.ChainIndex, removed, unspent [
 	return nil
 }
 
-// ApplyContractChainIndex adds a chain index element to the store to use
-// for future proofs
-func (ux *updateTx) ApplyContractChainIndex(ce types.ChainIndexElement) error {
-	_, err := ux.tx.Exec(`INSERT INTO contracts_v2_chain_index_elements (id, height, merkle_proof, leaf_index) 
-VALUES (?,?,?,?) 
-ON CONFLICT (id) 
-DO UPDATE SET merkle_proof=EXCLUDED.merkle_proof, leaf_index=EXCLUDED.leaf_index, height=EXCLUDED.height`, encode(ce.ID), ce.ChainIndex.Height, encode(ce.MerkleProof), encode(ce.LeafIndex))
-	return err
-}
-
-// RevertContractChainIndex removes a reverted chain index from the store
-func (ux *updateTx) RevertContractChainIndex(index types.ChainIndex) error {
+// RevertContractChainIndexElement removes a reverted chain index from the store
+func (ux *updateTx) RevertContractChainIndexElement(index types.ChainIndex) error {
 	_, err := ux.tx.Exec(`DELETE FROM contracts_v2_chain_index_elements WHERE height=? AND id=?`, index.Height, encode(index.ID))
 	return err
 }
 
-// ContractChainIndexStateElements returns chain index state elements that
-// need to be updated
-func (ux *updateTx) ContractChainIndexStateElements() (elements []types.StateElement, err error) {
-	rows, err := ux.tx.Query(`SELECT id, merkle_proof, leaf_index FROM contracts_v2_chain_index_elements`)
+// ContractChainIndexElements returns chain index state elements that
+// need to be updated. The elements must be ordered by height.
+func (ux *updateTx) ContractChainIndexElements() (elements []types.ChainIndexElement, err error) {
+	rows, err := ux.tx.Query(`SELECT id, height, merkle_proof, leaf_index FROM contracts_v2_chain_index_elements ORDER BY height ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contract chain index state elements: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var se types.StateElement
-		if err := rows.Scan(decode(&se.ID), decode(&se.MerkleProof), decode(&se.LeafIndex)); err != nil {
+		var ele types.ChainIndexElement
+		if err := rows.Scan(decode(&ele.ChainIndex.ID), &ele.ChainIndex.Height, decode(&ele.MerkleProof), decode(&ele.LeafIndex)); err != nil {
 			return nil, fmt.Errorf("failed to scan state element: %w", err)
 		}
-		elements = append(elements, se)
+		ele.ID = types.Hash256(ele.ChainIndex.ID)
+		elements = append(elements, ele)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to scan contract chain index state elements: %w", err)
@@ -164,21 +155,21 @@ func (ux *updateTx) ContractChainIndexStateElements() (elements []types.StateEle
 	return elements, nil
 }
 
-// UpdateContractChainIndexElements updates the merkle proof of existing
+// ApplyContractChainIndexElements adds or updates the merkle proof of
 // chain index state elements
-func (ux *updateTx) UpdateContractChainIndexElements(elements []types.StateElement) error {
+func (ux *updateTx) ApplyContractChainIndexElements(elements []types.ChainIndexElement) error {
 	if len(elements) == 0 {
 		return nil
 	}
 
-	stmt, err := ux.tx.Prepare(`UPDATE contracts_v2_chain_index_elements SET merkle_proof=?, leaf_index=? WHERE id=?`)
+	stmt, err := ux.tx.Prepare(`INSERT INTO contracts_v2_chain_index_elements (id, height, merkle_proof, leaf_index) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET merkle_proof=EXCLUDED.merkle_proof, leaf_index=EXCLUDED.leaf_index, height=EXCLUDED.height`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, se := range elements {
-		if _, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), encode(se.ID)); err != nil {
+		if _, err := stmt.Exec(encode(se.ChainIndex.ID), se.ChainIndex.Height, encode(se.MerkleProof), encode(se.LeafIndex)); err != nil {
 			return fmt.Errorf("failed to update contract chain index state element: %w", err)
 		}
 	}
