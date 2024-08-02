@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"go.etcd.io/bbolt"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
@@ -68,6 +69,34 @@ func migrateDB(dir string) error {
 	return os.Rename(oldPath, newPath)
 }
 
+// migrateV1Consensus deletes the v1 consensus database if it exists
+func migrateV1Consensus(dir string) error {
+	dbFile := filepath.Join(dir, "consensus.db")
+	if _, err := os.Stat(dbFile); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	db, err := bbolt.Open(dbFile, 0600, nil)
+	if err != nil {
+		return fmt.Errorf("failed to open consensus database: %w", err)
+	}
+	defer db.Close()
+
+	var isV1DB bool
+	err = db.View(func(tx *bbolt.Tx) error {
+		isV1DB = tx.Bucket([]byte("ChangeLog")) != nil
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to check for v1 consensus database: %w", err)
+	} else if !isV1DB {
+		return nil
+	}
+	return os.Remove(dbFile)
+}
+
 // startLocalhostListener https://github.com/SiaFoundation/hostd/issues/202
 func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener, err error) {
 	addr, port, err := net.SplitHostPort(listenAddr)
@@ -101,6 +130,8 @@ func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener,
 func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
 	if err := migrateDB(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
+	} else if err := migrateV1Consensus(cfg.Directory); err != nil {
+		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
 	}
 
 	store, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "hostd.sqlite3"), log.Named("sqlite3"))
@@ -202,6 +233,7 @@ func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey,
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}, syncer.WithLogger(log.Named("syncer")))
+	defer s.Close()
 	go s.Run()
 
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))

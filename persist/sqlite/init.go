@@ -46,7 +46,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 				return fmt.Errorf("failed to migrate database to version %v: %w", current, err)
 			}
 			// check that no foreign key constraints were violated
-			if err := tx.QueryRow("PRAGMA foreign_key_check").Scan(); !errors.Is(err, sql.ErrNoRows) {
+			if _, err := tx.Exec("PRAGMA foreign_key_check"); !errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("foreign key constraints are not satisfied")
 			}
 			log.Debug("migration complete", zap.Int64("current", current), zap.Int64("target", target), zap.Duration("elapsed", time.Since(start)))
