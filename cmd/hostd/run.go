@@ -136,7 +136,7 @@ func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey,
 
 	store, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "hostd.sqlite3"), log.Named("sqlite3"))
 	if err != nil {
-		return fmt.Errorf("failed to open wallet database: %w", err)
+		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer store.Close()
 
