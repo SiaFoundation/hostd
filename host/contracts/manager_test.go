@@ -841,7 +841,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 
 		// add a root to the contract
 		var sector [rhp2.SectorSize]byte
-		frand.Read(sector[:256])
+		frand.Read(sector[:])
 		root := rhp2.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
@@ -959,8 +959,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 
 		// add a root to the contract
 		var sector [rhp2.SectorSize]byte
-		frand.Read(sector[:256])
-		root := frand.Entropy256() // random root
+		frand.Read(sector[:])
+		root := rhp2.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
 		release, err := node.Volumes.Write(root, &sector)
@@ -1017,8 +1017,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 			FinalRevision: final,
 			NewContract: types.V2FileContract{
 				RevisionNumber:   0,
-				Filesize:         rhp2.SectorSize,
-				FileMerkleRoot:   rhp2.MetaRoot(roots),
+				Filesize:         fc.Filesize,
+				FileMerkleRoot:   fc.FileMerkleRoot,
 				ProofHeight:      final.ProofHeight + 10,
 				ExpirationHeight: final.ExpirationHeight + 10,
 				RenterOutput:     final.RenterOutput,
@@ -1103,6 +1103,14 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// metrics should reflect the new contract
 		assertContractMetrics(t, types.Siacoins(22), collateral)
 		assertStorageMetrics(t, 1, 1)
+		// mine until the renewed contract is successful and the sectors have
+		// been pruned
+		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(renewal.NewContract.ExpirationHeight-node.Chain.Tip().Height)+1)
+		expectedStatuses[contracts.V2ContractStatusActive]--
+		expectedStatuses[contracts.V2ContractStatusSuccessful]++
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
 	})
 
 	t.Run("reject", func(t *testing.T) {
