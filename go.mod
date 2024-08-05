@@ -5,8 +5,8 @@ go 1.21.8
 toolchain go1.22.3
 
 require (
-	github.com/aws/aws-sdk-go v1.55.4
-	github.com/cloudflare/cloudflare-go v0.100.0
+	github.com/aws/aws-sdk-go v1.55.5
+	github.com/cloudflare/cloudflare-go v0.101.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.4.0
@@ -18,9 +18,9 @@ require (
 	go.sia.tech/web/hostd v0.45.1
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.22.0
+	golang.org/x/sys v0.23.0
 	golang.org/x/term v0.22.0
-	golang.org/x/time v0.5.0
+	golang.org/x/time v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/frand v1.4.2
 	nhooyr.io/websocket v1.8.11
@@ -32,8 +32,6 @@ require (
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/gorilla/websocket v1.5.2 // indirect
-	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
