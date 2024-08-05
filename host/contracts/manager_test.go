@@ -11,9 +11,13 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/coreutils/syncer"
+	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/testutil"
+	"go.sia.tech/hostd/persist/sqlite"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -24,10 +28,65 @@ func hashRevision(rev types.FileContractRevision) types.Hash256 {
 	return h.Sum()
 }
 
-func formContract(t *testing.T, renterKey, hostKey types.PrivateKey, start, end uint64, renterPayout, hostPayout types.Currency, c *contracts.Manager, w contracts.Wallet, cm contracts.ChainManager) contracts.SignedRevision {
+func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
 	t.Helper()
 
-	contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterPayout, hostPayout, start, rhp2.HostSettings{WindowSize: end - start}, w.Address())
+	cs := cm.TipState()
+	fc := types.V2FileContract{
+		RevisionNumber:   0,
+		Filesize:         0,
+		FileMerkleRoot:   types.Hash256{},
+		ProofHeight:      cs.Index.Height + duration,
+		ExpirationHeight: cs.Index.Height + duration + 10,
+		RenterOutput: types.SiacoinOutput{
+			Value:   renterFunds,
+			Address: w.Address(),
+		},
+		HostOutput: types.SiacoinOutput{
+			Value:   hostFunds,
+			Address: w.Address(),
+		},
+		MissedHostValue: hostFunds,
+		TotalCollateral: hostFunds,
+		RenterPublicKey: renterKey.PublicKey(),
+		HostPublicKey:   hostKey.PublicKey(),
+	}
+	fundAmount := cs.V2FileContractTax(fc).Add(hostFunds).Add(renterFunds)
+	sigHash := cs.ContractSigHash(fc)
+	fc.HostSignature = hostKey.SignHash(sigHash)
+	fc.RenterSignature = renterKey.SignHash(sigHash)
+
+	txn := types.V2Transaction{
+		FileContracts: []types.V2FileContract{fc},
+	}
+
+	cs, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
+	if err != nil {
+		t.Fatal("failed to fund transaction:", err)
+	}
+	w.SignV2Inputs(cs, &txn, toSign)
+	formationSet := contracts.V2FormationTransactionSet{
+		TransactionSet: []types.V2Transaction{txn},
+		Basis:          cs.Index,
+	}
+
+	if broadcast {
+		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.TransactionSet); err != nil {
+			t.Fatal("failed to add formation set to pool:", err)
+		}
+		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.TransactionSet)
+	}
+
+	if err := c.AddV2Contract(formationSet, contracts.Usage{}); err != nil {
+		t.Fatal("failed to add contract:", err)
+	}
+	return txn.V2FileContractID(txn.ID(), 0), fc
+}
+
+func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) contracts.SignedRevision {
+	t.Helper()
+
+	contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterFunds, hostFunds, cm.Tip().Height+duration, rhp2.HostSettings{WindowSize: 10}, w.Address())
 	state := cm.TipState()
 	formationCost := rhp2.ContractFormationCost(state, contract, types.ZeroCurrency)
 	contractUnlockConditions := types.UnlockConditions{
@@ -40,14 +99,17 @@ func formContract(t *testing.T, renterKey, hostKey types.PrivateKey, start, end 
 	txn := types.Transaction{
 		FileContracts: []types.FileContract{contract},
 	}
-	toSign, err := w.FundTransaction(&txn, formationCost.Add(hostPayout), true) // we're funding both sides of the payout
+	toSign, err := w.FundTransaction(&txn, formationCost.Add(hostFunds), true) // we're funding both sides of the payout
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("failed to fund transaction:", err)
 	}
 	w.SignTransaction(&txn, toSign, types.CoveredFields{WholeTransaction: true})
-	txnset := append(cm.UnconfirmedParents(txn), txn)
-	if _, err := cm.AddPoolTransactions(txnset); err != nil {
-		t.Fatal(err)
+	formationSet := append(cm.UnconfirmedParents(txn), txn)
+	if broadcast {
+		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
+			t.Fatal("failed to add formation set to pool:", err)
+		}
+		s.BroadcastTransactionSet(formationSet)
 	}
 
 	revision := types.FileContractRevision{
@@ -62,7 +124,7 @@ func formContract(t *testing.T, renterKey, hostKey types.PrivateKey, start, end 
 		HostSignature:   hostKey.SignHash(sigHash),
 		RenterSignature: renterKey.SignHash(sigHash),
 	}
-	if err := c.AddContract(rev, txnset, hostPayout, contracts.Usage{}); err != nil {
+	if err := c.AddContract(rev, formationSet, hostFunds, contracts.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 	return rev
@@ -131,6 +193,122 @@ func TestContractLockUnlock(t *testing.T) {
 }
 
 func TestContractLifecycle(t *testing.T) {
+	assertContractStatus := func(t *testing.T, c *contracts.Manager, contractID types.FileContractID, status contracts.ContractStatus) {
+		t.Helper()
+
+		contract, err := c.Contract(contractID)
+		if err != nil {
+			t.Fatal("failed to get contract", err)
+		} else if contract.Status != status {
+			t.Fatalf("expected contract to be %v, got %v", status, contract.Status)
+		}
+	}
+
+	assertContractMetrics := func(t *testing.T, s *sqlite.Store, active, successful uint64, locked, risked types.Currency) {
+		t.Helper()
+
+		m, err := s.Metrics(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		} else if m.Contracts.Active != active {
+			t.Fatalf("expected %v active contracts, got %v", active, m.Contracts.Active)
+		} else if m.Contracts.Successful != successful {
+			t.Fatalf("expected %v successful contracts, got %v", successful, m.Contracts.Successful)
+		} else if !m.Contracts.LockedCollateral.Equals(locked) {
+			t.Fatalf("expected %v locked collateral, got %v", locked, m.Contracts.LockedCollateral)
+		} else if !m.Contracts.RiskedCollateral.Equals(risked) {
+			t.Fatalf("expected %v risked collateral, got %v", risked, m.Contracts.RiskedCollateral)
+		}
+	}
+
+	t.Run("reject", func(t *testing.T) {
+		hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+		log := zaptest.NewLogger(t)
+
+		network, genesis := testutil.V1Network()
+		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
+		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+
+		cm := node.Chain
+		c := node.Contracts
+		w := node.Wallet
+
+		renterFunds := types.Siacoins(10)
+		hostFunds := types.Siacoins(20)
+		contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterFunds, hostFunds, cm.Tip().Height+10, rhp2.HostSettings{WindowSize: 10}, w.Address())
+		state := cm.TipState()
+		formationCost := rhp2.ContractFormationCost(state, contract, types.ZeroCurrency)
+		contractUnlockConditions := types.UnlockConditions{
+			PublicKeys: []types.UnlockKey{
+				renterKey.PublicKey().UnlockKey(),
+				hostKey.PublicKey().UnlockKey(),
+			},
+			SignaturesRequired: 2,
+		}
+		txn := types.Transaction{
+			FileContracts: []types.FileContract{contract},
+		}
+		toSign, err := w.FundTransaction(&txn, formationCost.Add(hostFunds), true) // we're funding both sides of the payout
+		if err != nil {
+			t.Fatal("failed to fund transaction:", err)
+		}
+		w.SignTransaction(&txn, toSign, types.CoveredFields{WholeTransaction: true})
+		formationSet := append(cm.UnconfirmedParents(txn), txn)
+		revision := types.FileContractRevision{
+			ParentID:         txn.FileContractID(0),
+			UnlockConditions: contractUnlockConditions,
+			FileContract:     txn.FileContracts[0],
+		}
+		// corrupt the transaction set to simulate a rejected contract
+		formationSet[len(formationSet)-1].Signatures = nil
+		revision.RevisionNumber = 1
+		sigHash := hashRevision(revision)
+		rev := contracts.SignedRevision{
+			Revision:        revision,
+			HostSignature:   hostKey.SignHash(sigHash),
+			RenterSignature: renterKey.SignHash(sigHash),
+		}
+		if err := c.AddContract(rev, formationSet, hostFunds, contracts.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+
+		// mine until the contract is rejected
+		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 20)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusRejected)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+	})
+
+	t.Run("rebroadcast", func(t *testing.T) {
+		hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+		log := zaptest.NewLogger(t)
+
+		network, genesis := testutil.V1Network()
+		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
+		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, false)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+
+		// mine a block to rebroadcast the formation set
+		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+
+		// mine another block to confirm the contract
+		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, types.Siacoins(20), types.ZeroCurrency)
+
+		// mine until the contract is successful
+		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(rev.Revision.WindowEnd-node.Chain.Tip().Height)+1)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusSuccessful)
+		assertContractMetrics(t, node.Store, 0, 1, types.ZeroCurrency, types.ZeroCurrency)
+	})
+
 	t.Run("successful with proof", func(t *testing.T) {
 		hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 
@@ -151,43 +329,15 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, renterKey, hostKey, 170, 180, renterFunds, hostCollateral, node.Contracts, node.Wallet, node.Chain)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
-		assertContractStatus := func(status contracts.ContractStatus) {
-			t.Helper()
-
-			contract, err := node.Contracts.Contract(rev.Revision.ParentID)
-			if err != nil {
-				t.Fatal("failed to get contract", err)
-			} else if contract.Status != status {
-				t.Fatalf("expected contract to be %v, got %v", status, contract.Status)
-			}
-		}
-
-		assertContractMetrics := func(active, successful uint64, locked, risked types.Currency) {
-			t.Helper()
-
-			m, err := node.Store.Metrics(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			} else if m.Contracts.Active != active {
-				t.Fatalf("expected %v active contracts, got %v", active, m.Contracts.Active)
-			} else if m.Contracts.Successful != successful {
-				t.Fatalf("expected %v successful contracts, got %v", successful, m.Contracts.Successful)
-			} else if !m.Contracts.LockedCollateral.Equals(locked) {
-				t.Fatalf("expected %v locked collateral, got %v", locked, m.Contracts.LockedCollateral)
-			} else if !m.Contracts.RiskedCollateral.Equals(risked) {
-				t.Fatalf("expected %v risked collateral, got %v", risked, m.Contracts.RiskedCollateral)
-			}
-		}
-
-		assertContractStatus(contracts.ContractStatusPending)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		// pending contracts do not contribute to metrics
-		assertContractMetrics(0, 0, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
-		assertContractStatus(contracts.ContractStatusActive)
-		assertContractMetrics(1, 0, hostCollateral, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		var releaseFuncs []func() error
 		defer func() {
@@ -249,14 +399,14 @@ func TestContractLifecycle(t *testing.T) {
 			}
 		}
 
-		assertContractMetrics(1, 0, hostCollateral, collateral)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, collateral)
 
 		// mine until right before the proof window so the revision is broadcast
 		// and confirmed
 		remainingBlocks := rev.Revision.WindowStart - node.Chain.Tip().Height - 1
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
 
-		assertContractStatus(contracts.ContractStatusActive)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		contract, err := node.Contracts.Contract(rev.Revision.ParentID)
 		if err != nil {
 			t.Fatal(err)
@@ -267,8 +417,8 @@ func TestContractLifecycle(t *testing.T) {
 		// mine into the proof window
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 2)
 
-		assertContractStatus(contracts.ContractStatusSuccessful)
-		assertContractMetrics(0, 1, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusSuccessful)
+		assertContractMetrics(t, node.Store, 0, 1, types.ZeroCurrency, types.ZeroCurrency)
 	})
 
 	t.Run("successful no proof", func(t *testing.T) {
@@ -291,43 +441,15 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, renterKey, hostKey, 170, 180, renterFunds, hostCollateral, node.Contracts, node.Wallet, node.Chain)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
-		assertContractStatus := func(status contracts.ContractStatus) {
-			t.Helper()
-
-			contract, err := node.Contracts.Contract(rev.Revision.ParentID)
-			if err != nil {
-				t.Fatal(err)
-			} else if contract.Status != status {
-				t.Fatalf("expected contract to be %v, got %v", status, contract.Status)
-			}
-		}
-
-		assertContractMetrics := func(active, successful uint64, locked, risked types.Currency) {
-			t.Helper()
-
-			m, err := node.Store.Metrics(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			} else if m.Contracts.Active != active {
-				t.Fatalf("expected %v active contracts, got %v", active, m.Contracts.Active)
-			} else if m.Contracts.Successful != successful {
-				t.Fatalf("expected %v successful contracts, got %v", successful, m.Contracts.Successful)
-			} else if !m.Contracts.LockedCollateral.Equals(locked) {
-				t.Fatalf("expected %v locked collateral, got %v", locked, m.Contracts.LockedCollateral)
-			} else if !m.Contracts.RiskedCollateral.Equals(risked) {
-				t.Fatalf("expected %v risked collateral, got %v", risked, m.Contracts.RiskedCollateral)
-			}
-		}
-
-		assertContractStatus(contracts.ContractStatusPending)
-		assertContractMetrics(0, 0, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// confirm the contract
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
-		assertContractStatus(contracts.ContractStatusActive)
-		assertContractMetrics(1, 0, hostCollateral, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		// create a revision that transfers funds to the host, simulating
 		// account funding
@@ -354,7 +476,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		assertContractMetrics(1, 0, hostCollateral, types.ZeroCurrency)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		// mine until right before the proof window so the revision is broadcast
 		remainingBlocks := rev.Revision.WindowStart - node.Chain.Tip().Height - 1
@@ -374,14 +496,14 @@ func TestContractLifecycle(t *testing.T) {
 		remainingBlocks = rev.Revision.WindowEnd - node.Chain.Tip().Height - 1
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
 
-		assertContractStatus(contracts.ContractStatusActive)
-		assertContractMetrics(1, 0, hostCollateral, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		// mine after the proof window ends -- contract should be successful
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 10)
 
-		assertContractMetrics(0, 1, types.ZeroCurrency, types.ZeroCurrency)
-		assertContractStatus(contracts.ContractStatusSuccessful)
+		assertContractMetrics(t, node.Store, 0, 1, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusSuccessful)
 
 		contract, err = node.Contracts.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -413,43 +535,15 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, renterKey, hostKey, 170, 180, renterFunds, hostCollateral, node.Contracts, node.Wallet, node.Chain)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
-		assertContractStatus := func(status contracts.ContractStatus) {
-			t.Helper()
-
-			contract, err := node.Contracts.Contract(rev.Revision.ParentID)
-			if err != nil {
-				t.Fatal(err)
-			} else if contract.Status != status {
-				t.Fatalf("expected contract to be %v, got %v", status, contract.Status)
-			}
-		}
-
-		assertContractMetrics := func(active, successful uint64, locked, risked types.Currency) {
-			t.Helper()
-
-			m, err := node.Store.Metrics(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			} else if m.Contracts.Active != active {
-				t.Fatalf("expected %v active contracts, got %v", active, m.Contracts.Active)
-			} else if m.Contracts.Successful != successful {
-				t.Fatalf("expected %v successful contracts, got %v", successful, m.Contracts.Successful)
-			} else if !m.Contracts.LockedCollateral.Equals(locked) {
-				t.Fatalf("expected %v locked collateral, got %v", locked, m.Contracts.LockedCollateral)
-			} else if !m.Contracts.RiskedCollateral.Equals(risked) {
-				t.Fatalf("expected %v risked collateral, got %v", risked, m.Contracts.RiskedCollateral)
-			}
-		}
-
-		assertContractStatus(contracts.ContractStatusPending)
-		assertContractMetrics(0, 0, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// confirm the contract
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
-		assertContractStatus(contracts.ContractStatusActive)
-		assertContractMetrics(1, 0, hostCollateral, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		// create a revision that transfers funds to the host with out adding any sectors
 		amount := types.NewCurrency64(100)
@@ -496,8 +590,8 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatalf("expected contract to have resolution got %v", contract.ResolutionHeight)
 		}
 
-		assertContractStatus(contracts.ContractStatusSuccessful)
-		assertContractMetrics(0, 1, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusSuccessful)
+		assertContractMetrics(t, node.Store, 0, 1, types.ZeroCurrency, types.ZeroCurrency)
 	})
 
 	t.Run("failed corrupt sector", func(t *testing.T) {
@@ -520,44 +614,16 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, renterKey, hostKey, 170, 180, renterFunds, hostCollateral, node.Contracts, node.Wallet, node.Chain)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
-		assertContractStatus := func(status contracts.ContractStatus) {
-			t.Helper()
-
-			contract, err := node.Contracts.Contract(rev.Revision.ParentID)
-			if err != nil {
-				t.Fatal(err)
-			} else if contract.Status != status {
-				t.Fatalf("expected contract to be %v, got %v", status, contract.Status)
-			}
-		}
-
-		assertContractMetrics := func(active, successful uint64, locked, risked types.Currency) {
-			t.Helper()
-
-			m, err := node.Store.Metrics(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			} else if m.Contracts.Active != active {
-				t.Fatalf("expected %v active contracts, got %v", active, m.Contracts.Active)
-			} else if m.Contracts.Successful != successful {
-				t.Fatalf("expected %v successful contracts, got %v", successful, m.Contracts.Successful)
-			} else if !m.Contracts.LockedCollateral.Equals(locked) {
-				t.Fatalf("expected %v locked collateral, got %v", locked, m.Contracts.LockedCollateral)
-			} else if !m.Contracts.RiskedCollateral.Equals(risked) {
-				t.Fatalf("expected %v risked collateral, got %v", risked, m.Contracts.RiskedCollateral)
-			}
-		}
-
-		assertContractStatus(contracts.ContractStatusPending)
-		assertContractMetrics(0, 0, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// confirm the contract
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
 
-		assertContractStatus(contracts.ContractStatusActive)
-		assertContractMetrics(1, 0, hostCollateral, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		// add sectors to the volume manager
 		var releaseFuncs []func() error
@@ -614,8 +680,8 @@ func TestContractLifecycle(t *testing.T) {
 			}
 		}
 
-		assertContractStatus(contracts.ContractStatusActive)
-		assertContractMetrics(1, 0, hostCollateral, collateral)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, collateral)
 
 		// mine until right before the proof window so the revision is broadcast
 		// and confirmed
@@ -635,8 +701,8 @@ func TestContractLifecycle(t *testing.T) {
 		remainingBlocks = rev.Revision.WindowEnd - node.Chain.Tip().Height + 1
 		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
 
-		assertContractStatus(contracts.ContractStatusFailed)
-		assertContractMetrics(0, 0, types.ZeroCurrency, types.ZeroCurrency)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusFailed)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 	})
 }
 
@@ -658,64 +724,6 @@ func TestV2ContractLifecycle(t *testing.T) {
 
 	// fund the wallet
 	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
-
-	formContract := func(t *testing.T, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
-		t.Helper()
-
-		com := node.Contracts
-		cm := node.Chain
-
-		cs := cm.TipState()
-		fc := types.V2FileContract{
-			RevisionNumber:   0,
-			Filesize:         0,
-			FileMerkleRoot:   types.Hash256{},
-			ProofHeight:      cs.Index.Height + duration,
-			ExpirationHeight: cs.Index.Height + duration + 10,
-			RenterOutput: types.SiacoinOutput{
-				Value:   renterFunds,
-				Address: node.Wallet.Address(),
-			},
-			HostOutput: types.SiacoinOutput{
-				Value:   hostFunds,
-				Address: node.Wallet.Address(),
-			},
-			MissedHostValue: hostFunds,
-			TotalCollateral: hostFunds,
-			RenterPublicKey: renterKey.PublicKey(),
-			HostPublicKey:   hostKey.PublicKey(),
-		}
-		fundAmount := cs.V2FileContractTax(fc).Add(hostFunds).Add(renterFunds)
-		sigHash := cs.ContractSigHash(fc)
-		fc.HostSignature = hostKey.SignHash(sigHash)
-		fc.RenterSignature = renterKey.SignHash(sigHash)
-
-		txn := types.V2Transaction{
-			FileContracts: []types.V2FileContract{fc},
-		}
-
-		cs, toSign, err := node.Wallet.FundV2Transaction(&txn, fundAmount, false)
-		if err != nil {
-			t.Fatal("failed to fund transaction:", err)
-		}
-		node.Wallet.SignV2Inputs(cs, &txn, toSign)
-		formationSet := contracts.V2FormationTransactionSet{
-			TransactionSet: []types.V2Transaction{txn},
-			Basis:          cs.Index,
-		}
-
-		if broadcast {
-			if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.TransactionSet); err != nil {
-				t.Fatal("failed to add formation set to pool:", err)
-			}
-			node.Syncer.BroadcastV2TransactionSet(formationSet.Basis, formationSet.TransactionSet)
-		}
-
-		if err := com.AddV2Contract(formationSet, contracts.Usage{}); err != nil {
-			t.Fatal("failed to add contract:", err)
-		}
-		return txn.V2FileContractID(txn.ID(), 0), fc
-	}
 
 	assertContractStatus := func(t *testing.T, contractID types.FileContractID, status contracts.V2ContractStatus) {
 		t.Helper()
@@ -781,7 +789,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("rebroadcast", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formContract(t, types.Siacoins(10), types.Siacoins(20), 10, false)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, false)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -806,7 +814,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("successful empty contract", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formContract(t, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -827,7 +835,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("storage proof", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formContract(t, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -886,7 +894,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("failed storage proof", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formContract(t, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -945,7 +953,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("renewal", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formContract(t, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -1095,6 +1103,73 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// metrics should reflect the new contract
 		assertContractMetrics(t, types.Siacoins(22), collateral)
 		assertStorageMetrics(t, 1, 1)
+	})
+
+	t.Run("reject", func(t *testing.T) {
+		cm := node.Chain
+		c := node.Contracts
+		w := node.Wallet
+
+		renterFunds, hostFunds := types.Siacoins(10), types.Siacoins(20)
+		duration := uint64(10)
+		cs := cm.TipState()
+		fc := types.V2FileContract{
+			RevisionNumber:   0,
+			Filesize:         0,
+			FileMerkleRoot:   types.Hash256{},
+			ProofHeight:      cs.Index.Height + duration,
+			ExpirationHeight: cs.Index.Height + duration + 10,
+			RenterOutput: types.SiacoinOutput{
+				Value:   renterFunds,
+				Address: w.Address(),
+			},
+			HostOutput: types.SiacoinOutput{
+				Value:   hostFunds,
+				Address: w.Address(),
+			},
+			MissedHostValue: hostFunds,
+			TotalCollateral: hostFunds,
+			RenterPublicKey: renterKey.PublicKey(),
+			HostPublicKey:   hostKey.PublicKey(),
+		}
+		fundAmount := cs.V2FileContractTax(fc).Add(hostFunds).Add(renterFunds)
+		sigHash := cs.ContractSigHash(fc)
+		fc.HostSignature = hostKey.SignHash(sigHash)
+		fc.RenterSignature = renterKey.SignHash(sigHash)
+
+		txn := types.V2Transaction{
+			FileContracts: []types.V2FileContract{fc},
+		}
+
+		cs, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
+		if err != nil {
+			t.Fatal("failed to fund transaction:", err)
+		}
+		w.SignV2Inputs(cs, &txn, toSign)
+		formationSet := contracts.V2FormationTransactionSet{
+			TransactionSet: []types.V2Transaction{txn},
+			Basis:          cs.Index,
+		}
+		contractID := txn.V2FileContractID(txn.ID(), 0)
+		// corrupt the formation set to trigger a rejection
+		formationSet.TransactionSet[len(formationSet.TransactionSet)-1].SiacoinInputs[0].SatisfiedPolicy.Signatures[0] = types.Signature{}
+		if err := c.AddV2Contract(formationSet, contracts.Usage{}); err != nil {
+			t.Fatal("failed to add contract:", err)
+		}
+
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+		// metrics should not have changed
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+
+		// mine until the contract is rejected
+		testutil.MineAndSync(t, cm, node.Indexer, types.VoidAddress, 20)
+		expectedStatuses[contracts.V2ContractStatusRejected]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusRejected)
+		// metrics should not have changed
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
 	})
 }
 

@@ -293,12 +293,12 @@ func (ux *updateTx) RevertContracts(index types.ChainIndex, state contracts.Stat
 func (ux *updateTx) RejectContracts(height uint64) ([]types.FileContractID, []types.FileContractID, error) {
 	rejected, err := rejectContracts(ux.tx, height)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to reject contracts: %w", err)
+		return nil, nil, fmt.Errorf("failed to get rejected contracts: %w", err)
 	}
 
 	rejectedV2, err := rejectV2Contracts(ux.tx, height)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to reject v2 contracts: %w", err)
+		return nil, nil, fmt.Errorf("failed to get rejected v2 contracts: %w", err)
 	}
 
 	if len(rejected) == 0 && len(rejectedV2) == 0 {
@@ -323,11 +323,17 @@ func (ux *updateTx) RejectContracts(height uint64) ([]types.FileContractID, []ty
 	}
 	defer numericStatDone()
 
-	incrementCurrencyStat, currencyStatDone, err := incrementCurrencyStatStmt(ux.tx)
+	updateV1Status, err := ux.tx.Prepare(`UPDATE contracts SET contract_status=? WHERE id=?`)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to prepare increment statement: %w", err)
+		return nil, nil, fmt.Errorf("failed to prepare update statement: %w", err)
 	}
-	defer currencyStatDone()
+	defer updateV1Status.Close()
+
+	updateV2Status, err := ux.tx.Prepare(`UPDATE contracts_v2 SET contract_status=? WHERE id=?`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to prepare v2 update statement: %w", err)
+	}
+	defer updateV2Status.Close()
 
 	for _, id := range rejected {
 		state, err := contractState(id)
@@ -341,12 +347,10 @@ func (ux *updateTx) RejectContracts(height uint64) ([]types.FileContractID, []ty
 		}
 
 		// update metrics
-		if err := updateStatusMetrics(state.Status, contracts.ContractStatusRejected, incrementNumericStat); err != nil {
+		if _, err := updateV1Status.Exec(contracts.ContractStatusRejected, state.ID); err != nil {
+			return nil, nil, fmt.Errorf("failed to update contract status: %w", err)
+		} else if err := updateStatusMetrics(state.Status, contracts.ContractStatusRejected, incrementNumericStat); err != nil {
 			return nil, nil, fmt.Errorf("failed to update contract metrics: %w", err)
-		} else if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
-			return nil, nil, fmt.Errorf("failed to update potential revenue metrics: %w", err)
-		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
-			return nil, nil, fmt.Errorf("failed to update collateral metrics: %w", err)
 		}
 	}
 	for _, id := range rejectedV2 {
@@ -361,66 +365,13 @@ func (ux *updateTx) RejectContracts(height uint64) ([]types.FileContractID, []ty
 		}
 
 		// update metrics
-		if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusRejected, incrementNumericStat); err != nil {
+		if _, err := updateV2Status.Exec(contracts.V2ContractStatusRejected, state.ID); err != nil {
+			return nil, nil, fmt.Errorf("failed to update contract status: %w", err)
+		} else if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusRejected, incrementNumericStat); err != nil {
 			return nil, nil, fmt.Errorf("failed to update contract metrics: %w", err)
-		} else if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
-			return nil, nil, fmt.Errorf("failed to update potential revenue metrics: %w", err)
-		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
-			return nil, nil, fmt.Errorf("failed to update collateral metrics: %w", err)
 		}
 	}
 	return rejected, rejectedV2, nil
-}
-
-// RejectV2Contracts rejects any contracts with a negotiation height
-// before the provided height that have not been confirmed.
-func (ux *updateTx) RejectV2Contracts(height uint64) ([]types.FileContractID, error) {
-	rejected, err := rejectV2Contracts(ux.tx, height)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reject contracts: %w", err)
-	} else if len(rejected) == 0 {
-		return nil, nil
-	}
-
-	contractState, stateDone, err := getV2ContractStateStmt(ux.tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare select statement: %w", err)
-	}
-	defer stateDone()
-
-	incrementNumericStat, numericStatDone, err := incrementNumericStatStmt(ux.tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare increment statement: %w", err)
-	}
-	defer numericStatDone()
-
-	incrementCurrencyStat, currencyStatDone, err := incrementCurrencyStatStmt(ux.tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare increment statement: %w", err)
-	}
-	defer currencyStatDone()
-
-	for _, id := range rejected {
-		state, err := contractState(id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get contract state %q: %w", id, err)
-		}
-
-		if state.Status != contracts.V2ContractStatusPending {
-			// orderly applies and reverts should prevent this from happening
-			panic(fmt.Sprintf("unexpected contract status %v", state.Status))
-		}
-
-		// update metrics
-		if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusRejected, incrementNumericStat); err != nil {
-			return nil, fmt.Errorf("failed to update contract metrics: %w", err)
-		} else if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
-			return nil, fmt.Errorf("failed to update potential revenue metrics: %w", err)
-		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
-			return nil, fmt.Errorf("failed to update collateral metrics: %w", err)
-		}
-	}
-	return rejected, nil
 }
 
 // ContractRelevant returns true if a contract is relevant to the host. Otherwise,
@@ -1663,11 +1614,10 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 	return nil
 }
 
-// rejectContracts sets the contract status to rejected for all contracts that
-// have not been confirmed and have a negotiation height less than the given
-// height.
+// rejectContracts returns the ID of any contracts that are not confirmed and have
+// a negotiation height less than the given height.
 func rejectContracts(tx *txn, height uint64) (rejected []types.FileContractID, err error) {
-	rows, err := tx.Query(`UPDATE contracts SET contract_status=$1 WHERE contract_status <> $1 AND formation_confirmed=false AND negotiation_height < $2 RETURNING contract_id`, contracts.ContractStatusRejected, height)
+	rows, err := tx.Query(`SELECT contract_id FROM contracts WHERE contract_status <> $1 AND formation_confirmed=false AND negotiation_height < $2`, contracts.ContractStatusRejected, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
@@ -1686,11 +1636,10 @@ func rejectContracts(tx *txn, height uint64) (rejected []types.FileContractID, e
 	return
 }
 
-// rejectV2Contracts sets the contract status to rejected for all contracts that
-// have not been confirmed and have a negotiation height less than the given
-// height.
+// rejectV2Contracts returns the ID of any v2 contracts that are not confirmed and have
+// a negotiation height less than the given height.
 func rejectV2Contracts(tx *txn, height uint64) (rejected []types.FileContractID, err error) {
-	rows, err := tx.Query(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_status <> $1 AND confirmation_index IS NULL AND negotiation_height < $2 RETURNING contract_id`, contracts.V2ContractStatusRejected, height)
+	rows, err := tx.Query(`SELECT contract_id FROM contracts_v2 WHERE contract_status <> $1 AND confirmation_index IS NULL AND negotiation_height < $2`, contracts.V2ContractStatusRejected, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
