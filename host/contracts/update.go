@@ -109,18 +109,21 @@ func (cm *Manager) buildStorageProof(revision types.FileContractRevision, index 
 	roots := cm.getSectorRoots(revision.ParentID)
 	contractRoot := rhp2.MetaRoot(roots)
 	if contractRoot != revision.FileMerkleRoot {
-		log.Error("failed to build storage proof. invalid root", zap.Stringer("expectedRoot", revision.FileMerkleRoot), zap.Stringer("actualRoot", contractRoot))
+		log.Error("unexpected contract merkle root", zap.Stringer("expectedRoot", revision.FileMerkleRoot), zap.Stringer("actualRoot", contractRoot))
 		return types.StorageProof{}, fmt.Errorf("merkle root mismatch")
 	} else if uint64(len(roots)) < sectorIndex {
-		log.Error("failed to build storage proof. invalid root index", zap.Uint64("sectorIndex", sectorIndex), zap.Uint64("segmentIndex", segmentIndex), zap.Int("rootsLength", len(roots)))
+		log.Error("unexpected proof index", zap.Uint64("sectorIndex", sectorIndex), zap.Uint64("segmentIndex", segmentIndex), zap.Int("rootsLength", len(roots)))
 		return types.StorageProof{}, fmt.Errorf("invalid root index")
 	}
 
 	sectorRoot := roots[sectorIndex]
 	sector, err := cm.storage.Read(sectorRoot)
 	if err != nil {
-		log.Error("failed to build storage proof. unable to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
+		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.StorageProof{}, fmt.Errorf("failed to read sector data")
+	} else if rhp2.SectorRoot(sector) != sectorRoot {
+		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(sector)))
+		return types.StorageProof{}, fmt.Errorf("invalid sector root")
 	}
 	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
 	sectorProof := rhp2.ConvertProofOrdering(rhp2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
