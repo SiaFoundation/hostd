@@ -367,8 +367,8 @@ func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, finalUsage
 		return errors.New("renewal root does not match existing roots")
 	}
 
-	renewedID := types.FileContractID(existing.ID)
-	existingRoots := cm.getSectorRoots(renewedID)
+	existingID := types.FileContractID(existing.ID)
+	existingRoots := cm.getSectorRoots(existingID)
 	if fc.FileMerkleRoot != rhp2.MetaRoot(existingRoots) {
 		return errors.New("renewal root does not match existing roots")
 	}
@@ -376,18 +376,18 @@ func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, finalUsage
 	contract := V2Contract{
 		V2FileContract: fc,
 
-		ID:                renewedID.V2RenewalID(),
+		ID:                existingID.V2RenewalID(),
 		Status:            V2ContractStatusPending,
 		NegotiationHeight: cm.chain.Tip().Height,
-		RenewedFrom:       renewedID,
+		RenewedFrom:       existingID,
 		Usage:             initialUsage,
 	}
 
-	if err := cm.store.RenewV2Contract(contract, renewal, renewedID, finalRevision, finalUsage); err != nil {
+	if err := cm.store.RenewV2Contract(contract, renewal, existingID, finalRevision, finalUsage); err != nil {
 		return err
 	}
-	cm.setSectorRoots(renewedID, existingRoots)
-	cm.log.Debug("contract renewed", zap.Stringer("formedID", contract.ID), zap.Stringer("renewedID", renewedID))
+	cm.setSectorRoots(contract.ID, existingRoots)
+	cm.log.Debug("contract renewed", zap.Stringer("formedID", contract.ID), zap.Stringer("existingID", existingID))
 	return nil
 }
 
