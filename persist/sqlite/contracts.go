@@ -586,6 +586,7 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		} else if expired == 0 {
+			log.Debug("no more sectors to prune")
 			return nil
 		}
 		log.Debug("removed sectors", zap.Int("expired", expired), zap.Stringers("removed", removed), zap.Int("batch", i))
@@ -999,7 +1000,7 @@ func broadcastV2Revision(tx *txn, index types.ChainIndex, revisionBroadcastHeigh
 	const query = `SELECT c.raw_revision, c.contract_id, cs.leaf_index, cs.merkle_proof, cs.raw_contract
 	FROM contracts_v2 c
 	INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
-	WHERE c.confirmation_index IS NOT NULL AND cs.revision_number != c.revision_number AND c.window_start BETWEEN ? AND ?`
+	WHERE c.confirmation_index IS NOT NULL AND c.resolution_index IS NULL AND cs.revision_number != c.revision_number AND c.window_start BETWEEN ? AND ?`
 
 	rows, err := tx.Query(query, index.Height, revisionBroadcastHeight)
 	if err != nil {
