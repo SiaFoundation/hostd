@@ -586,7 +586,6 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		} else if expired == 0 {
-			log.Debug("no more sectors to prune")
 			return nil
 		}
 		log.Debug("removed sectors", zap.Int("expired", expired), zap.Stringers("removed", removed), zap.Int("batch", i))
