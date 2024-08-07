@@ -41,14 +41,12 @@ func (s *session) writeResponse(resp rhp2.ProtocolObject, timeout time.Duration)
 // ContractRevisable returns an error if a contract is not locked or can't be
 // revised. A contract is revisable if the revision number is not the max uint64
 // value and it is not close to the proof window.
-func (s *session) ContractRevisable(height uint64) error {
+func (s *session) ContractRevisable() error {
 	switch {
 	case s.contract.Revision.ParentID == (types.FileContractID{}):
 		return ErrNoContractLocked
 	case s.contract.Revision.RevisionNumber == types.MaxRevisionNumber:
 		return ErrContractRevisionLimit
-	case s.contract.Revision.WindowStart-contracts.RevisionSubmissionBuffer < height:
-		return ErrContractExpired
 	}
 	return nil
 }

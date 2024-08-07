@@ -14,9 +14,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
-	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/internal/threadgroup"
-	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -42,10 +40,38 @@ type (
 		UpdateSettings(s Settings) error
 
 		LastAnnouncement() (Announcement, error)
-		UpdateLastAnnouncement(Announcement) error
-		RevertLastAnnouncement() error
+	}
 
-		LastSettingsConsensusChange() (modules.ConsensusChangeID, uint64, error)
+	// ChainManager defines the interface required by the contract manager to
+	// interact with the consensus set.
+	ChainManager interface {
+		Tip() types.ChainIndex
+		TipState() consensus.State
+		BestIndex(height uint64) (types.ChainIndex, bool)
+		UnconfirmedParents(txn types.Transaction) []types.Transaction
+		AddPoolTransactions([]types.Transaction) (known bool, err error)
+		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
+		RecommendedFee() types.Currency
+	}
+
+	// A Syncer broadcasts transactions to its peers
+	Syncer interface {
+		BroadcastTransactionSet([]types.Transaction)
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
+	}
+
+	// A Wallet manages Siacoins and funds transactions
+	Wallet interface {
+		Address() types.Address
+		UnlockConditions() types.UnlockConditions
+		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
+		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
+		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+	}
+
+	// Alerts registers global alerts.
+	Alerts interface {
+		Register(alerts.Alert)
 	}
 
 	// Settings contains configuration options for the host.
@@ -89,49 +115,22 @@ type (
 		Revision uint64 `json:"revision"`
 	}
 
-	// A TransactionPool broadcasts transactions to the network.
-	TransactionPool interface {
-		AcceptTransactionSet([]types.Transaction) error
-		RecommendedFee() types.Currency
-	}
-
-	// Alerts registers global alerts.
-	Alerts interface {
-		Register(alerts.Alert)
-	}
-
-	// A ChainManager manages the current consensus state
-	ChainManager interface {
-		TipState() consensus.State
-		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
-	}
-
-	// A Wallet manages funds and signs transactions
-	Wallet interface {
-		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
-		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
-	}
-
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
-		hostKey           types.PrivateKey
-		discoveredRHPAddr string
-
-		certKeyFilePath  string
-		certCertFilePath string
+		hostKey          types.PrivateKey
+		announceInterval uint64
 
 		store Store
 		a     Alerts
 		log   *zap.Logger
 
-		cm     ChainManager
-		tp     TransactionPool
+		chain  ChainManager
+		syncer Syncer
 		wallet Wallet
 
-		mu                  sync.Mutex // guards the following fields
-		settings            Settings   // in-memory cache of the host's settings
-		scanHeight          uint64     // track the last block height that was scanned for announcements
-		lastAnnounceAttempt uint64     // debounce announcement transactions
+		mu         sync.Mutex // guards the following fields
+		settings   Settings   // in-memory cache of the host's settings
+		scanHeight uint64     // track the last block height that was scanned for announcements
 
 		ingressLimit *rate.Limiter
 		egressLimit  *rate.Limiter
@@ -250,11 +249,6 @@ func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
 }
 
-// DiscoveredRHP2Address returns the rhp2 address that was discovered by the gateway
-func (m *ConfigManager) DiscoveredRHP2Address() string {
-	return m.discoveredRHPAddr
-}
-
 func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 	// encode the announcement
 	var buf bytes.Buffer
@@ -278,9 +272,18 @@ func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(opts ...Option) (*ConfigManager, error) {
+func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, wm Wallet, opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
+		announceInterval: 144 * 90, // 90 days
+		hostKey:          hostKey,
+
+		store:  store,
+		chain:  cm,
+		syncer: s,
+		wallet: wm,
+
 		log: zap.NewNop(),
+		a:   alerts.NewNop(),
 		tg:  threadgroup.New(),
 
 		// initialize the rate limiters
@@ -299,10 +302,6 @@ func NewConfigManager(opts ...Option) (*ConfigManager, error) {
 		panic("host key invalid")
 	}
 
-	if err := m.reloadCertificates(); err != nil {
-		return nil, fmt.Errorf("failed to load rhp3 WebSocket certificates: %w", err)
-	}
-
 	settings, err := m.store.Settings()
 	if errors.Is(err, ErrNoSettings) {
 		if err := m.store.UpdateSettings(DefaultSettings); err != nil {
@@ -312,28 +311,6 @@ func NewConfigManager(opts ...Option) (*ConfigManager, error) {
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}
-
-	lastChange, height, err := m.store.LastSettingsConsensusChange()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load last settings consensus change: %w", err)
-	}
-	m.scanHeight = height
-
-	go func() {
-		// subscribe to consensus changes
-		err := m.cm.Subscribe(m, lastChange, m.tg.Done())
-		if errors.Is(err, chain.ErrInvalidChangeID) {
-			m.log.Warn("rescanning blockchain due to unknown consensus change ID")
-			// reset change ID and subscribe again
-			if err := m.store.RevertLastAnnouncement(); err != nil {
-				m.log.Fatal("failed to reset wallet", zap.Error(err))
-			} else if err = m.cm.Subscribe(m, modules.ConsensusChangeBeginning, m.tg.Done()); err != nil {
-				m.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
-			}
-		} else if err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {
-			m.log.Fatal("failed to subscribe to consensus changes", zap.Error(err))
-		}
-	}()
 
 	m.settings = settings
 	// update the global rate limiters from settings

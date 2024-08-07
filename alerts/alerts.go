@@ -36,6 +36,12 @@ type (
 		BroadcastEvent(event string, scope string, data any) error
 	}
 
+	// An Alerter is an interface that registers and dismisses alerts.
+	Alerter interface {
+		Register(a Alert)
+		Dismiss(ids ...types.Hash256)
+	}
+
 	// An Alert is a dismissible message that is displayed to the user.
 	Alert struct {
 		// ID is a unique identifier for the alert.
@@ -60,6 +66,8 @@ type (
 		alerts map[types.Hash256]Alert
 	}
 )
+
+var _ Alerter = (*Manager)(nil)
 
 // String implements the fmt.Stringer interface.
 func (s Severity) String() string {
@@ -142,11 +150,12 @@ func (m *Manager) Active() []Alert {
 }
 
 // NewManager initializes a new alerts manager.
-func NewManager(er EventReporter, log *zap.Logger) *Manager {
-	return &Manager{
-		log:    log,
-		events: er,
-
+func NewManager(opts ...ManagerOption) *Manager {
+	m := &Manager{
 		alerts: make(map[types.Hash256]Alert),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }

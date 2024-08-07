@@ -112,7 +112,7 @@ func (sh *SessionHandler) PriceTable() (rhp3.HostPriceTable, error) {
 		return rhp3.HostPriceTable{}, fmt.Errorf("failed to get registry entries: %w", err)
 	}
 
-	fee := sh.tpool.RecommendedFee()
+	fee := sh.chain.RecommendedFee()
 	currentHeight := sh.chain.TipState().Index.Height
 	oneHasting := types.NewCurrency64(1)
 	return rhp3.HostPriceTable{

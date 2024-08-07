@@ -3,40 +3,145 @@ package rhp_test
 import (
 	"bytes"
 	"context"
+	"net"
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
-	rhp3 "go.sia.tech/core/rhp/v3"
+	crhp2 "go.sia.tech/core/rhp/v2"
+	crhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/internal/test"
-	proto3 "go.sia.tech/hostd/internal/test/rhp/v3"
+	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/internal/testutil"
+	proto2 "go.sia.tech/hostd/internal/testutil/rhp/v2"
+	proto3 "go.sia.tech/hostd/internal/testutil/rhp/v3"
+	"go.sia.tech/hostd/rhp"
+	rhp2 "go.sia.tech/hostd/rhp/v2"
+	rhp3 "go.sia.tech/hostd/rhp/v3"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
+func formContract(t *testing.T, cm *chain.Manager, wm *wallet.SingleAddressWallet, hostAddr string, renterKey types.PrivateKey, hostKey types.PublicKey, duration uint64) crhp2.ContractRevision {
+	t.Helper()
+
+	conn, err := net.Dial("tcp", hostAddr)
+	if err != nil {
+		t.Fatal("failed to dial host", err)
+	}
+	defer conn.Close()
+
+	transport, err := crhp2.NewRenterTransport(conn, hostKey)
+	if err != nil {
+		t.Fatal("failed to create transport", err)
+	}
+	defer transport.Close()
+
+	settings, err := proto2.RPCSettings(transport)
+	if err != nil {
+		t.Fatal("failed to get settings", err)
+	}
+
+	fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey, types.Siacoins(1000), types.Siacoins(1000), cm.Tip().Height+duration, settings, wm.Address())
+	formationCost := crhp2.ContractFormationCost(cm.TipState(), fc, settings.ContractPrice)
+	txn := types.Transaction{
+		FileContracts: []types.FileContract{fc},
+	}
+	toSign, err := wm.FundTransaction(&txn, formationCost, true)
+	if err != nil {
+		t.Fatal("failed to fund formation txn:", err)
+	}
+	wm.SignTransaction(&txn, toSign, wallet.ExplicitCoveredFields(txn))
+	formationSet := append(cm.UnconfirmedParents(txn), txn)
+
+	revision, _, err := proto2.RPCFormContract(transport, renterKey, formationSet)
+	if err != nil {
+		t.Fatal("failed to form contract:", err)
+	}
+	return revision
+}
+
+func setupRHP3Host(t *testing.T, node *testutil.HostNode, hostKey types.PrivateKey, maxStorage uint64, log *zap.Logger) (*rhp2.SessionHandler, *rhp3.SessionHandler) {
+	// start the RHP2 listener for forming contracts
+	rhp2Listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { rhp2Listener.Close() })
+
+	// start the RHP3 listener for the actual test
+	rhp3Listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { rhp3Listener.Close() })
+
+	// set the host to accept contracts
+	s := node.Settings.Settings()
+	s.AcceptingContracts = true
+	s.MaxCollateral = types.Siacoins(100000)
+	s.MaxAccountBalance = types.Siacoins(100000)
+	s.StoragePrice = types.NewCurrency64(1)
+	s.ContractPrice = types.NewCurrency64(1)
+	s.EgressPrice = types.NewCurrency64(1)
+	s.IngressPrice = types.NewCurrency64(1)
+	s.BaseRPCPrice = types.NewCurrency64(1)
+	s.NetAddress = rhp3Listener.Addr().String()
+	if err := node.Settings.UpdateSettings(s); err != nil {
+		t.Fatal(err)
+	}
+
+	// initialize a storage volume
+	res := make(chan error)
+	if _, err := node.Volumes.AddVolume(context.Background(), filepath.Join(t.TempDir(), "storage.dat"), maxStorage, res); err != nil {
+		t.Fatal(err)
+	} else if err := <-res; err != nil {
+		t.Fatal(err)
+	}
+
+	sh2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, rhp3Listener.Addr().String(), node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log.Named("rhp2")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sh2.Close() })
+	go sh2.Serve()
+
+	sh3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, node.Chain, node.Syncer, node.Wallet, node.Accounts, node.Contracts, node.Registry, node.Volumes, node.Settings, rhp3.WithLog(log.Named("rhp3")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sh3.Close() })
+	go sh3.Serve()
+
+	return sh2, sh3
+}
+
 func TestPriceTable(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	renter, host, err := test.NewTestingPair(t.TempDir(), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer renter.Close()
-	defer host.Close()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
-	pt, err := host.RHP3PriceTable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// fund the wallet
+	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
+	// start the node
+	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
+
+	// create a RHP3 session
+	session, err := proto3.NewSession(context.Background(), hostKey.PublicKey(), sh3.LocalAddr(), node.Chain, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
+
+	pt, err := sh3.PriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	retrieved, err := session.ScanPriceTable()
 	if err != nil {
@@ -44,18 +149,16 @@ func TestPriceTable(t *testing.T) {
 	}
 	// clear the UID field
 	pt.UID = retrieved.UID
+	// check that the price tables match
 	if !reflect.DeepEqual(pt, retrieved) {
 		t.Fatal("price tables don't match")
 	}
 
-	// pay for a price table using a contract payment
-	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), 200)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// form a contract
+	revision := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
-	account := rhp3.Account(renter.PublicKey())
-	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
+	account := crhp3.Account(renterKey.PublicKey())
+	payment := proto3.ContractPayment(&revision, renterKey, account)
 
 	retrieved, err = session.RegisterPriceTable(payment)
 	if err != nil {
@@ -73,7 +176,7 @@ func TestPriceTable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	payment = proto3.AccountPayment(account, renter.PrivateKey())
+	payment = proto3.AccountPayment(account, renterKey)
 	// pay for a price table using an account
 	retrieved, err = session.RegisterPriceTable(payment)
 	if err != nil {
@@ -88,27 +191,29 @@ func TestPriceTable(t *testing.T) {
 
 func TestAppendSector(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	renter, host, err := test.NewTestingPair(t.TempDir(), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer renter.Close()
-	defer host.Close()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
+	// fund the wallet
+	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+
+	// start the node
+	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
+
+	// create a RHP3 session
+	session, err := proto3.NewSession(context.Background(), hostKey.PublicKey(), sh3.LocalAddr(), node.Chain, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// form a contract to upload sectors
+	revision := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
 	// register the price table
-	account := rhp3.Account(renter.PublicKey())
-	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
+	account := crhp3.Account(renterKey.PublicKey())
+	payment := proto3.ContractPayment(&revision, renterKey, account)
 	pt, err := session.RegisterPriceTable(payment)
 	if err != nil {
 		t.Fatal(err)
@@ -123,27 +228,27 @@ func TestAppendSector(t *testing.T) {
 	var roots []types.Hash256
 	for i := 0; i < 10; i++ {
 		// calculate the cost of the upload
-		cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
+		cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - node.Chain.Tip().Height)).Total()
 		if cost.IsZero() {
 			t.Fatal("cost is zero")
 		}
-		var sector [rhp2.SectorSize]byte
+		var sector [crhp2.SectorSize]byte
 		frand.Read(sector[:256])
-		root := rhp2.SectorRoot(&sector)
+		root := crhp2.SectorRoot(&sector)
 		roots = append(roots, root)
 
-		if _, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost); err != nil {
+		if _, err = session.AppendSector(&sector, &revision, renterKey, payment, cost); err != nil {
 			t.Fatal(err)
 		}
 
 		// check that the contract merkle root matches
-		if revision.Revision.FileMerkleRoot != rhp2.MetaRoot(roots) {
+		if revision.Revision.FileMerkleRoot != crhp2.MetaRoot(roots) {
 			t.Fatal("contract merkle root doesn't match")
 		}
 
 		// download the sector
-		cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize)).Total()
-		downloaded, _, err := session.ReadSector(root, 0, rhp2.SectorSize, payment, cost)
+		cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(crhp2.SectorSize)).Total()
+		downloaded, _, err := session.ReadSector(root, 0, crhp2.SectorSize, payment, cost)
 		if err != nil {
 			t.Fatal(err)
 		} else if !bytes.Equal(downloaded, sector[:]) {
@@ -154,30 +259,29 @@ func TestAppendSector(t *testing.T) {
 
 func TestStoreSector(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	renter, host, err := test.NewTestingPair(t.TempDir(), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer renter.Close()
-	defer host.Close()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
-	// Resize cache to 0 sectors
-	host.Storage().ResizeCache(0)
+	// fund the wallet
+	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
+	// start the node
+	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
+
+	// create a RHP3 session
+	session, err := proto3.NewSession(context.Background(), hostKey.PublicKey(), sh3.LocalAddr(), node.Chain, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// form a contract to upload sectors
+	revision := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
-	account := rhp3.Account(renter.PublicKey())
+	account := crhp3.Account(renterKey.PublicKey())
 	// register the price table
-	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
+	payment := proto3.ContractPayment(&revision, renterKey, account)
 	pt, err := session.RegisterPriceTable(payment)
 	if err != nil {
 		t.Fatal(err)
@@ -190,21 +294,21 @@ func TestStoreSector(t *testing.T) {
 	}
 
 	// upload a sector
-	payment = proto3.AccountPayment(account, renter.PrivateKey())
+	payment = proto3.AccountPayment(account, renterKey)
 	// calculate the cost of the upload
 	usage := pt.StoreSectorCost(10)
 	cost, _ := usage.Total()
-	var sector [rhp2.SectorSize]byte
+	var sector [crhp2.SectorSize]byte
 	frand.Read(sector[:256])
-	root := rhp2.SectorRoot(&sector)
+	root := crhp2.SectorRoot(&sector)
 	if err = session.StoreSector(&sector, 10, payment, cost); err != nil {
 		t.Fatal(err)
 	}
 
 	// download the sector
-	usage = pt.ReadSectorCost(rhp2.SectorSize)
+	usage = pt.ReadSectorCost(crhp2.SectorSize)
 	cost, _ = usage.Total()
-	downloaded, _, err := session.ReadSector(root, 0, rhp2.SectorSize, payment, cost)
+	downloaded, _, err := session.ReadSector(root, 0, crhp2.SectorSize, payment, cost)
 	if err != nil {
 		t.Fatal(err)
 	} else if !bytes.Equal(downloaded, sector[:]) {
@@ -212,15 +316,12 @@ func TestStoreSector(t *testing.T) {
 	}
 
 	// mine until the sector expires
-	if err := host.MineBlocks(types.VoidAddress, 10); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(100 * time.Millisecond) // sync time
+	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 10)
 
 	// check that the sector was deleted
-	usage = pt.ReadSectorCost(rhp2.SectorSize)
+	usage = pt.ReadSectorCost(crhp2.SectorSize)
 	cost, _ = usage.Total()
-	_, _, err = session.ReadSector(root, 0, rhp2.SectorSize, payment, cost)
+	_, _, err = session.ReadSector(root, 0, crhp2.SectorSize, payment, cost)
 	if err == nil {
 		t.Fatal("expected error when reading sector")
 	}
@@ -228,26 +329,28 @@ func TestStoreSector(t *testing.T) {
 
 func TestReadSectorOffset(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	renter, host, err := test.NewTestingPair(t.TempDir(), log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer renter.Close()
-	defer host.Close()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
-	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
+	// fund the wallet
+	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+
+	// start the node
+	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
+
+	// create a RHP3 session
+	session, err := proto3.NewSession(context.Background(), hostKey.PublicKey(), sh3.LocalAddr(), node.Chain, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer session.Close()
 
-	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(100), types.Siacoins(200), 200)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// form a contract to upload sectors
+	revision := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
-	account := rhp3.Account(renter.PublicKey())
-	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
+	account := crhp3.Account(renterKey.PublicKey())
+	payment := proto3.ContractPayment(&revision, renterKey, account)
 	// register the price table
 	pt, err := session.RegisterPriceTable(payment)
 	if err != nil {
@@ -260,18 +363,18 @@ func TestReadSectorOffset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
-	var sectors [][rhp2.SectorSize]byte
+	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - node.Chain.Tip().Height)).Total()
+	var sectors [][crhp2.SectorSize]byte
 	for i := 0; i < 5; i++ {
 		// upload a few sectors
-		payment = proto3.AccountPayment(account, renter.PrivateKey())
+		payment = proto3.AccountPayment(account, renterKey)
 		// calculate the cost of the upload
 		if cost.IsZero() {
 			t.Fatal("cost is zero")
 		}
-		var sector [rhp2.SectorSize]byte
+		var sector [crhp2.SectorSize]byte
 		frand.Read(sector[:256])
-		_, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost)
+		_, err = session.AppendSector(&sector, &revision, renterKey, payment, cost)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -280,7 +383,7 @@ func TestReadSectorOffset(t *testing.T) {
 
 	// download the sector
 	cost, _ = pt.BaseCost().Add(pt.ReadOffsetCost(256)).Total()
-	downloaded, _, err := session.ReadOffset(rhp2.SectorSize*3+64, 256, revision.ID(), payment, cost)
+	downloaded, _, err := session.ReadOffset(crhp2.SectorSize*3+64, 256, revision.ID(), payment, cost)
 	if err != nil {
 		t.Fatal(err)
 	} else if !bytes.Equal(downloaded, sectors[3][64:64+256]) {
@@ -290,339 +393,176 @@ func TestReadSectorOffset(t *testing.T) {
 
 func TestRenew(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	renter, host, err := test.NewTestingPair(t.TempDir(), log)
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+	network, genesis := testutil.V1Network()
+	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
+
+	// fund the wallet
+	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+
+	// start the node
+	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
+
+	// create a RHP3 session
+	session, err := proto3.NewSession(context.Background(), hostKey.PublicKey(), sh3.LocalAddr(), node.Chain, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer renter.Close()
-	defer host.Close()
+	defer session.Close()
+
+	account := crhp3.Account(renterKey.PublicKey())
+
+	assertContractUsage := func(t *testing.T, id types.FileContractID, lockedCollateral types.Currency, expected contracts.Usage) {
+		t.Helper()
+
+		contract, err := node.Contracts.Contract(id)
+		if err != nil {
+			t.Fatal(err)
+		} else if !contract.LockedCollateral.Equals(lockedCollateral) {
+			t.Fatalf("expected locked collateral %v, got %v", lockedCollateral, contract.LockedCollateral)
+		}
+
+		uv := reflect.ValueOf(&contract.Usage).Elem()
+		ev := reflect.ValueOf(&expected).Elem()
+
+		for i := 0; i < uv.NumField(); i++ {
+			va := ev.Field(i).Interface().(types.Currency)
+			vb := uv.Field(i).Interface().(types.Currency)
+			if !va.Equals(vb) {
+				t.Fatalf("field %v: expected %v, got %v", uv.Type().Field(i).Name, va, vb)
+			}
+		}
+	}
+
+	assertRenewal := func(t *testing.T, parentID types.FileContractID, renewal crhp2.ContractRevision, expectedRevisionNumber uint64, expectedRoot types.Hash256, expectedFilesize uint64) {
+		t.Helper()
+
+		if renewal.Revision.FileMerkleRoot != expectedRoot {
+			t.Fatalf("expected root %v, got %v", expectedRoot, renewal.Revision.FileMerkleRoot)
+		} else if renewal.Revision.Filesize != expectedFilesize {
+			t.Fatalf("expected filesize %d, got %d", expectedFilesize, renewal.Revision.Filesize)
+		} else if renewal.Revision.RevisionNumber != expectedRevisionNumber {
+			t.Fatalf("expected revision number %d, got %d", expectedRevisionNumber, renewal.Revision.RevisionNumber)
+		}
+
+		sigHash := rhp.HashRevision(renewal.Revision)
+		if !hostKey.PublicKey().VerifyHash(sigHash, types.Signature(renewal.Signatures[1].Signature)) {
+			t.Fatal("host signature invalid")
+		} else if !renterKey.PublicKey().VerifyHash(sigHash, types.Signature(renewal.Signatures[0].Signature)) {
+			t.Fatal("renter signature invalid")
+		}
+
+		old, err := node.Contracts.Contract(parentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if old.Revision.Filesize != 0 {
+			t.Fatal("filesize mismatch")
+		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
+			t.Fatal("merkle root mismatch")
+		} else if old.RenewedTo != renewal.ID() {
+			t.Fatal("renewed to mismatch")
+		}
+
+		renewed, err := node.Contracts.Contract(renewal.ID())
+		if err != nil {
+			t.Fatal(err)
+		} else if renewed.Revision.Filesize != expectedFilesize {
+			t.Fatal("filesize mismatch")
+		} else if renewed.Revision.FileMerkleRoot != expectedRoot {
+			t.Fatal("merkle root mismatch")
+		} else if renewed.RenewedFrom != parentID {
+			t.Fatalf("expected renewed from %s, got %s", parentID, renewed.RenewedFrom)
+		}
+	}
 
 	t.Run("empty contract", func(t *testing.T) {
-		state := renter.TipState()
 		// form a contract
-		origin, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
-		if err != nil {
-			t.Fatal(err)
-		}
+		origin := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
-		settings, err := renter.Settings(context.Background(), host.RHP2Addr(), host.PublicKey())
-		if err != nil {
-			t.Fatal(err)
-		}
+		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 5)
 
-		// mine a few blocks into the contract
-		if err := host.MineBlocks(host.WalletAddress(), 10); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(100 * time.Millisecond)
+		payment := proto3.ContractPayment(&origin, renterKey, account)
 
-		session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer session.Close()
-
-		account := rhp3.Account(renter.PublicKey())
-		payment := proto3.ContractPayment(&origin, renter.PrivateKey(), account)
 		// register a price table to use for the renewal
 		pt, err := session.RegisterPriceTable(payment)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		state = renter.TipState()
 		renewHeight := origin.Revision.WindowEnd + 10
 		renterFunds := types.Siacoins(10)
 		additionalCollateral := types.Siacoins(20)
-		renewal, _, err := session.RenewContract(&origin, settings.Address, renter.PrivateKey(), renterFunds, additionalCollateral, renewHeight)
+		renewal, _, err := session.RenewContract(&origin, node.Wallet.Address(), renterKey, renterFunds, additionalCollateral, renewHeight)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		// mine a block to confirm the revision
-		if err := host.MineBlocks(host.WalletAddress(), 1); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(100 * time.Millisecond)
+		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 1)
 
-		expectedRevenue := pt.ContractPrice.Add(pt.UpdatePriceTableCost)
-		old, err := host.Contracts().Contract(origin.ID())
-		if err != nil {
-			t.Fatal(err)
-		} else if old.Revision.Filesize != 0 {
-			t.Fatal("filesize mismatch")
-		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
-			t.Fatal("merkle root mismatch")
-		} else if old.RenewedTo != renewal.ID() {
-			t.Fatal("renewed to mismatch")
-		} else if !old.Usage.RPCRevenue.Equals(expectedRevenue) {
-			t.Fatalf("expected old contract rpc revenue to equal %d, got %d", expectedRevenue, old.Usage.RPCRevenue)
-		}
-
-		contract, err := host.Contracts().Contract(renewal.ID())
-		if err != nil {
-			t.Fatal(err)
-		} else if contract.Revision.Filesize != origin.Revision.Filesize {
-			t.Fatal("filesize mismatch")
-		} else if contract.Revision.FileMerkleRoot != origin.Revision.FileMerkleRoot {
-			t.Fatal("merkle root mismatch")
-		} else if !contract.LockedCollateral.Equals(additionalCollateral) {
-			t.Fatalf("locked collateral mismatch: expected %d, got %d", additionalCollateral, contract.LockedCollateral)
-		} else if !contract.Usage.RiskedCollateral.IsZero() {
-			t.Fatalf("expected zero risked collateral, got %d", contract.Usage.RiskedCollateral)
-		} else if !contract.Usage.RPCRevenue.Equals(pt.ContractPrice) {
-			t.Fatalf("expected %d RPC revenue, got %d", settings.ContractPrice, contract.Usage.RPCRevenue)
-		} else if !contract.Usage.StorageRevenue.Equals(pt.RenewContractCost) { // renew contract cost is treated as storage revenue because it is burned
-			t.Fatalf("expected %d storage revenue, got %d", pt.RenewContractCost, contract.Usage.StorageRevenue)
-		} else if contract.RenewedFrom != origin.ID() {
-			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
-		}
+		assertRenewal(t, origin.ID(), renewal, 1, origin.Revision.FileMerkleRoot, origin.Revision.Filesize)
+		assertContractUsage(t, renewal.ID(), additionalCollateral, contracts.Usage{
+			RPCRevenue:     pt.ContractPrice,
+			StorageRevenue: pt.RenewContractCost, // renew contract cost is included because it is burned on failure
+		})
 	})
 
-	t.Run("non-empty contract", func(t *testing.T) {
+	t.Run("drained contract", func(t *testing.T) {
 		// form a contract
-		state := renter.TipState()
-		origin, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(10), types.Siacoins(20), state.Index.Height+200)
-		if err != nil {
-			t.Fatal(err)
-		}
+		origin := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
-		settings, err := renter.Settings(context.Background(), host.RHP2Addr(), host.PublicKey())
-		if err != nil {
-			t.Fatal(err)
-		}
+		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 5)
 
-		session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer session.Close()
+		payment := proto3.ContractPayment(&origin, renterKey, account)
 
-		account := rhp3.Account(renter.PublicKey())
-		payment := proto3.ContractPayment(&origin, renter.PrivateKey(), account)
 		// register a price table to use for the renewal
 		pt, err := session.RegisterPriceTable(payment)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		// fund an account leaving no funds for the renewal
-		if _, err := session.FundAccount(account, payment, origin.Revision.ValidRenterPayout().Sub(pt.FundAccountCost)); err != nil {
-			t.Fatal(err)
-		}
-
-		// generate a sector
-		var sector [rhp2.SectorSize]byte
-		frand.Read(sector[:256])
-
-		// calculate the remaining duration of the contract
+		// upload a sector
 		var remainingDuration uint64
 		contractExpiration := uint64(origin.Revision.WindowEnd)
-		currentHeight := renter.TipState().Index.Height
+		currentHeight := node.Chain.Tip().Height
 		if contractExpiration < currentHeight {
 			t.Fatal("contract expired")
 		}
 
-		payment = proto3.AccountPayment(account, renter.PrivateKey())
+		// generate a sector
+		var sector [crhp2.SectorSize]byte
+		frand.Read(sector[:256])
 
-		// upload the sector
 		remainingDuration = contractExpiration - currentHeight
 		usage := pt.BaseCost().Add(pt.AppendSectorCost(remainingDuration))
 		cost, _ := usage.Total()
-		if _, err := session.AppendSector(&sector, &origin, renter.PrivateKey(), payment, cost); err != nil {
+		if _, err := session.AppendSector(&sector, &origin, renterKey, payment, cost); err != nil {
+			t.Fatal(err)
+		}
+
+		// fund the account leaving no funds for the renewal
+		if _, err := session.FundAccount(account, payment, origin.Revision.ValidRenterPayout().Sub(pt.FundAccountCost)); err != nil {
 			t.Fatal(err)
 		}
 
 		// mine a few blocks into the contract
-		if err := host.MineBlocks(host.WalletAddress(), 10); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(100 * time.Millisecond)
+		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 5)
 
-		state = renter.TipState()
 		renewHeight := origin.Revision.WindowEnd + 10
 		renterFunds := types.Siacoins(10)
 		additionalCollateral := types.Siacoins(20)
-		renewal, _, err := session.RenewContract(&origin, settings.Address, renter.PrivateKey(), renterFunds, additionalCollateral, renewHeight)
+		renewal, _, err := session.RenewContract(&origin, node.Wallet.Address(), renterKey, renterFunds, additionalCollateral, renewHeight)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		extension := renewal.Revision.WindowEnd - origin.Revision.WindowEnd
-		baseStorageRevenue := pt.RenewContractCost.Add(pt.WriteStoreCost.Mul64(origin.Revision.Filesize).Mul64(extension)) // renew contract cost is included because it is burned on failure
-		baseRiskedCollateral := settings.Collateral.Mul64(extension).Mul64(origin.Revision.Filesize)
-
-		expectedExchange := pt.ContractPrice.Add(pt.FundAccountCost).Add(pt.UpdatePriceTableCost).Add(usage.Base)
-		old, err := host.Contracts().Contract(origin.ID())
-		if err != nil {
-			t.Fatal(err)
-		} else if old.Revision.Filesize != 0 {
-			t.Fatal("filesize mismatch")
-		} else if old.Revision.FileMerkleRoot != (types.Hash256{}) {
-			t.Fatal("merkle root mismatch")
-		} else if old.RenewedTo != renewal.ID() {
-			t.Fatal("renewed to mismatch")
-		} else if !old.Usage.RPCRevenue.Equals(expectedExchange) { // renewal renew goes on the new contract
-			t.Fatalf("expected rpc revenue to equal contract price + fund account cost %d, got %d", expectedExchange, old.Usage.RPCRevenue)
-		}
-
-		contract, err := host.Contracts().Contract(renewal.ID())
-		if err != nil {
-			t.Fatal(err)
-		} else if contract.Revision.Filesize != origin.Revision.Filesize {
-			t.Fatal("filesize mismatch")
-		} else if contract.Revision.FileMerkleRoot != origin.Revision.FileMerkleRoot {
-			t.Fatal("merkle root mismatch")
-		} else if contract.LockedCollateral.Cmp(additionalCollateral) <= 0 {
-			t.Fatalf("locked collateral mismatch: expected at least %d, got %d", additionalCollateral, contract.LockedCollateral)
-		} else if !contract.Usage.RPCRevenue.Equals(pt.ContractPrice) {
-			t.Fatalf("expected %d RPC revenue, got %d", pt.ContractPrice, contract.Usage.RPCRevenue)
-		} else if !contract.Usage.RiskedCollateral.Equals(baseRiskedCollateral) {
-			t.Fatalf("expected %d risked collateral, got %d", baseRiskedCollateral, contract.Usage.RiskedCollateral)
-		} else if !contract.Usage.StorageRevenue.Equals(baseStorageRevenue) {
-			t.Fatalf("expected %d storage revenue, got %d", baseStorageRevenue, contract.Usage.StorageRevenue)
-		} else if contract.RenewedFrom != origin.ID() {
-			t.Fatalf("expected renewed from %s, got %s", origin.ID(), contract.RenewedFrom)
-		}
+		baseRiskedCollateral := pt.CollateralCost.Mul64(extension).Mul64(origin.Revision.Filesize)
+		assertContractUsage(t, renewal.Revision.ParentID, additionalCollateral.Add(baseRiskedCollateral), contracts.Usage{
+			RPCRevenue:       pt.ContractPrice,
+			RiskedCollateral: baseRiskedCollateral,
+			StorageRevenue:   pt.RenewContractCost.Add(pt.WriteStoreCost.Mul64(origin.Revision.Filesize).Mul64(extension)), // renew contract cost is included because it is burned on failure
+		})
+		assertRenewal(t, origin.ID(), renewal, 1, origin.Revision.FileMerkleRoot, origin.Revision.Filesize)
 	})
-}
-
-func BenchmarkAppendSector(b *testing.B) {
-	log := zaptest.NewLogger(b)
-	renter, host, err := test.NewTestingPair(b.TempDir(), log)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer renter.Close()
-	defer host.Close()
-
-	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer session.Close()
-
-	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(50), types.Siacoins(100), 200)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	account := rhp3.Account(renter.PublicKey())
-	// register the price table
-	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
-	pt, err := session.RegisterPriceTable(payment)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	// fund an account
-	if _, err = session.FundAccount(account, payment, types.Siacoins(10)); err != nil {
-		b.Fatal(err)
-	}
-
-	// upload a sector
-	payment = proto3.AccountPayment(account, renter.PrivateKey())
-	// calculate the cost of the upload
-	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
-	if cost.IsZero() {
-		b.Fatal("cost is zero")
-	}
-
-	var sectors [][rhp2.SectorSize]byte
-	for i := 0; i < b.N; i++ {
-		var sector [rhp2.SectorSize]byte
-		frand.Read(sector[:256])
-		sectors = append(sectors, sector)
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	b.SetBytes(rhp2.SectorSize)
-
-	for i := 0; i < b.N; i++ {
-		_, err = session.AppendSector(&sectors[i], &revision, renter.PrivateKey(), payment, cost)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkReadSector(b *testing.B) {
-	log := zaptest.NewLogger(b)
-	renter, host, err := test.NewTestingPair(b.TempDir(), log)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer renter.Close()
-	defer host.Close()
-
-	s := settings.DefaultSettings
-	s.MaxAccountBalance = types.Siacoins(100)
-	s.MaxCollateral = types.Siacoins(10000)
-	s.EgressPrice = types.ZeroCurrency
-	s.IngressPrice = types.ZeroCurrency
-	s.AcceptingContracts = true
-	if err := host.UpdateSettings(s); err != nil {
-		b.Fatal(err)
-	}
-
-	if err := host.AddVolume(filepath.Join(b.TempDir(), "data.dat"), uint64(b.N)); err != nil {
-		b.Fatal(err)
-	}
-
-	session, err := renter.NewRHP3Session(context.Background(), host.RHP3Addr(), host.PublicKey())
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer session.Close()
-
-	revision, err := renter.FormContract(context.Background(), host.RHP2Addr(), host.PublicKey(), types.Siacoins(500), types.Siacoins(1000), 200)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	account := rhp3.Account(renter.PublicKey())
-	// register the price table
-	payment := proto3.ContractPayment(&revision, renter.PrivateKey(), account)
-	pt, err := session.RegisterPriceTable(payment)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	// fund an account
-	_, err = session.FundAccount(account, payment, types.Siacoins(100))
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	// upload a sector
-	payment = proto3.AccountPayment(account, renter.PrivateKey())
-	// calculate the cost of the upload
-	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - renter.TipState().Index.Height)).Total()
-	if cost.IsZero() {
-		b.Fatal("cost is zero")
-	}
-
-	var roots []types.Hash256
-	for i := 0; i < b.N; i++ {
-		var sector [rhp2.SectorSize]byte
-		frand.Read(sector[:256])
-
-		_, err = session.AppendSector(&sector, &revision, renter.PrivateKey(), payment, cost)
-		if err != nil {
-			b.Fatal(err)
-		}
-		roots = append(roots, rhp2.SectorRoot(&sector))
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	b.SetBytes(rhp2.SectorSize)
-
-	for i := 0; i < b.N; i++ {
-		_, _, err = session.ReadSector(roots[i], 0, rhp2.SectorSize, payment, cost)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
 }

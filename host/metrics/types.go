@@ -44,10 +44,11 @@ type (
 
 	// Contracts is a collection of metrics related to contracts.
 	Contracts struct {
-		Pending    uint64 `json:"pending"`
 		Active     uint64 `json:"active"`
 		Rejected   uint64 `json:"rejected"`
 		Failed     uint64 `json:"failed"`
+		Renewed    uint64 `json:"renewed"`
+		Finalized  uint64 `json:"finalized"`
 		Successful uint64 `json:"successful"`
 
 		LockedCollateral types.Currency `json:"lockedCollateral"`

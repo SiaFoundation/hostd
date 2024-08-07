@@ -74,7 +74,7 @@ func HashRevision(rev types.FileContractRevision) types.Hash256 {
 
 // InitialRevision returns the first revision of a file contract formation
 // transaction.
-func InitialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey types.UnlockKey) types.FileContractRevision {
+func InitialRevision(formationTxn types.Transaction, hostPubKey, renterPubKey types.UnlockKey) types.FileContractRevision {
 	fc := formationTxn.FileContracts[0]
 	return types.FileContractRevision{
 		ParentID:         formationTxn.FileContractID(0),

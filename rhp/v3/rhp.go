@@ -82,20 +82,26 @@ type (
 
 	// A ChainManager provides access to the current state of the blockchain.
 	ChainManager interface {
+		Tip() types.ChainIndex
 		TipState() consensus.State
+		UnconfirmedParents(txn types.Transaction) []types.Transaction
+		AddPoolTransactions([]types.Transaction) (known bool, err error)
+		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
+		RecommendedFee() types.Currency
+	}
+
+	// A Syncer broadcasts transactions to the network
+	Syncer interface {
+		BroadcastTransactionSet([]types.Transaction)
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
 	}
 
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.Address
-		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.Hash256, func(), error)
-		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
-	}
-
-	// A TransactionPool broadcasts transactions to the network.
-	TransactionPool interface {
-		AcceptTransactionSet([]types.Transaction) error
-		RecommendedFee() types.Currency
+		FundTransaction(txn *types.Transaction, amount types.Currency, unconfirmed bool) ([]types.Hash256, error)
+		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+		ReleaseInputs(txn []types.Transaction, v2txn []types.V2Transaction)
 	}
 
 	// A SettingsReporter reports the host's current configuration.
@@ -116,20 +122,21 @@ type (
 		privateKey types.PrivateKey
 
 		listener net.Listener
-		monitor  rhp.DataMonitor
-		tg       *threadgroup.ThreadGroup
 
 		accounts  AccountManager
 		contracts ContractManager
-		sessions  SessionReporter
 		registry  RegistryManager
 		storage   StorageManager
-		log       *zap.Logger
+		settings  SettingsReporter
 
-		chain    ChainManager
-		settings SettingsReporter
-		tpool    TransactionPool
-		wallet   Wallet
+		chain  ChainManager
+		syncer Syncer
+		wallet Wallet
+
+		log      *zap.Logger
+		sessions SessionReporter
+		monitor  rhp.DataMonitor
+		tg       *threadgroup.ThreadGroup
 
 		priceTables *priceTableManager
 	}
@@ -275,27 +282,31 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, tpool TransactionPool, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, monitor rhp.DataMonitor, sessions SessionReporter, log *zap.Logger) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, syncer Syncer, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, opts ...SessionHandlerOption) (*SessionHandler, error) {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
 		listener: l,
-		monitor:  monitor,
-		tg:       threadgroup.New(),
 
 		chain:  chain,
-		tpool:  tpool,
+		syncer: syncer,
 		wallet: wallet,
 
 		accounts:  accounts,
 		contracts: contracts,
-		sessions:  sessions,
 		registry:  registry,
 		settings:  settings,
 		storage:   storage,
-		log:       log,
+
+		log:      zap.NewNop(),
+		monitor:  rhp.NewNoOpMonitor(),
+		sessions: noopSessionReporter{},
+		tg:       threadgroup.New(),
 
 		priceTables: newPriceTableManager(),
+	}
+	for _, opt := range opts {
+		opt(sh)
 	}
 	return sh, nil
 }

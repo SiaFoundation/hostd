@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/wallet"
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 )
@@ -19,17 +21,45 @@ import (
 // A Client is a client for the hostd API.
 type Client struct {
 	c jape.Client
+
+	mu sync.Mutex // protects the following fields
+	n  *consensus.Network
 }
 
-// Host returns the current state of the host
-func (c *Client) Host() (resp HostState, err error) {
-	err = c.c.GET("/state/host", &resp)
+// State returns the current state of the host
+func (c *Client) State() (resp State, err error) {
+	err = c.c.GET("/state", &resp)
 	return
 }
 
-// Consensus returns the current consensus state.
-func (c *Client) Consensus() (resp ConsensusState, err error) {
-	err = c.c.GET("/state/consensus", &resp)
+// ConsensusNetwork returns the node's consensus network
+func (c *Client) ConsensusNetwork() (network *consensus.Network, err error) {
+	err = c.c.GET("/state/consensus/network", network)
+	return
+}
+
+// ConsensusTip returns the current consensus tip
+func (c *Client) ConsensusTip() (tip types.ChainIndex, err error) {
+	err = c.c.GET("/state/consensus/tip", &tip)
+	return
+}
+
+// ConsensusTipState returns the current consensus tip state
+func (c *Client) ConsensusTipState() (state consensus.State, err error) {
+	err = c.c.GET("/state/consensus/tipstate", &state)
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	if c.n == nil {
+		c.n, err = c.ConsensusNetwork()
+		if err != nil {
+			c.mu.Unlock()
+			return consensus.State{}, fmt.Errorf("failed to get consensus network: %w", err)
+		}
+	}
+	state.Network = c.n
+	c.mu.Unlock()
 	return
 }
 
@@ -184,15 +214,15 @@ func (c *Client) Wallet() (resp WalletResponse, err error) {
 	return
 }
 
-// Transactions returns the transactions of the host's wallet.
-func (c *Client) Transactions(limit, offset int) (transactions []wallet.Transaction, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallet/transactions?limit=%d&offset=%d", limit, offset), &transactions)
+// Events returns the transactions of the host's wallet.
+func (c *Client) Events(limit, offset int) (transactions []wallet.Event, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallet/events?limit=%d&offset=%d", limit, offset), &transactions)
 	return
 }
 
-// PendingTransactions returns transactions that are not yet confirmed.
-func (c *Client) PendingTransactions() (transactions []wallet.Transaction, err error) {
-	err = c.c.GET("/wallet/pending", &transactions)
+// PendingEvents returns transactions that are not yet confirmed.
+func (c *Client) PendingEvents() (events []wallet.Event, err error) {
+	err = c.c.GET("/wallet/pending", &events)
 	return
 }
 
@@ -225,8 +255,8 @@ func (c *Client) MkDir(path string) error {
 	return c.c.PUT("/system/dir", req)
 }
 
-// RegisterWebHook registers a new WebHook.
-func (c *Client) RegisterWebHook(callbackURL string, scopes []string) (hook webhooks.WebHook, err error) {
+// RegisterWebHook registers a new Webhook.
+func (c *Client) RegisterWebHook(callbackURL string, scopes []string) (hook webhooks.Webhook, err error) {
 	req := RegisterWebHookRequest{
 		CallbackURL: callbackURL,
 		Scopes:      scopes,
@@ -235,8 +265,8 @@ func (c *Client) RegisterWebHook(callbackURL string, scopes []string) (hook webh
 	return
 }
 
-// UpdateWebHook updates the WebHook with the specified ID.
-func (c *Client) UpdateWebHook(id int64, callbackURL string, scopes []string) (hook webhooks.WebHook, err error) {
+// UpdateWebHook updates the Webhook with the specified ID.
+func (c *Client) UpdateWebHook(id int64, callbackURL string, scopes []string) (hook webhooks.Webhook, err error) {
 	req := RegisterWebHookRequest{
 		CallbackURL: callbackURL,
 		Scopes:      scopes,
@@ -245,13 +275,13 @@ func (c *Client) UpdateWebHook(id int64, callbackURL string, scopes []string) (h
 	return
 }
 
-// DeleteWebHook deletes the WebHook with the specified ID.
+// DeleteWebHook deletes the Webhook with the specified ID.
 func (c *Client) DeleteWebHook(id int64) error {
 	return c.c.DELETE(fmt.Sprintf("/webhooks/%d", id))
 }
 
 // WebHooks returns all registered WebHooks.
-func (c *Client) WebHooks() (hooks []webhooks.WebHook, err error) {
+func (c *Client) WebHooks() (hooks []webhooks.Webhook, err error) {
 	err = c.c.GET("/webhooks", &hooks)
 	return
 }

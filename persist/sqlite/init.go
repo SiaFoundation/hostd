@@ -19,9 +19,9 @@ import (
 var initDatabase string
 
 func (s *Store) initNewDatabase(target int64) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if _, err := tx.Exec(initDatabase); err != nil {
-			return fmt.Errorf("failed to initialize database: %w", err)
+			return err
 		} else if err := setDBVersion(tx, target); err != nil {
 			return fmt.Errorf("failed to set initial database version: %w", err)
 		} else if err = generateHostKey(tx); err != nil {
@@ -35,7 +35,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 	log := s.log.Named("migrations")
 	log.Info("migrating database", zap.Int64("current", current), zap.Int64("target", target))
 
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if _, err := tx.Exec("PRAGMA defer_foreign_keys=ON"); err != nil {
 			return fmt.Errorf("failed to enable foreign key deferral: %w", err)
 		}
@@ -46,8 +46,10 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 				return fmt.Errorf("failed to migrate database to version %v: %w", current, err)
 			}
 			// check that no foreign key constraints were violated
-			if err := tx.QueryRow("PRAGMA foreign_key_check").Scan(); !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("foreign key constraints are not satisfied")
+			if err := tx.QueryRow("PRAGMA foreign_key_check").Scan(); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to check foreign key constraints after migration to version %v: %w", current, err)
+			} else if err == nil {
+				return fmt.Errorf("foreign key constraint violated after migration to version %v: %w", current, err)
 			}
 			log.Debug("migration complete", zap.Int64("current", current), zap.Int64("target", target), zap.Duration("elapsed", time.Since(start)))
 		}
@@ -63,9 +65,13 @@ func (s *Store) init() error {
 	version := getDBVersion(s.db)
 	switch {
 	case version == 0:
-		return s.initNewDatabase(target)
+		if err := s.initNewDatabase(target); err != nil {
+			return fmt.Errorf("failed to initialize database: %w", err)
+		}
 	case version < target:
-		return s.upgradeDatabase(version, target)
+		if err := s.upgradeDatabase(version, target); err != nil {
+			return fmt.Errorf("failed to upgrade database: %w", err)
+		}
 	case version > target:
 		return fmt.Errorf("database version %v is newer than expected %v. database downgrades are not supported", version, target)
 	}
@@ -73,7 +79,7 @@ func (s *Store) init() error {
 	return nil
 }
 
-func generateHostKey(tx txn) (err error) {
+func generateHostKey(tx *txn) (err error) {
 	key := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	var dbID int64
 	err = tx.QueryRow(`UPDATE global_settings SET host_key=? RETURNING id`, key).Scan(&dbID)
