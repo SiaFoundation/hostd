@@ -406,7 +406,7 @@ func (a *api) handleGETWalletEvents(jc jape.Context) {
 }
 
 func (a *api) handleGETWalletPending(jc jape.Context) {
-	pending, err := a.wallet.UnconfirmedTransactions()
+	pending, err := a.wallet.UnconfirmedEvents()
 	if !a.checkServerError(jc, "failed to get wallet pending", err) {
 		return
 	}

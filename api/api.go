@@ -31,7 +31,7 @@ type (
 	Wallet interface {
 		Address() types.Address
 		Balance() (balance wallet.Balance, err error)
-		UnconfirmedTransactions() ([]wallet.Event, error)
+		UnconfirmedEvents() ([]wallet.Event, error)
 		Events(offset, limit int) ([]wallet.Event, error)
 
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
