@@ -91,4 +91,14 @@ func TestAutoAnnounce(t *testing.T) {
 	// trigger and confirm the new announcement
 	testutil.MineAndSync(t, node.Chain, idx, wm.Address(), 2)
 	assertAnnouncement(t, "baz.qux:5678", 205)
+
+	// mine until the v2 hardfork activates. The host should re-announce with a
+	// v2 attestation.
+	n := node.Chain.TipState().Network
+	testutil.MineAndSync(t, node.Chain, idx, wm.Address(), int(n.HardforkV2.AllowHeight-node.Chain.Tip().Height)+1)
+	assertAnnouncement(t, "baz.qux:5678", n.HardforkV2.AllowHeight+1)
+
+	// mine a few more blocks to ensure the host doesn't re-announce
+	testutil.MineAndSync(t, node.Chain, idx, wm.Address(), 10)
+	assertAnnouncement(t, "baz.qux:5678", n.HardforkV2.AllowHeight+1)
 }

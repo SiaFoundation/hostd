@@ -1,7 +1,6 @@
 package settings
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
@@ -48,10 +47,13 @@ type (
 		Tip() types.ChainIndex
 		TipState() consensus.State
 		BestIndex(height uint64) (types.ChainIndex, bool)
+		RecommendedFee() types.Currency
+
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddPoolTransactions([]types.Transaction) (known bool, err error)
+
+		V2UnconfirmedParents(txn types.V2Transaction) []types.V2Transaction
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
-		RecommendedFee() types.Currency
 	}
 
 	// A Syncer broadcasts transactions to its peers
@@ -63,10 +65,12 @@ type (
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
-		UnlockConditions() types.UnlockConditions
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
 		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+
+		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (consensus.State, []int, error)
+		SignV2Inputs(state consensus.State, txn *types.V2Transaction, toSign []int)
 	}
 
 	// Alerts registers global alerts.
@@ -173,8 +177,6 @@ var (
 	}
 	// ErrNoSettings must be returned by the store if the host has no settings yet
 	ErrNoSettings = errors.New("no settings found")
-
-	specifierAnnouncement = types.NewSpecifier("HostAnnouncement")
 )
 
 // setRateLimit sets the bandwidth rate limit for the host
@@ -247,28 +249,6 @@ func (m *ConfigManager) Settings() Settings {
 // BandwidthLimiters returns the rate limiters for all traffic
 func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
-}
-
-func createAnnouncement(priv types.PrivateKey, netaddress string) []byte {
-	// encode the announcement
-	var buf bytes.Buffer
-	pub := priv.PublicKey()
-	enc := types.NewEncoder(&buf)
-	specifierAnnouncement.EncodeTo(enc)
-	enc.WriteString(netaddress)
-	pub.UnlockKey().EncodeTo(enc)
-	if err := enc.Flush(); err != nil {
-		panic(err)
-	}
-	// hash without the signature
-	sigHash := types.HashBytes(buf.Bytes())
-	// sign
-	sig := priv.SignHash(sigHash)
-	sig.EncodeTo(enc)
-	if err := enc.Flush(); err != nil {
-		panic(err)
-	}
-	return buf.Bytes()
 }
 
 // NewConfigManager initializes a new config manager
