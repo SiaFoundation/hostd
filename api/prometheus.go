@@ -412,19 +412,22 @@ func (s SyncerAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 
 // PrometheusMetric returns Prometheus samples for the hosts transactions.
 func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric) {
-	metricName := "hostd_wallet_transaction"
+	metricName := "hostd_wallet_event"
 	for _, txn := range w {
+		inflow, outflow := txn.SiacoinInflow(), txn.SiacoinOutflow()
+
 		var value float64
-		if txn.Inflow.Cmp(txn.Outflow) > 0 { // inflow > outflow = positive value
-			value = txn.Inflow.Sub(txn.Outflow).Siacoins()
+		if inflow.Cmp(outflow) > 0 { // inflow > outflow = positive value
+			value = inflow.Sub(outflow).Siacoins()
 		} else { // inflow < outflow = negative value
-			value = txn.Outflow.Sub(txn.Inflow).Siacoins() * -1
+			value = outflow.Sub(inflow).Siacoins() * -1
 		}
 
 		metrics = append(metrics, prometheus.Metric{
 			Name: metricName,
 			Labels: map[string]any{
 				"txid": strings.Split(txn.ID.String(), ":")[1],
+				"type": txn.Type,
 			},
 			Value: value,
 		})
@@ -434,19 +437,21 @@ func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric)
 
 // PrometheusMetric returns Prometheus samples for the host pending transactions.
 func (w WalletPendingResp) PrometheusMetric() (metrics []prometheus.Metric) {
-	metricName := "hostd_wallet_transaction_pending"
+	metricName := "hostd_wallet_event_pending"
 	for _, txn := range w {
+		inflow, outflow := txn.SiacoinInflow(), txn.SiacoinOutflow()
 		var value float64
-		if txn.Inflow.Cmp(txn.Outflow) > 0 { // inflow > outflow = positive value
-			value = txn.Inflow.Sub(txn.Outflow).Siacoins()
+		if inflow.Cmp(outflow) > 0 { // inflow > outflow = positive value
+			value = inflow.Sub(outflow).Siacoins()
 		} else { // inflow < outflow = negative value
-			value = txn.Outflow.Sub(txn.Inflow).Siacoins() * -1
+			value = outflow.Sub(inflow).Siacoins() * -1
 		}
 
 		metrics = append(metrics, prometheus.Metric{
 			Name: metricName,
 			Labels: map[string]any{
 				"txid": strings.Split(txn.ID.String(), ":")[1],
+				"type": txn.Type,
 			},
 			Value: value,
 		})
