@@ -75,7 +75,10 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 	}
 
 	// check if a new announcement is needed
-	if index.Height < nextHeight && announcement.Address == netaddress {
+	n := m.chain.TipState().Network
+	// re-announce if the v2 hardfork has activated and the last announcement was before activation
+	reannounceV2 := index.Height >= n.HardforkV2.AllowHeight && announcement.Index.Height < n.HardforkV2.AllowHeight
+	if !reannounceV2 && index.Height < nextHeight && announcement.Address == netaddress {
 		return nil
 	}
 
