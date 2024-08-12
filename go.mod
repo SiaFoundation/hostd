@@ -11,19 +11,19 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.4.0
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
-	go.sia.tech/core v0.4.1
-	go.sia.tech/coreutils v0.2.1
+	go.sia.tech/core v0.4.3
+	go.sia.tech/coreutils v0.2.5
 	go.sia.tech/jape v0.12.0
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca
 	go.sia.tech/web/hostd v0.45.1
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.23.0
-	golang.org/x/term v0.22.0
+	golang.org/x/sys v0.24.0
+	golang.org/x/term v0.23.0
 	golang.org/x/time v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/frand v1.4.2
-	nhooyr.io/websocket v1.8.11
+	nhooyr.io/websocket v1.8.17
 )
 
 require (
