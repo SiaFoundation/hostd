@@ -11,6 +11,7 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
@@ -1289,4 +1290,51 @@ func TestSectorRoots(t *testing.T) {
 			t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
 		}
 	}
+}
+
+func TestChainIndexElementsDeepReorg(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	network, genesis := testutil.V2Network()
+	n1 := testutil.NewConsensusNode(t, network, genesis, log.Named("node1"))
+
+	h1 := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log.Named("host"))
+
+	if _, err := h1.Syncer.Connect(context.Background(), n1.Syncer.Addr()); err != nil {
+		t.Fatal(err)
+	}
+
+	mineBlock := func(t *testing.T, cm *chain.Manager, addr types.Address, n int) {
+		t.Helper()
+
+		for i := 0; i < n; i++ {
+			b, ok := coreutils.MineBlock(cm, addr, 5*time.Second)
+			if !ok {
+				t.Fatal("failed to mine block")
+			} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
+				t.Fatal("failed to add block:", err)
+			}
+		}
+	}
+
+	waitForSync := func(index types.ChainIndex) {
+		for {
+			if h1.Indexer.Tip() == index {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	mineBlock(t, n1.Chain, h1.Wallet.Address(), 200)
+	waitForSync(n1.Chain.Tip())
+
+	n2 := testutil.NewConsensusNode(t, network, genesis, log.Named("node2"))
+
+	mineBlock(t, n2.Chain, h1.Wallet.Address(), 500)
+
+	if _, err := h1.Syncer.Connect(context.Background(), n2.Syncer.Addr()); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForSync(n2.Chain.Tip())
 }
