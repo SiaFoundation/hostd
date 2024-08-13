@@ -31,10 +31,10 @@ type (
 		// AccountBalance returns the balance of the account with the given ID.
 		AccountBalance(accountID rhp3.Account) (types.Currency, error)
 		// CreditAccountWithContract adds the specified amount to the account with the given ID.
-		CreditAccountWithContract(FundAccountWithContract) (types.Currency, error)
-		// DebitAccount subtracts the specified amount from the account with the given
-		// ID. Returns the remaining balance of the account.
-		DebitAccount(accountID rhp3.Account, usage Usage) (types.Currency, error)
+		CreditAccountWithContract(FundAccountWithContract) error
+		// DebitAccount subtracts the specified amount from the account with the
+		// given ID.
+		DebitAccount(accountID rhp3.Account, usage Usage) error
 	}
 
 	// Settings returns the host's current settings.
@@ -130,7 +130,7 @@ func (am *AccountManager) Credit(req FundAccountWithContract, refund bool) (type
 	}
 
 	// credit the account
-	if _, err = am.store.CreditAccountWithContract(req); err != nil {
+	if err = am.store.CreditAccountWithContract(req); err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to credit account: %w", err)
 	}
 	// increment the balance in memory, if it exists

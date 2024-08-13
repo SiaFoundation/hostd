@@ -127,8 +127,7 @@ func (b *Budget) Commit() error {
 		return nil
 	}
 	// debit the account
-	_, err := b.am.store.DebitAccount(b.accountID, b.usage)
-	if err != nil {
+	if err := b.am.store.DebitAccount(b.accountID, b.usage); err != nil {
 		return fmt.Errorf("failed to debit account: %w", err)
 	}
 	// calculate the remainder and zero out the budget
