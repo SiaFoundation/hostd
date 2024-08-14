@@ -39,6 +39,25 @@ type (
 
 var _ index.UpdateTx = (*updateTx)(nil)
 
+// ResetChainState resets the consensus state of the store. This
+// should only occur if the user has reset their consensus database to
+// sync from scratch.
+func (s *Store) ResetChainState() error {
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`
+-- v2 contracts
+DELETE FROM contracts_v2_chain_index_elements;
+DELETE FROM contract_v2_state_elements;
+-- wallet
+DELETE FROM wallet_siacoin_elements;
+DELETE FROM wallet_events;
+DELETE FROM host_stats WHERE stat=?; -- reset wallet stats since they are derived from the chain
+-- settings
+UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, last_announce_address=NULL`, metricWalletBalance)
+		return err
+	})
+}
+
 // WalletStateElements returns all state elements related to the wallet. It is used
 // to update the proofs of all state elements affected by the update.
 func (ux *updateTx) WalletStateElements() (elements []types.StateElement, err error) {
