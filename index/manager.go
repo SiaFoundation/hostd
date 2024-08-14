@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -17,6 +18,10 @@ import (
 type (
 	// A Store is a persistent store for the index manager.
 	Store interface {
+		// ResetChainState resets the consensus state of the store. This
+		// should only occur if the user has reset their consensus database to
+		// sync from scratch.
+		ResetChainState() error
 		UpdateChainState(func(UpdateTx) error) error
 		Tip() (types.ChainIndex, error)
 	}
@@ -122,7 +127,7 @@ func NewManager(store Store, chain *chain.Manager, contracts ContractManager, wa
 	}
 
 	reorgCh := make(chan struct{}, 1)
-	reorgCh <- struct{}{} // trigger initial check
+	reorgCh <- struct{}{} // trigger initial sync
 	stop := m.chain.OnReorg(func(index types.ChainIndex) {
 		select {
 		case reorgCh <- struct{}{}:
@@ -145,7 +150,7 @@ func NewManager(store Store, chain *chain.Manager, contracts ContractManager, wa
 			case <-ctx.Done():
 				return
 			case <-reorgCh:
-				if err := m.syncDB(ctx); err != nil {
+				if err := m.syncDB(ctx); err != nil && !errors.Is(err, context.Canceled) {
 					m.log.Error("failed to sync database", zap.Error(err))
 				}
 			}
