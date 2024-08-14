@@ -10,7 +10,7 @@ on:
 
 jobs:
   publish:
-    uses: SiaFoundation/workflows/.github/workflows/go-publish@master
+    uses: SiaFoundation/workflows/.github/workflows/go-publish.yml@master
     secrets: inherit
     with:
       build-args: -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'
