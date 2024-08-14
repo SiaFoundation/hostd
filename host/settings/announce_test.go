@@ -118,7 +118,6 @@ func TestAutoAnnounce(t *testing.T) {
 	assertAnnouncement(t, "baz.qux:5678", n.HardforkV2.AllowHeight+1)
 }
 
-// TODO: This test panics
 func TestAutoAnnounceV2(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	network, genesisBlock := testutil.V2Network()
