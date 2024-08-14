@@ -465,6 +465,5 @@ func TestFormContractV2(t *testing.T) {
 		t.Fatal("expected formation to fail")
 	}
 
-	// mine again for shits and giggles
 	testutil.MineAndSync(t, node, node.Wallet.Address(), 200)
 }
