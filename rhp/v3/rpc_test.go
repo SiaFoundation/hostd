@@ -128,7 +128,7 @@ func TestPriceTable(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -198,7 +198,7 @@ func TestAppendSector(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -277,7 +277,7 @@ func TestStoreSector(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -329,7 +329,7 @@ func TestStoreSector(t *testing.T) {
 	}
 
 	// mine until the sector expires
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 10)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 10)
 
 	// check that the sector was deleted
 	usage = pt.ReadSectorCost(crhp2.SectorSize)
@@ -347,7 +347,7 @@ func TestReadSectorOffset(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -411,7 +411,7 @@ func TestRenew(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -492,7 +492,7 @@ func TestRenew(t *testing.T) {
 		// form a contract
 		origin := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 5)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 5)
 
 		payment := proto3.ContractPayment(&origin, renterKey, account)
 
@@ -511,7 +511,7 @@ func TestRenew(t *testing.T) {
 		}
 
 		// mine a block to confirm the revision
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 1)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 1)
 
 		assertRenewal(t, origin.ID(), renewal, 1, origin.Revision.FileMerkleRoot, origin.Revision.Filesize)
 		assertContractUsage(t, renewal.ID(), additionalCollateral, contracts.Usage{
@@ -524,7 +524,7 @@ func TestRenew(t *testing.T) {
 		// form a contract
 		origin := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 200)
 
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 5)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 5)
 
 		payment := proto3.ContractPayment(&origin, renterKey, account)
 
@@ -559,7 +559,7 @@ func TestRenew(t *testing.T) {
 		}
 
 		// mine a few blocks into the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 5)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 5)
 
 		renewHeight := origin.Revision.WindowEnd + 10
 		renterFunds := types.Siacoins(10)

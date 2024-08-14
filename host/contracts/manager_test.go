@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"go.sia.tech/core/gateway"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils"
@@ -228,7 +229,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		network, genesis := testutil.V1Network()
 		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 		cm := node.Chain
 		c := node.Contracts
@@ -277,7 +278,7 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// mine until the contract is rejected
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 20)
+		testutil.MineAndSync(t, node, types.VoidAddress, 20)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusRejected)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 	})
@@ -288,24 +289,24 @@ func TestContractLifecycle(t *testing.T) {
 
 		network, genesis := testutil.V1Network()
 		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, false)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// mine a block to rebroadcast the formation set
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// mine another block to confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		assertContractMetrics(t, node.Store, 1, 0, types.Siacoins(20), types.ZeroCurrency)
 
 		// mine until the contract is successful
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(rev.Revision.WindowEnd-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, int(rev.Revision.WindowEnd-node.Chain.Tip().Height)+1)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusSuccessful)
 		assertContractMetrics(t, node.Store, 0, 1, types.ZeroCurrency, types.ZeroCurrency)
 	})
@@ -326,7 +327,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -336,7 +337,7 @@ func TestContractLifecycle(t *testing.T) {
 		// pending contracts do not contribute to metrics
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
@@ -405,7 +406,7 @@ func TestContractLifecycle(t *testing.T) {
 		// mine until right before the proof window so the revision is broadcast
 		// and confirmed
 		remainingBlocks := rev.Revision.WindowStart - node.Chain.Tip().Height - 1
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(remainingBlocks))
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		contract, err := node.Contracts.Contract(rev.Revision.ParentID)
@@ -416,7 +417,7 @@ func TestContractLifecycle(t *testing.T) {
 		}
 
 		// mine into the proof window
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 2)
+		testutil.MineAndSync(t, node, types.VoidAddress, 2)
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusSuccessful)
 		assertContractMetrics(t, node.Store, 0, 1, types.ZeroCurrency, types.ZeroCurrency)
@@ -438,7 +439,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -448,7 +449,7 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
@@ -481,7 +482,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		// mine until right before the proof window so the revision is broadcast
 		remainingBlocks := rev.Revision.WindowStart - node.Chain.Tip().Height - 1
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(remainingBlocks))
 
 		contract, err := node.Contracts.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -495,13 +496,13 @@ func TestContractLifecycle(t *testing.T) {
 		// mine until the end of the proof window -- contract should still be
 		// active since no proof is required.
 		remainingBlocks = rev.Revision.WindowEnd - node.Chain.Tip().Height - 1
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(remainingBlocks))
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		// mine after the proof window ends -- contract should be successful
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 10)
+		testutil.MineAndSync(t, node, types.VoidAddress, 10)
 
 		assertContractMetrics(t, node.Store, 0, 1, types.ZeroCurrency, types.ZeroCurrency)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusSuccessful)
@@ -532,7 +533,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -542,7 +543,7 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
@@ -568,7 +569,7 @@ func TestContractLifecycle(t *testing.T) {
 		// mine until right before the proof window starts to broadcast and
 		// confirm the revision
 		remainingBlocks := rev.Revision.WindowStart - node.Chain.Tip().Height - 1
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(remainingBlocks))
 
 		contract, err := node.Contracts.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -582,7 +583,7 @@ func TestContractLifecycle(t *testing.T) {
 		// mine until just before the end of the proof window to broadcast the
 		// proof and confirm the resolution
 		remainingBlocks = rev.Revision.WindowEnd - node.Chain.Tip().Height - 1
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(remainingBlocks))
 
 		contract, err = node.Contracts.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -611,7 +612,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -621,7 +622,7 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
 		// confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
@@ -687,7 +688,7 @@ func TestContractLifecycle(t *testing.T) {
 		// mine until right before the proof window so the revision is broadcast
 		// and confirmed
 		remainingBlocks := rev.Revision.WindowStart - node.Chain.Tip().Height - 1
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(remainingBlocks))
 
 		contract, err := node.Contracts.Contract(rev.Revision.ParentID)
 		if err != nil {
@@ -700,7 +701,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		// mine until after the proof window
 		remainingBlocks = rev.Revision.WindowEnd - node.Chain.Tip().Height + 1
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(remainingBlocks))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(remainingBlocks))
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusFailed)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
@@ -724,7 +725,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	}
 
 	// fund the wallet
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	assertContractStatus := func(t *testing.T, contractID types.FileContractID, status contracts.V2ContractStatus) {
 		t.Helper()
@@ -795,17 +796,17 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// mine a block to rebroadcast the formation set
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// mine another block to confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		expectedStatuses[contracts.V2ContractStatusActive]++
 		assertContractMetrics(t, types.Siacoins(20), types.ZeroCurrency)
 
 		// mine until the contract is successful
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusSuccessful)
 		expectedStatuses[contracts.V2ContractStatusActive]--
 		expectedStatuses[contracts.V2ContractStatusSuccessful]++
@@ -820,13 +821,13 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// mine a block to confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
 		expectedStatuses[contracts.V2ContractStatusActive]++
 		assertContractMetrics(t, types.Siacoins(20), types.ZeroCurrency)
 
 		// mine until the contract is successful
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusSuccessful)
 		expectedStatuses[contracts.V2ContractStatusActive]--
 		expectedStatuses[contracts.V2ContractStatusSuccessful]++
@@ -878,13 +879,13 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertStorageMetrics(t, 1, 1)
 
 		// mine to confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		expectedStatuses[contracts.V2ContractStatusActive]++
 		assertContractMetrics(t, types.Siacoins(20), collateral)
 		assertStorageMetrics(t, 1, 1)
 
 		// mine through the expiration height
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusSuccessful)
 		expectedStatuses[contracts.V2ContractStatusActive]--
 		expectedStatuses[contracts.V2ContractStatusSuccessful]++
@@ -937,13 +938,13 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertStorageMetrics(t, 1, 1)
 
 		// mine to confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		expectedStatuses[contracts.V2ContractStatusActive]++
 		assertContractMetrics(t, types.Siacoins(20), collateral)
 		assertStorageMetrics(t, 1, 1)
 
 		// mine through the expiration height
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusFailed)
 		expectedStatuses[contracts.V2ContractStatusActive]--
 		expectedStatuses[contracts.V2ContractStatusFailed]++
@@ -993,7 +994,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 
 		// mine to confirm the contract
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		// ensure the metrics were updated
 		expectedStatuses[contracts.V2ContractStatusActive]++
 		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
@@ -1095,7 +1096,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertStorageMetrics(t, 1, 1)
 
 		// mine to confirm the renewal
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, 1)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		// new contract pending -> active, old contract active -> renewed
 		expectedStatuses[contracts.V2ContractStatusRenewed]++
 		expectedStatuses[contracts.V2ContractStatusActive] += 0 // no change
@@ -1106,7 +1107,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertStorageMetrics(t, 1, 1)
 		// mine until the renewed contract is successful and the sectors have
 		// been pruned
-		testutil.MineAndSync(t, node.Chain, node.Indexer, types.VoidAddress, int(renewal.NewContract.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.NewContract.ExpirationHeight-node.Chain.Tip().Height)+1)
 		expectedStatuses[contracts.V2ContractStatusActive]--
 		expectedStatuses[contracts.V2ContractStatusSuccessful]++
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
@@ -1173,7 +1174,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
 		// mine until the contract is rejected
-		testutil.MineAndSync(t, cm, node.Indexer, types.VoidAddress, 20)
+		testutil.MineAndSync(t, node, types.VoidAddress, 20)
 		expectedStatuses[contracts.V2ContractStatusRejected]++
 		assertContractStatus(t, contractID, contracts.V2ContractStatusRejected)
 		// metrics should not have changed
@@ -1199,7 +1200,7 @@ func TestSectorRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testutil.MineAndSync(t, node.Chain, node.Indexer, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	// create a fake volume so disk space is not used
 	id, err := node.Store.AddVolume("test", false)
@@ -1303,7 +1304,7 @@ func TestChainIndexElementsDeepReorg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mineBlock := func(t *testing.T, cm *chain.Manager, addr types.Address, n int) {
+	mineBlock := func(t *testing.T, cm *chain.Manager, s *syncer.Syncer, addr types.Address, n int) {
 		t.Helper()
 
 		for i := 0; i < n; i++ {
@@ -1313,6 +1314,7 @@ func TestChainIndexElementsDeepReorg(t *testing.T) {
 			} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 				t.Fatal("failed to add block:", err)
 			}
+			s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, cm.PoolTransactions(), cm.V2PoolTransactions()))
 		}
 	}
 
@@ -1325,16 +1327,42 @@ func TestChainIndexElementsDeepReorg(t *testing.T) {
 		}
 	}
 
-	mineBlock(t, n1.Chain, h1.Wallet.Address(), 200)
+	mineBlock(t, n1.Chain, n1.Syncer, h1.Wallet.Address(), 200)
 	waitForSync(n1.Chain.Tip())
 
 	n2 := testutil.NewConsensusNode(t, network, genesis, log.Named("node2"))
 
-	mineBlock(t, n2.Chain, h1.Wallet.Address(), 500)
+	mineBlock(t, n2.Chain, n2.Syncer, h1.Wallet.Address(), 500)
 
 	if _, err := h1.Syncer.Connect(context.Background(), n2.Syncer.Addr()); err != nil {
 		t.Fatal(err)
 	}
 
 	waitForSync(n2.Chain.Tip())
+}
+
+func TestSyncer(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	network, genesis := testutil.V2Network()
+	network.HardforkV2.AllowHeight = 2
+	network.HardforkV2.RequireHeight = 3
+
+	h1 := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log.Named("host1"))
+	h2 := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log.Named("host2"))
+	h3 := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log.Named("host3"))
+
+	if _, err := h1.Syncer.Connect(context.Background(), h2.Syncer.Addr()); err != nil {
+		t.Fatal(err)
+	} else if _, err := h1.Syncer.Connect(context.Background(), h3.Syncer.Addr()); err != nil {
+		t.Fatal(err)
+	} else if _, err := h2.Syncer.Connect(context.Background(), h3.Syncer.Addr()); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineAndSync(t, h1, h1.Wallet.Address(), 10)
+	testutil.MineAndSync(t, h2, h2.Wallet.Address(), 10)
+	testutil.MineAndSync(t, h3, h3.Wallet.Address(), 10)
+	testutil.MineAndSync(t, h1, h1.Wallet.Address(), 200)
+	testutil.WaitForSync(t, h2.Chain, h2.Indexer)
+	testutil.WaitForSync(t, h3.Chain, h3.Indexer)
 }
