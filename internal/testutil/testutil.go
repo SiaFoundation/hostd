@@ -94,6 +94,7 @@ func WaitForSync(t *testing.T, cm *chain.Manager, idx *index.Manager) {
 	}
 }
 
+// MineBlocks is a helper to mine blocks and broadcast the headers
 func MineBlocks(t *testing.T, cn *ConsensusNode, addr types.Address, n int) {
 	t.Helper()
 
@@ -119,11 +120,14 @@ func MineBlocks(t *testing.T, cn *ConsensusNode, addr types.Address, n int) {
 }
 
 // MineAndSync is a helper to mine blocks and wait for the index to catch up
+// between each block
 func MineAndSync(t *testing.T, hn *HostNode, addr types.Address, n int) {
 	t.Helper()
 
-	MineBlocks(t, &hn.ConsensusNode, addr, n)
-	WaitForSync(t, hn.Chain, hn.Indexer)
+	for i := 0; i < n; i++ {
+		MineBlocks(t, &hn.ConsensusNode, addr, 1)
+		WaitForSync(t, hn.Chain, hn.Indexer)
+	}
 }
 
 // NewConsensusNode initializes all of the consensus components and returns them.

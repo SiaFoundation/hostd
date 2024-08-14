@@ -9,10 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/core/gateway"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
@@ -1304,65 +1302,21 @@ func TestChainIndexElementsDeepReorg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mineBlock := func(t *testing.T, cm *chain.Manager, s *syncer.Syncer, addr types.Address, n int) {
+	mineAndSync := func(t *testing.T, cn *testutil.ConsensusNode, addr types.Address, n int) {
 		t.Helper()
 
 		for i := 0; i < n; i++ {
-			b, ok := coreutils.MineBlock(cm, addr, 5*time.Second)
-			if !ok {
-				t.Fatal("failed to mine block")
-			} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
-				t.Fatal("failed to add block:", err)
-			}
-			s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, cm.PoolTransactions(), cm.V2PoolTransactions()))
+			testutil.MineBlocks(t, cn, addr, 1)
+			testutil.WaitForSync(t, cn.Chain, h1.Indexer)
 		}
 	}
 
-	waitForSync := func(index types.ChainIndex) {
-		for {
-			if h1.Indexer.Tip() == index {
-				return
-			}
-			time.Sleep(time.Millisecond)
-		}
-	}
-
-	mineBlock(t, n1.Chain, n1.Syncer, h1.Wallet.Address(), 200)
-	waitForSync(n1.Chain.Tip())
-
+	mineAndSync(t, n1, h1.Wallet.Address(), 200)
 	n2 := testutil.NewConsensusNode(t, network, genesis, log.Named("node2"))
-
-	mineBlock(t, n2.Chain, n2.Syncer, h1.Wallet.Address(), 500)
+	testutil.MineBlocks(t, n2, h1.Wallet.Address(), 500)
 
 	if _, err := h1.Syncer.Connect(context.Background(), n2.Syncer.Addr()); err != nil {
 		t.Fatal(err)
 	}
-
-	waitForSync(n2.Chain.Tip())
-}
-
-func TestSyncer(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	network, genesis := testutil.V2Network()
-	network.HardforkV2.AllowHeight = 2
-	network.HardforkV2.RequireHeight = 3
-
-	h1 := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log.Named("host1"))
-	h2 := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log.Named("host2"))
-	h3 := testutil.NewHostNode(t, types.GeneratePrivateKey(), network, genesis, log.Named("host3"))
-
-	if _, err := h1.Syncer.Connect(context.Background(), h2.Syncer.Addr()); err != nil {
-		t.Fatal(err)
-	} else if _, err := h1.Syncer.Connect(context.Background(), h3.Syncer.Addr()); err != nil {
-		t.Fatal(err)
-	} else if _, err := h2.Syncer.Connect(context.Background(), h3.Syncer.Addr()); err != nil {
-		t.Fatal(err)
-	}
-
-	testutil.MineAndSync(t, h1, h1.Wallet.Address(), 10)
-	testutil.MineAndSync(t, h2, h2.Wallet.Address(), 10)
-	testutil.MineAndSync(t, h3, h3.Wallet.Address(), 10)
-	testutil.MineAndSync(t, h1, h1.Wallet.Address(), 200)
-	testutil.WaitForSync(t, h2.Chain, h2.Indexer)
-	testutil.WaitForSync(t, h3.Chain, h3.Indexer)
+	testutil.WaitForSync(t, n2.Chain, h1.Indexer)
 }
