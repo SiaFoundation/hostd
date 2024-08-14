@@ -94,20 +94,36 @@ func WaitForSync(t *testing.T, cm *chain.Manager, idx *index.Manager) {
 	}
 }
 
-// MineAndSync is a helper to mine blocks and wait for the index to catch up
-func MineAndSync(t *testing.T, cm *chain.Manager, idx *index.Manager, addr types.Address, n int) {
+func MineBlocks(t *testing.T, cn *ConsensusNode, addr types.Address, n int) {
 	t.Helper()
 
 	for i := 0; i < n; i++ {
-		b, ok := coreutils.MineBlock(cm, addr, 5*time.Second)
+		b, ok := coreutils.MineBlock(cn.Chain, addr, 5*time.Second)
 		if !ok {
 			t.Fatal("failed to mine block")
-		} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
+		} else if err := cn.Chain.AddBlocks([]types.Block{b}); err != nil {
 			t.Fatal(err)
 		}
 
-		WaitForSync(t, cm, idx)
+		if b.V2 == nil {
+			cn.Syncer.BroadcastHeader(gateway.BlockHeader{
+				ParentID:   b.ParentID,
+				Nonce:      b.Nonce,
+				Timestamp:  b.Timestamp,
+				MerkleRoot: b.MerkleRoot(),
+			})
+		} else {
+			cn.Syncer.BroadcastV2BlockOutline(gateway.OutlineBlock(b, cn.Chain.PoolTransactions(), cn.Chain.V2PoolTransactions()))
+		}
 	}
+}
+
+// MineAndSync is a helper to mine blocks and wait for the index to catch up
+func MineAndSync(t *testing.T, hn *HostNode, addr types.Address, n int) {
+	t.Helper()
+
+	MineBlocks(t, &hn.ConsensusNode, addr, n)
+	WaitForSync(t, hn.Chain, hn.Indexer)
 }
 
 // NewConsensusNode initializes all of the consensus components and returns them.
@@ -187,6 +203,12 @@ func NewHostNode(t *testing.T, pk types.PrivateKey, network *consensus.Network, 
 
 	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, wm)
 	if err != nil {
+		t.Fatal(err)
+	}
+	settings := sm.Settings()
+	settings.AcceptingContracts = true
+	settings.NetAddress = "127.0.0.1:9981"
+	if err := sm.UpdateSettings(settings); err != nil {
 		t.Fatal(err)
 	}
 
