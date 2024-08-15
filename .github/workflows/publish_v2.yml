@@ -1,18 +1,23 @@
-name: Publish V2
+name: Publish
 
 # Controls when the action will run.
 on:
-  # Triggers the workflow when its-happening branch is pushed
+  # Triggers the workflow on new SemVer tags
   push:
     branches:
       - its-happening
-  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   publish:
     uses: SiaFoundation/workflows/.github/workflows/go-publish.yml@master
     secrets: inherit
     with:
-      build-args: -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'
+      linux-build-args: -tags=timetzdata -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'
+      windows-build-args: -tags=timetzdata -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'
+      macos-build-args: -tags=timetzdata -trimpath -a -ldflags '-s -w'
       cgo-enabled: 1
       project: hostd
