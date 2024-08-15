@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - master
+      - its-happening
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-**'
