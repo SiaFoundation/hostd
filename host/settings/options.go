@@ -29,3 +29,11 @@ func WithAnnounceInterval(interval uint64) Option {
 		c.announceInterval = interval
 	}
 }
+
+// WithValidateNetAddress sets whether the settings manager should validate
+// the announced net address.
+func WithValidateNetAddress(validate bool) Option {
+	return func(c *ConfigManager) {
+		c.validateNetAddress = validate
+	}
+}

@@ -121,8 +121,9 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
-		hostKey          types.PrivateKey
-		announceInterval uint64
+		hostKey            types.PrivateKey
+		announceInterval   uint64
+		validateNetAddress bool
 
 		store Store
 		a     Alerts
@@ -254,8 +255,9 @@ func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 // NewConfigManager initializes a new config manager
 func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, wm Wallet, opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
-		announceInterval: 144 * 90, // 90 days
-		hostKey:          hostKey,
+		announceInterval:   144 * 90, // 90 days
+		validateNetAddress: true,
+		hostKey:            hostKey,
 
 		store:  store,
 		chain:  cm,
