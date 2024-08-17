@@ -70,8 +70,9 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 	nextHeight := announcement.Index.Height + m.announceInterval
 	netaddress := m.Settings().NetAddress
 	if err := validateNetAddress(netaddress); err != nil {
-		// net address not valid, skip auto-announcement
-		return nil
+		if m.validateNetAddress {
+			return nil
+		}
 	}
 
 	// check if a new announcement is needed

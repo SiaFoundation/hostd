@@ -228,7 +228,9 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 	// if a netaddress is set, validate it
 	if strings.TrimSpace(s.NetAddress) != "" {
 		if err := validateNetAddress(s.NetAddress); err != nil {
-			return fmt.Errorf("failed to validate net address: %w", err)
+			if m.validateNetAddress {
+				return fmt.Errorf("failed to validate net address: %w", err)
+			}
 		}
 	}
 

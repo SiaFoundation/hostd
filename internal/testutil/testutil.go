@@ -205,7 +205,7 @@ func NewHostNode(t *testing.T, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { contracts.Close() })
 
-	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, wm)
+	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false))
 	if err != nil {
 		t.Fatal(err)
 	}
