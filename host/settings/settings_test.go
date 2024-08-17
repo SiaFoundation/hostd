@@ -41,7 +41,7 @@ func TestSettings(t *testing.T) {
 	}
 	defer contracts.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithValidateNetAddress(false))
 	if err != nil {
 		t.Fatal(err)
 	}
