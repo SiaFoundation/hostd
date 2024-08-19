@@ -243,8 +243,12 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 			Value: float64(m.Data.RHP.Egress),
 		},
 		{
-			Name:  "hostd_metrics_balance",
-			Value: m.Balance.Siacoins(),
+			Name:  "hostd_metrics_wallet_balance",
+			Value: m.Wallet.Balance.Siacoins(),
+		},
+		{
+			Name:  "hostd_metrics_wallet_immature_balance",
+			Value: m.Wallet.ImmatureBalance.Siacoins(),
 		},
 	}
 }

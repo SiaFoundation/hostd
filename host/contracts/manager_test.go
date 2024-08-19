@@ -1315,6 +1315,7 @@ func TestChainIndexElementsDeepReorg(t *testing.T) {
 	n2 := testutil.NewConsensusNode(t, network, genesis, log.Named("node2"))
 	testutil.MineBlocks(t, n2, h1.Wallet.Address(), 500)
 
+	t.Log("connecting peer 2")
 	if _, err := h1.Syncer.Connect(context.Background(), n2.Syncer.Addr()); err != nil {
 		t.Fatal(err)
 	}

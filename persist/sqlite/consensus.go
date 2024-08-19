@@ -51,9 +51,9 @@ DELETE FROM contract_v2_state_elements;
 -- wallet
 DELETE FROM wallet_siacoin_elements;
 DELETE FROM wallet_events;
-DELETE FROM host_stats WHERE stat=?; -- reset wallet stats since they are derived from the chain
+DELETE FROM host_stats WHERE stat IN (?,?); -- reset wallet stats since they are derived from the chain
 -- settings
-UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, last_announce_address=NULL`, metricWalletBalance)
+UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, last_announce_address=NULL`, metricWalletBalance, metricWalletImmatureBalance)
 		return err
 	})
 }
@@ -106,16 +106,28 @@ func (ux *updateTx) UpdateWalletStateElements(elements []types.StateElement) err
 // should be added and any siacoin elements that were spent should be
 // removed.
 func (ux *updateTx) WalletApplyIndex(index types.ChainIndex, created, spent []types.SiacoinElement, events []wallet.Event, timestamp time.Time) error {
-	outflow, err := deleteSiacoinElements(ux.tx, spent)
+	matureOutflow, immatureOutflow, err := deleteSiacoinElements(ux.tx, index, spent)
 	if err != nil {
 		return fmt.Errorf("failed to delete siacoin elements: %w", err)
 	}
-	inflow, err := createSiacoinElements(ux.tx, created)
+	matureInflow, immatureInflow, err := createSiacoinElements(ux.tx, index, created)
 	if err != nil {
 		return fmt.Errorf("failed to create siacoin elements: %w", err)
 	} else if err := createWalletEvents(ux.tx, events); err != nil {
 		return fmt.Errorf("failed to create wallet events: %w", err)
-	} else if err := updateBalanceMetric(ux.tx, inflow, outflow, timestamp); err != nil {
+	}
+
+	// get the matured balance
+	matured, err := maturedSiacoinBalance(ux.tx, index)
+	if err != nil {
+		return fmt.Errorf("failed to query matured siacoin balance: %w", err)
+	}
+	// apply the maturation by adding the matured balance to the matured inflow
+	// and the immature outflow
+	matureInflow = matureInflow.Add(matured)
+	immatureOutflow = immatureOutflow.Add(matured)
+	// update the balance metrics
+	if err := updateBalanceMetric(ux.tx, matureInflow, matureOutflow, immatureInflow, immatureOutflow, timestamp); err != nil {
 		return fmt.Errorf("failed to update wallet balance: %w", err)
 	}
 	return nil
@@ -131,16 +143,28 @@ func (ux *updateTx) WalletApplyIndex(index types.ChainIndex, created, spent []ty
 // recreated. They are not necessarily created by the index and should
 // not be associated with it.
 func (ux *updateTx) WalletRevertIndex(index types.ChainIndex, removed, unspent []types.SiacoinElement, timestamp time.Time) error {
-	outflow, err := deleteSiacoinElements(ux.tx, removed)
+	matureOutflow, immatureOutflow, err := deleteSiacoinElements(ux.tx, index, removed)
 	if err != nil {
 		return fmt.Errorf("failed to delete siacoin elements: %w", err)
 	}
-	inflow, err := createSiacoinElements(ux.tx, unspent)
+	matureInflow, immatureInflow, err := createSiacoinElements(ux.tx, index, unspent)
 	if err != nil {
 		return fmt.Errorf("failed to create siacoin elements: %w", err)
 	} else if _, err := ux.tx.Exec(`DELETE FROM wallet_events WHERE chain_index=?`, encode(index)); err != nil {
 		return fmt.Errorf("failed to delete wallet events: %w", err)
-	} else if err := updateBalanceMetric(ux.tx, inflow, outflow, timestamp); err != nil {
+	}
+
+	// get the matured balance
+	matured, err := maturedSiacoinBalance(ux.tx, index)
+	if err != nil {
+		return fmt.Errorf("failed to query matured siacoin balance: %w", err)
+	}
+	// revert the maturation by adding the matured balance to the matured outflow
+	// and the immature inflow
+	matureOutflow = matureOutflow.Add(matured)
+	immatureInflow = immatureInflow.Add(matured)
+	// update the balance metrics
+	if err := updateBalanceMetric(ux.tx, matureInflow, matureOutflow, immatureInflow, immatureOutflow, timestamp); err != nil {
 		return fmt.Errorf("failed to increment wallet balance: %w", err)
 	}
 	return nil
@@ -475,48 +499,82 @@ func (s *Store) UpdateChainState(fn func(index.UpdateTx) error) error {
 	})
 }
 
+// maturedSiacoinBalance helper to query the sum of matured siacoin elements
+// for a given height.
+func maturedSiacoinBalance(tx *txn, index types.ChainIndex) (inflow types.Currency, err error) {
+	rows, err := tx.Query(`SELECT siacoin_value FROM wallet_siacoin_elements WHERE maturity_height=?`, index.Height)
+	if err != nil {
+		return types.ZeroCurrency, fmt.Errorf("failed to query matured siacoin elements: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var value types.Currency
+		if err := rows.Scan(decode(&value)); err != nil {
+			return types.ZeroCurrency, fmt.Errorf("failed to scan siacoin value: %w", err)
+		}
+		inflow = inflow.Add(value)
+	}
+	if err := rows.Err(); err != nil {
+		return types.ZeroCurrency, fmt.Errorf("failed to iterate siacoin elements: %w", err)
+	}
+	return
+}
+
 // createSiacoinElements helper to insert siacoin elements into the database.
-func createSiacoinElements(tx *txn, created []types.SiacoinElement) (types.Currency, error) {
+func createSiacoinElements(tx *txn, index types.ChainIndex, created []types.SiacoinElement) (matureInflow, immatureInflow types.Currency, _ error) {
 	if len(created) == 0 {
-		return types.ZeroCurrency, nil
+		return types.ZeroCurrency, types.ZeroCurrency, nil
 	}
 
 	stmt, err := tx.Prepare(`INSERT INTO wallet_siacoin_elements (id, siacoin_value, sia_address, merkle_proof, leaf_index, maturity_height) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING;`)
 	if err != nil {
-		return types.ZeroCurrency, fmt.Errorf("failed to prepare insert statement: %w", err)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
 	defer stmt.Close()
 
-	var inflow types.Currency
 	for _, elem := range created {
 		if _, err := stmt.Exec(encode(elem.ID), encode(elem.SiacoinOutput.Value), encode(elem.SiacoinOutput.Address), encode(elem.MerkleProof), encode(elem.LeafIndex), elem.MaturityHeight); err != nil {
-			return types.ZeroCurrency, fmt.Errorf("failed to insert siacoin element %q: %w", elem.ID, err)
+			return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to insert siacoin element %q: %w", elem.ID, err)
 		}
-		inflow = inflow.Add(elem.SiacoinOutput.Value)
+
+		if elem.MaturityHeight <= index.Height {
+			matureInflow = matureInflow.Add(elem.SiacoinOutput.Value)
+		} else {
+			immatureInflow = immatureInflow.Add(elem.SiacoinOutput.Value)
+		}
 	}
-	return inflow, nil
+	return
 }
 
 // deleteSiacoinElements helper to delete siacoin elements from the database.
-func deleteSiacoinElements(tx *txn, removed []types.SiacoinElement) (types.Currency, error) {
+func deleteSiacoinElements(tx *txn, index types.ChainIndex, removed []types.SiacoinElement) (matureOutflow types.Currency, immatureOutflow types.Currency, _ error) {
 	if len(removed) == 0 {
-		return types.ZeroCurrency, nil
+		return types.ZeroCurrency, types.ZeroCurrency, nil
 	}
 
 	stmt, err := tx.Prepare(`DELETE FROM wallet_siacoin_elements WHERE id=?`)
 	if err != nil {
-		return types.ZeroCurrency, fmt.Errorf("failed to prepare delete statement: %w", err)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
 	defer stmt.Close()
 
-	var outflow types.Currency
 	for _, elem := range removed {
-		if _, err := stmt.Exec(encode(elem.ID)); err != nil {
-			return types.ZeroCurrency, fmt.Errorf("failed to delete siacoin element: %w", err)
+		if res, err := stmt.Exec(encode(elem.ID)); err != nil {
+			return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to delete siacoin element: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to delete siacoin element %q: not found", elem.ID)
 		}
-		outflow = outflow.Add(elem.SiacoinOutput.Value)
+
+		if elem.MaturityHeight <= index.Height {
+			matureOutflow = matureOutflow.Add(elem.SiacoinOutput.Value)
+		} else {
+			immatureOutflow = immatureOutflow.Add(elem.SiacoinOutput.Value)
+		}
 	}
-	return outflow, nil
+	return
 }
 
 // createWalletEvents helper to insert wallet events into the database.
@@ -544,24 +602,50 @@ func createWalletEvents(tx *txn, events []wallet.Event) error {
 }
 
 // updateBalanceMetric updates the wallet balance metric.
-func updateBalanceMetric(tx *txn, inflow, outflow types.Currency, timestamp time.Time) error {
-	if inflow.Equals(outflow) {
+func updateBalanceMetric(tx *txn, matureInflow, matureOutflow, immatureInflow, immatureOutflow types.Currency, timestamp time.Time) error {
+	// calculate the delta for the balance and immature balance
+	var matureDelta types.Currency
+	var matureNegative bool
+	if n := matureInflow.Cmp(matureOutflow); n > 0 {
+		matureDelta = matureInflow.Sub(matureOutflow)
+	} else if n < 0 {
+		matureDelta = matureOutflow.Sub(matureInflow)
+		matureNegative = true
+	}
+
+	var immatureDelta types.Currency
+	var immatureNegative bool
+	if n := immatureInflow.Cmp(immatureOutflow); n > 0 {
+		immatureDelta = immatureInflow.Sub(immatureOutflow)
+	} else if n < 0 {
+		immatureDelta = immatureOutflow.Sub(immatureInflow)
+		immatureNegative = true
+	}
+
+	// if no change, return
+	if matureDelta.IsZero() && immatureDelta.IsZero() {
 		return nil
 	}
 
-	var delta types.Currency
-	var neg bool
-	if outflow.Cmp(inflow) > 0 {
-		delta = outflow.Sub(inflow)
-		neg = true
-	} else {
-		delta = inflow.Sub(outflow)
+	// prepare the increment statement
+	increment, done, err := incrementCurrencyStatStmt(tx)
+	if err != nil {
+		return fmt.Errorf("failed to prepare increment statement: %w", err)
+	}
+	defer done()
+
+	if !matureDelta.IsZero() {
+		// increment the balance
+		if err := increment(metricWalletBalance, matureDelta, matureNegative, timestamp); err != nil {
+			return fmt.Errorf("failed to increment balance: %w", err)
+		}
 	}
 
-	if err := incrementCurrencyStat(tx, metricWalletBalance, delta, neg, timestamp); err != nil {
-		return fmt.Errorf("failed to increment wallet balance: %w", err)
-	} else if err := reflowCurrencyStat(tx, metricWalletBalance, timestamp, delta, neg); err != nil {
-		return fmt.Errorf("failed to reflow wallet balance: %w", err)
+	if !immatureDelta.IsZero() {
+		// increment the immature balance
+		if err := increment(metricWalletImmatureBalance, immatureDelta, immatureNegative, timestamp); err != nil {
+			return fmt.Errorf("failed to increment immature balance: %w", err)
+		}
 	}
 	return nil
 }

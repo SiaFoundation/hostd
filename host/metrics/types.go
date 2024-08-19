@@ -102,6 +102,12 @@ type (
 		Earned    Revenue `json:"earned"`
 	}
 
+	// WalletMetrics is a collection of metrics related to the wallet
+	WalletMetrics struct {
+		Balance         types.Currency `json:"balance"`
+		ImmatureBalance types.Currency `json:"immatureBalance"`
+	}
+
 	// Metrics is a collection of metrics for the host.
 	Metrics struct {
 		Accounts  Accounts       `json:"accounts"`
@@ -111,7 +117,7 @@ type (
 		Storage   Storage        `json:"storage"`
 		Registry  Registry       `json:"registry"`
 		Data      DataMetrics    `json:"data"`
-		Balance   types.Currency `json:"balance"`
+		Wallet    WalletMetrics  `json:"wallet"`
 		Timestamp time.Time      `json:"timestamp"`
 	}
 

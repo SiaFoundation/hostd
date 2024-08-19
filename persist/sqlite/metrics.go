@@ -74,7 +74,8 @@ const (
 	metricCollateralMultiplier = "collateralMultiplier"
 
 	// wallet
-	metricWalletBalance = "walletBalance"
+	metricWalletBalance         = "walletBalance"
+	metricWalletImmatureBalance = "walletImmatureBalance"
 
 	// potential revenue
 	metricPotentialRPCRevenue           = "potentialRPCRevenue"
@@ -427,7 +428,9 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Revenue.Earned.RegistryWrite = mustScanCurrency(buf)
 	// wallet
 	case metricWalletBalance:
-		m.Balance = mustScanCurrency(buf)
+		m.Wallet.Balance = mustScanCurrency(buf)
+	case metricWalletImmatureBalance:
+		m.Wallet.ImmatureBalance = mustScanCurrency(buf)
 	default:
 		panic(fmt.Sprintf("unknown metric: %v", stat))
 	}
@@ -613,49 +616,6 @@ func setFloat64Stat(tx *txn, stat string, f float64, timestamp time.Time) error 
 	_, err = tx.Exec(`INSERT INTO host_stats (stat, stat_value, date_created) VALUES ($1, $2, $3) ON CONFLICT (stat, date_created) DO UPDATE SET stat_value=EXCLUDED.stat_value`, stat, encode(value), encode(timestamp))
 	if err != nil {
 		return fmt.Errorf("failed to insert stat: %w", err)
-	}
-	return nil
-}
-
-// reflowCurrencyStat updates all currency stats after the given timestamp. If
-// negative is false, the current value is incremented by delta. Otherwise, the
-// value is decremented. If the resulting value would be negative, the function
-// panics.
-func reflowCurrencyStat(tx *txn, stat string, startTime time.Time, value types.Currency, negative bool) error {
-	startTime = startTime.Truncate(statInterval)
-	rows, err := tx.Query(`SELECT stat_value, date_created FROM host_stats WHERE stat=$1 AND date_created > $2 ORDER BY date_created ASC`, stat, encode(startTime))
-	if err != nil {
-		return fmt.Errorf("failed to query existing value: %w", err)
-	}
-	defer rows.Close()
-	var values []types.Currency
-	var timestamps []time.Time
-	for rows.Next() {
-		var v types.Currency
-		var timestamp time.Time
-		if err := rows.Scan(decode(&v), decode(&timestamp)); err != nil {
-			return fmt.Errorf("failed to scan row: %w", err)
-		}
-		if negative {
-			v = v.Sub(value)
-		} else {
-			v = v.Add(value)
-		}
-		values = append(values, v)
-		timestamps = append(timestamps, timestamp)
-	}
-
-	stmt, err := tx.Prepare(`UPDATE host_stats SET stat_value=$1 WHERE stat=$2 AND date_created=$3 RETURNING date_created`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare update statement: %w", err)
-	}
-	defer stmt.Close()
-	for i := range values {
-		var dbTime time.Time
-		err := stmt.QueryRow(encode(values[i]), stat, encode(timestamps[i])).Scan(decode(&dbTime))
-		if err != nil {
-			return fmt.Errorf("failed to update stat: %w", err)
-		}
 	}
 	return nil
 }
