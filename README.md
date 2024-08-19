@@ -115,6 +115,9 @@ CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-
 `hostd` includes a `Dockerfile` which can be used for building and running
 hostd within a docker container. The image can also be pulled from `ghcr.io/siafoundation/hostd`.
 
+Be careful with port `9980` as Docker will expose it publicly by default. It is
+recommended to bind it to `127.0.0.1` to prevent unauthorized access.
+
 ## Docker Compose
 
 ```yml
