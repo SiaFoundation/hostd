@@ -474,7 +474,7 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 			return
 		}
 		a.wallet.SignV2Inputs(state, &txn, toSign)
-		txnset := []types.V2Transaction{txn}
+		txnset := append(a.chain.V2UnconfirmedParents(txn), txn)
 		// verify the transaction and add it to the transaction pool
 		if _, err := a.chain.AddV2PoolTransactions(state.Index, txnset); !a.checkServerError(jc, "failed to add v2 transaction set", err) {
 			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})

@@ -24,11 +24,9 @@ func (m *ConfigManager) Announce() error {
 	// get the current settings
 	settings := m.Settings()
 
-	if err := validateNetAddress(settings.NetAddress); err != nil {
-		if m.validateNetAddress {
-			return fmt.Errorf("failed to validate net address: %w", err)
-		} else {
-			m.log.Warn("invalid net address", zap.Error(err))
+	if m.validateNetAddress {
+		if err := validateNetAddress(settings.NetAddress); err != nil {
+			return fmt.Errorf("failed to validate net address %q: %w", settings.NetAddress, err)
 		}
 	}
 
@@ -88,7 +86,7 @@ func (m *ConfigManager) Announce() error {
 func validateNetAddress(netaddress string) error {
 	host, port, err := net.SplitHostPort(netaddress)
 	if err != nil {
-		return fmt.Errorf("invalid net address %q: net addresses must contain a host and port: %w", netaddress, err)
+		return fmt.Errorf("net addresses must contain a host and port: %w", netaddress, err)
 	}
 
 	// Check that the host is not empty or localhost.
@@ -110,7 +108,7 @@ func validateNetAddress(netaddress string) error {
 	ip := net.ParseIP(host)
 	if ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
-			return fmt.Errorf("invalid net address %q: only public IP addresses allowed", host)
+			return fmt.Errorf("only public IP addresses allowed", host)
 		}
 		return nil
 	}
