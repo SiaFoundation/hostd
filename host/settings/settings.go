@@ -124,6 +124,7 @@ type (
 		hostKey            types.PrivateKey
 		announceInterval   uint64
 		validateNetAddress bool
+		initialSettings    Settings
 
 		store Store
 		a     Alerts
@@ -258,6 +259,7 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 		announceInterval:   144 * 90, // 90 days
 		validateNetAddress: true,
 		hostKey:            hostKey,
+		initialSettings:    DefaultSettings,
 
 		store:  store,
 		chain:  cm,
@@ -286,10 +288,7 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 
 	settings, err := m.store.Settings()
 	if errors.Is(err, ErrNoSettings) {
-		if err := m.store.UpdateSettings(DefaultSettings); err != nil {
-			return nil, fmt.Errorf("failed to initialize settings: %w", err)
-		}
-		settings = DefaultSettings // use the default settings
+		settings = m.initialSettings
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}

@@ -86,7 +86,7 @@ func (m *ConfigManager) Announce() error {
 func validateNetAddress(netaddress string) error {
 	host, port, err := net.SplitHostPort(netaddress)
 	if err != nil {
-		return fmt.Errorf("net addresses must contain a host and port: %w", netaddress, err)
+		return fmt.Errorf("failed to split net address: %w", err)
 	}
 
 	// Check that the host is not empty or localhost.
@@ -108,7 +108,7 @@ func validateNetAddress(netaddress string) error {
 	ip := net.ParseIP(host)
 	if ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
-			return fmt.Errorf("only public IP addresses allowed", host)
+			return errors.New("only public IP addresses allowed")
 		}
 		return nil
 	}

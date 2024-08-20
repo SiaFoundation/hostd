@@ -37,3 +37,12 @@ func WithValidateNetAddress(validate bool) Option {
 		c.validateNetAddress = validate
 	}
 }
+
+// WithInitialSettings sets the host's settings when the config manager is
+// initialized. If this option is not provided, the default settings are used.
+// If the database already contains settings, they will be used.
+func WithInitialSettings(settings Settings) Option {
+	return func(c *ConfigManager) {
+		c.initialSettings = settings
+	}
+}
