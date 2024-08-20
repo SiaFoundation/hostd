@@ -40,11 +40,7 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer contracts.Close()
 
-	is := settings.DefaultSettings
-	is.AcceptingContracts = true
-	is.NetAddress = "foo.bar:1234"
-
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithValidateNetAddress(false), settings.WithInitialSettings(is))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithValidateNetAddress(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +55,10 @@ func TestAutoAnnounce(t *testing.T) {
 	// fund the wallet
 	testutil.MineBlocks(t, node, wm.Address(), 150)
 	testutil.WaitForSync(t, node.Chain, idx)
+
+	settings := settings.DefaultSettings
+	settings.NetAddress = "foo.bar:1234"
+	sm.UpdateSettings(settings)
 
 	assertAnnouncement := func(t *testing.T, expectedAddr string, height uint64) {
 		t.Helper()
@@ -100,10 +100,8 @@ func TestAutoAnnounce(t *testing.T) {
 	assertAnnouncement(t, "foo.bar:1234", 203) // 152 (first confirm) + 50 (interval) + 1 (confirmation)
 
 	// change the address
-	is.NetAddress = "baz.qux:5678"
-	if err := sm.UpdateSettings(is); err != nil {
-		t.Fatal(err)
-	}
+	settings.NetAddress = "baz.qux:5678"
+	sm.UpdateSettings(settings)
 
 	// trigger and confirm the new announcement
 	mineAndSync(t, 2)
