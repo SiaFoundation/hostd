@@ -10,6 +10,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion29 resets the chain state to trigger a full rescan of the
+// wallet to calculate the new immature balance metric.
+func migrateVersion29(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+-- v2 contracts
+DELETE FROM contracts_v2_chain_index_elements;
+DELETE FROM contract_v2_state_elements;
+-- wallet
+DELETE FROM wallet_siacoin_elements;
+DELETE FROM wallet_events;
+DELETE FROM host_stats WHERE stat IN (?,?); -- reset wallet stats since they are derived from the chain
+-- settings
+UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, last_announce_address=NULL`, metricWalletBalance, metricWalletImmatureBalance)
+	return err
+}
+
+// migrateVersion28 prepares the database for version 2
 func migrateVersion28(tx *txn, log *zap.Logger) error {
 	_, err := tx.Exec(`
 -- Drop v1 tables	
@@ -897,4 +914,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion26,
 	migrateVersion27,
 	migrateVersion28,
+	migrateVersion29,
 }
