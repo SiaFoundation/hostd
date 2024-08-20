@@ -35,6 +35,10 @@ var (
 	// ErrNotAcceptingContracts is returned when the host is not accepting
 	// contracts.
 	ErrNotAcceptingContracts = errors.New("host is not accepting contracts")
+
+	// ErrV2Hardfork is returned when a renter tries to form or renew a contract
+	// after the v2 hardfork has been activated.
+	ErrV2Hardfork = errors.New("hardfork v2 is active")
 )
 
 func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) (contracts.Usage, error) {
@@ -115,6 +119,12 @@ func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) (contracts.Usag
 // rpcFormContract is an RPC that forms a contract between a renter and the
 // host.
 func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contracts.Usage, error) {
+	cs := sh.chain.TipState()
+	if cs.Index.Height > cs.Network.HardforkV2.AllowHeight {
+		s.t.WriteResponseErr(ErrV2Hardfork)
+		return contracts.Usage{}, ErrV2Hardfork
+	}
+
 	if !sh.settings.Settings().AcceptingContracts {
 		s.t.WriteResponseErr(ErrNotAcceptingContracts)
 		return contracts.Usage{}, ErrNotAcceptingContracts
@@ -238,6 +248,12 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 // rpcRenewAndClearContract is an RPC that renews a contract and clears the
 // existing contract
 func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) (contracts.Usage, error) {
+	cs := sh.chain.TipState()
+	if cs.Index.Height > cs.Network.HardforkV2.AllowHeight {
+		s.t.WriteResponseErr(ErrV2Hardfork)
+		return contracts.Usage{}, ErrV2Hardfork
+	}
+
 	settings, err := sh.Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)

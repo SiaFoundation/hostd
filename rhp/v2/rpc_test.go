@@ -3,6 +3,7 @@ package rhp_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -402,7 +403,7 @@ func TestRenew(t *testing.T) {
 	})
 }
 
-func TestFormContractV2(t *testing.T) {
+func TestRPCV2(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	renterKey, hostKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 	network, genesis := testutil.V2Network()
@@ -424,8 +425,8 @@ func TestFormContractV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// fund the wallet and mine until after the require height
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 200)
+	// fund the wallet and mine until right after the require height
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.AllowHeight+1))
 
 	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -448,7 +449,7 @@ func TestFormContractV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// try to form a v1 contract after the require height
+	// try to form a v1 contract after the allow height
 	fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(10), types.Siacoins(20), node.Chain.Tip().Height+200, settings, node.Wallet.Address())
 	formationCost := crhp2.ContractFormationCost(node.Chain.TipState(), fc, settings.ContractPrice)
 	txn := types.Transaction{
@@ -461,9 +462,21 @@ func TestFormContractV2(t *testing.T) {
 	node.Wallet.SignTransaction(&txn, toSign, wallet.ExplicitCoveredFields(txn))
 	formationSet := append(node.Chain.UnconfirmedParents(txn), txn)
 
-	if _, _, err := rpc2.RPCFormContract(transport, renterKey, formationSet); err == nil {
-		t.Fatal("expected formation to fail")
+	if _, _, err := rpc2.RPCFormContract(transport, renterKey, formationSet); !errors.Is(err, rhp2.ErrV2Hardfork) {
+		t.Fatalf("expected ErrV2Hardfork, got %v", err)
+	} else if err := transport.Close(); err != nil {
+		// transport is closed after error
+		t.Fatal(err)
 	}
 
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 200)
+	transport = dialHost(t, hostKey.PublicKey(), l.Addr().String())
+	defer transport.Close()
+
+	// mine until after the require height
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 100)
+
+	// all RPC should fail after the require height
+	if _, err = rpc2.RPCSettings(transport); !errors.Is(err, rhp2.ErrV2Hardfork) {
+		t.Fatalf("expected ErrV2Hardfork, got %v", err)
+	}
 }

@@ -132,6 +132,12 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 		return fmt.Errorf("failed to read RPC ID: %w", err)
 	}
 
+	cs := sh.chain.TipState()
+	if cs.Index.Height > cs.Network.HardforkV2.RequireHeight {
+		sess.t.WriteResponseErr(ErrV2Hardfork)
+		return ErrV2Hardfork
+	}
+
 	rpcFn, ok := map[types.Specifier]func(*session, *zap.Logger) (contracts.Usage, error){
 		rhp2.RPCFormContractID:       sh.rpcFormContract,
 		rhp2.RPCRenewClearContractID: sh.rpcRenewAndClearContract,
