@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,8 +13,10 @@ import (
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/test"
 	proto3 "go.sia.tech/hostd/internal/test/rhp/v3"
+	"go.sia.tech/hostd/rhp/v3"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -149,6 +152,17 @@ func TestAppendSector(t *testing.T) {
 		} else if !bytes.Equal(downloaded, sector[:]) {
 			t.Fatal("downloaded sector doesn't match")
 		}
+	}
+
+	// assert ReadSector exposes ErrSectorNotFound
+	cost, _ := pt.BaseCost().Add(pt.ReadSectorCost(rhp2.SectorSize)).Total()
+	_, _, err = session.ReadSector(types.Hash256{}, 0, rhp2.SectorSize, payment, cost)
+	if err == nil {
+		t.Fatal("expected error when reading nil sector")
+	} else if strings.Contains(err.Error(), rhp.ErrHostInternalError.Error()) {
+		t.Fatal("unexpected internal error", err)
+	} else if !strings.Contains(err.Error(), storage.ErrSectorNotFound.Error()) {
+		t.Fatal("expected storage.ErrSectorNotFound", err)
 	}
 }
 

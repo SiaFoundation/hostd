@@ -275,8 +275,12 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
+	// read the sector
 	sector, err := pe.storage.Read(root)
-	if err != nil {
+	if errors.Is(err, storage.ErrSectorNotFound) {
+		log.Debug("failed to read sector", zap.String("root", root.String()), zap.Error(err))
+		return nil, nil, storage.ErrSectorNotFound
+	} else if err != nil {
 		log.Error("failed to read sector", zap.String("root", root.String()), zap.Error(err))
 		return nil, nil, ErrHostInternalError
 	}
