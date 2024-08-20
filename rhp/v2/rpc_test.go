@@ -7,6 +7,7 @@ import (
 	"net"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	crhp2 "go.sia.tech/core/rhp/v2"
@@ -487,8 +488,26 @@ func TestRPCV2(t *testing.T) {
 		node.Wallet.SignTransaction(&txn, toSign, wallet.ExplicitCoveredFields(txn))
 		formationSet := append(node.Chain.UnconfirmedParents(txn), txn)
 
-		if _, _, err := rpc2.RPCFormContract(transport, renterKey, formationSet); !errors.Is(err, rhp2.ErrV2Hardfork) {
+		_, _, err = rpc2.RPCFormContract(transport, renterKey, formationSet)
+		if runtime.GOOS != "windows" && !errors.Is(err, rhp2.ErrV2Hardfork) { // windows responds with wsarecv rather than the error
 			t.Fatalf("expected ErrV2Hardfork, got %v", err)
+		} else if runtime.GOOS == "windows" && err == nil {
+			t.Fatal("expected windows error, got nil")
+		}
+	})
+
+	t.Run("rpc after require height", func(t *testing.T) {
+		// mine until the require height
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.RequireHeight-node.Chain.Tip().Height))
+
+		transport := dialHost(t, hostKey.PublicKey(), l.Addr().String())
+		defer transport.Close()
+
+		_, err := rpc2.RPCSettings(transport)
+		if runtime.GOOS != "windows" && !errors.Is(err, rhp2.ErrV2Hardfork) { // windows responds with wsarecv rather than the error
+			t.Fatalf("expected ErrV2Hardfork, got %v", err)
+		} else if runtime.GOOS == "windows" && err == nil {
+			t.Fatal("expected windows error, got nil")
 		}
 	})
 }
