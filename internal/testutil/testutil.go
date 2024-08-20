@@ -170,8 +170,8 @@ func NewConsensusNode(t *testing.T, network *consensus.Network, genesis types.Bl
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerListener.Addr().String(),
 	})
-	t.Cleanup(func() { syncer.Close() })
 	go syncer.Run(context.Background())
+	t.Cleanup(func() { syncer.Close() })
 
 	return &ConsensusNode{
 		Store:  db,
