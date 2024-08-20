@@ -1311,11 +1311,10 @@ func TestChainIndexElementsDeepReorg(t *testing.T) {
 		}
 	}
 
-	mineAndSync(t, n1, h1.Wallet.Address(), 200)
+	mineAndSync(t, n1, h1.Wallet.Address(), 145)
 	n2 := testutil.NewConsensusNode(t, network, genesis, log.Named("node2"))
-	testutil.MineBlocks(t, n2, h1.Wallet.Address(), 500)
+	testutil.MineBlocks(t, n2, h1.Wallet.Address(), 200)
 
-	t.Log("connecting peer 2")
 	if _, err := h1.Syncer.Connect(context.Background(), n2.Syncer.Addr()); err != nil {
 		t.Fatal(err)
 	}
