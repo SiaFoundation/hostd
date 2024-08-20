@@ -270,6 +270,13 @@ func (sh *SessionHandler) Serve() error {
 					return
 				}
 
+				cs := sh.chain.TipState()
+				// disable rhp3 after v2 require height
+				if cs.Index.Height >= cs.Network.HardforkV2.RequireHeight {
+					stream.WriteResponseErr(ErrV2Hardfork)
+					return
+				}
+
 				go sh.handleHostStream(stream, sessionID, log)
 			}
 		}()

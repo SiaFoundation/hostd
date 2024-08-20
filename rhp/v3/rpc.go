@@ -40,6 +40,14 @@ var (
 	// ErrNotAcceptingContracts is returned when the host is not accepting
 	// contracts.
 	ErrNotAcceptingContracts = errors.New("host is not accepting contracts")
+
+	// ErrV2Hardfork is returned when a renter tries to form or renew a contract
+	// after the v2 hardfork has been activated.
+	ErrV2Hardfork = errors.New("hardfork v2 is active")
+
+	// ErrAfterV2Hardfork is returned when a renter tries to form or renew a
+	// contract that ends after the v2 hardfork has been activated.
+	ErrAfterV2Hardfork = errors.New("proof window after hardfork v2 activation")
 )
 
 // handleRPCPriceTable sends the host's price table to the renter.
@@ -239,6 +247,13 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhp3.Stream, log *zap.Logge
 }
 
 func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
+	cs := sh.chain.TipState()
+	// prevent renewing v1 contracts after the allow height
+	if cs.Index.Height >= cs.Network.HardforkV2.AllowHeight {
+		s.WriteResponseErr(ErrV2Hardfork)
+		return contracts.Usage{}, ErrV2Hardfork
+	}
+
 	s.SetDeadline(time.Now().Add(2 * time.Minute))
 	if !sh.settings.Settings().AcceptingContracts {
 		s.WriteResponseErr(ErrNotAcceptingContracts)
@@ -286,6 +301,12 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	renewalTxn := req.TransactionSet[len(req.TransactionSet)-1]
 	clearingRevision := renewalTxn.FileContractRevisions[0]
 	renewal := renewalTxn.FileContracts[0]
+
+	// prevent forming v1 contracts with proof windows after the v2 hardfork
+	if renewal.WindowStart >= cs.Network.HardforkV2.RequireHeight {
+		s.WriteResponseErr(ErrAfterV2Hardfork)
+		return contracts.Usage{}, ErrAfterV2Hardfork
+	}
 
 	// lock the existing contract
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

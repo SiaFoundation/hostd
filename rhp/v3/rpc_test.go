@@ -3,6 +3,7 @@ package rhp_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -578,4 +579,68 @@ func TestRenew(t *testing.T) {
 		})
 		assertRenewal(t, origin.ID(), renewal, 1, origin.Revision.FileMerkleRoot, origin.Revision.Filesize)
 	})
+}
+
+func TestRPCV2(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	renterKey, hostKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+	network, genesis := testutil.V2Network()
+	network.HardforkV2.AllowHeight = 180
+	network.HardforkV2.RequireHeight = 200
+	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
+
+	// set the host to accept contracts
+	s := node.Settings.Settings()
+	s.AcceptingContracts = true
+	s.NetAddress = "localhost:9983"
+	if err := node.Settings.UpdateSettings(s); err != nil {
+		t.Fatal(err)
+	}
+
+	// initialize a storage volume
+	res := make(chan error)
+	if _, err := node.Volumes.AddVolume(context.Background(), filepath.Join(t.TempDir(), "storage.dat"), 10, res); err != nil {
+		t.Fatal(err)
+	} else if err := <-res; err != nil {
+		t.Fatal(err)
+	}
+
+	// fund the wallet
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+
+	// start the node
+	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
+
+	// form a contract that expires before the hardfork
+	origin := formContract(t, node.Chain, node.Wallet, sh2.LocalAddr(), renterKey, hostKey.PublicKey(), 20)
+	// mine a block to confirm the contract
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 1)
+
+	// create a RHP3 session
+	session, err := proto3.NewSession(context.Background(), hostKey.PublicKey(), sh3.LocalAddr(), node.Chain, node.Wallet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	// try to renew the contract with an ending after the hardfork
+	renewHeight := network.HardforkV2.RequireHeight
+	renterFunds := types.Siacoins(10)
+	additionalCollateral := types.Siacoins(20)
+	_, _, err = session.RenewContract(&origin, node.Wallet.Address(), renterKey, renterFunds, additionalCollateral, renewHeight)
+	if !errors.Is(err, rhp3.ErrAfterV2Hardfork) {
+		t.Fatalf("expected after v2 hardfork error, got %v", err)
+	}
+
+	// mine to activate the v2 hardfork
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.AllowHeight-node.Chain.Tip().Height))
+
+	// try to renew the contract with an end height before the require height, but after the hardfork activation
+	renewHeight = origin.Revision.WindowEnd + 10
+	renterFunds = types.Siacoins(10)
+	additionalCollateral = types.Siacoins(20)
+	_, _, err = session.RenewContract(&origin, node.Wallet.Address(), renterKey, renterFunds, additionalCollateral, renewHeight)
+	if !errors.Is(err, rhp3.ErrV2Hardfork) {
+		t.Fatalf("expected v2 hardfork error, got %v", err)
+	}
 }
