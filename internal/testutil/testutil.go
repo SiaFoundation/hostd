@@ -205,14 +205,12 @@ func NewHostNode(t *testing.T, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { contracts.Close() })
 
-	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false))
+	initialSettings := settings.DefaultSettings
+	initialSettings.AcceptingContracts = true
+	initialSettings.NetAddress = "127.0.0.1:9981"
+	initialSettings.WindowSize = 10
+	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings))
 	if err != nil {
-		t.Fatal(err)
-	}
-	settings := sm.Settings()
-	settings.AcceptingContracts = true
-	settings.NetAddress = "127.0.0.1:9981"
-	if err := sm.UpdateSettings(settings); err != nil {
 		t.Fatal(err)
 	}
 
