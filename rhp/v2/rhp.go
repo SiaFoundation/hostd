@@ -133,7 +133,8 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 	}
 
 	cs := sh.chain.TipState()
-	if cs.Index.Height > cs.Network.HardforkV2.RequireHeight {
+	// disable rhp2 after v2 require height
+	if cs.Index.Height >= cs.Network.HardforkV2.RequireHeight {
 		sess.t.WriteResponseErr(ErrV2Hardfork)
 		return ErrV2Hardfork
 	}

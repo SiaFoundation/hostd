@@ -407,15 +407,9 @@ func TestRPCV2(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	renterKey, hostKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 	network, genesis := testutil.V2Network()
+	network.HardforkV2.AllowHeight = 180
+	network.HardforkV2.RequireHeight = 200
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
-
-	// set the host to accept contracts
-	s := node.Settings.Settings()
-	s.AcceptingContracts = true
-	s.NetAddress = "localhost:9983"
-	if err := node.Settings.UpdateSettings(s); err != nil {
-		t.Fatal(err)
-	}
 
 	// initialize a storage volume
 	res := make(chan error)
@@ -425,8 +419,8 @@ func TestRPCV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// fund the wallet and mine until right after the require height
-	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.AllowHeight+1))
+	// fund the wallet
+	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
 
 	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -441,42 +435,60 @@ func TestRPCV2(t *testing.T) {
 	defer sh.Close()
 	go sh.Serve()
 
-	transport := dialHost(t, hostKey.PublicKey(), l.Addr().String())
-	defer transport.Close()
+	t.Run("ends after require height", func(t *testing.T) {
+		transport := dialHost(t, hostKey.PublicKey(), l.Addr().String())
+		defer transport.Close()
 
-	settings, err := rpc2.RPCSettings(transport)
-	if err != nil {
-		t.Fatal(err)
-	}
+		settings, err := rpc2.RPCSettings(transport)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// try to form a v1 contract after the allow height
-	fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(10), types.Siacoins(20), node.Chain.Tip().Height+200, settings, node.Wallet.Address())
-	formationCost := crhp2.ContractFormationCost(node.Chain.TipState(), fc, settings.ContractPrice)
-	txn := types.Transaction{
-		FileContracts: []types.FileContract{fc},
-	}
-	toSign, err := node.Wallet.FundTransaction(&txn, formationCost, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	node.Wallet.SignTransaction(&txn, toSign, wallet.ExplicitCoveredFields(txn))
-	formationSet := append(node.Chain.UnconfirmedParents(txn), txn)
+		// try to form a v1 contract that ends after the require height
+		fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(10), types.Siacoins(20), network.HardforkV2.RequireHeight, settings, node.Wallet.Address())
+		formationCost := crhp2.ContractFormationCost(node.Chain.TipState(), fc, settings.ContractPrice)
+		txn := types.Transaction{
+			FileContracts: []types.FileContract{fc},
+		}
+		toSign, err := node.Wallet.FundTransaction(&txn, formationCost, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		node.Wallet.SignTransaction(&txn, toSign, wallet.ExplicitCoveredFields(txn))
+		formationSet := append(node.Chain.UnconfirmedParents(txn), txn)
 
-	if _, _, err := rpc2.RPCFormContract(transport, renterKey, formationSet); !errors.Is(err, rhp2.ErrV2Hardfork) {
-		t.Fatalf("expected ErrV2Hardfork, got %v", err)
-	} else if err := transport.Close(); err != nil {
-		// transport is closed after error
-		t.Fatal(err)
-	}
+		if _, _, err := rpc2.RPCFormContract(transport, renterKey, formationSet); !errors.Is(err, rhp2.ErrAfterV2Hardfork) {
+			t.Fatalf("expected ErrV2Hardfork, got %v", err)
+		}
+	})
 
-	transport = dialHost(t, hostKey.PublicKey(), l.Addr().String())
-	defer transport.Close()
+	t.Run("form after allow height", func(t *testing.T) {
+		// mine until the allow height
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.AllowHeight-node.Chain.Tip().Height))
 
-	// mine until after the require height
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 100)
+		transport := dialHost(t, hostKey.PublicKey(), l.Addr().String())
+		defer transport.Close()
 
-	// all RPC should fail after the require height
-	if _, err = rpc2.RPCSettings(transport); !errors.Is(err, rhp2.ErrV2Hardfork) {
-		t.Fatalf("expected ErrV2Hardfork, got %v", err)
-	}
+		settings, err := rpc2.RPCSettings(transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// try to form a v1 contract after the allow height
+		fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(10), types.Siacoins(20), node.Chain.Tip().Height+10, settings, node.Wallet.Address())
+		formationCost := crhp2.ContractFormationCost(node.Chain.TipState(), fc, settings.ContractPrice)
+		txn := types.Transaction{
+			FileContracts: []types.FileContract{fc},
+		}
+		toSign, err := node.Wallet.FundTransaction(&txn, formationCost, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		node.Wallet.SignTransaction(&txn, toSign, wallet.ExplicitCoveredFields(txn))
+		formationSet := append(node.Chain.UnconfirmedParents(txn), txn)
+
+		if _, _, err := rpc2.RPCFormContract(transport, renterKey, formationSet); !errors.Is(err, rhp2.ErrV2Hardfork) {
+			t.Fatalf("expected ErrV2Hardfork, got %v", err)
+		}
+	})
 }

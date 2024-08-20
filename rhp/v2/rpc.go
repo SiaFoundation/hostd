@@ -39,6 +39,10 @@ var (
 	// ErrV2Hardfork is returned when a renter tries to form or renew a contract
 	// after the v2 hardfork has been activated.
 	ErrV2Hardfork = errors.New("hardfork v2 is active")
+
+	// ErrAfterV2Hardfork is returned when a renter tries to form or renew a
+	// contract that ends after the v2 hardfork has been activated.
+	ErrAfterV2Hardfork = errors.New("proof window after hardfork v2 activation")
 )
 
 func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) (contracts.Usage, error) {
@@ -120,7 +124,8 @@ func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) (contracts.Usag
 // host.
 func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contracts.Usage, error) {
 	cs := sh.chain.TipState()
-	if cs.Index.Height > cs.Network.HardforkV2.AllowHeight {
+	// prevent forming v1 contracts after the allow height
+	if cs.Index.Height >= cs.Network.HardforkV2.AllowHeight {
 		s.t.WriteResponseErr(ErrV2Hardfork)
 		return contracts.Usage{}, ErrV2Hardfork
 	}
@@ -156,6 +161,14 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 
 	// get the contract from the transaction set
 	formationTxn, formationTxnSet := formationTxnSet[len(formationTxnSet)-1], formationTxnSet[:len(formationTxnSet)-1]
+	fc := formationTxn.FileContracts[0]
+
+	// prevent forming contracts that end after the v2 hardfork
+	if fc.WindowStart >= cs.Network.HardforkV2.RequireHeight {
+		err := ErrAfterV2Hardfork
+		s.t.WriteResponseErr(err)
+		return contracts.Usage{}, err
+	}
 
 	// validate the contract formation fields. note: the v1 contract type
 	// does not contain the public keys or signatures.
@@ -249,7 +262,8 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 // existing contract
 func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) (contracts.Usage, error) {
 	cs := sh.chain.TipState()
-	if cs.Index.Height > cs.Network.HardforkV2.AllowHeight {
+	// prevent renewing v1 contracts after the allow height
+	if cs.Index.Height >= cs.Network.HardforkV2.AllowHeight {
 		s.t.WriteResponseErr(ErrV2Hardfork)
 		return contracts.Usage{}, ErrV2Hardfork
 	}
@@ -292,6 +306,13 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	}
 	renewalTxn, renewalParents := renewalTxnSet[len(renewalTxnSet)-1], renewalTxnSet[:len(renewalTxnSet)-1]
 	renewedContract := renewalTxn.FileContracts[0]
+
+	// prevent forming contracts that end after the v2 hardfork
+	if renewedContract.WindowStart >= cs.Network.HardforkV2.RequireHeight {
+		err := ErrAfterV2Hardfork
+		s.t.WriteResponseErr(err)
+		return contracts.Usage{}, err
+	}
 
 	existingRevision := s.contract.Revision
 	clearingRevision, err := rhp.ClearingRevision(existingRevision, req.FinalValidProofValues)
