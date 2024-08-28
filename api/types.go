@@ -218,6 +218,16 @@ func (je *JSONErrors) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// MarshalText implements test.Marshaler
+func (tr TPoolResp) MarshalText() ([]byte, error) {
+	return types.Currency(tr).MarshalText()
+}
+
+// UnmarshalText implements test.Unmarshaler
+func (tr *TPoolResp) UnmarshalText(b []byte) error {
+	return (*types.Currency)(tr).UnmarshalText(b)
+}
+
 // SetAcceptingContracts sets the AcceptingContracts field of the request
 func SetAcceptingContracts(value bool) Setting {
 	return func(v map[string]any) {
