@@ -22,7 +22,6 @@ import (
 	"go.sia.tech/hostd/internal/prometheus"
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
-	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
@@ -32,17 +31,17 @@ var startTime = time.Now()
 
 // checkServerError conditionally writes an error to the response if err is not
 // nil.
-func (a *api) checkServerError(c jape.Context, context string, err error) bool {
+func (a *api) checkServerError(jc jape.Context, context string, err error) bool {
 	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
+		jc.Error(err, http.StatusInternalServerError)
 		a.log.Warn(context, zap.Error(err))
 	}
 	return err == nil
 }
 
-func (a *api) writeResponse(c jape.Context, resp any) {
+func (a *api) writeResponse(jc jape.Context, resp any) {
 	var responseFormat string
-	if err := c.DecodeForm("response", &responseFormat); err != nil {
+	if err := jc.DecodeForm("response", &responseFormat); err != nil {
 		return
 	}
 
@@ -52,26 +51,26 @@ func (a *api) writeResponse(c jape.Context, resp any) {
 			v, ok := resp.(prometheus.Marshaller)
 			if !ok {
 				err := fmt.Errorf("response does not implement prometheus.Marshaller %T", resp)
-				c.Error(err, http.StatusInternalServerError)
+				jc.Error(err, http.StatusInternalServerError)
 				a.log.Error("response does not implement prometheus.Marshaller", zap.Stack("stack"), zap.Error(err))
 				return
 			}
 
-			enc := prometheus.NewEncoder(c.ResponseWriter)
+			enc := prometheus.NewEncoder(jc.ResponseWriter)
 			if err := enc.Append(v); err != nil {
 				a.log.Error("failed to marshal prometheus response", zap.Error(err))
 				return
 			}
 		default:
-			c.Encode(resp)
+			jc.Encode(resp)
 		}
 	}
 }
 
-func (a *api) handleGETHostState(c jape.Context) {
+func (a *api) handleGETState(jc jape.Context) {
 	announcement, err := a.settings.LastAnnouncement()
 	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
+		jc.Error(err, http.StatusInternalServerError)
 		return
 	}
 
@@ -80,10 +79,9 @@ func (a *api) handleGETHostState(c jape.Context) {
 		baseURL = a.explorer.BaseURL()
 	}
 
-	a.writeResponse(c, HostState{
+	a.writeResponse(jc, State{
 		Name:             a.name,
 		PublicKey:        a.hostKey,
-		WalletAddress:    a.wallet.Address(),
 		StartTime:        startTime,
 		LastAnnouncement: announcement,
 		Explorer: ExplorerState{
@@ -91,7 +89,6 @@ func (a *api) handleGETHostState(c jape.Context) {
 			URL:     baseURL,
 		},
 		BuildState: BuildState{
-			Network:   build.NetworkName(),
 			Version:   build.Version(),
 			Commit:    build.Commit(),
 			OS:        runtime.GOOS,
@@ -100,170 +97,168 @@ func (a *api) handleGETHostState(c jape.Context) {
 	})
 }
 
-func (a *api) handleGETConsensusState(c jape.Context) {
-	a.writeResponse(c, ConsensusState{
-		Synced:     a.chain.Synced(),
-		ChainIndex: a.chain.TipState().Index,
-	})
+func (a *api) handleGETConsensusTip(jc jape.Context) {
+	jc.Encode(a.chain.Tip())
+}
+func (a *api) handleGETConsensusTipState(jc jape.Context) {
+	jc.Encode(a.chain.TipState())
+}
+func (a *api) handleGETConsensusNetwork(jc jape.Context) {
+	jc.Encode(a.chain.TipState().Network)
 }
 
-func (a *api) handleGETSyncerAddr(c jape.Context) {
-	a.writeResponse(c, SyncerAddrResp(a.syncer.Address()))
+func (a *api) handleGETSyncerAddr(jc jape.Context) {
+	a.writeResponse(jc, SyncerAddrResp(a.syncer.Addr()))
 }
 
-func (a *api) handleGETSyncerPeers(c jape.Context) {
+func (a *api) handleGETSyncerPeers(jc jape.Context) {
 	p := a.syncer.Peers()
 	peers := make([]Peer, len(p))
 	for i, peer := range p {
 		peers[i] = Peer{
-			Address: string(peer.NetAddress),
-			Version: peer.Version,
+			Address: peer.ConnAddr,
+			Version: peer.Version(),
 		}
 	}
-	a.writeResponse(c, PeerResp(peers))
+	a.writeResponse(jc, PeerResp(peers))
 }
 
-func (a *api) handlePUTSyncerPeer(c jape.Context) {
+func (a *api) handlePUTSyncerPeer(jc jape.Context) {
 	var req SyncerConnectRequest
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	}
-	err := a.syncer.Connect(modules.NetAddress(req.Address))
-	a.checkServerError(c, "failed to connect to peer", err)
+	_, err := a.syncer.Connect(jc.Request.Context(), req.Address)
+	a.checkServerError(jc, "failed to connect to peer", err)
 }
 
-func (a *api) handleDeleteSyncerPeer(c jape.Context) {
-	var addr modules.NetAddress
-	if err := c.DecodeParam("address", &addr); err != nil {
-		return
-	}
-	err := a.syncer.Disconnect(addr)
-	a.checkServerError(c, "failed to disconnect from peer", err)
+func (a *api) handleGETIndexTip(jc jape.Context) {
+	jc.Encode(a.index.Tip())
 }
 
-func (a *api) handleGETAlerts(c jape.Context) {
-	a.writeResponse(c, AlertResp(a.alerts.Active()))
+func (a *api) handleGETAlerts(jc jape.Context) {
+	a.writeResponse(jc, AlertResp(a.alerts.Active()))
 }
 
-func (a *api) handlePOSTAlertsDismiss(c jape.Context) {
+func (a *api) handlePOSTAlertsDismiss(jc jape.Context) {
 	var ids []types.Hash256
-	if err := c.Decode(&ids); err != nil {
+	if err := jc.Decode(&ids); err != nil {
 		return
 	} else if len(ids) == 0 {
-		c.Error(errors.New("no alerts to dismiss"), http.StatusBadRequest)
+		jc.Error(errors.New("no alerts to dismiss"), http.StatusBadRequest)
 		return
 	}
 	a.alerts.Dismiss(ids...)
 }
 
-func (a *api) handlePOSTAnnounce(c jape.Context) {
+func (a *api) handlePOSTAnnounce(jc jape.Context) {
 	err := a.settings.Announce()
-	a.checkServerError(c, "failed to announce", err)
+	a.checkServerError(jc, "failed to announce", err)
 }
 
-func (a *api) handleGETSettings(c jape.Context) {
+func (a *api) handleGETSettings(jc jape.Context) {
 	hs := HostSettings(a.settings.Settings())
-	a.writeResponse(c, hs)
+	a.writeResponse(jc, hs)
 }
 
-func (a *api) handlePATCHSettings(c jape.Context) {
+func (a *api) handlePATCHSettings(jc jape.Context) {
 	buf, err := json.Marshal(a.settings.Settings())
-	if !a.checkServerError(c, "failed to marshal existing settings", err) {
+	if !a.checkServerError(jc, "failed to marshal existing settings", err) {
 		return
 	}
 	var current map[string]any
 	err = json.Unmarshal(buf, &current)
-	if !a.checkServerError(c, "failed to unmarshal existing settings", err) {
+	if !a.checkServerError(jc, "failed to unmarshal existing settings", err) {
 		return
 	}
 
 	var req map[string]any
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	}
 
 	err = patchSettings(current, req)
-	if !a.checkServerError(c, "failed to patch settings", err) {
+	if !a.checkServerError(jc, "failed to patch settings", err) {
 		return
 	}
 
 	buf, err = json.Marshal(current)
-	if !a.checkServerError(c, "failed to marshal patched settings", err) {
+	if !a.checkServerError(jc, "failed to marshal patched settings", err) {
 		return
 	}
 
 	var settings settings.Settings
 	if err := json.Unmarshal(buf, &settings); err != nil {
-		c.Error(err, http.StatusBadRequest)
+		jc.Error(err, http.StatusBadRequest)
 		return
 	}
 
 	err = a.settings.UpdateSettings(settings)
-	if !a.checkServerError(c, "failed to update settings", err) {
+	if !a.checkServerError(jc, "failed to update settings", err) {
 		return
 	}
 
 	// Resize the cache based on the updated settings
 	a.volumes.ResizeCache(settings.SectorCacheSize)
 
-	c.Encode(a.settings.Settings())
+	jc.Encode(a.settings.Settings())
 }
 
-func (a *api) handleGETPinnedSettings(c jape.Context) {
-	c.Encode(a.pinned.Pinned(c.Request.Context()))
+func (a *api) handleGETPinnedSettings(jc jape.Context) {
+	jc.Encode(a.pinned.Pinned(jc.Request.Context()))
 }
 
-func (a *api) handlePUTPinnedSettings(c jape.Context) {
+func (a *api) handlePUTPinnedSettings(jc jape.Context) {
 	var req pin.PinnedSettings
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	}
 
-	a.checkServerError(c, "failed to update pinned settings", a.pinned.Update(c.Request.Context(), req))
+	a.checkServerError(jc, "failed to update pinned settings", a.pinned.Update(jc.Request.Context(), req))
 }
 
-func (a *api) handlePUTDDNSUpdate(c jape.Context) {
+func (a *api) handlePUTDDNSUpdate(jc jape.Context) {
 	err := a.settings.UpdateDDNS(true)
-	a.checkServerError(c, "failed to update dynamic DNS", err)
+	a.checkServerError(jc, "failed to update dynamic DNS", err)
 }
 
-func (a *api) handleGETMetrics(c jape.Context) {
+func (a *api) handleGETMetrics(jc jape.Context) {
 	var timestamp time.Time
-	if err := c.DecodeForm("timestamp", &timestamp); err != nil {
+	if err := jc.DecodeForm("timestamp", &timestamp); err != nil {
 		return
 	} else if timestamp.IsZero() {
 		timestamp = time.Now()
 	}
 
 	metrics, err := a.metrics.Metrics(timestamp)
-	if !a.checkServerError(c, "failed to get metrics", err) {
+	if !a.checkServerError(jc, "failed to get metrics", err) {
 		return
 	}
 
-	a.writeResponse(c, Metrics(metrics))
+	a.writeResponse(jc, Metrics(metrics))
 }
 
-func (a *api) handleGETPeriodMetrics(c jape.Context) {
+func (a *api) handleGETPeriodMetrics(jc jape.Context) {
 	var interval metrics.Interval
-	if err := c.DecodeParam("period", &interval); err != nil {
+	if err := jc.DecodeParam("period", &interval); err != nil {
 		return
 	}
 	var start time.Time
 	var periods int
-	if err := c.DecodeForm("start", &start); err != nil {
+	if err := jc.DecodeForm("start", &start); err != nil {
 		return
-	} else if err := c.DecodeForm("periods", &periods); err != nil {
+	} else if err := jc.DecodeForm("periods", &periods); err != nil {
 		return
 	} else if start.IsZero() {
-		c.Error(errors.New("start time cannot be zero"), http.StatusBadRequest)
+		jc.Error(errors.New("start time cannot be zero"), http.StatusBadRequest)
 		return
 	} else if start.After(time.Now()) {
-		c.Error(errors.New("start time cannot be in the future"), http.StatusBadRequest)
+		jc.Error(errors.New("start time cannot be in the future"), http.StatusBadRequest)
 	}
 
 	start, err := metrics.Normalize(start, interval)
 	if err != nil {
-		c.Error(err, http.StatusBadRequest)
+		jc.Error(err, http.StatusBadRequest)
 		return
 	}
 
@@ -297,15 +292,15 @@ func (a *api) handleGETPeriodMetrics(c jape.Context) {
 	}
 
 	period, err := a.metrics.PeriodMetrics(start, periods, interval)
-	if !a.checkServerError(c, "failed to get metrics", err) {
+	if !a.checkServerError(jc, "failed to get metrics", err) {
 		return
 	}
-	c.Encode(period)
+	jc.Encode(period)
 }
 
-func (a *api) handlePostContracts(c jape.Context) {
+func (a *api) handlePostContracts(jc jape.Context) {
 	var filter contracts.ContractFilter
-	if err := c.Decode(&filter); err != nil {
+	if err := jc.Decode(&filter); err != nil {
 		return
 	}
 
@@ -314,162 +309,190 @@ func (a *api) handlePostContracts(c jape.Context) {
 	}
 
 	contracts, count, err := a.contracts.Contracts(filter)
-	if !a.checkServerError(c, "failed to get contracts", err) {
+	if !a.checkServerError(jc, "failed to get contracts", err) {
 		return
 	}
-	c.Encode(ContractsResponse{
+	jc.Encode(ContractsResponse{
 		Contracts: contracts,
 		Count:     count,
 	})
 }
 
-func (a *api) handleGETContract(c jape.Context) {
+func (a *api) handleGETContract(jc jape.Context) {
 	var id types.FileContractID
-	if err := c.DecodeParam("id", &id); err != nil {
+	if err := jc.DecodeParam("id", &id); err != nil {
 		return
 	}
 	contract, err := a.contracts.Contract(id)
 	if errors.Is(err, contracts.ErrNotFound) {
-		c.Error(err, http.StatusNotFound)
+		jc.Error(err, http.StatusNotFound)
 		return
-	} else if !a.checkServerError(c, "failed to get contract", err) {
+	} else if !a.checkServerError(jc, "failed to get contract", err) {
 		return
 	}
-	c.Encode(contract)
+	jc.Encode(contract)
 }
 
-func (a *api) handleGETVolume(c jape.Context) {
+func (a *api) handleGETVolume(jc jape.Context) {
 	var id int64
-	if err := c.DecodeParam("id", &id); err != nil {
+	if err := jc.DecodeParam("id", &id); err != nil {
 		return
 	} else if id < 0 {
-		c.Error(errors.New("invalid volume id"), http.StatusBadRequest)
+		jc.Error(errors.New("invalid volume id"), http.StatusBadRequest)
 		return
 	}
 
 	volume, err := a.volumes.Volume(id)
 	if errors.Is(err, storage.ErrVolumeNotFound) {
-		c.Error(err, http.StatusNotFound)
+		jc.Error(err, http.StatusNotFound)
 		return
-	} else if !a.checkServerError(c, "failed to get volume", err) {
+	} else if !a.checkServerError(jc, "failed to get volume", err) {
 		return
 	}
-	c.Encode(toJSONVolume(volume))
+	jc.Encode(toJSONVolume(volume))
 }
 
-func (a *api) handlePUTVolume(c jape.Context) {
+func (a *api) handlePUTVolume(jc jape.Context) {
 	var id int64
-	if err := c.DecodeParam("id", &id); err != nil {
+	if err := jc.DecodeParam("id", &id); err != nil {
 		return
 	} else if id < 0 {
-		c.Error(errors.New("invalid volume id"), http.StatusBadRequest)
+		jc.Error(errors.New("invalid volume id"), http.StatusBadRequest)
 		return
 	}
 
 	var req UpdateVolumeRequest
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	}
 
 	err := a.volumes.SetReadOnly(id, req.ReadOnly)
 	if errors.Is(err, storage.ErrVolumeNotFound) {
-		c.Error(err, http.StatusNotFound)
+		jc.Error(err, http.StatusNotFound)
 		return
 	}
-	a.checkServerError(c, "failed to update volume", err)
+	a.checkServerError(jc, "failed to update volume", err)
 }
 
-func (a *api) handleDeleteSector(c jape.Context) {
+func (a *api) handleDeleteSector(jc jape.Context) {
 	var root types.Hash256
-	if err := c.DecodeParam("root", &root); err != nil {
+	if err := jc.DecodeParam("root", &root); err != nil {
 		return
 	}
 	err := a.volumes.RemoveSector(root)
-	a.checkServerError(c, "failed to remove sector", err)
+	a.checkServerError(jc, "failed to remove sector", err)
 }
 
-func (a *api) handleGETWallet(c jape.Context) {
-	spendable, confirmed, unconfirmed, err := a.wallet.Balance()
-	if !a.checkServerError(c, "failed to get wallet", err) {
+func (a *api) handleGETWallet(jc jape.Context) {
+	balance, err := a.wallet.Balance()
+	if !a.checkServerError(jc, "failed to get wallet", err) {
 		return
 	}
-	a.writeResponse(c, WalletResponse{
-		ScanHeight:  a.wallet.ScanHeight(),
-		Address:     a.wallet.Address(),
-		Spendable:   spendable,
-		Confirmed:   confirmed,
-		Unconfirmed: unconfirmed,
+	a.writeResponse(jc, WalletResponse{
+		Balance: balance,
+		Address: a.wallet.Address(),
 	})
 }
 
-func (a *api) handleGETWalletTransactions(c jape.Context) {
-	limit, offset := parseLimitParams(c, 100, 500)
+func (a *api) handleGETWalletEvents(jc jape.Context) {
+	limit, offset := parseLimitParams(jc, 100, 500)
 
-	transactions, err := a.wallet.Transactions(limit, offset)
-	if !a.checkServerError(c, "failed to get wallet transactions", err) {
+	transactions, err := a.wallet.Events(offset, limit)
+	if !a.checkServerError(jc, "failed to get events", err) {
 		return
 	}
 
-	a.writeResponse(c, WalletTransactionsResp(transactions))
+	a.writeResponse(jc, WalletTransactionsResp(transactions))
 }
 
-func (a *api) handleGETWalletPending(c jape.Context) {
-	pending, err := a.wallet.UnconfirmedTransactions()
-	if !a.checkServerError(c, "failed to get wallet pending", err) {
+func (a *api) handleGETWalletPending(jc jape.Context) {
+	pending, err := a.wallet.UnconfirmedEvents()
+	if !a.checkServerError(jc, "failed to get wallet pending", err) {
 		return
 	}
-	a.writeResponse(c, WalletPendingResp(pending))
+	a.writeResponse(jc, WalletPendingResp(pending))
 }
 
-func (a *api) handlePOSTWalletSend(c jape.Context) {
+func (a *api) handlePOSTWalletSend(jc jape.Context) {
 	var req WalletSendSiacoinsRequest
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	} else if req.Address == types.VoidAddress {
-		c.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
+		jc.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
 		return
 	}
 
 	// estimate miner fee
-	feePerByte := a.tpool.RecommendedFee()
+	feePerByte := a.chain.RecommendedFee()
 	minerFee := feePerByte.Mul64(stdTxnSize)
 	if req.SubtractMinerFee {
 		var underflow bool
 		req.Amount, underflow = req.Amount.SubWithUnderflow(minerFee)
 		if underflow {
-			c.Error(fmt.Errorf("amount must be greater than miner fee: %s", minerFee), http.StatusBadRequest)
+			jc.Error(fmt.Errorf("amount must be greater than miner fee: %s", minerFee), http.StatusBadRequest)
 			return
 		}
 	}
 
-	// build transaction
-	txn := types.Transaction{
-		MinerFees: []types.Currency{minerFee},
-		SiacoinOutputs: []types.SiacoinOutput{
-			{Address: req.Address, Value: req.Amount},
-		},
+	state := a.chain.TipState()
+	// if the current height is below the v2 hardfork height, send a v1
+	// transaction
+	if state.Index.Height < state.Network.HardforkV2.AllowHeight {
+		// build transaction
+		txn := types.Transaction{
+			MinerFees: []types.Currency{minerFee},
+			SiacoinOutputs: []types.SiacoinOutput{
+				{Address: req.Address, Value: req.Amount},
+			},
+		}
+		toSign, err := a.wallet.FundTransaction(&txn, req.Amount.Add(minerFee), false)
+		if !a.checkServerError(jc, "failed to fund transaction", err) {
+			return
+		}
+		a.wallet.SignTransaction(&txn, toSign, types.CoveredFields{WholeTransaction: true})
+		// shouldn't be necessary to get parents since the transaction is
+		// not using unconfirmed outputs, but good practice
+		txnset := append(a.chain.UnconfirmedParents(txn), txn)
+		// verify the transaction and add it to the transaction pool
+		if _, err := a.chain.AddPoolTransactions(txnset); !a.checkServerError(jc, "failed to add transaction set", err) {
+			a.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
+			return
+		}
+		// broadcast the transaction
+		a.syncer.BroadcastTransactionSet(txnset)
+		jc.Encode(txn.ID())
+	} else {
+		txn := types.V2Transaction{
+			MinerFee: minerFee,
+			SiacoinOutputs: []types.SiacoinOutput{
+				{Address: req.Address, Value: req.Amount},
+			},
+		}
+		// fund and sign transaction
+		basis, toSign, err := a.wallet.FundV2Transaction(&txn, req.Amount.Add(minerFee), false)
+		if !a.checkServerError(jc, "failed to fund transaction", err) {
+			return
+		}
+		a.wallet.SignV2Inputs(&txn, toSign)
+		basis, txnset, err := a.chain.V2TransactionSet(basis, txn)
+		if !a.checkServerError(jc, "failed to create transaction set", err) {
+			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+			return
+		}
+		// verify the transaction and add it to the transaction pool
+		if _, err := a.chain.AddV2PoolTransactions(basis, txnset); !a.checkServerError(jc, "failed to add v2 transaction set", err) {
+			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+			return
+		}
+		// broadcast the transaction
+		a.syncer.BroadcastV2TransactionSet(basis, txnset)
+		jc.Encode(txn.ID())
 	}
-	// fund and sign transaction
-	toSign, release, err := a.wallet.FundTransaction(&txn, req.Amount.Add(minerFee))
-	if !a.checkServerError(c, "failed to fund transaction", err) {
-		return
-	}
-	defer release()
-	err = a.wallet.SignTransaction(a.chain.TipState(), &txn, toSign, types.CoveredFields{WholeTransaction: true})
-	if !a.checkServerError(c, "failed to sign transaction", err) {
-		return
-	}
-	// broadcast transaction
-	err = a.tpool.AcceptTransactionSet([]types.Transaction{txn})
-	if !a.checkServerError(c, "failed to broadcast transaction", err) {
-		return
-	}
-	c.Encode(txn.ID())
 }
 
-func (a *api) handleGETSystemDir(c jape.Context) {
+func (a *api) handleGETSystemDir(jc jape.Context) {
 	var path string
-	if err := c.DecodeForm("path", &path); err != nil {
+	if err := jc.DecodeForm("path", &path); err != nil {
 		return
 	}
 
@@ -477,10 +500,10 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 		// special handling for / on Windows
 		if path == `/` || path == `\` {
 			drives, err := disk.Drives()
-			if !a.checkServerError(c, "failed to get drives", err) {
+			if !a.checkServerError(jc, "failed to get drives", err) {
 				return
 			}
-			c.Encode(SystemDirResponse{
+			jc.Encode(SystemDirResponse{
 				Path:        path,
 				Directories: drives,
 			})
@@ -502,7 +525,7 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 			// try to get the working directory instead
 			path, err = os.Getwd()
 			if err != nil {
-				c.Error(fmt.Errorf("failed to get home dir: %w", err), http.StatusInternalServerError)
+				jc.Error(fmt.Errorf("failed to get home dir: %w", err), http.StatusInternalServerError)
 				return
 			}
 		}
@@ -510,27 +533,27 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 		var err error
 		path, err = os.Getwd()
 		if err != nil {
-			c.Error(fmt.Errorf("failed to get working dir: %w", err), http.StatusInternalServerError)
+			jc.Error(fmt.Errorf("failed to get working dir: %w", err), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	path = filepath.Clean(path)
 	if !filepath.IsAbs(path) {
-		c.Error(errors.New("path must be absolute"), http.StatusBadRequest)
+		jc.Error(errors.New("path must be absolute"), http.StatusBadRequest)
 		return
 	}
 	dir, err := os.ReadDir(path)
 	if errors.Is(err, os.ErrNotExist) {
-		c.Error(fmt.Errorf("path does not exist: %w", err), http.StatusNotFound)
+		jc.Error(fmt.Errorf("path does not exist: %w", err), http.StatusNotFound)
 		return
-	} else if !a.checkServerError(c, "failed to read dir", err) {
+	} else if !a.checkServerError(jc, "failed to read dir", err) {
 		return
 	}
 
 	// get disk usage
 	free, total, err := disk.Usage(path)
-	if !a.checkServerError(c, "failed to get disk usage", err) {
+	if !a.checkServerError(jc, "failed to get disk usage", err) {
 		return
 	}
 
@@ -545,111 +568,111 @@ func (a *api) handleGETSystemDir(c jape.Context) {
 			resp.Directories = append(resp.Directories, entry.Name())
 		}
 	}
-	c.Encode(resp)
+	jc.Encode(resp)
 }
 
-func (a *api) handlePUTSystemDir(c jape.Context) {
+func (a *api) handlePUTSystemDir(jc jape.Context) {
 	var req CreateDirRequest
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	}
-	a.checkServerError(c, "failed to create dir", os.MkdirAll(req.Path, 0775))
+	a.checkServerError(jc, "failed to create dir", os.MkdirAll(req.Path, 0775))
 }
 
-func (a *api) handleGETTPoolFee(c jape.Context) {
-	a.writeResponse(c, TPoolResp(a.tpool.RecommendedFee()))
+func (a *api) handleGETTPoolFee(jc jape.Context) {
+	a.writeResponse(jc, TPoolResp(a.chain.RecommendedFee()))
 }
 
-func (a *api) handleGETAccounts(c jape.Context) {
-	limit, offset := parseLimitParams(c, 100, 500)
+func (a *api) handleGETAccounts(jc jape.Context) {
+	limit, offset := parseLimitParams(jc, 100, 500)
 	accounts, err := a.accounts.Accounts(limit, offset)
-	if !a.checkServerError(c, "failed to get accounts", err) {
+	if !a.checkServerError(jc, "failed to get accounts", err) {
 		return
 	}
-	c.Encode(accounts)
+	jc.Encode(accounts)
 }
 
-func (a *api) handleGETAccountFunding(c jape.Context) {
+func (a *api) handleGETAccountFunding(jc jape.Context) {
 	var account rhp3.Account
-	if err := c.DecodeParam("account", &account); err != nil {
+	if err := jc.DecodeParam("account", &account); err != nil {
 		return
 	}
 	funding, err := a.accounts.AccountFunding(account)
-	if !a.checkServerError(c, "failed to get account funding", err) {
+	if !a.checkServerError(jc, "failed to get account funding", err) {
 		return
 	}
-	c.Encode(funding)
+	jc.Encode(funding)
 }
 
-func (a *api) handleGETWebhooks(c jape.Context) {
-	hooks, err := a.webhooks.WebHooks()
+func (a *api) handleGETWebhooks(jc jape.Context) {
+	hooks, err := a.webhooks.Webhooks()
 	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
+		jc.Error(err, http.StatusInternalServerError)
 		return
 	}
-	c.Encode(hooks)
+	jc.Encode(hooks)
 }
 
-func (a *api) handlePOSTWebhooks(c jape.Context) {
+func (a *api) handlePOSTWebhooks(jc jape.Context) {
 	var req RegisterWebHookRequest
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	}
 
-	hook, err := a.webhooks.RegisterWebHook(req.CallbackURL, req.Scopes)
+	hook, err := a.webhooks.RegisterWebhook(req.CallbackURL, req.Scopes)
 	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
+		jc.Error(err, http.StatusInternalServerError)
 		return
 	}
-	c.Encode(hook)
+	jc.Encode(hook)
 }
 
-func (a *api) handlePUTWebhooks(c jape.Context) {
+func (a *api) handlePUTWebhooks(jc jape.Context) {
 	var id int64
-	if err := c.DecodeParam("id", &id); err != nil {
+	if err := jc.DecodeParam("id", &id); err != nil {
 		return
 	}
 	var req RegisterWebHookRequest
-	if err := c.Decode(&req); err != nil {
+	if err := jc.Decode(&req); err != nil {
 		return
 	}
 
-	_, err := a.webhooks.UpdateWebHook(id, req.CallbackURL, req.Scopes)
+	_, err := a.webhooks.UpdateWebhook(id, req.CallbackURL, req.Scopes)
 	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
+		jc.Error(err, http.StatusInternalServerError)
 		return
 	}
 }
 
-func (a *api) handlePOSTWebhooksTest(c jape.Context) {
+func (a *api) handlePOSTWebhooksTest(jc jape.Context) {
 	var id int64
-	if err := c.DecodeParam("id", &id); err != nil {
+	if err := jc.DecodeParam("id", &id); err != nil {
 		return
 	}
 
 	if err := a.webhooks.BroadcastToWebhook(id, "test", webhooks.ScopeTest, nil); err != nil {
-		c.Error(err, http.StatusInternalServerError)
+		jc.Error(err, http.StatusInternalServerError)
 		return
 	}
 }
 
-func (a *api) handleDELETEWebhooks(c jape.Context) {
+func (a *api) handleDELETEWebhooks(jc jape.Context) {
 	var id int64
-	if err := c.DecodeParam("id", &id); err != nil {
+	if err := jc.DecodeParam("id", &id); err != nil {
 		return
 	}
 
-	err := a.webhooks.RemoveWebHook(id)
+	err := a.webhooks.RemoveWebhook(id)
 	if err != nil {
-		c.Error(err, http.StatusInternalServerError)
+		jc.Error(err, http.StatusInternalServerError)
 		return
 	}
 }
 
-func parseLimitParams(c jape.Context, defaultLimit, maxLimit int) (limit, offset int) {
-	if err := c.DecodeForm("limit", &limit); err != nil {
+func parseLimitParams(jc jape.Context, defaultLimit, maxLimit int) (limit, offset int) {
+	if err := jc.DecodeForm("limit", &limit); err != nil {
 		return
-	} else if err := c.DecodeForm("offset", &offset); err != nil {
+	} else if err := jc.DecodeForm("offset", &offset); err != nil {
 		return
 	}
 	if limit > maxLimit {

@@ -62,7 +62,7 @@ func (i *IntegrityResult) UnmarshalJSON(b []byte) error {
 // CheckIntegrity checks the integrity of a contract's sector roots on disk. The
 // result of every checked sector is sent on the returned channel. The channel is closed
 // when all checks are complete.
-func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan IntegrityResult, uint64, error) {
+func (cm *Manager) CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan IntegrityResult, uint64, error) {
 	// lock the contract to ensure it doesn't get modified before the sector
 	// roots are retrieved.
 	contract, err := cm.Lock(ctx, contractID)
@@ -73,10 +73,8 @@ func (cm *ContractManager) CheckIntegrity(ctx context.Context, contractID types.
 
 	expectedRoots := contract.Revision.Filesize / rhp2.SectorSize
 
-	roots, err := cm.getSectorRoots(contractID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get sector roots: %w", err)
-	} else if uint64(len(roots)) != expectedRoots {
+	roots := cm.getSectorRoots(contractID)
+	if uint64(len(roots)) != expectedRoots {
 		return nil, 0, fmt.Errorf("expected %v sector roots, got %v", expectedRoots, len(roots))
 	} else if calculated := rhp2.MetaRoot(roots); contract.Revision.FileMerkleRoot != calculated {
 		return nil, 0, fmt.Errorf("expected Merkle root %v, got %v", contract.Revision.FileMerkleRoot, calculated)

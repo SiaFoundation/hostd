@@ -10,55 +10,33 @@ import (
 )
 
 // PrometheusMetric returns a Prometheus metric for the host state.
-func (hs HostState) PrometheusMetric() []prometheus.Metric {
+func (s State) PrometheusMetric() []prometheus.Metric {
 	return []prometheus.Metric{
 		{
 			Name: "hostd_host_state",
 			Labels: map[string]any{
-				"name":           hs.Name,
-				"public_key":     hs.PublicKey,
-				"wallet_address": hs.WalletAddress,
-				"network":        hs.Network,
-				"version":        hs.Version,
-				"commit":         hs.Commit,
-				"os":             hs.OS,
-				"build_time":     hs.BuildTime,
+				"name":       s.Name,
+				"public_key": s.PublicKey,
+				"version":    s.Version,
+				"commit":     s.Commit,
+				"os":         s.OS,
+				"build_time": s.BuildTime,
 			},
 			Value: 1,
 		},
 		{
 			Name:  "hostd_start_time",
-			Value: float64(hs.StartTime.UTC().UnixMilli()),
+			Value: float64(s.StartTime.UTC().UnixMilli()),
 		},
 		{
 			Name:      "hostd_runtime",
-			Value:     float64(time.Since(hs.StartTime).Milliseconds()),
+			Value:     float64(time.Since(s.StartTime).Milliseconds()),
 			Timestamp: time.Now(),
 		},
 		{
 			Name:   "hostd_last_announcement",
-			Labels: map[string]any{"address": hs.LastAnnouncement.Address, "id": hs.LastAnnouncement.Index.ID},
-			Value:  float64(hs.LastAnnouncement.Index.Height),
-		},
-	}
-}
-
-// PrometheusMetric returns a Prometheus metric for the consensus state.
-func (cs ConsensusState) PrometheusMetric() []prometheus.Metric {
-	return []prometheus.Metric{
-		{
-			Name: "hostd_consensus_state_synced",
-			Value: func() float64 {
-				if cs.Synced {
-					return 1
-				}
-				return 0
-			}(),
-		},
-		{
-			Name:   "hostd_consensus_state_index",
-			Labels: map[string]any{"id": cs.ChainIndex.ID},
-			Value:  float64(cs.ChainIndex.Height),
+			Labels: map[string]any{"address": s.LastAnnouncement.Address, "id": s.LastAnnouncement.Index.ID},
+			Value:  float64(s.LastAnnouncement.Index.Height),
 		},
 	}
 }
@@ -201,10 +179,6 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 			Value: m.Pricing.CollateralMultiplier,
 		},
 		{
-			Name:  "hostd_metrics_contracts_pending",
-			Value: float64(m.Contracts.Pending),
-		},
-		{
 			Name:  "hostd_metrics_contracts_active",
 			Value: float64(m.Contracts.Active),
 		},
@@ -269,8 +243,12 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 			Value: float64(m.Data.RHP.Egress),
 		},
 		{
-			Name:  "hostd_metrics_balance",
-			Value: m.Balance.Siacoins(),
+			Name:  "hostd_metrics_wallet_balance",
+			Value: m.Wallet.Balance.Siacoins(),
+		},
+		{
+			Name:  "hostd_metrics_wallet_immature_balance",
+			Value: m.Wallet.ImmatureBalance.Siacoins(),
 		},
 	}
 }
@@ -278,13 +256,6 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 // PrometheusMetric returns Prometheus samples for the host wallet.
 func (wr WalletResponse) PrometheusMetric() []prometheus.Metric {
 	return []prometheus.Metric{
-		{
-			Name: "hostd_wallet_scan_height",
-			Labels: map[string]any{
-				"address": wr.Address,
-			},
-			Value: float64(wr.ScanHeight),
-		},
 		{
 			Name: "hostd_wallet_spendable",
 			Labels: map[string]any{
@@ -305,6 +276,13 @@ func (wr WalletResponse) PrometheusMetric() []prometheus.Metric {
 				"address": wr.Address,
 			},
 			Value: wr.Unconfirmed.Siacoins(),
+		},
+		{
+			Name: "hostd_wallet_immature",
+			Labels: map[string]any{
+				"address": wr.Address,
+			},
+			Value: wr.Immature.Siacoins(),
 		},
 	}
 }
@@ -438,19 +416,22 @@ func (s SyncerAddrResp) PrometheusMetric() (metrics []prometheus.Metric) {
 
 // PrometheusMetric returns Prometheus samples for the hosts transactions.
 func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric) {
-	metricName := "hostd_wallet_transaction"
+	metricName := "hostd_wallet_event"
 	for _, txn := range w {
+		inflow, outflow := txn.SiacoinInflow(), txn.SiacoinOutflow()
+
 		var value float64
-		if txn.Inflow.Cmp(txn.Outflow) > 0 { // inflow > outflow = positive value
-			value = txn.Inflow.Sub(txn.Outflow).Siacoins()
+		if inflow.Cmp(outflow) > 0 { // inflow > outflow = positive value
+			value = inflow.Sub(outflow).Siacoins()
 		} else { // inflow < outflow = negative value
-			value = txn.Outflow.Sub(txn.Inflow).Siacoins() * -1
+			value = outflow.Sub(inflow).Siacoins() * -1
 		}
 
 		metrics = append(metrics, prometheus.Metric{
 			Name: metricName,
 			Labels: map[string]any{
 				"txid": strings.Split(txn.ID.String(), ":")[1],
+				"type": txn.Type,
 			},
 			Value: value,
 		})
@@ -460,19 +441,21 @@ func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric)
 
 // PrometheusMetric returns Prometheus samples for the host pending transactions.
 func (w WalletPendingResp) PrometheusMetric() (metrics []prometheus.Metric) {
-	metricName := "hostd_wallet_transaction_pending"
+	metricName := "hostd_wallet_event_pending"
 	for _, txn := range w {
+		inflow, outflow := txn.SiacoinInflow(), txn.SiacoinOutflow()
 		var value float64
-		if txn.Inflow.Cmp(txn.Outflow) > 0 { // inflow > outflow = positive value
-			value = txn.Inflow.Sub(txn.Outflow).Siacoins()
+		if inflow.Cmp(outflow) > 0 { // inflow > outflow = positive value
+			value = inflow.Sub(outflow).Siacoins()
 		} else { // inflow < outflow = negative value
-			value = txn.Outflow.Sub(txn.Inflow).Siacoins() * -1
+			value = outflow.Sub(inflow).Siacoins() * -1
 		}
 
 		metrics = append(metrics, prometheus.Metric{
 			Name: metricName,
 			Labels: map[string]any{
 				"txid": strings.Split(txn.ID.String(), ":")[1],
+				"type": txn.Type,
 			},
 			Value: value,
 		})

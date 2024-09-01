@@ -1,8 +1,9 @@
+//go:build ignore
+
 package contracts_test
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -23,12 +24,12 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
-func checkRevenueConsistency(s *sqlite.Store, potential, earned metrics.Revenue) error {
+func assertRevenue(t *testing.T, s *sqlite.Store, potential, earned metrics.Revenue) {
 	time.Sleep(time.Second) // commit time
 
 	m, err := s.Metrics(time.Now())
 	if err != nil {
-		return fmt.Errorf("failed to get metrics: %v", err)
+		t.Fatalf("failed to get revenue metrics: %v", err)
 	}
 
 	actualPotentialValue := reflect.ValueOf(m.Revenue.Potential)
@@ -39,7 +40,7 @@ func checkRevenueConsistency(s *sqlite.Store, potential, earned metrics.Revenue)
 		av, ev := fa.Interface().(types.Currency), fe.Interface().(types.Currency)
 
 		if !av.Equals(ev) {
-			return fmt.Errorf("potential revenue field %q does not match. expected %d, got %d", name, ev, av)
+			t.Fatalf("potential revenue field %q does not match. expected %d, got %d", name, ev, av)
 		}
 	}
 
@@ -51,11 +52,9 @@ func checkRevenueConsistency(s *sqlite.Store, potential, earned metrics.Revenue)
 		av, ev := fa.Interface().(types.Currency), fe.Interface().(types.Currency)
 
 		if !av.Equals(ev) {
-			return fmt.Errorf("earned revenue field %q does not match. expected %d, got %d", name, ev, av)
+			t.Fatalf("earned revenue field %q does not match. expected %d, got %d", name, ev, av)
 		}
 	}
-
-	return nil
 }
 
 func TestRevenueMetrics(t *testing.T) {

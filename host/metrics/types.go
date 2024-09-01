@@ -44,10 +44,11 @@ type (
 
 	// Contracts is a collection of metrics related to contracts.
 	Contracts struct {
-		Pending    uint64 `json:"pending"`
 		Active     uint64 `json:"active"`
 		Rejected   uint64 `json:"rejected"`
 		Failed     uint64 `json:"failed"`
+		Renewed    uint64 `json:"renewed"`
+		Finalized  uint64 `json:"finalized"`
 		Successful uint64 `json:"successful"`
 
 		LockedCollateral types.Currency `json:"lockedCollateral"`
@@ -101,6 +102,12 @@ type (
 		Earned    Revenue `json:"earned"`
 	}
 
+	// WalletMetrics is a collection of metrics related to the wallet
+	WalletMetrics struct {
+		Balance         types.Currency `json:"balance"`
+		ImmatureBalance types.Currency `json:"immatureBalance"`
+	}
+
 	// Metrics is a collection of metrics for the host.
 	Metrics struct {
 		Accounts  Accounts       `json:"accounts"`
@@ -110,7 +117,7 @@ type (
 		Storage   Storage        `json:"storage"`
 		Registry  Registry       `json:"registry"`
 		Data      DataMetrics    `json:"data"`
-		Balance   types.Currency `json:"balance"`
+		Wallet    WalletMetrics  `json:"wallet"`
 		Timestamp time.Time      `json:"timestamp"`
 	}
 

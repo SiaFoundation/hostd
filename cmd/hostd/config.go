@@ -213,11 +213,11 @@ func setAdvancedConfig() {
 	fmt.Println("It should not be exposed to the public internet without setting up a reverse proxy.")
 	setListenAddress("HTTP Address", &cfg.HTTP.Address)
 
-	// gateway address
+	// syncer address
 	fmt.Println("")
-	fmt.Println("The gateway address is used to exchange blocks with other nodes in the Sia network")
+	fmt.Println("The syncer address is used to exchange blocks with other nodes in the Sia network")
 	fmt.Println("It should be exposed publicly to improve the host's connectivity.")
-	setListenAddress("Gateway Address", &cfg.Consensus.GatewayAddress)
+	setListenAddress("Gateway Address", &cfg.Syncer.Address)
 
 	// rhp2 address
 	fmt.Println("")
@@ -264,7 +264,7 @@ func setDataDirectory() {
 func buildConfig() {
 	// write the config file
 	configPath := "hostd.yml"
-	if str := os.Getenv("HOSTD_CONFIG_FILE"); str != "" {
+	if str := os.Getenv(configFileEnvVar); str != "" {
 		configPath = str
 	}
 

@@ -1,62 +1,50 @@
 package contracts
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
-	"go.sia.tech/hostd/internal/chain"
 	"go.sia.tech/hostd/internal/threadgroup"
-	"go.sia.tech/siad/modules"
 	"go.uber.org/zap"
 )
 
-const (
-	// sectorRootCacheSize is the number of contracts' sector roots to cache.
-	// Caching prevents frequently updated contracts from continuously hitting the
-	// DB. This is left as a hard-coded small value to limit memory usage since
-	// contracts can contain any number of sector roots
-	sectorRootCacheSize = 30
-)
-
 type (
-	contractChange struct {
-		id    types.FileContractID
-		index types.ChainIndex
-	}
-
 	// ChainManager defines the interface required by the contract manager to
 	// interact with the consensus set.
 	ChainManager interface {
+		Tip() types.ChainIndex
 		TipState() consensus.State
-		IndexAtHeight(height uint64) (types.ChainIndex, error)
-		Subscribe(s modules.ConsensusSetSubscriber, ccID modules.ConsensusChangeID, cancel <-chan struct{}) error
+		BestIndex(height uint64) (types.ChainIndex, bool)
+		UnconfirmedParents(txn types.Transaction) []types.Transaction
+		AddPoolTransactions([]types.Transaction) (known bool, err error)
+		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
+		RecommendedFee() types.Currency
+	}
+
+	// A Syncer broadcasts transactions to its peers
+	Syncer interface {
+		BroadcastTransactionSet([]types.Transaction)
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
 	}
 
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
 		UnlockConditions() types.UnlockConditions
-		FundTransaction(txn *types.Transaction, amount types.Currency) (toSign []types.Hash256, release func(), err error)
-		SignTransaction(cs consensus.State, txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields) error
-	}
+		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
+		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
+		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
 
-	// A TransactionPool broadcasts transactions to the network.
-	TransactionPool interface {
-		AcceptTransactionSet([]types.Transaction) error
-		RecommendedFee() types.Currency
+		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error)
+		SignV2Inputs(txn *types.V2Transaction, toSign []int)
 	}
 
 	// A StorageManager stores and retrieves sectors.
@@ -76,9 +64,10 @@ type (
 		waiters int
 	}
 
-	// A ContractManager manages contracts' lifecycle
-	ContractManager struct {
-		blockHeight uint64 // ensure 64-bit alignment on 32-bit systems
+	// A Manager manages contracts' lifecycle
+	Manager struct {
+		rejectBuffer             uint64
+		revisionSubmissionBuffer uint64
 
 		store ContractStore
 		tg    *threadgroup.ThreadGroup
@@ -87,40 +76,38 @@ type (
 		alerts  Alerts
 		storage StorageManager
 		chain   ChainManager
-		tpool   TransactionPool
+		syncer  Syncer
 		wallet  Wallet
 
-		processQueue chan uint64 // signals that the contract manager should process actions for a given block height
-
-		// caches the sector roots of contracts to avoid hitting the DB
-		// for frequently accessed contracts. The cache is limited to a
-		// small number of contracts to limit memory usage.
-		rootsCache *lru.TwoQueueCache[types.FileContractID, []types.Hash256]
-
-		mu    sync.Mutex                       // guards the following fields
-		locks map[types.FileContractID]*locker // contracts must be locked while they are being modified
+		mu sync.Mutex // guards the following fields
+		// caches the sector roots of all contracts to avoid long reads from
+		// the store
+		sectorRoots map[types.FileContractID][]types.Hash256
+		locks       map[types.FileContractID]*locker // contracts must be locked while they are being modified
 	}
 )
 
-func (cm *ContractManager) getSectorRoots(id types.FileContractID) ([]types.Hash256, error) {
-	// check the cache first
-	roots, ok := cm.rootsCache.Get(id)
+func (cm *Manager) getSectorRoots(id types.FileContractID) []types.Hash256 {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	roots, ok := cm.sectorRoots[id]
 	if !ok {
-		var err error
-		// if the cache doesn't have the roots, read them from the store
-		roots, err = cm.store.SectorRoots(id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get sector roots: %w", err)
-		}
-		// add the roots to the cache
-		cm.rootsCache.Add(id, roots)
+		return nil
 	}
 	// return a deep copy of the roots
-	return append([]types.Hash256(nil), roots...), nil
+	return append([]types.Hash256(nil), roots...)
+}
+
+func (cm *Manager) setSectorRoots(id types.FileContractID, roots []types.Hash256) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	// deep copy the roots
+	cm.sectorRoots[id] = append([]types.Hash256(nil), roots...)
 }
 
 // Lock locks a contract for modification.
-func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (SignedRevision, error) {
+func (cm *Manager) Lock(ctx context.Context, id types.FileContractID) (SignedRevision, error) {
 	ctx, cancel, err := cm.tg.AddContext(ctx)
 	if err != nil {
 		return SignedRevision{}, err
@@ -132,7 +119,7 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 	if err != nil {
 		cm.mu.Unlock()
 		return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
-	} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
+	} else if err := cm.isGoodForModification(contract); err != nil {
 		cm.mu.Unlock()
 		return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
 	}
@@ -157,7 +144,7 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 		contract, err := cm.store.Contract(id)
 		if err != nil {
 			return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
-		} else if err := isGoodForModification(contract, cm.chain.TipState().Index.Height); err != nil {
+		} else if err := cm.isGoodForModification(contract); err != nil {
 			return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
 		}
 		return contract.SignedRevision, nil
@@ -167,7 +154,7 @@ func (cm *ContractManager) Lock(ctx context.Context, id types.FileContractID) (S
 }
 
 // Unlock unlocks a locked contract.
-func (cm *ContractManager) Unlock(id types.FileContractID) {
+func (cm *Manager) Unlock(id types.FileContractID) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	lock, exists := cm.locks[id]
@@ -183,18 +170,28 @@ func (cm *ContractManager) Unlock(id types.FileContractID) {
 
 // Contracts returns a paginated list of contracts matching the filter and the
 // total number of contracts matching the filter.
-func (cm *ContractManager) Contracts(filter ContractFilter) ([]Contract, int, error) {
+func (cm *Manager) Contracts(filter ContractFilter) ([]Contract, int, error) {
 	return cm.store.Contracts(filter)
 }
 
 // Contract returns the contract with the given id.
-func (cm *ContractManager) Contract(id types.FileContractID) (Contract, error) {
+func (cm *Manager) Contract(id types.FileContractID) (Contract, error) {
 	return cm.store.Contract(id)
+}
+
+// V2Contract returns the v2 contract with the given ID.
+func (cm *Manager) V2Contract(id types.FileContractID) (V2Contract, error) {
+	return cm.store.V2Contract(id)
+}
+
+// V2ContractElement returns the latest v2 state element with the given ID.
+func (cm *Manager) V2ContractElement(id types.FileContractID) (types.V2FileContractElement, error) {
+	return cm.store.V2ContractElement(id)
 }
 
 // AddContract stores the provided contract, should error if the contract
 // already exists.
-func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage) error {
+func (cm *Manager) AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return err
@@ -209,7 +206,7 @@ func (cm *ContractManager) AddContract(revision SignedRevision, formationSet []t
 
 // RenewContract renews a contract. It is expected that the existing
 // contract will be cleared.
-func (cm *ContractManager) RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, initialUsage Usage) error {
+func (cm *Manager) RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, initialUsage Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return err
@@ -217,247 +214,201 @@ func (cm *ContractManager) RenewContract(renewal SignedRevision, existing Signed
 	defer done()
 
 	// sanity checks
+	existingRoots := cm.getSectorRoots(existing.Revision.ParentID)
 	if existing.Revision.FileMerkleRoot != (types.Hash256{}) {
 		return errors.New("existing contract must be cleared")
 	} else if existing.Revision.Filesize != 0 {
 		return errors.New("existing contract must be cleared")
 	} else if existing.Revision.RevisionNumber != types.MaxRevisionNumber {
 		return errors.New("existing contract must be cleared")
+	} else if renewal.Revision.Filesize != uint64(rhp2.SectorSize*len(existingRoots)) {
+		return errors.New("renewal contract must have same file size as existing contract")
+	} else if renewal.Revision.FileMerkleRoot != rhp2.MetaRoot(existingRoots) {
+		return errors.New("renewal root does not match existing roots")
 	}
 
 	if err := cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, clearingUsage, initialUsage, cm.chain.TipState().Index.Height); err != nil {
 		return err
 	}
+	cm.setSectorRoots(renewal.Revision.ParentID, existingRoots)
 	cm.log.Debug("contract renewed", zap.Stringer("renewalID", renewal.Revision.ParentID), zap.Stringer("existingID", existing.Revision.ParentID))
 	return nil
 }
 
-// SectorRoots returns the roots of all sectors stored by the contract.
-func (cm *ContractManager) SectorRoots(id types.FileContractID) ([]types.Hash256, error) {
+// ReviseV2Contract atomically updates a contract and its associated sector roots.
+func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision types.V2FileContract, roots []types.Hash256, usage Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer done()
 
+	existing, err := cm.store.V2Contract(contractID)
+	if err != nil {
+		return fmt.Errorf("failed to get existing contract: %w", err)
+	}
+
+	// validate the contract revision fields
+	switch {
+	case existing.RenterPublicKey != revision.RenterPublicKey:
+		return errors.New("renter public key does not match")
+	case existing.HostPublicKey != revision.HostPublicKey:
+		return errors.New("host public key does not match")
+	case existing.ProofHeight != revision.ProofHeight:
+		return errors.New("proof height does not match")
+	case existing.ExpirationHeight != revision.ExpirationHeight:
+		return errors.New("expiration height does not match")
+	case revision.Filesize != uint64(rhp2.SectorSize*len(roots)):
+		return errors.New("revision has incorrect file size")
+	}
+
+	// validate signatures
+	sigHash := cm.chain.TipState().ContractSigHash(revision)
+	if !revision.RenterPublicKey.VerifyHash(sigHash, revision.RenterSignature) {
+		return errors.New("renter signature is invalid")
+	} else if !revision.HostPublicKey.VerifyHash(sigHash, revision.HostSignature) {
+		return errors.New("host signature is invalid")
+	}
+
+	// validate contract Merkle root
+	metaRoot := rhp2.MetaRoot(roots)
+	if revision.FileMerkleRoot != metaRoot {
+		return errors.New("revision root does not match")
+	} else if revision.Filesize != uint64(rhp2.SectorSize*len(roots)) {
+		return errors.New("revision has incorrect file size")
+	}
+
+	// revise the contract in the store
+	if err := cm.store.ReviseV2Contract(contractID, revision, roots, usage); err != nil {
+		return err
+	}
+	// update the sector roots cache
+	cm.setSectorRoots(contractID, roots)
+	cm.log.Debug("contract revised", zap.Stringer("contractID", contractID), zap.Uint64("revisionNumber", revision.RevisionNumber))
+	return nil
+}
+
+// AddV2Contract stores the provided contract, should error if the contract
+// already exists.
+func (cm *Manager) AddV2Contract(formation V2FormationTransactionSet, usage V2Usage) error {
+	done, err := cm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	formationSet := formation.TransactionSet
+	if len(formationSet) == 0 {
+		return errors.New("no formation transactions provided")
+	} else if len(formationSet[len(formationSet)-1].FileContracts) != 1 {
+		return errors.New("last transaction must contain one file contract")
+	}
+
+	formationTxn := formationSet[len(formationSet)-1]
+	fc := formationTxn.FileContracts[0]
+	contractID := formationTxn.V2FileContractID(formationTxn.ID(), 0)
+
+	contract := V2Contract{
+		V2FileContract: fc,
+
+		ID:                contractID,
+		Status:            V2ContractStatusPending,
+		NegotiationHeight: cm.chain.Tip().Height,
+		Usage:             usage,
+	}
+
+	if err := cm.store.AddV2Contract(contract, formation); err != nil {
+		return err
+	}
+	cm.log.Debug("contract formed", zap.Stringer("contractID", contractID))
+	return nil
+}
+
+// RenewV2Contract renews a contract. It is expected that the existing
+// contract will be cleared.
+func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, usage V2Usage) error {
+	done, err := cm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	renewalSet := renewal.TransactionSet
+	if len(renewalSet) == 0 {
+		return errors.New("no renewal transactions provided")
+	} else if len(renewalSet[len(renewalSet)-1].FileContractResolutions) != 1 {
+		return errors.New("last transaction must contain one file contract resolution")
+	}
+
+	resolutionTxn := renewalSet[len(renewalSet)-1]
+	resolution, ok := resolutionTxn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
+	if !ok {
+		return fmt.Errorf("unexpected resolution type %T", resolutionTxn.FileContractResolutions[0].Resolution)
+	}
+
+	parentID := resolutionTxn.FileContractResolutions[0].Parent.ID
+	existing, err := cm.store.V2Contract(types.FileContractID(parentID))
+	if err != nil {
+		return fmt.Errorf("failed to get existing contract: %w", err)
+	}
+	finalRevision := resolution.FinalRevision
+	fc := resolution.NewContract
+
+	// sanity checks
+	if finalRevision.FileMerkleRoot != (types.Hash256{}) {
+		return errors.New("existing contract must be cleared")
+	} else if finalRevision.Filesize != 0 {
+		return errors.New("existing contract must be cleared")
+	} else if finalRevision.RevisionNumber != types.MaxRevisionNumber {
+		return errors.New("existing contract must be cleared")
+	} else if fc.Filesize != existing.Filesize {
+		return errors.New("renewal contract must have same file size as existing contract")
+	} else if fc.FileMerkleRoot != existing.FileMerkleRoot {
+		return errors.New("renewal root does not match existing roots")
+	}
+
+	existingID := types.FileContractID(existing.ID)
+	existingRoots := cm.getSectorRoots(existingID)
+	if fc.FileMerkleRoot != rhp2.MetaRoot(existingRoots) {
+		return errors.New("renewal root does not match existing roots")
+	}
+
+	contract := V2Contract{
+		V2FileContract: fc,
+
+		ID:                existingID.V2RenewalID(),
+		Status:            V2ContractStatusPending,
+		NegotiationHeight: cm.chain.Tip().Height,
+		RenewedFrom:       existingID,
+		Usage:             usage,
+	}
+
+	if err := cm.store.RenewV2Contract(contract, renewal, existingID, finalRevision); err != nil {
+		return err
+	}
+	cm.setSectorRoots(contract.ID, existingRoots)
+	cm.log.Debug("contract renewed", zap.Stringer("formedID", contract.ID), zap.Stringer("existingID", existingID))
+	return nil
+}
+
+// SectorRoots returns the roots of all sectors stored by the contract.
+func (cm *Manager) SectorRoots(id types.FileContractID) []types.Hash256 {
 	return cm.getSectorRoots(id)
 }
 
-// ScanHeight returns the height of the last block processed by the contract
-func (cm *ContractManager) ScanHeight() uint64 {
-	return atomic.LoadUint64(&cm.blockHeight)
-}
-
-// ProcessConsensusChange applies a block update to the contract manager.
-func (cm *ContractManager) ProcessConsensusChange(cc modules.ConsensusChange) {
-	done, err := cm.tg.Add()
-	if err != nil {
-		return
-	}
-	defer done()
-	log := cm.log.Named("consensusChange")
-
-	// calculate the block height of the first reverted diff
-	blockHeight := uint64(cc.BlockHeight) - uint64(len(cc.AppliedBlocks)) + uint64(len(cc.RevertedBlocks)) + 1
-	var revertedFormations, revertedResolutions []contractChange
-	revertedRevisions := make(map[types.FileContractID]contractChange)
-	for _, reverted := range cc.RevertedBlocks {
-		index := types.ChainIndex{
-			Height: blockHeight,
-			ID:     types.BlockID(reverted.ID()),
-		}
-		for _, transaction := range reverted.Transactions {
-			for i := range transaction.FileContracts {
-				contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
-				revertedFormations = append(revertedFormations, contractChange{contractID, index})
-			}
-
-			for _, rev := range transaction.FileContractRevisions {
-				contractID := types.FileContractID(rev.ParentID)
-				revertedRevisions[contractID] = contractChange{types.FileContractID(rev.ParentID), index} // TODO: revert to the previous revision number, instead of setting to 0
-			}
-
-			for _, proof := range transaction.StorageProofs {
-				contractID := types.FileContractID(proof.ParentID)
-				revertedResolutions = append(revertedResolutions, contractChange{contractID, index})
-			}
-		}
-		blockHeight--
-	}
-
-	var appliedFormations, appliedResolutions []contractChange
-	appliedRevisions := make(map[types.FileContractID]types.FileContractRevision)
-	for _, applied := range cc.AppliedBlocks {
-		index := types.ChainIndex{
-			Height: blockHeight,
-			ID:     types.BlockID(applied.ID()),
-		}
-		for _, transaction := range applied.Transactions {
-			for i := range transaction.FileContracts {
-				contractID := types.FileContractID(transaction.FileContractID(uint64(i)))
-				appliedFormations = append(appliedFormations, contractChange{contractID, index})
-			}
-
-			for _, rev := range transaction.FileContractRevisions {
-				contractID := types.FileContractID(rev.ParentID)
-				var revision types.FileContractRevision
-				convertToCore(rev, &revision)
-				appliedRevisions[contractID] = revision
-			}
-
-			for _, proof := range transaction.StorageProofs {
-				contractID := types.FileContractID(proof.ParentID)
-				appliedResolutions = append(appliedResolutions, contractChange{contractID, index})
-			}
-		}
-		blockHeight++
-	}
-
-	err = cm.store.UpdateContractState(cc.ID, uint64(cc.BlockHeight), func(tx UpdateStateTransaction) error {
-		for _, reverted := range revertedFormations {
-			if relevant, err := tx.ContractRelevant(reverted.id); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
-			} else if !relevant {
-				continue
-			} else if err := tx.RevertFormation(reverted.id); err != nil {
-				return fmt.Errorf("failed to revert formation: %w", err)
-			}
-
-			log.Warn("contract formation reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
-			cm.alerts.Register(alerts.Alert{
-				ID:       types.Hash256(reverted.id),
-				Severity: alerts.SeverityWarning,
-				Message:  "Contract formation reverted",
-				Data: map[string]any{
-					"contractID": reverted.id,
-					"index":      reverted.index,
-				},
-				Timestamp: time.Now(),
-			})
-		}
-
-		for _, reverted := range revertedRevisions {
-			if relevant, err := tx.ContractRelevant(reverted.id); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted, err)
-			} else if !relevant {
-				continue
-			} else if err := tx.RevertRevision(reverted.id); err != nil {
-				return fmt.Errorf("failed to revert revision: %w", err)
-			}
-
-			log.Warn("contract revision reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
-			cm.alerts.Register(alerts.Alert{
-				ID:       types.Hash256(reverted.id),
-				Severity: alerts.SeverityWarning,
-				Message:  "Contract revision reverted",
-				Data: map[string]any{
-					"contractID": reverted.id,
-					"index":      reverted.index,
-				},
-				Timestamp: time.Now(),
-			})
-		}
-
-		for _, reverted := range revertedResolutions {
-			if relevant, err := tx.ContractRelevant(reverted.id); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", reverted.id, err)
-			} else if !relevant {
-				continue
-			} else if err := tx.RevertResolution(reverted.id); err != nil {
-				return fmt.Errorf("failed to revert proof: %w", err)
-			}
-
-			log.Warn("contract resolution reverted", zap.Stringer("contractID", reverted.id), zap.Stringer("block", reverted.index))
-			cm.alerts.Register(alerts.Alert{
-				ID:       types.Hash256(reverted.id),
-				Severity: alerts.SeverityWarning,
-				Message:  "Contract resolution reverted",
-				Data: map[string]any{
-					"contractID": reverted.id,
-					"index":      reverted.index,
-				},
-				Timestamp: time.Now(),
-			})
-		}
-
-		for _, applied := range appliedFormations {
-			if relevant, err := tx.ContractRelevant(applied.id); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied.id, err)
-			} else if !relevant {
-				continue
-			} else if err := tx.ConfirmFormation(applied.id); err != nil {
-				return fmt.Errorf("failed to apply formation: %w", err)
-			}
-
-			log.Info("contract formation confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
-			cm.alerts.Dismiss(types.Hash256(applied.id)) // dismiss any lifecycle alerts for this contract
-		}
-
-		for _, applied := range appliedRevisions {
-			if relevant, err := tx.ContractRelevant(applied.ParentID); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied.ParentID, err)
-			} else if !relevant {
-				continue
-			} else if err := tx.ConfirmRevision(applied); err != nil {
-				return fmt.Errorf("failed to apply revision: %w", err)
-			}
-
-			log.Info("contract revision confirmed", zap.Stringer("contractID", applied.ParentID), zap.Uint64("revisionNumber", applied.RevisionNumber))
-			cm.alerts.Dismiss(types.Hash256(applied.ParentID)) // dismiss any lifecycle alerts for this contract
-		}
-
-		for _, applied := range appliedResolutions {
-			if relevant, err := tx.ContractRelevant(applied.id); err != nil {
-				return fmt.Errorf("failed to check if contract %v is relevant: %w", applied, err)
-			} else if !relevant {
-				continue
-			} else if err := tx.ConfirmResolution(applied.id, applied.index.Height); err != nil {
-				return fmt.Errorf("failed to apply proof: %w", err)
-			}
-
-			log.Info("contract resolution confirmed", zap.Stringer("contractID", applied.id), zap.Stringer("block", applied.index))
-			cm.alerts.Dismiss(types.Hash256(applied.id)) // dismiss any lifecycle alerts for this contract
-		}
-		return nil
-	})
-	if err != nil {
-		log.Error("failed to process consensus change", zap.Error(err))
-		return
-	}
-
-	scanHeight := uint64(cc.BlockHeight)
-	log.Debug("consensus change applied", zap.Uint64("height", scanHeight), zap.String("changeID", cc.ID.String()))
-
-	// if the last block is more than 3 days old, skip action processing until
-	// consensus is caught up
-	blockTime := time.Unix(int64(cc.AppliedBlocks[len(cc.AppliedBlocks)-1].Timestamp), 0)
-	if time.Since(blockTime) > 72*time.Hour {
-		return
-	}
-
-	// perform actions in a separate goroutine to avoid deadlock in tpool.
-	// triggers the processActions goroutine to process the block
-	go func() {
-		cm.processQueue <- uint64(cc.BlockHeight)
-	}()
-}
-
 // ReviseContract initializes a new contract updater for the given contract.
-func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*ContractUpdater, error) {
+func (cm *Manager) ReviseContract(contractID types.FileContractID) (*ContractUpdater, error) {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return nil, err
 	}
 
-	roots, err := cm.getSectorRoots(contractID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sector roots: %w", err)
-	}
+	roots := cm.getSectorRoots(contractID)
 	return &ContractUpdater{
-		store: cm.store,
-		log:   cm.log.Named("contractUpdater"),
+		manager: cm,
+		store:   cm.store,
+		log:     cm.log.Named("contractUpdater"),
 
-		rootsCache:  cm.rootsCache,
 		contractID:  contractID,
 		sectorRoots: roots, // roots is already a deep copy
 		oldRoots:    append([]types.Hash256(nil), roots...),
@@ -467,78 +418,51 @@ func (cm *ContractManager) ReviseContract(contractID types.FileContractID) (*Con
 }
 
 // Close closes the contract manager.
-func (cm *ContractManager) Close() error {
+func (cm *Manager) Close() error {
 	cm.tg.Stop()
 	return nil
 }
 
 // isGoodForModification validates if a contract can be modified
-func isGoodForModification(contract Contract, height uint64) error {
+func (cm *Manager) isGoodForModification(contract Contract) error {
+	height := cm.chain.TipState().Index.Height
 	switch {
 	case contract.Status != ContractStatusActive && contract.Status != ContractStatusPending:
 		return fmt.Errorf("contract status is %v, contract cannot be used", contract.Status)
-	case (height + RevisionSubmissionBuffer) > contract.Revision.WindowStart:
-		return fmt.Errorf("contract is too close to the proof window to be revised (%v > %v)", height+RevisionSubmissionBuffer, contract.Revision.WindowStart)
+	case (height + cm.revisionSubmissionBuffer) > contract.Revision.WindowStart:
+		return fmt.Errorf("contract is too close to the proof window to be revised (%v > %v)", height+cm.revisionSubmissionBuffer, contract.Revision.WindowStart)
 	case contract.Revision.RevisionNumber == math.MaxUint64:
 		return fmt.Errorf("contract has reached the maximum number of revisions")
 	}
 	return nil
 }
 
-func convertToCore(siad encoding.SiaMarshaler, core types.DecoderFrom) {
-	var buf bytes.Buffer
-	siad.MarshalSia(&buf)
-	d := types.NewBufDecoder(buf.Bytes())
-	core.DecodeFrom(d)
-	if d.Err() != nil {
-		panic(d.Err())
-	}
-}
-
 // NewManager creates a new contract manager.
-func NewManager(store ContractStore, alerts Alerts, storage StorageManager, c ChainManager, tpool TransactionPool, wallet Wallet, log *zap.Logger) (*ContractManager, error) {
-	cache, err := lru.New2Q[types.FileContractID, []types.Hash256](sectorRootCacheSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cache: %w", err)
-	}
-	cm := &ContractManager{
+func NewManager(store ContractStore, storage StorageManager, chain ChainManager, syncer Syncer, wallet Wallet, opts ...ManagerOption) (*Manager, error) {
+	cm := &Manager{
 		store:   store,
-		tg:      threadgroup.New(),
-		log:     log,
-		alerts:  alerts,
 		storage: storage,
-		chain:   c,
-		tpool:   tpool,
+		chain:   chain,
+		syncer:  syncer,
 		wallet:  wallet,
 
-		rootsCache: cache,
+		alerts: alerts.NewNop(),
+		tg:     threadgroup.New(),
+		log:    zap.NewNop(),
 
-		processQueue: make(chan uint64, 100),
-		locks:        make(map[types.FileContractID]*locker),
+		locks: make(map[types.FileContractID]*locker),
 	}
 
-	changeID, err := store.LastContractChange()
+	for _, opt := range opts {
+		opt(cm)
+	}
+
+	start := time.Now()
+	roots, err := store.SectorRoots()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get last contract change: %w", err)
+		return nil, fmt.Errorf("failed to get sector roots: %w", err)
 	}
-
-	// start the actions queue. Required to avoid a deadlock in the tpool, but
-	// still process consensus changes serially.
-	go cm.processActions()
-
-	// subscribe to the consensus set in a separate goroutine to prevent
-	// blocking startup
-	go func() {
-		err := cm.chain.Subscribe(cm, changeID, cm.tg.Done())
-		if errors.Is(err, chain.ErrInvalidChangeID) {
-			cm.log.Warn("rescanning blockchain due to unknown consensus change ID")
-			if err := cm.chain.Subscribe(cm, modules.ConsensusChangeBeginning, cm.tg.Done()); err != nil {
-				cm.log.Fatal("failed to reset consensus change subscription", zap.Error(err))
-			}
-		} else if err != nil && !strings.Contains(err.Error(), "ThreadGroup already stopped") {
-			cm.log.Fatal("failed to subscribe to consensus changes", zap.Error(err))
-		}
-	}()
-
+	cm.sectorRoots = roots
+	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))
 	return cm, nil
 }

@@ -30,14 +30,6 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 + `9982` - RHP2
 + `9983` - RHP3
 
-#### Testnet
-The Zen testnet version of `hostd` changes the default ports:
-
-+ `9880` - UI and API
-+ `9881` - Sia consensus
-+ `9882` - RHP2
-+ `9883` - RHP3
-
 ### Environment Variables
 + `HOSTD_API_PASSWORD` - The password for the UI and API
 + `HOSTD_SEED` - The recovery phrase for the wallet
@@ -46,36 +38,31 @@ The Zen testnet version of `hostd` changes the default ports:
 + `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
   `hostd` will check for a config file in the current directory
 
-#### Testnet
-The Zen testnet version of `hostd` changes the environment variables:
-
-+ `HOSTD_ZEN_SEED` - The recovery phrase for the wallet
-+ `HOSTD_ZEN_API_PASSWORD` - The password for the UI and API
-+ `HOSTD_ZEN_LOG_PATH` - changes the path of the log file `hostd.log`. If unset, the
-  log file will be created in the data directory
 
 ### CLI Flags
 ```sh
--bootstrap
-	bootstrap the gateway and consensus modules
 -dir string
-	directory to store hostd metadata (default ".")
--env
-	disable stdin prompts for environment variables (default false)
+	directory to store hostd metadata (default "/Users/n8maninger/Downloads/hostd-core-tmp")
 -http string
-	address to serve API on (default ":9980")
+	address to serve API on (default "localhost:9980")
 -log.level string
-	log level (debug, info, warn, error) (default "info")
+	log level (debug, info, warn, error) (default "debug")
 -name string
 	a friendly name for the host, only used for display
--rpc string
+-network string
+	network name (mainnet, testnet, etc) (default "mainnet")
+-openui
+	automatically open the web UI on startup (default true)
+-syncer.address string
 	address to listen on for peer connections (default ":9981")
+-syncer.bootstrap
+	bootstrap the gateway and consensus modules (default true)
 -rhp2 string
 	address to listen on for RHP2 connections (default ":9982")
--rhp3.tcp string
+-rhp3 string
 	address to listen on for TCP RHP3 connections (default ":9983")
--rhp3.ws string
-	address to listen on for WebSocket RHP3 connections (default ":9984")
+-env
+	disable stdin prompts for environment variables (default false)
 ```
 
 ### YAML
@@ -90,14 +77,16 @@ recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect pot
 http:
   address: :9980
   password: sia is cool
-consensus:
-  gatewayAddress: :9981
+syncer:
+  address: :9981
   bootstrap: true
+consensus:
+  network: mainnet
+  indexBatchSize: 100
 rhp2:
   address: :9982
 rhp3:
   tcp: :9983
-  websocket: :9984
 log:
   level: info # global log level
   stdout:
@@ -121,45 +110,15 @@ go generate ./...
 CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w'  ./cmd/hostd
 ```
 
-## Testnet Builds
-
-`hostd` can be built to run on the Zen testnet by adding the `testnet` build
-tag.
-
-```sh
-go generate ./...
-CGO_ENABLED=1 go build -o bin/ -tags='testnet netgo timetzdata' -trimpath -a -ldflags '-s -w'  ./cmd/hostd
-```
-
-# Docker Support
+# Docker
 
 `hostd` includes a `Dockerfile` which can be used for building and running
 hostd within a docker container. The image can also be pulled from `ghcr.io/siafoundation/hostd`.
 
-1. Generate a wallet seed using `hostd seed`.
-2. Create `hostd.yml` in the directory you want to store your `hostd` data. Replace the recovery phrase with the one you generated above. Replace the password with a secure password to unlock the UI.
+Be careful with port `9980` as Docker will expose it publicly by default. It is
+recommended to bind it to `127.0.0.1` to prevent unauthorized access.
 
-```yml
-recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect potato weapon bid
-http:
-  password: sia is cool
-```
-
-3. Create your docker container using one of the examples below. Replace "./data" in the volume mount with the directory in which you want to store your Sia data. Replace "./storage" in the volume mount with the location of your mounted storage volumes
-
-## Mainnet
-
-```sh
-docker run -d \
-  --name hostd \
-  -p 127.0.0.1:9980:9980 \
-  -p 9981-9983:9981-9983 \
-  -v ./data:/data \
-  -v ./storage:/storage \
-    ghcr.io/siafoundation/hostd:latest
-```
-
-### Docker Compose
+## Docker Compose
 
 ```yml
 version: "3.9"
@@ -175,51 +134,20 @@ services:
     restart: unless-stopped
 ```
 
-## Testnet
-
-Suffix any tag with `-testnet` to use the testnet image.
+## Docker Engine
 
 ```sh
 docker run -d \
   --name hostd \
-  -p 127.0.0.1:9880:9880 \
-  -p 9881-9883:9881-9883 \
+  -p 127.0.0.1:9980:9980 \
+  -p 9981-9983:9981-9983 \
   -v ./data:/data \
   -v ./storage:/storage \
-  -e HOSTD_ZEN_SEED="my wallet seed" \
-  -e HOSTD_ZEN_API_PASSWORD=hostsarecool \
-    ghcr.io/siafoundation/hostd:latest-testnet
+    ghcr.io/siafoundation/hostd:latest
 ```
 
-### Docker Compose
-
-```yml
-version: "3.9"
-services:
-  host:
-    image: ghcr.io/siafoundation/hostd:latest-testnet
-    environment:
-      - HOSTD_ZEN_SEED=my wallet seed
-      - HOSTD_ZEN_API_PASSWORD=hostsarecool
-    ports:
-      - 127.0.0.1:9880:9880/tcp
-      - 9881-9883:9881-9883/tcp
-    volumes:
-      - /data:/data
-      - /storage:/storage
-    restart: unless-stopped
-```
-
-## Building image
-
-### Mainnet
+## Building Image
 
 ```sh
-docker build -t hostd:latest -f ./docker/Dockerfile .
-```
-
-### Testnet
-
-```sh
-docker build -t hostd:latest-testnet -f ./docker/Dockerfile.testnet .
+docker build -t hostd .
 ```

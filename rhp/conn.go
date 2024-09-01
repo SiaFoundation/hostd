@@ -15,7 +15,7 @@ type (
 		WriteBytes(n int)
 	}
 
-	// An Conn wraps a net.Conn to track the amount of data read and written and
+	// A Conn wraps a net.Conn to track the amount of data read and written and
 	// limit bandwidth usage.
 	Conn struct {
 		net.Conn
@@ -23,7 +23,16 @@ type (
 		monitor DataMonitor
 		rl, wl  *rate.Limiter
 	}
+
+	// A noOpMonitor is a DataMonitor that does nothing.
+	noOpMonitor struct{}
 )
+
+// ReadBytes implements DataMonitor
+func (noOpMonitor) ReadBytes(n int) {}
+
+// WriteBytes implements DataMonitor
+func (noOpMonitor) WriteBytes(n int) {}
 
 // Usage returns the amount of data read and written by the connection.
 func (c *Conn) Usage() (read, written uint64) {
@@ -65,4 +74,9 @@ func NewConn(c net.Conn, m DataMonitor, rl, wl *rate.Limiter) *Conn {
 		rl:      rl,
 		wl:      wl,
 	}
+}
+
+// NewNoOpMonitor initializes a new NoOpMonitor.
+func NewNoOpMonitor() DataMonitor {
+	return noOpMonitor{}
 }

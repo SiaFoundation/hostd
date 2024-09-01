@@ -3,27 +3,24 @@
 	migrations.go
 */
 
-CREATE TABLE wallet_utxos (
+CREATE TABLE wallet_siacoin_elements (
 	id BLOB PRIMARY KEY,
-	amount BLOB NOT NULL,
-	unlock_hash BLOB NOT NULL
+	siacoin_value BLOB NOT NULL,
+	sia_address BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL,
+	leaf_index BLOB NOT NULL,
+	maturity_height INTEGER NOT NULL
 );
 
-CREATE TABLE wallet_transactions (
-	id INTEGER PRIMARY KEY,
-	transaction_id BLOB NOT NULL,
-	block_id BLOB NOT NULL,
-	inflow BLOB NOT NULL,
-	outflow BLOB NOT NULL,
-	raw_transaction BLOB NOT NULL, -- binary serialized transaction
-	source TEXT NOT NULL,
-	block_height INTEGER NOT NULL,
-	date_created INTEGER NOT NULL
+CREATE TABLE wallet_events (
+	id BLOB PRIMARY KEY,
+	chain_index BLOB NOT NULL,
+	maturity_height INTEGER NOT NULL,
+	event_type TEXT NOT NULL,
+	raw_data BLOB NOT NULL
 );
-CREATE INDEX wallet_transactions_date_created_index ON wallet_transactions(date_created);
-CREATE INDEX wallet_transactions_block_id ON wallet_transactions(block_id);
-CREATE INDEX wallet_transactions_date_created ON wallet_transactions(date_created);
-CREATE INDEX wallet_transactions_block_height_id ON wallet_transactions(block_height DESC, id);
+CREATE INDEX wallet_events_chain_index ON wallet_events(chain_index);
+CREATE INDEX wallet_events_maturity_height ON wallet_events(maturity_height DESC);
 
 CREATE TABLE stored_sectors (
 	id INTEGER PRIMARY KEY,
@@ -126,6 +123,69 @@ CREATE TABLE contract_sector_roots (
 CREATE INDEX contract_sector_roots_sector_id ON contract_sector_roots(sector_id);
 CREATE INDEX contract_sector_roots_contract_id_root_index ON contract_sector_roots(contract_id, root_index);
 
+CREATE TABLE contract_v2_state_elements (
+	contract_id INTEGER PRIMARY KEY REFERENCES contracts_v2(id),
+	leaf_index BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL,
+	raw_contract BLOB NOT NULL, -- binary serialized contract
+	revision_number BLOB NOT NULL -- for comparison
+);
+
+CREATE TABLE contracts_v2_chain_index_elements (
+	id BLOB PRIMARY KEY,
+	height INTEGER NOT NULL,
+	leaf_index BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL
+);
+CREATE INDEX contracts_v2_chain_index_elements_height ON contracts_v2_chain_index_elements(height);
+
+CREATE TABLE contracts_v2 (
+	id INTEGER PRIMARY KEY,
+	renter_id INTEGER NOT NULL REFERENCES contract_renters(id),
+	renewed_to INTEGER REFERENCES contracts_v2(id) ON DELETE SET NULL,
+	renewed_from INTEGER REFERENCES contracts_v2(id) ON DELETE SET NULL,
+	contract_id BLOB UNIQUE NOT NULL,
+	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max on clearing revisions
+	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
+	formation_txn_set_basis BLOB NOT NULL,
+	locked_collateral BLOB NOT NULL,
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	account_funding BLOB NOT NULL,
+	risked_collateral BLOB NOT NULL,
+	raw_revision BLOB NOT NULL, -- binary serialized contract revision
+	confirmation_index BLOB, -- null if the contract has not been confirmed on the blockchain, otherwise the chain index of the block containing the confirmation transaction
+	resolution_index BLOB, -- null if the storage proof/resolution has not been confirmed on the blockchain, otherwise the chain index of the block containing the resolution transaction
+	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
+	window_start INTEGER NOT NULL,
+	window_end INTEGER NOT NULL,
+	contract_status TEXT NOT NULL
+);
+CREATE INDEX contracts_v2_contract_id ON contracts_v2(contract_id);
+CREATE INDEX contracts_v2_renter_id ON contracts_v2(renter_id);
+CREATE INDEX contracts_v2_renewed_to ON contracts_v2(renewed_to);
+CREATE INDEX contracts_v2_renewed_from ON contracts_v2(renewed_from);
+CREATE INDEX contracts_v2_negotiation_height ON contracts_v2(negotiation_height);
+CREATE INDEX contracts_v2_window_start ON contracts_v2(window_start);
+CREATE INDEX contracts_v2_window_end ON contracts_v2(window_end);
+CREATE INDEX contracts_v2_contract_status ON contracts_v2(contract_status);
+CREATE INDEX contracts_v2_confirmation_index_resolution_index_window_start ON contracts_v2(confirmation_index, resolution_index, window_start);
+CREATE INDEX contracts_v2_confirmation_index_resolution_index_window_end ON contracts_v2(confirmation_index, resolution_index, window_end);
+CREATE INDEX contracts_v2_confirmation_index_window_start ON contracts_v2(confirmation_index, window_start);
+CREATE INDEX contracts_v2_confirmation_index_negotiation_height ON contracts_v2(confirmation_index, negotiation_height);
+
+CREATE TABLE contract_v2_sector_roots (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULl REFERENCES contracts_v2(id),
+	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
+	root_index INTEGER NOT NULL,
+	UNIQUE(contract_id, root_index)
+);
+CREATE INDEX contract_v2_sector_roots_sector_id ON contract_v2_sector_roots(sector_id);
+CREATE INDEX contract_v2_sector_roots_contract_id_root_index ON contract_v2_sector_roots(contract_id, root_index);
+
 CREATE TABLE temp_storage_sector_roots (
 	id INTEGER PRIMARY KEY,
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
@@ -217,20 +277,25 @@ CREATE TABLE webhooks (
 	secret_key TEXT UNIQUE NOT NULL
 );
 
+CREATE TABLE syncer_peers (
+	peer_address TEXT PRIMARY KEY NOT NULL,
+	first_seen INTEGER NOT NULL
+);
+
+CREATE TABLE syncer_bans (
+	net_cidr TEXT PRIMARY KEY NOT NULL,
+	expiration INTEGER NOT NULL,
+	reason TEXT NOT NULL
+);
+CREATE INDEX syncer_bans_expiration_index_idx ON syncer_bans (expiration);
+
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
 	host_key BLOB,
-	last_announce_key BLOB, -- public key of the last host announcement
 	wallet_hash BLOB, -- used to prevent wallet seed changes
-	wallet_last_processed_change BLOB, -- last processed consensus change for the wallet
-	contracts_last_processed_change BLOB, -- last processed consensus change for the contract manager
-	settings_last_processed_change BLOG, -- last processed consensus change for the settings manager
-	last_announce_id BLOB, -- chain index of the last host announcement
-	last_announce_height INTEGER, -- height of the last host announcement
-	wallet_height INTEGER, -- height of the wallet as of the last processed change
-	contracts_height INTEGER, -- height of the contract manager as of the last processed change
-	settings_height INTEGER, -- height of the settings manager as of the last processed change
+	last_scanned_index BLOB, -- chain index of the last scanned block
+	last_announce_index BLOB, -- chain index of the last host announcement
 	last_announce_address TEXT -- address of the last host announcement
 );
 

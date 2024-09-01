@@ -24,7 +24,7 @@ func TestTransactionRetry(t *testing.T) {
 		}
 		defer db.Close()
 
-		err = db.transaction(func(tx txn) error { return nil }) // start a new empty transaction, should succeed immediately
+		err = db.transaction(func(tx *txn) error { return nil }) // start a new empty transaction, should succeed immediately
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -34,7 +34,7 @@ func TestTransactionRetry(t *testing.T) {
 		// start a transaction in a goroutine and hold it open for 5 seconds
 		// this should allow for the next transaction to be retried a few times
 		go func() {
-			err := db.transaction(func(tx txn) error {
+			err := db.transaction(func(tx *txn) error {
 				_, err := tx.Exec(`UPDATE global_settings SET host_key=?`, `foo`) // upgrade the transaction to an exclusive lock;
 				if err != nil {
 					return err
@@ -51,7 +51,7 @@ func TestTransactionRetry(t *testing.T) {
 
 		<-ch // wait for the transaction to start
 
-		err = db.transaction(func(tx txn) error {
+		err = db.transaction(func(tx *txn) error {
 			_, err = tx.Exec(`UPDATE global_settings SET host_key=?`, `bar`) // should fail and be retried
 			if err != nil {
 				return err
@@ -73,7 +73,7 @@ func TestTransactionRetry(t *testing.T) {
 		}
 		defer db.Close()
 
-		err = db.transaction(func(tx txn) error { return nil }) // start a new empty transaction, should succeed immediately
+		err = db.transaction(func(tx *txn) error { return nil }) // start a new empty transaction, should succeed immediately
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,7 +81,7 @@ func TestTransactionRetry(t *testing.T) {
 		ch := make(chan struct{}, 1) // channel to synchronize the transaction goroutine
 
 		go func() {
-			err := db.transaction(func(tx txn) error {
+			err := db.transaction(func(tx *txn) error {
 				_, err := tx.Exec(`UPDATE global_settings SET host_key=?`, `foo`) // upgrade the transaction to an exclusive lock;
 				if err != nil {
 					return err
@@ -98,7 +98,7 @@ func TestTransactionRetry(t *testing.T) {
 
 		<-ch // wait for the transaction to start
 
-		err = db.transaction(func(tx txn) error {
+		err = db.transaction(func(tx *txn) error {
 			_, err := tx.Exec(`UPDATE global_settings SET host_key=?`, `bar`) // should fail and be retried
 			if err != nil {
 				return err
@@ -133,31 +133,32 @@ func TestClearLockedSectors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checkConsistency := func(locked, temp int) error {
+	assertSectors := func(locked, temp int) {
+		t.Helper()
 		// check that the sectors are locked
-		var count int
-		err = db.queryRow(`SELECT COUNT(*) FROM locked_volume_sectors`).Scan(&count)
+		var dbLocked, dbTemp int
+		err := db.transaction(func(tx *txn) error {
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM locked_volume_sectors`).Scan(&dbLocked); err != nil {
+				return fmt.Errorf("query locked sectors: %w", err)
+			} else if err := tx.QueryRow(`SELECT COUNT(*) FROM temp_storage_sector_roots`).Scan(&dbTemp); err != nil {
+				return fmt.Errorf("query temp sectors: %w", err)
+			}
+			return nil
+		})
 		if err != nil {
-			return fmt.Errorf("query locked sectors: %w", err)
-		} else if locked != count {
-			return fmt.Errorf("expected %v locked sectors, got %v", locked, count)
-		}
-
-		// check that the temp sectors are still there
-		err = db.queryRow(`SELECT COUNT(*) FROM temp_storage_sector_roots`).Scan(&count)
-		if err != nil {
-			return fmt.Errorf("query temp sectors: %w", err)
-		} else if temp != count {
-			return fmt.Errorf("expected %v temp sectors, got %v", temp, count)
+			t.Fatal(err)
+		} else if dbLocked != locked {
+			t.Fatalf("expected %v locked sectors, got %v", locked, dbLocked)
+		} else if dbTemp != temp {
+			t.Fatalf("expected %v temp sectors, got %v", temp, dbTemp)
 		}
 
 		m, err := db.Metrics(time.Now())
 		if err != nil {
-			return fmt.Errorf("metrics: %w", err)
+			t.Fatal(err)
 		} else if m.Storage.TempSectors != uint64(temp) {
-			return fmt.Errorf("expected %v temp sector metrics, got %v", temp, m.Storage.TempSectors)
+			t.Fatalf("expected %v temp sectors, got %v", temp, m.Storage.TempSectors)
 		}
-		return nil
 	}
 
 	// write temp sectors to the database
@@ -184,9 +185,7 @@ func TestClearLockedSectors(t *testing.T) {
 	}
 
 	// check that the sectors have been stored and locked
-	if err = checkConsistency(sectors, sectors/2); err != nil {
-		t.Fatal(err)
-	}
+	assertSectors(sectors, sectors/2)
 
 	// clear the locked sectors
 	if err = db.clearLocks(); err != nil {
@@ -194,7 +193,5 @@ func TestClearLockedSectors(t *testing.T) {
 	}
 
 	// check that all the locks were removed and half the sectors deleted
-	if err = checkConsistency(0, sectors/2); err != nil {
-		t.Fatal(err)
-	}
+	assertSectors(0, sectors/2)
 }
