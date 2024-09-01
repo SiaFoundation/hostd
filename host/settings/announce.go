@@ -71,9 +71,12 @@ func (m *ConfigManager) Announce() error {
 		if err != nil {
 			return fmt.Errorf("failed to fund transaction: %w", err)
 		}
-		m.wallet.SignV2Inputs(basis, &txn, toSign)
-		txnset := append(m.chain.V2UnconfirmedParents(txn), txn)
-		if _, err := m.chain.AddV2PoolTransactions(cs.Index, txnset); err != nil {
+		m.wallet.SignV2Inputs(&txn, toSign)
+		basis, txnset, err := m.chain.V2TransactionSet(basis, txn)
+		if err != nil {
+			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+			return fmt.Errorf("failed to create transaction set: %w", err)
+		} else if _, err := m.chain.AddV2PoolTransactions(basis, txnset); err != nil {
 			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 			return fmt.Errorf("failed to add transaction to pool: %w", err)
 		}

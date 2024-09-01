@@ -60,14 +60,14 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		FileContracts: []types.V2FileContract{fc},
 	}
 
-	cs, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
+	basis, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
 	if err != nil {
 		t.Fatal("failed to fund transaction:", err)
 	}
-	w.SignV2Inputs(cs, &txn, toSign)
+	w.SignV2Inputs(&txn, toSign)
 	formationSet := contracts.V2FormationTransactionSet{
 		TransactionSet: []types.V2Transaction{txn},
-		Basis:          cs.Index,
+		Basis:          basis,
 	}
 
 	if broadcast {
@@ -1049,11 +1049,11 @@ func TestV2ContractLifecycle(t *testing.T) {
 				{Value: fundAmount, Address: fc.HostOutput.Address},
 			},
 		}
-		cs, toSign, err := node.Wallet.FundV2Transaction(&setupTxn, fundAmount, false)
+		basis, toSign, err := node.Wallet.FundV2Transaction(&setupTxn, fundAmount, false)
 		if err != nil {
 			t.Fatal("failed to fund transaction:", err)
 		}
-		node.Wallet.SignV2Inputs(cs, &setupTxn, toSign)
+		node.Wallet.SignV2Inputs(&setupTxn, toSign)
 
 		renewalTxn := types.V2Transaction{
 			SiacoinInputs: []types.V2SiacoinInput{
@@ -1068,9 +1068,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 				},
 			},
 		}
-		node.Wallet.SignV2Inputs(cs, &renewalTxn, []int{0})
+		node.Wallet.SignV2Inputs(&renewalTxn, []int{0})
 		renewalTxnSet := contracts.V2FormationTransactionSet{
-			Basis:          cs.Index,
+			Basis:          basis,
 			TransactionSet: []types.V2Transaction{setupTxn, renewalTxn},
 		}
 		if _, err := cm.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.TransactionSet); err != nil {
@@ -1149,14 +1149,14 @@ func TestV2ContractLifecycle(t *testing.T) {
 			FileContracts: []types.V2FileContract{fc},
 		}
 
-		cs, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
+		basis, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
 		if err != nil {
 			t.Fatal("failed to fund transaction:", err)
 		}
-		w.SignV2Inputs(cs, &txn, toSign)
+		w.SignV2Inputs(&txn, toSign)
 		formationSet := contracts.V2FormationTransactionSet{
 			TransactionSet: []types.V2Transaction{txn},
-			Basis:          cs.Index,
+			Basis:          basis,
 		}
 		contractID := txn.V2FileContractID(txn.ID(), 0)
 		// corrupt the formation set to trigger a rejection

@@ -324,19 +324,19 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			MinerFee:              fee,
 			FileContractRevisions: []types.V2FileContractRevision{fcr},
 		}
-		cs, toSign, err := cm.wallet.FundV2Transaction(&revisionTxn, fee, false) // TODO: true
+		basis, toSign, err := cm.wallet.FundV2Transaction(&revisionTxn, fee, false) // TODO: true
 		if err != nil {
 			log.Error("failed to fund transaction", zap.Error(err))
 			continue
 		}
-		cm.wallet.SignV2Inputs(cs, &revisionTxn, toSign)
+		cm.wallet.SignV2Inputs(&revisionTxn, toSign)
 
 		revisionTxnSet := []types.V2Transaction{revisionTxn}
-		if _, err := cm.chain.AddV2PoolTransactions(cs.Index, revisionTxnSet); err != nil {
+		if _, err := cm.chain.AddV2PoolTransactions(basis, revisionTxnSet); err != nil {
 			log.Error("failed to add transaction set to pool", zap.Error(err))
 			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(cs.Index, revisionTxnSet)
+		cm.syncer.BroadcastV2TransactionSet(basis, revisionTxnSet)
 		log.Debug("broadcast transaction", zap.Stringer("transactionID", revisionTxn.ID()))
 	}
 
@@ -370,24 +370,24 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 				{Address: cm.wallet.Address(), Value: fee},
 			},
 		}
-		cs, toSign, err := cm.wallet.FundV2Transaction(&setupTxn, fee, false) // TODO: true
+		basis, toSign, err := cm.wallet.FundV2Transaction(&setupTxn, fee, false) // TODO: true
 		if err != nil {
 			log.Error("failed to fund resolution transaction", zap.Error(err))
 			continue
 		}
-		cm.wallet.SignV2Inputs(cs, &setupTxn, toSign)
+		cm.wallet.SignV2Inputs(&setupTxn, toSign)
 		resolutionTxn := types.V2Transaction{
 			MinerFee:                fee,
 			SiacoinInputs:           []types.V2SiacoinInput{{Parent: setupTxn.EphemeralSiacoinOutput(0)}},
 			FileContractResolutions: []types.V2FileContractResolution{resolution},
 		}
-		cm.wallet.SignV2Inputs(cs, &resolutionTxn, []int{0})
+		cm.wallet.SignV2Inputs(&resolutionTxn, []int{0})
 		resolutionTxnSet := []types.V2Transaction{setupTxn, resolutionTxn}
-		if _, err := cm.chain.AddV2PoolTransactions(cs.Index, resolutionTxnSet); err != nil {
+		if _, err := cm.chain.AddV2PoolTransactions(basis, resolutionTxnSet); err != nil {
 			log.Error("failed to add resolution transaction to pool", zap.Error(err))
 			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(cs.Index, resolutionTxnSet)
+		cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet)
 		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
 	}
 
@@ -400,12 +400,12 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 				{Address: cm.wallet.Address(), Value: fee},
 			},
 		}
-		cs, toSign, err := cm.wallet.FundV2Transaction(&setupTxn, fee, false) // TODO: true
+		basis, toSign, err := cm.wallet.FundV2Transaction(&setupTxn, fee, false) // TODO: true
 		if err != nil {
 			log.Error("failed to fund resolution transaction", zap.Error(err))
 			continue
 		}
-		cm.wallet.SignV2Inputs(cs, &setupTxn, toSign)
+		cm.wallet.SignV2Inputs(&setupTxn, toSign)
 		resolutionTxn := types.V2Transaction{
 			MinerFee: fee,
 			SiacoinInputs: []types.V2SiacoinInput{
@@ -420,15 +420,15 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 				},
 			},
 		}
-		cm.wallet.SignV2Inputs(cs, &resolutionTxn, []int{0})
+		cm.wallet.SignV2Inputs(&resolutionTxn, []int{0})
 
 		resolutionTxnSet := []types.V2Transaction{setupTxn, resolutionTxn}
-		if _, err := cm.chain.AddV2PoolTransactions(cs.Index, resolutionTxnSet); err != nil {
+		if _, err := cm.chain.AddV2PoolTransactions(basis, resolutionTxnSet); err != nil {
 			cm.wallet.ReleaseInputs(nil, resolutionTxnSet)
 			log.Error("failed to add resolution transaction to pool", zap.Error(err))
 			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(cs.Index, resolutionTxnSet)
+		cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet)
 		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
 	}
 

@@ -41,8 +41,8 @@ type (
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
 
 		// v2
-		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (consensus.State, []int, error)
-		SignV2Inputs(state consensus.State, txn *types.V2Transaction, toSign []int)
+		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error)
+		SignV2Inputs(txn *types.V2Transaction, toSign []int)
 	}
 
 	// Settings updates and retrieves the host's settings
@@ -134,7 +134,7 @@ type (
 		AddPoolTransactions(txns []types.Transaction) (known bool, err error)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (known bool, err error)
-		V2UnconfirmedParents(txn types.V2Transaction) []types.V2Transaction
+		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 	}
 
 	// Webhooks manages webhooks

@@ -469,19 +469,23 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 			},
 		}
 		// fund and sign transaction
-		state, toSign, err := a.wallet.FundV2Transaction(&txn, req.Amount.Add(minerFee), false)
+		basis, toSign, err := a.wallet.FundV2Transaction(&txn, req.Amount.Add(minerFee), false)
 		if !a.checkServerError(jc, "failed to fund transaction", err) {
 			return
 		}
-		a.wallet.SignV2Inputs(state, &txn, toSign)
-		txnset := append(a.chain.V2UnconfirmedParents(txn), txn)
+		a.wallet.SignV2Inputs(&txn, toSign)
+		basis, txnset, err := a.chain.V2TransactionSet(basis, txn)
+		if !a.checkServerError(jc, "failed to create transaction set", err) {
+			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+			return
+		}
 		// verify the transaction and add it to the transaction pool
-		if _, err := a.chain.AddV2PoolTransactions(state.Index, txnset); !a.checkServerError(jc, "failed to add v2 transaction set", err) {
+		if _, err := a.chain.AddV2PoolTransactions(basis, txnset); !a.checkServerError(jc, "failed to add v2 transaction set", err) {
 			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 			return
 		}
 		// broadcast the transaction
-		a.syncer.BroadcastV2TransactionSet(state.Index, txnset)
+		a.syncer.BroadcastV2TransactionSet(basis, txnset)
 		jc.Encode(txn.ID())
 	}
 }
