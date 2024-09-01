@@ -290,7 +290,7 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 
 // AddV2Contract stores the provided contract, should error if the contract
 // already exists.
-func (cm *Manager) AddV2Contract(formation V2FormationTransactionSet, initialUsage Usage) error {
+func (cm *Manager) AddV2Contract(formation V2FormationTransactionSet, usage V2Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return err
@@ -314,7 +314,7 @@ func (cm *Manager) AddV2Contract(formation V2FormationTransactionSet, initialUsa
 		ID:                contractID,
 		Status:            V2ContractStatusPending,
 		NegotiationHeight: cm.chain.Tip().Height,
-		Usage:             initialUsage,
+		Usage:             usage,
 	}
 
 	if err := cm.store.AddV2Contract(contract, formation); err != nil {
@@ -326,7 +326,7 @@ func (cm *Manager) AddV2Contract(formation V2FormationTransactionSet, initialUsa
 
 // RenewV2Contract renews a contract. It is expected that the existing
 // contract will be cleared.
-func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, finalUsage, initialUsage Usage) error {
+func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, usage V2Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return err
@@ -380,10 +380,10 @@ func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, finalUsage
 		Status:            V2ContractStatusPending,
 		NegotiationHeight: cm.chain.Tip().Height,
 		RenewedFrom:       existingID,
-		Usage:             initialUsage,
+		Usage:             usage,
 	}
 
-	if err := cm.store.RenewV2Contract(contract, renewal, existingID, finalRevision, finalUsage); err != nil {
+	if err := cm.store.RenewV2Contract(contract, renewal, existingID, finalRevision); err != nil {
 		return err
 	}
 	cm.setSectorRoots(contract.ID, existingRoots)

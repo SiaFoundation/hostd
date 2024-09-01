@@ -46,7 +46,7 @@ type (
 		AddV2Contract(V2Contract, V2FormationTransactionSet) error
 		// RenewV2Contract renews a contract. It is expected that the existing
 		// contract will be cleared.
-		RenewV2Contract(renewal V2Contract, renewalSet V2FormationTransactionSet, renewedID types.FileContractID, finalRevision types.V2FileContract, finalUsage Usage) error
+		RenewV2Contract(renewal V2Contract, renewalSet V2FormationTransactionSet, renewedID types.FileContractID, finalRevision types.V2FileContract) error
 		// ReviseV2Contract atomically updates a contract and its associated
 		// sector roots.
 		ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, roots []types.Hash256, usage Usage) error

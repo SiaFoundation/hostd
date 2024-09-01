@@ -106,13 +106,23 @@ type (
 		RiskedCollateral types.Currency `json:"riskedCollateral"`
 	}
 
+	// V2Usage tracks the usage of a contract's funds.
+	V2Usage struct {
+		RPCRevenue       types.Currency `json:"rpc"`
+		StorageRevenue   types.Currency `json:"storage"`
+		EgressRevenue    types.Currency `json:"egress"`
+		IngressRevenue   types.Currency `json:"ingress"`
+		AccountFunding   types.Currency `json:"accountFunding"`
+		RiskedCollateral types.Currency `json:"riskedCollateral"`
+	}
+
 	// A V2Contract contains metadata on the current state of a v2 file contract.
 	V2Contract struct {
 		types.V2FileContract
 
 		ID     types.FileContractID `json:"id"`
 		Status V2ContractStatus     `json:"status"`
-		Usage  Usage                `json:"usage"`
+		Usage  V2Usage              `json:"usage"`
 
 		// NegotiationHeight is the height the contract was negotiated at.
 		NegotiationHeight uint64 `json:"negotiationHeight"`
@@ -275,6 +285,30 @@ func (a Usage) Sub(b Usage) (c Usage) {
 		RiskedCollateral: a.RiskedCollateral.Sub(b.RiskedCollateral),
 		RegistryRead:     a.RegistryRead.Sub(b.RegistryRead),
 		RegistryWrite:    a.RegistryWrite.Sub(b.RegistryWrite),
+	}
+}
+
+// Add returns u + b
+func (a V2Usage) Add(b V2Usage) (c V2Usage) {
+	return V2Usage{
+		RPCRevenue:       a.RPCRevenue.Add(b.RPCRevenue),
+		StorageRevenue:   a.StorageRevenue.Add(b.StorageRevenue),
+		EgressRevenue:    a.EgressRevenue.Add(b.EgressRevenue),
+		IngressRevenue:   a.IngressRevenue.Add(b.IngressRevenue),
+		AccountFunding:   a.AccountFunding.Add(b.AccountFunding),
+		RiskedCollateral: a.RiskedCollateral.Add(b.RiskedCollateral),
+	}
+}
+
+// Sub returns a - b
+func (a V2Usage) Sub(b V2Usage) (c V2Usage) {
+	return V2Usage{
+		RPCRevenue:       a.RPCRevenue.Sub(b.RPCRevenue),
+		StorageRevenue:   a.StorageRevenue.Sub(b.StorageRevenue),
+		EgressRevenue:    a.EgressRevenue.Sub(b.EgressRevenue),
+		IngressRevenue:   a.IngressRevenue.Sub(b.IngressRevenue),
+		AccountFunding:   a.AccountFunding.Sub(b.AccountFunding),
+		RiskedCollateral: a.RiskedCollateral.Sub(b.RiskedCollateral),
 	}
 }
 

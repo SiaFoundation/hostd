@@ -77,7 +77,7 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.TransactionSet)
 	}
 
-	if err := c.AddV2Contract(formationSet, contracts.Usage{}); err != nil {
+	if err := c.AddV2Contract(formationSet, contracts.V2Usage{}); err != nil {
 		t.Fatal("failed to add contract:", err)
 	}
 	return txn.V2FileContractID(txn.ID(), 0), fc
@@ -1078,7 +1078,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		node.Syncer.BroadcastV2TransactionSet(renewalTxnSet.Basis, renewalTxnSet.TransactionSet)
 
-		err = com.RenewV2Contract(renewalTxnSet, contracts.Usage{}, contracts.Usage{
+		err = com.RenewV2Contract(renewalTxnSet, contracts.V2Usage{
 			RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
 		})
 		if err != nil {
@@ -1161,7 +1161,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		contractID := txn.V2FileContractID(txn.ID(), 0)
 		// corrupt the formation set to trigger a rejection
 		formationSet.TransactionSet[len(formationSet.TransactionSet)-1].SiacoinInputs[0].SatisfiedPolicy.Signatures[0] = types.Signature{}
-		if err := c.AddV2Contract(formationSet, contracts.Usage{}); err != nil {
+		if err := c.AddV2Contract(formationSet, contracts.V2Usage{}); err != nil {
 			t.Fatal("failed to add contract:", err)
 		}
 

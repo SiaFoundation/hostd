@@ -154,8 +154,6 @@ CREATE TABLE contracts_v2 (
 	ingress_revenue BLOB NOT NULL,
 	egress_revenue BLOB NOT NULL,
 	account_funding BLOB NOT NULL,
-	registry_read BLOB NOT NULL,
-	registry_write BLOB NOT NULL,
 	risked_collateral BLOB NOT NULL,
 	raw_revision BLOB NOT NULL, -- binary serialized contract revision
 	confirmation_index BLOB, -- null if the contract has not been confirmed on the blockchain, otherwise the chain index of the block containing the confirmation transaction

@@ -172,7 +172,7 @@ func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet contra
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract. The status of the old contract should continue
 // to be active until the renewal is confirmed
-func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet contracts.V2FormationTransactionSet, renewedID types.FileContractID, clearing types.V2FileContract, finalUsage contracts.Usage) error {
+func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet contracts.V2FormationTransactionSet, renewedID types.FileContractID, clearing types.V2FileContract) error {
 	return s.transaction(func(tx *txn) error {
 		// add the new contract
 		renewedDBID, err := insertV2Contract(tx, renewal, renewalSet)
@@ -180,7 +180,7 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet contrac
 			return fmt.Errorf("failed to insert renewed contract: %w", err)
 		}
 
-		clearedDBID, err := updateResolvedV2Contract(tx, renewedID, clearing, renewedDBID, finalUsage)
+		clearedDBID, err := updateResolvedV2Contract(tx, renewedID, clearing, renewedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to resolve existing contract: %w", err)
 		}
@@ -805,41 +805,15 @@ RETURNING sector_id;`
 }
 
 // updateResolvedV2Contract clears a contract and returns its ID
-func updateResolvedV2Contract(tx *txn, contractID types.FileContractID, clearing types.V2FileContract, renewedDBID int64, usage contracts.Usage) (dbID int64, err error) {
-	var lockedCollateral types.Currency
-	// get the existing contract's current usage
-	var current contracts.Usage
-	err = tx.QueryRow(`SELECT id, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, locked_collateral FROM contracts_v2 WHERE contract_id=$1`, encode(contractID)).Scan(
-		&dbID,
-		decode(&current.RPCRevenue),
-		decode(&current.StorageRevenue),
-		decode(&current.IngressRevenue),
-		decode(&current.EgressRevenue),
-		decode(&current.AccountFunding),
-		decode(&current.RiskedCollateral),
-		decode(&lockedCollateral))
-	if err != nil {
-		return 0, fmt.Errorf("failed to get existing usage: %w", err)
-	}
-
-	// add the additional final usage
-	total := current.Add(usage)
-
+func updateResolvedV2Contract(tx *txn, contractID types.FileContractID, clearing types.V2FileContract, renewedDBID int64) (dbID int64, err error) {
 	// add the final usage to the contract revenue
-	const clearQuery = `UPDATE contracts_v2 SET (renewed_to, revision_number, raw_revision, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6, $7, $8, $9) WHERE id=$11 RETURNING id;`
+	const clearQuery = `UPDATE contracts_v2 SET (renewed_to, revision_number, raw_revision) = ($1, $2, $3) WHERE contract_id=$4 RETURNING id;`
 	err = tx.QueryRow(clearQuery,
 		renewedDBID,
 		encode(clearing.RevisionNumber),
 		encode(clearing),
-		encode(total.RPCRevenue),
-		encode(total.StorageRevenue),
-		encode(total.IngressRevenue),
-		encode(total.EgressRevenue),
-		encode(total.AccountFunding),
-		encode(total.RiskedCollateral),
-		dbID,
+		encode(contractID),
 	).Scan(&dbID)
-
 	return
 }
 
@@ -1157,9 +1131,9 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, 
 
 func insertV2Contract(tx *txn, contract contracts.V2Contract, formationSet contracts.V2FormationTransactionSet) (dbID int64, err error) {
 	const query = `INSERT INTO contracts_v2 (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
-egress_revenue, registry_read, registry_write, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
+egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
 formation_txn_set_basis, raw_revision, contract_status) VALUES
- ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id;`
+ ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id;`
 	renterID, err := renterDBID(tx, contract.RenterPublicKey)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get renter id: %w", err)
@@ -1173,8 +1147,6 @@ formation_txn_set_basis, raw_revision, contract_status) VALUES
 		encode(contract.Usage.StorageRevenue),
 		encode(contract.Usage.IngressRevenue),
 		encode(contract.Usage.EgressRevenue),
-		encode(contract.Usage.RegistryRead),
-		encode(contract.Usage.RegistryWrite),
 		encode(contract.Usage.AccountFunding),
 		encode(contract.Usage.RiskedCollateral),
 		encode(contract.RevisionNumber),

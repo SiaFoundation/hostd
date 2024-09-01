@@ -32,7 +32,7 @@ type (
 	v2ContractState struct {
 		ID               int64
 		LockedCollateral types.Currency
-		Usage            contracts.Usage
+		Usage            contracts.V2Usage
 		Status           contracts.V2ContractStatus
 	}
 )
@@ -672,7 +672,7 @@ WHERE contract_id=?`)
 // getV2ContractStateStmt helper to get the current state of a v2 contract.
 func getV2ContractStateStmt(tx *txn) (func(contractID types.FileContractID) (v2ContractState, error), func() error, error) {
 	stmt, err := tx.Prepare(`SELECT id, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, 
-ingress_revenue, egress_revenue, registry_read, registry_write, contract_status 
+ingress_revenue, egress_revenue, contract_status 
 FROM contracts_v2 
 WHERE contract_id=?`)
 	if err != nil {
@@ -683,7 +683,7 @@ WHERE contract_id=?`)
 		err = stmt.QueryRow(encode(contractID)).Scan(&state.ID,
 			decode(&state.LockedCollateral), decode(&state.Usage.RiskedCollateral), decode(&state.Usage.RPCRevenue),
 			decode(&state.Usage.StorageRevenue), decode(&state.Usage.IngressRevenue), decode(&state.Usage.EgressRevenue),
-			decode(&state.Usage.RegistryRead), decode(&state.Usage.RegistryWrite), &state.Status)
+			&state.Status)
 		return
 	}, stmt.Close, nil
 }
@@ -720,6 +720,34 @@ func updatePotentialRevenueMetrics(usage contracts.Usage, negative bool, fn func
 		return fmt.Errorf("failed to update metric %q: %w", metricPotentialRegistryReadRevenue, err)
 	} else if err := fn(metricPotentialRegistryWriteRevenue, usage.RegistryWrite, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricPotentialRegistryWriteRevenue, err)
+	}
+	return nil
+}
+
+// updateV2EarnedRevenueMetrics helper to update the earned revenue metrics.
+func updateV2EarnedRevenueMetrics(usage contracts.V2Usage, negative bool, fn func(stat string, delta types.Currency, negative bool, timestamp time.Time) error) error {
+	if err := fn(metricEarnedRPCRevenue, usage.RPCRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricEarnedRPCRevenue, err)
+	} else if err := fn(metricEarnedStorageRevenue, usage.StorageRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricEarnedStorageRevenue, err)
+	} else if err := fn(metricEarnedIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricEarnedIngressRevenue, err)
+	} else if err := fn(metricEarnedEgressRevenue, usage.EgressRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricEarnedEgressRevenue, err)
+	}
+	return nil
+}
+
+// updateV2PotentialRevenueMetrics helper to update the potential revenue metrics.
+func updateV2PotentialRevenueMetrics(usage contracts.V2Usage, negative bool, fn func(stat string, delta types.Currency, negative bool, timestamp time.Time) error) error {
+	if err := fn(metricPotentialRPCRevenue, usage.RPCRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricPotentialRPCRevenue, err)
+	} else if err := fn(metricPotentialStorageRevenue, usage.StorageRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricPotentialStorageRevenue, err)
+	} else if err := fn(metricPotentialIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricPotentialIngressRevenue, err)
+	} else if err := fn(metricPotentialEgressRevenue, usage.EgressRevenue, negative, time.Now()); err != nil {
+		return fmt.Errorf("failed to update metric %q: %w", metricPotentialEgressRevenue, err)
 	}
 	return nil
 }
@@ -1322,7 +1350,7 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 
 		if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
-		} else if err := updatePotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
+		} else if err := updateV2PotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 		} else if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusActive, incrementNumericStat); err != nil {
 			return fmt.Errorf("failed to update contract metrics: %w", err)
@@ -1400,7 +1428,7 @@ func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) 
 			return fmt.Errorf("failed to update contract metrics: %w", err)
 		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
-		} else if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+		} else if err := updateV2PotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 		}
 	}
@@ -1495,9 +1523,9 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 
 		// subtract the usage from the potential revenue metrics and add it to the
 		// earned revenue metrics
-		if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+		if err := updateV2PotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
-		} else if err := updateEarnedRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
+		} else if err := updateV2EarnedRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update earned revenue metrics: %w", err)
 		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
@@ -1568,7 +1596,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 		}
 
 		// add the usage to the potential revenue metrics
-		if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+		if err := updateV2PotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
@@ -1636,9 +1664,9 @@ func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, suc
 
 		// add the usage to the potential revenue metrics and subtract it from the
 		// earned revenue metrics
-		if err := updatePotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
+		if err := updateV2PotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
-		} else if err := updateEarnedRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+		} else if err := updateV2EarnedRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update earned revenue metrics: %w", err)
 		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
@@ -1708,7 +1736,7 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 		}
 
 		// add the usage back to the potential revenue metrics
-		if err := updatePotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
+		if err := updateV2PotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
