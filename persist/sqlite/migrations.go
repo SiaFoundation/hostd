@@ -10,6 +10,13 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion30(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+ALTER TABLE contracts_v2 DROP COLUMN registry_read;
+ALTER TABLE contracts_v2 DROP COLUMN registry_write;`)
+	return err
+}
+
 // migrateVersion29 resets the chain state to trigger a full rescan of the
 // wallet to calculate the new immature balance metric.
 func migrateVersion29(tx *txn, _ *zap.Logger) error {
@@ -915,4 +922,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion27,
 	migrateVersion28,
 	migrateVersion29,
+	migrateVersion30,
 }
