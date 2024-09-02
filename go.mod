@@ -4,7 +4,7 @@ go 1.23.0
 
 require (
 	github.com/aws/aws-sdk-go v1.55.5
-	github.com/cloudflare/cloudflare-go v0.102.0
+	github.com/cloudflare/cloudflare-go v0.103.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shopspring/decimal v1.4.0
@@ -20,7 +20,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/frand v1.4.2
 	lukechampine.com/upnp v0.3.0
-	nhooyr.io/websocket v1.8.11
+	nhooyr.io/websocket v1.8.17
 )
 
 require (
