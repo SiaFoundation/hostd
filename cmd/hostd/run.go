@@ -151,6 +151,11 @@ func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey,
 		if cfg.Syncer.Bootstrap {
 			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.ZenBootstrapPeers...)
 		}
+	case "anagami":
+		network, genesisBlock = chain.TestnetAnagami()
+		if cfg.Syncer.Bootstrap {
+			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.AnagamiBootstrapPeers...)
+		}
 	default:
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
 	}
