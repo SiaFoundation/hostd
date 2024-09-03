@@ -969,10 +969,13 @@ func applySuccessfulContracts(tx *txn, index types.ChainIndex, successful []type
 		if state.Status == contracts.ContractStatusSuccessful {
 			// skip update if the contract was already successful
 			continue
-		} else if state.Status != contracts.ContractStatusActive {
-			// panic if the contract is not active. Proper reverts should have
-			// ensured that this never happens.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusSuccessful))
+		} else if state.Status != contracts.ContractStatusActive && state.Status != contracts.ContractStatusFailed {
+			// panic if the contract is not active or failed. Proper reverts
+			// should have ensured that this never happens.
+			//
+			// note: going from failed -> successful is allowed in case
+			// of future logic changes.
+			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", contractID, state.Status, contracts.ContractStatusSuccessful))
 		}
 
 		// update the contract's resolution index and status
@@ -989,14 +992,20 @@ func applySuccessfulContracts(tx *txn, index types.ChainIndex, successful []type
 			return fmt.Errorf("failed to set contract %q status: %w", contractID, err)
 		}
 
-		// subtract the usage from the potential revenue metrics and add it to the
-		// earned revenue metrics
-		if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
-			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
-		} else if err := updateEarnedRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
+		// add the usage to the earned revenue metrics
+		if err := updateEarnedRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update earned revenue metrics: %w", err)
-		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
-			return fmt.Errorf("failed to update collateral metrics: %w", err)
+		}
+
+		// if the state is failed, the potential revenue metrics have already
+		// been reduced. If the state is active, subtract the usage from the
+		// potential revenue metrics.
+		if state.Status == contracts.ContractStatusActive {
+			if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to update potential revenue metrics: %w", err)
+			} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to update collateral metrics: %w", err)
+			}
 		}
 	}
 	return nil
@@ -1042,10 +1051,13 @@ func applyFailedContracts(tx *txn, failed []types.FileContractID) error {
 		if state.Status == contracts.ContractStatusFailed {
 			// skip update if the contract was already failed
 			continue
-		} else if state.Status != contracts.ContractStatusActive {
-			// panic if the contract is not active. Proper reverts should have
-			//  ensured that this never happens.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusFailed))
+		} else if state.Status != contracts.ContractStatusActive && state.Status != contracts.ContractStatusSuccessful {
+			// panic if the contract is not active or successful. Proper reverts
+			// should have ensured that this never happens.
+			//
+			// note: going from successful -> failed is allowed in the case of
+			// future logic changes.
+			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", contractID, state.Status, contracts.ContractStatusFailed))
 		}
 
 		// update the contract's resolution index and status
@@ -1062,11 +1074,20 @@ func applyFailedContracts(tx *txn, failed []types.FileContractID) error {
 			return fmt.Errorf("failed to set contract %q status: %w", contractID, err)
 		}
 
-		// subtract the usage from the potential revenue metrics
-		if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
-			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
-		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
-			return fmt.Errorf("failed to update collateral metrics: %w", err)
+		if state.Status == contracts.ContractStatusActive {
+			// if the contract is active, subtract the usage from the potential
+			// revenue metrics and the collateral metrics.
+			if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to update potential revenue metrics: %w", err)
+			} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to update collateral metrics: %w", err)
+			}
+		} else if state.Status == contracts.ContractStatusSuccessful {
+			// if the contract is successful, subtract the usage from the earned
+			// revenue metrics.
+			if err := updateEarnedRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to update earned revenue metrics: %w", err)
+			}
 		}
 	}
 	return nil
@@ -1113,7 +1134,7 @@ func revertContractFormation(tx *txn, reverted []types.FileContractElement) erro
 		if state.Status != contracts.ContractStatusActive {
 			// if the contract is not active, panic. Applies should have ensured
 			// that this never happens.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusPending))
+			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", fce.ID, state.Status, contracts.ContractStatusPending))
 		}
 
 		// set the contract status to pending
@@ -1179,7 +1200,7 @@ func revertSuccessfulContracts(tx *txn, successful []types.FileContractID) error
 		if state.Status != contracts.ContractStatusSuccessful {
 			// if the contract is not successful, panic. Applies should have
 			// ensured that this never happens.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusActive))
+			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", contractID, state.Status, contracts.ContractStatusActive))
 		}
 
 		if res, err := updateStmt.Exec(encode(contractID)); err != nil {
@@ -1247,8 +1268,8 @@ func revertFailedContracts(tx *txn, failed []types.FileContractID) error {
 
 		if state.Status != contracts.ContractStatusFailed {
 			// panic if the contract is not failed. Proper reverts should have
-			//  ensured that this never happens.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusFailed))
+			// ensured that this never happens.
+			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", contractID, state.Status, contracts.ContractStatusFailed))
 		} else if state.Status == contracts.ContractStatusFailed {
 			// skip update, most likely rescanning
 			continue
@@ -1501,10 +1522,10 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 			// skip update if the contract was already successful.
 			// This should only happen during a rescan
 			continue
-		} else if state.Status != contracts.V2ContractStatusActive {
+		} else if state.Status != contracts.V2ContractStatusActive && state.Status != contracts.V2ContractStatusFailed {
 			// panic if the contract is not active. Proper reverts should have
 			// ensured that this never happens.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusSuccessful))
+			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", contractID, state.Status, contracts.V2ContractStatusSuccessful))
 		}
 
 		// update the contract's resolution index and status
