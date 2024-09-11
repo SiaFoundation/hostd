@@ -56,16 +56,19 @@ func setupUPNP(ctx context.Context, port uint16, log *zap.Logger) (string, error
 	return d.ExternalIP()
 }
 
-// migrateDB renames hostd.db to hostd.sqlite3 to be explicit about the store
-func migrateDB(dir string) error {
+// openSQLite3Database opens the hostd database. The function first looks for
+// the deprecated hostd.db file. If that fails, it tries to open the preferred
+// hostd.sqlite3 file.
+func openSQLite3Database(dir string, log *zap.Logger) (*sqlite.Store, error) {
 	oldPath := filepath.Join(dir, "hostd.db")
-	newPath := filepath.Join(dir, "hostd.sqlite3")
-	if _, err := os.Stat(oldPath); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
+	if _, err := os.Stat(oldPath); err == nil {
+		return sqlite.OpenDatabase(oldPath, log)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to stat database: %w", err)
 	}
-	return os.Rename(oldPath, newPath)
+
+	newPath := filepath.Join(dir, "hostd.sqlite3")
+	return sqlite.OpenDatabase(newPath, log)
 }
 
 // deleteSiadData deletes the siad specific databases if they exist
@@ -123,13 +126,11 @@ func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener,
 }
 
 func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
-	if err := migrateDB(cfg.Directory); err != nil {
-		return fmt.Errorf("failed to migrate database: %w", err)
-	} else if err := deleteSiadData(cfg.Directory); err != nil {
+	if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
 	}
 
-	store, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "hostd.sqlite3"), log.Named("sqlite3"))
+	store, err := openSQLite3Database(filepath.Join(cfg.Directory, "hostd.sqlite3"), log.Named("sqlite3"))
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -294,10 +295,11 @@ func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey,
 	defer rhp3.Close()
 
 	apiOpts := []api.ServerOption{
-		api.ServerWithAlerts(am),
-		api.ServerWithLogger(log.Named("api")),
-		api.ServerWithRHPSessionReporter(sr),
-		api.ServerWithWebhooks(wr),
+		api.WithAlerts(am),
+		api.WithLogger(log.Named("api")),
+		api.WithRHPSessionReporter(sr),
+		api.WithWebhooks(wr),
+		api.WithSQLite3Store(store),
 	}
 	if !cfg.Explorer.Disable {
 		ex := explorer.New(cfg.Explorer.URL)
@@ -306,7 +308,7 @@ func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey,
 			return fmt.Errorf("failed to create pin manager: %w", err)
 		}
 
-		apiOpts = append(apiOpts, api.ServerWithPinnedSettings(pm), api.ServerWithExplorer(ex))
+		apiOpts = append(apiOpts, api.WithPinnedSettings(pm), api.WithExplorer(ex))
 	}
 
 	web := http.Server{
