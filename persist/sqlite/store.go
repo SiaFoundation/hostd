@@ -187,9 +187,13 @@ func (s *Store) Backup(ctx context.Context, destPath string) (err error) {
 		return fmt.Errorf("failed to open destination database: %w", err)
 	}
 	defer func() {
-		dest.Close()
+		if closeErr := dest.Close(); closeErr != nil {
+			log.Error("failed to close destination database", zap.Error(closeErr))
+		}
 		if err != nil {
-			os.Remove(destPath)
+			if removeErr := os.Remove(destPath); removeErr != nil {
+				log.Error("failed to remove destination file", zap.Error(removeErr))
+			}
 		}
 	}()
 
