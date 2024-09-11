@@ -177,7 +177,7 @@ func (s *Store) Backup(ctx context.Context, destPath string) (err error) {
 	// prevent overwriting the destination file
 	if _, err := os.Stat(destPath); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("destination file already exists")
-	} else if len(destPath) == 0 {
+	} else if destPath == "" {
 		return errors.New("empty destination path")
 	}
 
