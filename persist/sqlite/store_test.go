@@ -243,6 +243,7 @@ func TestBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer backup.Close()
 
 	// check that the data was backed up correctly
 	restoredVolume, err := backup.Volume(id)
