@@ -126,7 +126,7 @@ func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener,
 	return
 }
 
-func runNode(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
+func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
 	if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
 	}

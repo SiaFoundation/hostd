@@ -200,7 +200,8 @@ func TestClearLockedSectors(t *testing.T) {
 }
 
 func TestBackup(t *testing.T) {
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), zaptest.NewLogger(t))
+	srcPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := OpenDatabase(srcPath, zaptest.NewLogger(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,7 @@ func TestBackup(t *testing.T) {
 
 	// backup the database
 	destPath := filepath.Join(t.TempDir(), "backup.db")
-	if err := db.Backup(context.Background(), destPath); err != nil {
+	if err := Backup(context.Background(), srcPath, destPath); err != nil {
 		t.Fatal(err)
 	} else if err := db.Close(); err != nil {
 		t.Fatal(err)

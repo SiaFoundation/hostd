@@ -18,6 +18,7 @@ require (
 	golang.org/x/term v0.24.0
 	golang.org/x/time v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
+	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.4.2
 	lukechampine.com/upnp v0.3.0
 	nhooyr.io/websocket v1.8.17
