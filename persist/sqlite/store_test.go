@@ -231,33 +231,45 @@ func TestBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// backup the database
-	destPath := filepath.Join(t.TempDir(), "backup.db")
-	if err := Backup(context.Background(), srcPath, destPath); err != nil {
-		t.Fatal(err)
-	} else if err := db.Close(); err != nil {
-		t.Fatal(err)
+	checkDatabase := func(t *testing.T, fp string) {
+		// open the backup database
+		backup, err := OpenDatabase(fp, zaptest.NewLogger(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer backup.Close()
+
+		// check that the data was backed up correctly
+		restoredVolume, err := backup.Volume(id)
+		if err != nil {
+			t.Fatal(err)
+		} else if !reflect.DeepEqual(volume, restoredVolume) {
+			t.Fatalf("expected volume %v, got %v", volume, restoredVolume)
+		}
+
+		restoredSettings, err := backup.Settings()
+		if err != nil {
+			t.Fatal(err)
+		} else if !reflect.DeepEqual(newSettings, restoredSettings) {
+			t.Fatalf("expected settings %v, got %v", newSettings, restoredSettings)
+		}
 	}
 
-	// open the backup database
-	backup, err := OpenDatabase(destPath, zaptest.NewLogger(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer backup.Close()
+	t.Run("Store.Backup", func(t *testing.T) {
+		destPath := filepath.Join(t.TempDir(), "backup.db")
+		if err := Backup(context.Background(), srcPath, destPath); err != nil {
+			t.Fatal(err)
+		}
 
-	// check that the data was backed up correctly
-	restoredVolume, err := backup.Volume(id)
-	if err != nil {
-		t.Fatal(err)
-	} else if !reflect.DeepEqual(volume, restoredVolume) {
-		t.Fatalf("expected volume %v, got %v", volume, restoredVolume)
-	}
+		checkDatabase(t, destPath)
+	})
 
-	restoredSettings, err := backup.Settings()
-	if err != nil {
-		t.Fatal(err)
-	} else if !reflect.DeepEqual(newSettings, restoredSettings) {
-		t.Fatalf("expected settings %v, got %v", newSettings, restoredSettings)
-	}
+	t.Run("Backup", func(t *testing.T) {
+		destPath := filepath.Join(t.TempDir(), "backup.db")
+		if err := db.Backup(context.Background(), destPath); err != nil {
+			t.Fatal(err)
+		}
+
+		checkDatabase(t, destPath)
+	})
 }
