@@ -254,6 +254,7 @@ func (a *api) handleGETPeriodMetrics(jc jape.Context) {
 		return
 	} else if start.After(time.Now()) {
 		jc.Error(errors.New("start time cannot be in the future"), http.StatusBadRequest)
+		return
 	}
 
 	start, err := metrics.Normalize(start, interval)
@@ -577,6 +578,18 @@ func (a *api) handlePUTSystemDir(jc jape.Context) {
 		return
 	}
 	a.checkServerError(jc, "failed to create dir", os.MkdirAll(req.Path, 0775))
+}
+
+func (a *api) handlePOSTSystemSQLite3Backup(jc jape.Context) {
+	if a.sqlite3Store == nil {
+		jc.Error(errors.New("sqlite3 store not available"), http.StatusNotFound)
+	}
+
+	var req BackupRequest
+	if err := jc.Decode(&req); err != nil {
+		return
+	}
+	a.checkServerError(jc, "failed to backup", a.sqlite3Store.Backup(jc.Request.Context(), req.Path))
 }
 
 func (a *api) handleGETTPoolFee(jc jape.Context) {

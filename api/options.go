@@ -12,44 +12,54 @@ import (
 // ServerOption is a functional option to configure an API server.
 type ServerOption func(*api)
 
-// ServerWithAlerts sets the alerts manager for the API server.
-func ServerWithAlerts(al Alerts) ServerOption {
+// WithAlerts sets the alerts manager for the API server.
+func WithAlerts(al Alerts) ServerOption {
 	return func(a *api) {
 		a.alerts = al
 	}
 }
 
-// ServerWithWebhooks sets the webhooks manager for the API server.
-func ServerWithWebhooks(w Webhooks) ServerOption {
+// WithSQLite3Store sets the SQLite3 store for the API server.
+//
+// This option is not required since it is only used for backups and there
+// may be other stores in the future.
+func WithSQLite3Store(s SQLite3Store) ServerOption {
+	return func(a *api) {
+		a.sqlite3Store = s
+	}
+}
+
+// WithWebhooks sets the webhooks manager for the API server.
+func WithWebhooks(w Webhooks) ServerOption {
 	return func(a *api) {
 		a.webhooks = w
 	}
 }
 
-// ServerWithPinnedSettings sets the pinned settings for the API server.
-func ServerWithPinnedSettings(p PinnedSettings) ServerOption {
+// WithPinnedSettings sets the pinned settings for the API server.
+func WithPinnedSettings(p PinnedSettings) ServerOption {
 	return func(a *api) {
 		a.pinned = p
 	}
 }
 
-// ServerWithExplorer sets the explorer for the API server.
-func ServerWithExplorer(explorer *explorer.Explorer) ServerOption {
+// WithExplorer sets the explorer for the API server.
+func WithExplorer(explorer *explorer.Explorer) ServerOption {
 	return func(a *api) {
 		a.explorerDisabled = false
 		a.explorer = explorer
 	}
 }
 
-// ServerWithRHPSessionReporter sets the RHP session reporter for the API server.
-func ServerWithRHPSessionReporter(rsr RHPSessionReporter) ServerOption {
+// WithRHPSessionReporter sets the RHP session reporter for the API server.
+func WithRHPSessionReporter(rsr RHPSessionReporter) ServerOption {
 	return func(a *api) {
 		a.sessions = rsr
 	}
 }
 
-// ServerWithLogger sets the logger for the API server.
-func ServerWithLogger(log *zap.Logger) ServerOption {
+// WithLogger sets the logger for the API server.
+func WithLogger(log *zap.Logger) ServerOption {
 	return func(a *api) {
 		a.log = log
 	}

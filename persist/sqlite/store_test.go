@@ -1,13 +1,16 @@
 package sqlite
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -194,4 +197,65 @@ func TestClearLockedSectors(t *testing.T) {
 
 	// check that all the locks were removed and half the sectors deleted
 	assertSectors(0, sectors/2)
+}
+
+func TestBackup(t *testing.T) {
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), zaptest.NewLogger(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// add some data to the database
+	id, err := db.AddVolume("foo", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err = db.GrowVolume(id, 100); err != nil {
+		t.Fatal(err)
+	} else if err = db.SetAvailable(id, true); err != nil {
+		t.Fatal(err)
+	}
+
+	volume, err := db.Volume(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newSettings := settings.Settings{
+		MaxContractDuration: 100,
+		NetAddress:          "foo.bar.baz:9981",
+		AcceptingContracts:  true,
+	}
+	if err := db.UpdateSettings(newSettings); err != nil {
+		t.Fatal(err)
+	}
+
+	// backup the database
+	destPath := filepath.Join(t.TempDir(), "backup.db")
+	if err := db.Backup(context.Background(), destPath); err != nil {
+		t.Fatal(err)
+	} else if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// open the backup database
+	backup, err := OpenDatabase(destPath, zaptest.NewLogger(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the data was backed up correctly
+	restoredVolume, err := backup.Volume(id)
+	if err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(volume, restoredVolume) {
+		t.Fatalf("expected volume %v, got %v", volume, restoredVolume)
+	}
+
+	restoredSettings, err := backup.Settings()
+	if err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(newSettings, restoredSettings) {
+		t.Fatalf("expected settings %v, got %v", newSettings, restoredSettings)
+	}
 }

@@ -1,11 +1,13 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -71,6 +73,7 @@ func sqliteFilepath(fp string) string {
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",
+		"_auto_vacuum=INCREMENTAL",
 		"_cache_size=-65536", // 64MiB
 	}
 	return "file:" + fp + "?" + strings.Join(params, "&")
@@ -143,6 +146,99 @@ func (s *Store) clearLocks() error {
 		}
 		return nil
 	})
+}
+
+func sqlConn(ctx context.Context, db *sql.DB) (c *sqlite3.SQLiteConn, err error) {
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	raw, err := db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection: %w", err)
+	}
+	err = raw.Raw(func(driverConn any) error {
+		var ok bool
+		c, ok = driverConn.(*sqlite3.SQLiteConn)
+		if !ok {
+			return errors.New("connection is not a SQLiteConn")
+		}
+		return nil
+	})
+	return
+}
+
+// Backup creates a backup of the database at the specified path. The backup is
+// created using the SQLite backup API, which is safe to use with a
+// live database.
+func (s *Store) Backup(ctx context.Context, destPath string) (err error) {
+	log := s.log.Named("backup").With(zap.String("destPath", destPath))
+
+	// prevent overwriting the destination file
+	if _, err := os.Stat(destPath); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("destination file already exists")
+	}
+
+	// create the destination database
+	dest, err := sql.Open("sqlite3", sqliteFilepath(destPath))
+	if err != nil {
+		return fmt.Errorf("failed to open destination database: %w", err)
+	}
+	defer func() {
+		dest.Close()
+		if err != nil {
+			os.Remove(destPath)
+		}
+	}()
+
+	// initialize the source conn
+	sc, err := sqlConn(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("failed to create source connection: %w", err)
+	}
+	defer sc.Close()
+
+	// initialize the destination conn
+	dc, err := sqlConn(ctx, dest)
+	if err != nil {
+		return fmt.Errorf("failed to create destination connection: %w", err)
+	}
+	defer dc.Close()
+
+	// start the backup
+	backup, err := dc.Backup("main", sc, "main")
+	if err != nil {
+		return fmt.Errorf("failed to create backup: %w", err)
+	}
+	// ensure the backup is closed
+	defer func() {
+		if err := backup.Finish(); err != nil {
+			log.Panic("failed to finish backup", zap.Error(err))
+		}
+	}()
+
+	log.Debug("starting backup")
+	start := time.Now()
+	for step := 1; ; step++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if done, err := backup.Step(100); err != nil {
+			return fmt.Errorf("backup step %d failed: %w", step, err)
+		} else if done {
+			break
+		}
+		log.Debug("backup step complete", zap.Int("step", step), zap.Duration("elapsed", time.Since(start)))
+	}
+	log.Debug("backup complete", zap.Duration("elapsed", time.Since(start)))
+	if _, err := dest.Exec("VACUUM"); err != nil {
+		return fmt.Errorf("failed to vacuum destination database: %w", err)
+	}
+	log.Debug("vacuumed destination database")
+	return nil
 }
 
 // OpenDatabase creates a new SQLite store and initializes the database. If the

@@ -150,6 +150,11 @@ type (
 		Path string `json:"path"`
 	}
 
+	// A BackupRequest is the request body for the [POST] /system/backup endpoint.
+	BackupRequest struct {
+		Path string `json:"path"`
+	}
+
 	// VerifySectorResponse is the response body for the [GET] /sectors/:root/verify endpoint.
 	VerifySectorResponse struct {
 		storage.SectorReference
