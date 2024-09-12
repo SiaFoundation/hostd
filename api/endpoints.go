@@ -583,6 +583,7 @@ func (a *api) handlePUTSystemDir(jc jape.Context) {
 func (a *api) handlePOSTSystemSQLite3Backup(jc jape.Context) {
 	if a.sqlite3Store == nil {
 		jc.Error(errors.New("sqlite3 store not available"), http.StatusNotFound)
+		return
 	}
 
 	var req BackupRequest
