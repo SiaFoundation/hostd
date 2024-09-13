@@ -125,6 +125,11 @@ type (
 		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction)
 	}
 
+	// The SQLite3Store provides an interface for backing up a SQLite3 database
+	SQLite3Store interface {
+		Backup(ctx context.Context, destPath string) error
+	}
+
 	// A ChainManager retrieves the current blockchain state
 	ChainManager interface {
 		Tip() types.ChainIndex
@@ -163,6 +168,8 @@ type (
 		alerts   Alerts
 		webhooks Webhooks
 		sessions RHPSessionReporter
+
+		sqlite3Store SQLite3Store
 
 		syncer    Syncer
 		chain     ChainManager
@@ -294,8 +301,9 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		"GET /wallet/pending": a.handleGETWalletPending,
 		"POST /wallet/send":   a.handlePOSTWalletSend,
 		// system endpoints
-		"GET /system/dir": a.handleGETSystemDir,
-		"PUT /system/dir": a.handlePUTSystemDir,
+		"GET /system/dir":             a.handleGETSystemDir,
+		"PUT /system/dir":             a.handlePUTSystemDir,
+		"POST /system/sqlite3/backup": a.handlePOSTSystemSQLite3Backup,
 		// webhook endpoints
 		"GET /webhooks":           a.handleGETWebhooks,
 		"POST /webhooks":          a.handlePOSTWebhooks,

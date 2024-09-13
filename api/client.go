@@ -247,6 +247,12 @@ func (c *Client) LocalDir(path string) (resp SystemDirResponse, err error) {
 	return
 }
 
+// BackupSQLite3 creates a backup of the SQLite3 database at the specified path
+// on the local filesystem.
+func (c *Client) BackupSQLite3(destPath string) error {
+	return c.c.POST("/system/sqlite3/backup", BackupRequest{destPath}, nil)
+}
+
 // MkDir creates a new directory on the host.
 func (c *Client) MkDir(path string) error {
 	req := CreateDirRequest{

@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v3"
+	"lukechampine.com/flagg"
 )
 
 const (
@@ -160,37 +161,155 @@ func parseLogLevel(level string) zap.AtomicLevel {
 	panic("unreachable")
 }
 
+const (
+	rootUsage = `Usage:
+hostd [flags] [command]
+
+Run 'hostd' with no commands to start the storage provider daemon.
+
+Commands:
+	version		Print the hostd version
+	seed		Generate a new wallet seed and print the corresponding address
+	config		Print the default hostd config
+	recalculate	Recalculate the contract account funding in the SQLite3 database
+	sqlite3		Perform various operations on the SQLite3 database
+`
+
+	versionUsage = `Usage:
+hostd version
+
+Print the version of hostd.`
+
+	seedUsage = `Usage:
+hostd seed
+
+Generate a secure BIP-39 seed phrase and corresponding address. The seed phrase should be added to the config file or set as the HOSTD_WALLET_SEED environment variable.
+`
+
+	configUsage = `Usage:
+hostd config
+
+Interactively configure hostd. The resulting config will be saved to hostd.yml or the file specified by the HOSTD_CONFIG_FILE environment variable.
+`
+
+	recalculateUsage = `Usage:
+hostd recalculate <srcPath>
+
+Recalculates the contract account funding in the SQLite3 database. This command is not safe to run while the host is running.
+`
+
+	sqlite3Usage = `Usage:
+hostd sqlite3 [subcommand]
+
+Perform various operations on the SQLite3 database.
+
+Commands:
+	backup	Create a backup of the SQLite3 database
+`
+
+	sqlite3BackupUsage = `Usage:
+hostd sqlite3 backup <srcPath> <destPath>
+
+Create a backup of the SQLite3 database at the specified path. This is safe to run while the host is running.
+`
+)
+
+func initStdoutLog(colored bool, levelStr string) *zap.Logger {
+	level := parseLogLevel(levelStr)
+	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
+	return zap.New(core, zap.AddCaller())
+}
+
+func runBackupCommand(srcPath, destPath string) error {
+	if err := sqlite.Backup(context.Background(), srcPath, destPath); err != nil {
+		return fmt.Errorf("failed to backup database: %w", err)
+	}
+	return nil
+}
+
+func runRecalcCommand(srcPath string, log *zap.Logger) error {
+	db, err := sqlite.OpenDatabase(srcPath, log)
+	if err != nil {
+		log.Fatal("failed to open database", zap.Error(err))
+	}
+	defer db.Close()
+
+	if err := db.CheckContractAccountFunding(); err != nil {
+		log.Fatal("failed to check contract account funding", zap.Error(err))
+	} else if err := db.RecalcContractAccountFunding(); err != nil {
+		log.Fatal("failed to recalculate contract account funding", zap.Error(err))
+	} else if err := db.CheckContractAccountFunding(); err != nil {
+		log.Fatal("failed to check contract account funding", zap.Error(err))
+	} else if err := db.Vacuum(); err != nil {
+		log.Fatal("failed to vacuum database", zap.Error(err))
+	}
+	return nil
+}
+
 func main() {
-	// attempt to load the config file first, command line flags will override
-	// any values set in the config file
+	// attempt to load the config file, command line flags will override any
+	// values set in the config file
 	tryLoadConfig()
 
-	// global
-	flag.StringVar(&cfg.Name, "name", cfg.Name, "a friendly name for the host, only used for display")
-	flag.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store hostd metadata")
-	flag.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
-	flag.BoolVar(&cfg.AutoOpenWebUI, "openui", cfg.AutoOpenWebUI, "automatically open the web UI on startup")
+	rootCmd := flagg.Root
+	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
+	rootCmd.StringVar(&cfg.Name, "name", cfg.Name, "a friendly name for the host, only used for display")
+	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store hostd metadata")
+	rootCmd.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
+	rootCmd.BoolVar(&cfg.AutoOpenWebUI, "openui", cfg.AutoOpenWebUI, "automatically open the web UI on startup")
 	// syncer
-	flag.StringVar(&cfg.Syncer.Address, "syncer.address", cfg.Syncer.Address, "address to listen on for peer connections")
-	flag.BoolVar(&cfg.Syncer.Bootstrap, "syncer.bootstrap", cfg.Syncer.Bootstrap, "bootstrap the gateway and consensus modules")
+	rootCmd.StringVar(&cfg.Syncer.Address, "syncer.address", cfg.Syncer.Address, "address to listen on for peer connections")
+	rootCmd.BoolVar(&cfg.Syncer.Bootstrap, "syncer.bootstrap", cfg.Syncer.Bootstrap, "bootstrap the gateway and consensus modules")
 	// consensus
-	flag.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network name (mainnet, zen, etc)")
+	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network name (mainnet, zen, etc)")
 	// rhp
-	flag.StringVar(&cfg.RHP2.Address, "rhp2", cfg.RHP2.Address, "address to listen on for RHP2 connections")
-	flag.StringVar(&cfg.RHP3.TCPAddress, "rhp3", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
+	rootCmd.StringVar(&cfg.RHP2.Address, "rhp2", cfg.RHP2.Address, "address to listen on for RHP2 connections")
+	rootCmd.StringVar(&cfg.RHP3.TCPAddress, "rhp3", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
 	// http
-	flag.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
+	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	// log
-	flag.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
-	flag.Parse()
+	rootCmd.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
 
-	switch flag.Arg(0) {
-	case "version":
+	versionCmd := flagg.New("version", versionUsage)
+	seedCmd := flagg.New("seed", seedUsage)
+	configCmd := flagg.New("config", configUsage)
+	recalculateCmd := flagg.New("recalculate", recalculateUsage)
+	sqlite3Cmd := flagg.New("sqlite3", sqlite3Usage)
+	sqlite3BackupCmd := flagg.New("backup", sqlite3BackupUsage)
+
+	cmd := flagg.Parse(flagg.Tree{
+		Cmd: rootCmd,
+		Sub: []flagg.Tree{
+			{Cmd: versionCmd},
+			{Cmd: seedCmd},
+			{Cmd: configCmd},
+			{Cmd: recalculateCmd},
+			{
+				Cmd: sqlite3Cmd,
+				Sub: []flagg.Tree{
+					{Cmd: sqlite3BackupCmd},
+				},
+			},
+		},
+	})
+
+	switch cmd {
+	case versionCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+
 		fmt.Println("hostd", build.Version())
 		fmt.Println("Commit:", build.Commit())
 		fmt.Println("Build Date:", build.Time())
-		return
-	case "seed":
+
+	case seedCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+
 		var seed [32]byte
 		phrase := wallet.NewSeedPhrase()
 		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
@@ -200,40 +319,50 @@ func main() {
 		key := wallet.KeyFromSeed(&seed, 0)
 		fmt.Println("Recovery Phrase:", phrase)
 		fmt.Println("Address", types.StandardUnlockHash(key.PublicKey()))
-		return
-	case "config":
-		buildConfig()
-		return
-	case "rebuild":
-		fp := flag.Arg(1)
 
-		levelStr := cfg.Log.StdOut.Level
-		if levelStr == "" {
-			levelStr = cfg.Log.Level
+	case configCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
 		}
 
-		level := parseLogLevel(levelStr)
-		core := zapcore.NewCore(humanEncoder(cfg.Log.StdOut.EnableANSI), zapcore.Lock(os.Stdout), level)
-		log := zap.New(core, zap.AddCaller())
+		runConfigCmd()
+
+	case recalculateCmd:
+		if len(flag.Args()) != 1 {
+			cmd.Usage()
+			return
+		}
+
+		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
 		defer log.Sync()
 
-		db, err := sqlite.OpenDatabase(fp, log)
-		if err != nil {
-			log.Fatal("failed to open database", zap.Error(err))
+		if err := runRecalcCommand(cmd.Arg(0), log); err != nil {
+			log.Fatal("failed to create backup", zap.Error(err))
 		}
-		defer db.Close()
 
-		if err := db.CheckContractAccountFunding(); err != nil {
-			log.Fatal("failed to check contract account funding", zap.Error(err))
-		} else if err := db.RecalcContractAccountFunding(); err != nil {
-			log.Fatal("failed to recalculate contract account funding", zap.Error(err))
-		} else if err := db.CheckContractAccountFunding(); err != nil {
-			log.Fatal("failed to check contract account funding", zap.Error(err))
-		} else if err := db.Vacuum(); err != nil {
-			log.Fatal("failed to vacuum database", zap.Error(err))
+	case sqlite3Cmd:
+		cmd.Usage()
+
+	case sqlite3BackupCmd:
+		if len(cmd.Args()) != 2 {
+			cmd.Usage()
+			return
 		}
-		return
-	case "":
+
+		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
+		defer log.Sync()
+
+		if err := runBackupCommand(cmd.Arg(0), cmd.Arg(1)); err != nil {
+			log.Fatal("failed to create backup", zap.Error(err))
+		}
+
+	case rootCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 
@@ -348,10 +477,8 @@ func main() {
 		}
 		walletKey := wallet.KeyFromSeed(&seed, 0)
 
-		if err := runNode(ctx, cfg, walletKey, log); err != nil {
+		if err := runRootCmd(ctx, cfg, walletKey, log); err != nil {
 			log.Error("failed to start node", zap.Error(err))
 		}
-	default:
-		stdoutFatalError("unknown command: " + flag.Arg(0))
 	}
 }
