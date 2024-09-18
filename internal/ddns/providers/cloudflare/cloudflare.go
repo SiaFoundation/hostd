@@ -66,10 +66,9 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 		}
 
 		if recordID == "" {
-			_, err := client.CreateDNSRecord(ctx, zoneID, cloudflare.CreateDNSRecordParams{
+			client.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(p.opts.ZoneID), cloudflare.CreateDNSRecordParams{
 				Type:    "A",
 				Name:    p.opts.Hostname,
-				ZoneID:  p.opts.ZoneID,
 				Content: ipv4.String(),
 				TTL:     300,
 				Proxied: cloudflare.BoolPtr(false),
@@ -102,10 +101,9 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 		}
 
 		if recordID == "" {
-			_, err := client.CreateDNSRecord(ctx, zoneID, cloudflare.CreateDNSRecordParams{
+			_, err := client.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(p.opts.ZoneID), cloudflare.CreateDNSRecordParams{
 				Type:    "AAAA",
 				Name:    p.opts.Hostname,
-				ZoneID:  p.opts.ZoneID,
 				Content: ipv6.String(),
 				TTL:     300,
 				Proxied: cloudflare.BoolPtr(false),
