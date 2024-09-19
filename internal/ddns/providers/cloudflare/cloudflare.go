@@ -66,7 +66,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 		}
 
 		if recordID == "" {
-			client.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(p.opts.ZoneID), cloudflare.CreateDNSRecordParams{
+			_, err := client.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(p.opts.ZoneID), cloudflare.CreateDNSRecordParams{
 				Type:    "A",
 				Name:    p.opts.Hostname,
 				Content: ipv4.String(),
