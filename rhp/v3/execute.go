@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
+	librhp "go.sia.tech/hostd/internal/rhp"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
 )
@@ -95,7 +96,7 @@ func (pe *programExecutor) executeAppendSector(instr *rhp3.InstrAppendSector, lo
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
 	rootCalcStart := time.Now()
-	root := rhp2.SectorRoot(sector)
+	root := librhp.SectorRoot(sector)
 	log.Debug("calculated sector root", zap.Duration("duration", time.Since(rootCalcStart)))
 	// pay for execution
 	cost := pe.priceTable.AppendSectorCost(pe.remainingDuration)
@@ -377,7 +378,7 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 	copy(sector[relOffset:], patch)
 
 	// store the new sector
-	newRoot := rhp2.SectorRoot((*[rhp2.SectorSize]byte)(sector))
+	newRoot := librhp.SectorRoot((*[rhp2.SectorSize]byte)(sector))
 	release, err := pe.storage.Write(newRoot, sector)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
@@ -395,7 +396,7 @@ func (pe *programExecutor) executeStoreSector(instr *rhp3.InstrStoreSector, log 
 		return nil, fmt.Errorf("failed to read sector: %w", err)
 	}
 	rootCalcStart := time.Now()
-	root := rhp2.SectorRoot(sector)
+	root := librhp.SectorRoot(sector)
 	log.Debug("calculated sector root", zap.Duration("duration", time.Since(rootCalcStart)))
 
 	// pay for execution

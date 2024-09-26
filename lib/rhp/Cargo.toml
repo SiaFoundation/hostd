@@ -1,0 +1,11 @@
+[package]
+name = "rhp"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+libc = "0.2.159"
+sia_core = { git = "https://github.com/siafoundation/core-rs.git", rev = "a162635d60734900ae23fd0becfd7d7f43c58441" }
