@@ -23,17 +23,16 @@ type (
 func (m *ConfigManager) Announce() error {
 	// get the current settings
 	settings := m.Settings()
-
-	if m.validateNetAddress {
-		if err := validateNetAddress(settings.NetAddress); err != nil {
-			return fmt.Errorf("failed to validate net address %q: %w", settings.NetAddress, err)
-		}
-	}
-
 	minerFee := m.chain.RecommendedFee().Mul64(announcementTxnSize)
 
 	cs := m.chain.TipState()
 	if cs.Index.Height < cs.Network.HardforkV2.AllowHeight {
+		if m.validateNetAddress {
+			if err := validateNetAddress(settings.NetAddress); err != nil {
+				return fmt.Errorf("failed to validate net address %q: %w", settings.NetAddress, err)
+			}
+		}
+
 		ha := chain.HostAnnouncement{
 			PublicKey:  m.hostKey.PublicKey(),
 			NetAddress: settings.NetAddress,
@@ -61,6 +60,12 @@ func (m *ConfigManager) Announce() error {
 	} else {
 		if len(m.settings.V2AnnounceAddresses) == 0 {
 			return errors.New("no v2 announce addresses")
+		} else if m.validateNetAddress {
+			for _, addr := range m.settings.V2AnnounceAddresses {
+				if err := validateNetAddress(addr.Address); err != nil {
+					return fmt.Errorf("netaddress %q invalid: %w", addr.Address, err)
+				}
+			}
 		}
 
 		announcement := chain.V2HostAnnouncement(m.settings.V2AnnounceAddresses)

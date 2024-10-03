@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
@@ -58,6 +59,10 @@ func TestAutoAnnounce(t *testing.T) {
 
 	settings := settings.DefaultSettings
 	settings.NetAddress = "foo.bar:1234"
+	settings.V2AnnounceAddresses = []chain.NetAddress{
+		{Protocol: "test", Address: "foo.bar:1234"},
+		{Protocol: "test2", Address: "foo.bar:1235"},
+	}
 	sm.UpdateSettings(settings)
 
 	assertAnnouncement := func(t *testing.T, expectedAddr string, height uint64) {
@@ -75,6 +80,33 @@ func TestAutoAnnounce(t *testing.T) {
 			t.Fatalf("expected address %q, got %q", expectedAddr, ann.Address)
 		} else if ann.Index != index {
 			t.Fatalf("expected index %q, got %q", index, ann.Index)
+		}
+	}
+
+	assertV2Announcement := func(t *testing.T, addresses []chain.NetAddress, height uint64) {
+		t.Helper()
+
+		index, ok := node.Chain.BestIndex(height)
+		if !ok {
+			t.Fatal("failed to get index")
+		}
+
+		hash, announceIndex, err := node.Store.LastV2AnnouncementHash()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		h := types.NewHasher()
+		types.EncodeSlice(h.E, addresses)
+		if err := h.E.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		expectedHash := h.Sum()
+
+		if hash != expectedHash {
+			t.Fatalf("expected hash %v, got %v", expectedHash, hash)
+		} else if announceIndex != index {
+			t.Fatalf("expected index %v, got %v", index, announceIndex)
 		}
 	}
 
@@ -111,11 +143,11 @@ func TestAutoAnnounce(t *testing.T) {
 	// v2 attestation.
 	n := node.Chain.TipState().Network
 	mineAndSync(t, int(n.HardforkV2.AllowHeight-node.Chain.Tip().Height)+1)
-	assertAnnouncement(t, "baz.qux:5678", n.HardforkV2.AllowHeight+1)
+	assertV2Announcement(t, settings.V2AnnounceAddresses, n.HardforkV2.AllowHeight+1)
 
 	// mine a few more blocks to ensure the host doesn't re-announce
 	mineAndSync(t, 10)
-	assertAnnouncement(t, "baz.qux:5678", n.HardforkV2.AllowHeight+1)
+	assertV2Announcement(t, settings.V2AnnounceAddresses, n.HardforkV2.AllowHeight+1)
 }
 
 func TestAutoAnnounceV2(t *testing.T) {
@@ -164,10 +196,14 @@ func TestAutoAnnounceV2(t *testing.T) {
 	testutil.WaitForSync(t, node.Chain, idx)
 
 	settings := settings.DefaultSettings
-	settings.NetAddress = "foo.bar:1234"
+	settings.V2AnnounceAddresses = []chain.NetAddress{
+		{Protocol: "test", Address: "foo.bar:1234"},
+		{Protocol: "test2", Address: "foo.bar:1235"},
+		{Protocol: "test3", Address: "foo.bar:1236"},
+	}
 	sm.UpdateSettings(settings)
 
-	assertAnnouncement := func(t *testing.T, expectedAddr string, height uint64) {
+	assertAnnouncement := func(t *testing.T, addresses []chain.NetAddress, height uint64) {
 		t.Helper()
 
 		index, ok := node.Chain.BestIndex(height)
@@ -175,13 +211,21 @@ func TestAutoAnnounceV2(t *testing.T) {
 			t.Fatal("failed to get index")
 		}
 
-		ann, err := sm.LastAnnouncement()
+		ah, ai, err := node.Store.LastV2AnnouncementHash()
 		if err != nil {
 			t.Fatal(err)
-		} else if ann.Address != expectedAddr {
-			t.Fatalf("expected address %q, got %q", expectedAddr, ann.Address)
-		} else if ann.Index != index {
-			t.Fatalf("expected index %q, got %q", index, ann.Index)
+		}
+
+		h := types.NewHasher()
+		types.EncodeSlice(h.E, addresses)
+		if err := h.E.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		expectedHash := h.Sum()
+		if ah != expectedHash {
+			t.Fatalf("expected hash %v, got %v", expectedHash, ah)
+		} else if ai != index {
+			t.Fatalf("expected index %v, got %v", index, ai)
 		}
 	}
 
@@ -201,16 +245,16 @@ func TestAutoAnnounceV2(t *testing.T) {
 
 	// trigger an auto-announce
 	mineAndSync(t, 2)
-	assertAnnouncement(t, "foo.bar:1234", 152)
+	assertAnnouncement(t, settings.V2AnnounceAddresses, 152)
 	// mine until the next announcement and confirm it
 	mineAndSync(t, 51)
-	assertAnnouncement(t, "foo.bar:1234", 203) // 152 (first confirm) + 50 (interval) + 1 (confirmation)
+	assertAnnouncement(t, settings.V2AnnounceAddresses, 203) // 152 (first confirm) + 50 (interval) + 1 (confirmation)
 
 	// change the address
-	settings.NetAddress = "baz.qux:5678"
+	settings.V2AnnounceAddresses[0].Address = "baz.qux:5678"
 	sm.UpdateSettings(settings)
 
 	// trigger and confirm the new announcement
 	mineAndSync(t, 2)
-	assertAnnouncement(t, "baz.qux:5678", 205)
+	assertAnnouncement(t, settings.V2AnnounceAddresses, 205)
 }
