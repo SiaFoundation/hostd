@@ -12,6 +12,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
@@ -39,6 +40,9 @@ type (
 		UpdateSettings(s Settings) error
 
 		LastAnnouncement() (Announcement, error)
+		// LastV2AnnouncementHash returns the hash of the last v2 announcement
+		// and the chain index it was confirmed at.
+		LastV2AnnouncementHash() (types.Hash256, types.ChainIndex, error)
 	}
 
 	// ChainManager defines the interface required by the contract manager to
@@ -115,6 +119,9 @@ type (
 		DDNS DNSSettings `json:"ddns"`
 
 		SectorCacheSize uint32 `json:"sectorCacheSize"`
+
+		// V2
+		V2AnnounceAddresses []chain.NetAddress `json:"announceAddresses"`
 
 		Revision uint64 `json:"revision"`
 	}

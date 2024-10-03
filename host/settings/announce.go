@@ -32,13 +32,12 @@ func (m *ConfigManager) Announce() error {
 
 	minerFee := m.chain.RecommendedFee().Mul64(announcementTxnSize)
 
-	ha := chain.HostAnnouncement{
-		NetAddress: settings.NetAddress,
-	}
-
 	cs := m.chain.TipState()
 	if cs.Index.Height < cs.Network.HardforkV2.AllowHeight {
-		// create a transaction with an announcement
+		ha := chain.HostAnnouncement{
+			PublicKey:  m.hostKey.PublicKey(),
+			NetAddress: settings.NetAddress,
+		}
 		txn := types.Transaction{
 			ArbitraryData: [][]byte{
 				ha.ToArbitraryData(m.hostKey),
@@ -60,10 +59,15 @@ func (m *ConfigManager) Announce() error {
 		m.syncer.BroadcastTransactionSet(txnset)
 		m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
 	} else {
+		if len(m.settings.V2AnnounceAddresses) == 0 {
+			return errors.New("no v2 announce addresses")
+		}
+
+		announcement := chain.V2HostAnnouncement(m.settings.V2AnnounceAddresses)
 		// create a v2 transaction with an announcement
 		txn := types.V2Transaction{
 			Attestations: []types.Attestation{
-				ha.ToAttestation(cs, m.hostKey),
+				announcement.ToAttestation(cs, m.hostKey),
 			},
 			MinerFee: minerFee,
 		}

@@ -296,7 +296,8 @@ CREATE TABLE global_settings (
 	wallet_hash BLOB, -- used to prevent wallet seed changes
 	last_scanned_index BLOB, -- chain index of the last scanned block
 	last_announce_index BLOB, -- chain index of the last host announcement
-	last_announce_address TEXT -- address of the last host announcement
+	last_announce_address TEXT, -- address of the last host announcement
+	last_v2_announce_hash BLOB -- hash of the last v2 host announcement
 );
 
 -- initialize the global settings table
