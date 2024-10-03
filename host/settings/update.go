@@ -37,13 +37,13 @@ func (cm *ConfigManager) UpdateChainState(tx UpdateStateTx, reverted []chain.Rev
 	for _, cau := range applied {
 		index := cau.State.Index
 
-		chain.ForEachHostAnnouncement(cau.Block, func(hostKey types.PublicKey, announcement chain.HostAnnouncement) {
-			if hostKey != pk {
+		chain.ForEachHostAnnouncement(cau.Block, func(ha chain.HostAnnouncement) {
+			if ha.PublicKey != pk {
 				return
 			}
 
 			nextAnnouncement = &Announcement{
-				Address: announcement.NetAddress,
+				Address: ha.NetAddress,
 				Index:   index,
 			}
 		})
