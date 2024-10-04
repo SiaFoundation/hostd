@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -102,10 +103,7 @@ func tryLoadConfig() {
 	}
 
 	f, err := os.Open(configPath)
-	if err != nil {
-		stdoutFatalError("failed to open config file: " + err.Error())
-		return
-	}
+	checkFatalError("failed to open config file", err)
 	defer f.Close()
 
 	dec := yaml.NewDecoder(f)
@@ -214,6 +212,15 @@ Create a backup of the SQLite3 database at the specified path. This is safe to r
 `
 )
 
+// checkFatalError prints an error message to stderr and exits with a 1 exit code. If err is nil, this is a no-op.
+func checkFatalError(context string, err error) {
+	if err == nil {
+		return
+	}
+	os.Stderr.WriteString(fmt.Sprintf("%s: %s\n", context, err))
+	os.Exit(1)
+}
+
 func initStdoutLog(colored bool, levelStr string) *zap.Logger {
 	level := parseLogLevel(levelStr)
 	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
@@ -312,14 +319,10 @@ func main() {
 
 		var seed [32]byte
 		phrase := wallet.NewSeedPhrase()
-		if err := wallet.SeedFromPhrase(&seed, phrase); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+		checkFatalError("failed to generate seed", wallet.SeedFromPhrase(&seed, phrase))
 		key := wallet.KeyFromSeed(&seed, 0)
 		fmt.Println("Recovery Phrase:", phrase)
 		fmt.Println("Address", types.StandardUnlockHash(key.PublicKey()))
-
 	case configCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
@@ -327,7 +330,6 @@ func main() {
 		}
 
 		runConfigCmd()
-
 	case recalculateCmd:
 		if len(flag.Args()) != 1 {
 			cmd.Usage()
@@ -337,13 +339,9 @@ func main() {
 		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
 		defer log.Sync()
 
-		if err := runRecalcCommand(cmd.Arg(0), log); err != nil {
-			log.Fatal("failed to create backup", zap.Error(err))
-		}
-
+		checkFatalError("command failed", runRecalcCommand(cmd.Arg(0), log))
 	case sqlite3Cmd:
 		cmd.Usage()
-
 	case sqlite3BackupCmd:
 		if len(cmd.Args()) != 2 {
 			cmd.Usage()
@@ -353,10 +351,7 @@ func main() {
 		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
 		defer log.Sync()
 
-		if err := runBackupCommand(cmd.Arg(0), cmd.Arg(1)); err != nil {
-			log.Fatal("failed to create backup", zap.Error(err))
-		}
-
+		checkFatalError("command failed", runBackupCommand(cmd.Arg(0), cmd.Arg(1)))
 	case rootCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
@@ -369,8 +364,7 @@ func main() {
 		// check that the API password is set
 		if cfg.HTTP.Password == "" {
 			if disableStdin {
-				stdoutFatalError("API password must be set via environment variable or config file when --env flag is set")
-				return
+				checkFatalError("API password not set", errors.New("API password must be set via environment variable or config file when --env flag is set"))
 			}
 			setAPIPassword()
 		}
@@ -378,21 +372,19 @@ func main() {
 		// check that the wallet seed is set
 		if cfg.RecoveryPhrase == "" {
 			if disableStdin {
-				stdoutFatalError("Wallet seed must be set via environment variable or config file when --env flag is set")
-				return
+				checkFatalError("wallet seed not set", errors.New("Wallet seed must be set via environment variable or config file when --env flag is set"))
 			}
 			setSeedPhrase()
 		}
 
 		// create the data directory if it does not already exist
 		if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
-			stdoutFatalError("unable to create config directory: " + err.Error())
+			checkFatalError("failed to create config directory", err)
 		}
 
 		// configure the logger
 		if !cfg.Log.StdOut.Enabled && !cfg.Log.File.Enabled {
-			stdoutFatalError("At least one of stdout or file logging must be enabled")
-			return
+			checkFatalError("logging disabled", errors.New("either stdout or file logging must be enabled"))
 		}
 
 		// normalize log level
@@ -447,10 +439,7 @@ func main() {
 			}
 
 			fileWriter, closeFn, err := zap.Open(cfg.Log.File.Path)
-			if err != nil {
-				stdoutFatalError("failed to open log file: " + err.Error())
-				return
-			}
+			checkFatalError("failed to open log file", err)
 			defer closeFn()
 
 			// create the file logger
@@ -472,13 +461,9 @@ func main() {
 		log.Info("hostd", zap.String("version", build.Version()), zap.String("network", cfg.Consensus.Network), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
 
 		var seed [32]byte
-		if err := wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase); err != nil {
-			log.Fatal("failed to load wallet", zap.Error(err))
-		}
+		checkFatalError("failed to load wallet seed", wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase))
 		walletKey := wallet.KeyFromSeed(&seed, 0)
 
-		if err := runRootCmd(ctx, cfg, walletKey, log); err != nil {
-			log.Error("failed to start node", zap.Error(err))
-		}
+		checkFatalError("daemon startup failed", runRootCmd(ctx, cfg, walletKey, log))
 	}
 }

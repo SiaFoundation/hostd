@@ -19,9 +19,7 @@ import (
 func readPasswordInput(context string) string {
 	fmt.Printf("%s: ", context)
 	input, err := term.ReadPassword(int(os.Stdin.Fd()))
-	if err != nil {
-		stdoutFatalError("Could not read input: " + err.Error())
-	}
+	checkFatalError("failed to read password input", err)
 	fmt.Println("")
 	return string(input)
 }
@@ -30,9 +28,7 @@ func readInput(context string) string {
 	fmt.Printf("%s: ", context)
 	r := bufio.NewReader(os.Stdin)
 	input, err := r.ReadString('\n')
-	if err != nil {
-		stdoutFatalError("Could not read input: " + err.Error())
-	}
+	checkFatalError("failed to read input", err)
 	return strings.TrimSpace(input)
 }
 
@@ -83,12 +79,6 @@ func promptQuestion(question string, answers []string) string {
 func promptYesNo(question string) bool {
 	answer := promptQuestion(question, []string{"yes", "no"})
 	return strings.EqualFold(answer, "yes")
-}
-
-// stdoutFatalError prints an error message to stdout and exits with a 1 exit code.
-func stdoutFatalError(msg string) {
-	stdoutError(msg)
-	os.Exit(1)
 }
 
 // stdoutError prints an error message to stdout
@@ -240,9 +230,7 @@ func setDataDirectory() {
 	}
 
 	dir, err := filepath.Abs(cfg.Directory)
-	if err != nil {
-		stdoutFatalError("Could not get absolute path of data directory: " + err.Error())
-	}
+	checkFatalError("failed to get absolute path of data directory", err)
 
 	fmt.Println("The data directory is where hostd will store its metadata and consensus data.")
 	fmt.Println("This directory should be on a fast, reliable storage device, preferably an SSD.")
@@ -304,15 +292,9 @@ func runConfigCmd() {
 
 	// write the config file
 	f, err := os.Create(configPath)
-	if err != nil {
-		stdoutFatalError("failed to create config file: " + err.Error())
-		return
-	}
+	checkFatalError("failed to create config file", err)
 	defer f.Close()
 
 	enc := yaml.NewEncoder(f)
-	if err := enc.Encode(cfg); err != nil {
-		stdoutFatalError("failed to encode config file: " + err.Error())
-		return
-	}
+	checkFatalError("failed to encode config file", enc.Encode(cfg))
 }
