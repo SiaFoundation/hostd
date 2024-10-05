@@ -7,7 +7,7 @@ version: 2
 updates:
   - package-ecosystem: "gomod"
     directory: "/"
-    target-branch: main # see https://github.com/dependabot/dependabot-core/issues/1778#issuecomment-1988140219
+    target-branch: master # see https://github.com/dependabot/dependabot-core/issues/1778#issuecomment-1988140219
     schedule:
       interval: "daily"
     allow:
