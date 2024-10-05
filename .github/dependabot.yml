@@ -13,6 +13,10 @@ updates:
     allow:
       - dependency-name: "go.sia.tech*"
         dependency-type: "all"
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
   - package-ecosystem: "gomod" # See documentation for possible values
     directory: "/" # Location of package manifests
     schedule:
