@@ -33,7 +33,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	go.etcd.io/bbolt v1.3.11 // indirect
-	go.sia.tech/mux v1.2.0 // indirect
+	go.sia.tech/mux v1.3.0 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.27.0 // indirect
