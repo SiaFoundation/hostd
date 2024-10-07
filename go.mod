@@ -8,8 +8,8 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.23
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.4.6
-	go.sia.tech/coreutils v0.3.2
+	go.sia.tech/core v0.4.7
+	go.sia.tech/coreutils v0.4.1
 	go.sia.tech/jape v0.12.1
 	go.sia.tech/web/hostd v0.48.0
 	go.uber.org/goleak v1.3.0
@@ -33,7 +33,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	go.etcd.io/bbolt v1.3.11 // indirect
-	go.sia.tech/mux v1.2.0 // indirect
+	go.sia.tech/mux v1.3.0 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.27.0 // indirect
