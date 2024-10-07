@@ -33,6 +33,7 @@ func (m *ConfigManager) Announce() error {
 	minerFee := m.chain.RecommendedFee().Mul64(announcementTxnSize)
 
 	ha := chain.HostAnnouncement{
+		PublicKey:  m.hostKey.PublicKey(),
 		NetAddress: settings.NetAddress,
 	}
 

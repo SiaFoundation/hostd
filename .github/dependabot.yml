@@ -7,21 +7,9 @@ version: 2
 updates:
   - package-ecosystem: "gomod"
     directory: "/"
-    target-branch: master # see https://github.com/dependabot/dependabot-core/issues/1778#issuecomment-1988140219
-    schedule:
-      interval: "daily"
-    allow:
-      - dependency-name: "go.sia.tech*"
-        dependency-type: "all"
-    groups:
-      all-dependencies:
-        patterns:
-          - "*"
-  - package-ecosystem: "gomod" # See documentation for possible values
-    directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
     groups:
-      all-dependencies:
+      dependencies:
         patterns:
           - "*"
