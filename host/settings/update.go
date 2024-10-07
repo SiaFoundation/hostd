@@ -37,8 +37,8 @@ func (cm *ConfigManager) UpdateChainState(tx UpdateStateTx, reverted []chain.Rev
 	for _, cau := range applied {
 		index := cau.State.Index
 
-		chain.ForEachHostAnnouncement(cau.Block, func(hostKey types.PublicKey, announcement chain.HostAnnouncement) {
-			if hostKey != pk {
+		chain.ForEachHostAnnouncement(cau.Block, func(announcement chain.HostAnnouncement) {
+			if announcement.PublicKey != pk {
 				return
 			}
 
