@@ -1,6 +1,8 @@
 module go.sia.tech/hostd
 
-go 1.23.0
+go 1.23.1
+
+toolchain go1.23.2
 
 require (
 	github.com/aws/aws-sdk-go v1.55.5
@@ -19,13 +21,12 @@ require (
 	golang.org/x/time v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
-	lukechampine.com/frand v1.4.2
+	lukechampine.com/frand v1.5.1
 	lukechampine.com/upnp v0.3.0
 	nhooyr.io/websocket v1.8.17
 )
 
 require (
-	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
