@@ -80,6 +80,20 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 	})
 }
 
+// HasSector returns true if the sector is stored on the host or false
+// otherwise.
+func (s *Store) HasSector(root types.Hash256) (exists bool, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT EXISTS(
+	SELECT 1 FROM stored_sectors WHERE sector_root=$1
+	INNER JOIN volume_sectors ON stored_sectors.id=volume_sectors.sector_id
+);`
+		err = tx.QueryRow(query, encode(root)).Scan(&exists)
+		return err
+	})
+	return
+}
+
 // SectorLocation returns the location of a sector or an error if the
 // sector is not found. The sector is locked until release is
 // called.
@@ -367,40 +381,4 @@ func unlockSector(tx *txn, log *zap.Logger, lockIDs ...int64) error {
 	}
 	log.Debug("unlocked sectors", zap.Int("unlocked", len(lockIDs)), zap.Stringers("removed", pruned))
 	return nil
-}
-
-// lockLocations locks multiple sector locations and returns a list of lock
-// IDs. The lock ids must be unlocked by unlockLocations. Volume locations
-// should be locked during writes to prevent the location from being written
-// to by another goroutine.
-func lockLocations(tx *txn, locations []storage.SectorLocation) (locks []int64, err error) {
-	if len(locations) == 0 {
-		return nil, nil
-	}
-	stmt, err := tx.Prepare(`INSERT INTO locked_volume_sectors (volume_sector_id) VALUES ($1) RETURNING id;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare query: %w", err)
-	}
-	defer stmt.Close()
-	for _, location := range locations {
-		var lockID int64
-		err := stmt.QueryRow(location.ID).Scan(&lockID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to lock location %v:%v: %w", location.Volume, location.Index, err)
-		}
-		locks = append(locks, lockID)
-	}
-	return
-}
-
-// unlockLocations unlocks multiple locked sector locations. It is safe to
-// call multiple times.
-func unlockLocations(tx *txn, ids []int64) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	query := `DELETE FROM locked_volume_sectors WHERE id IN (` + queryPlaceHolders(len(ids)) + `);`
-	_, err := tx.Exec(query, queryArgs(ids)...)
-	return err
 }

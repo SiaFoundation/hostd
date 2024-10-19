@@ -117,15 +117,15 @@ func (cm *Manager) buildStorageProof(revision types.FileContractRevision, index 
 	}
 
 	sectorRoot := roots[sectorIndex]
-	sector, err := cm.storage.Read(sectorRoot)
+	sector, err := cm.storage.ReadSector(sectorRoot)
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.StorageProof{}, fmt.Errorf("failed to read sector data")
-	} else if rhp2.SectorRoot(sector) != sectorRoot {
-		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(sector)))
+	} else if rhp2.SectorRoot(&sector) != sectorRoot {
+		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(&sector)))
 		return types.StorageProof{}, fmt.Errorf("invalid sector root")
 	}
-	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
+	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(&sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
 	sectorProof := rhp2.ConvertProofOrdering(rhp2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
 	sp := types.StorageProof{
 		ParentID: revision.ParentID,
@@ -160,15 +160,15 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	}
 
 	sectorRoot := roots[sectorIndex]
-	sector, err := cm.storage.Read(sectorRoot)
+	sector, err := cm.storage.ReadSector(sectorRoot)
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.V2StorageProof{}, fmt.Errorf("failed to read sector data")
-	} else if rhp2.SectorRoot(sector) != sectorRoot {
-		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(sector)))
+	} else if rhp2.SectorRoot(&sector) != sectorRoot {
+		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(&sector)))
 		return types.V2StorageProof{}, fmt.Errorf("invalid sector root")
 	}
-	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
+	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(&sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
 	sectorProof := rhp2.ConvertProofOrdering(rhp2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
 	sp := types.V2StorageProof{
 		ProofIndex: pi,

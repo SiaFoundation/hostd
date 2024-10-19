@@ -186,18 +186,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer syncerListener.Close()
 
-	rhp2Listener, err := net.Listen("tcp", cfg.RHP2.Address)
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
-	}
-	defer rhp2Listener.Close()
-
-	rhp3Listener, err := net.Listen("tcp", cfg.RHP3.TCPAddress)
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
-	}
-	defer rhp3Listener.Close()
-
 	syncerAddr := syncerListener.Addr().String()
 	if cfg.Syncer.EnableUPnP {
 		_, portStr, _ := net.SplitHostPort(cfg.Syncer.Address)
@@ -249,15 +237,13 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		return fmt.Errorf("failed to create webhook reporter: %w", err)
 	}
 	defer wr.Close()
-	sr := rhp.NewSessionReporter()
 
 	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
-
-	cfm, err := settings.NewConfigManager(hostKey, store, cm, s, wm, settings.WithAlertManager(am), settings.WithLog(log.Named("settings")))
+	sm, err := settings.NewConfigManager(hostKey, store, cm, s, wm, settings.WithAlertManager(am), settings.WithLog(log.Named("settings")))
 	if err != nil {
 		return fmt.Errorf("failed to create settings manager: %w", err)
 	}
-	defer cfm.Close()
+	defer sm.Close()
 
 	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
 	if err != nil {
@@ -265,21 +251,33 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer vm.Close()
 
-	contractManager, err := contracts.NewManager(store, vm, cm, s, wm, contracts.WithLog(log.Named("contracts")), contracts.WithAlerter(am))
+	contracts, err := contracts.NewManager(store, vm, cm, s, wm, contracts.WithLog(log.Named("contracts")), contracts.WithAlerter(am))
 	if err != nil {
 		return fmt.Errorf("failed to create contracts manager: %w", err)
 	}
-	defer contractManager.Close()
+	defer contracts.Close()
 
-	index, err := index.NewManager(store, cm, contractManager, wm, cfm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
+	index, err := index.NewManager(store, cm, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
 	if err != nil {
 		return fmt.Errorf("failed to create index manager: %w", err)
 	}
 	defer index.Close()
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
+	rl, wl := sm.RHPBandwidthLimiters()
+	rhp2Listener, err := rhp.Listen("tcp", cfg.RHP2.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+	if err != nil {
+		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
+	}
+	defer rhp2Listener.Close()
 
-	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, s, wm, contractManager, cfm, vm, rhp2.WithDataMonitor(dr), rhp2.WithLog(log.Named("rhp2")))
+	rhp3Listener, err := rhp.Listen("tcp", cfg.RHP3.TCPAddress, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+	if err != nil {
+		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
+	}
+	defer rhp3Listener.Close()
+
+	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, s, wm, contracts, sm, vm, log.Named("rhp2"))
 	if err != nil {
 		return fmt.Errorf("failed to create rhp2 session handler: %w", err)
 	}
@@ -287,24 +285,25 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer rhp2.Close()
 
 	registry := registry.NewManager(hostKey, store, log.Named("registry"))
-	accounts := accounts.NewManager(store, cfm)
-	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, cfm, rhp3.WithDataMonitor(dr), rhp3.WithSessionReporter(sr), rhp3.WithLog(log.Named("rhp3")))
+	accounts := accounts.NewManager(store, sm)
+	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contracts, registry, vm, sm, log.Named("rhp3"))
 	if err != nil {
 		return fmt.Errorf("failed to create rhp3 session handler: %w", err)
 	}
 	go rhp3.Serve()
 	defer rhp3.Close()
 
+	//rhp4 := rhp4.NewServer(hostKey, cm, s, contracts, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute), rhp4.WithContractProofWindowBuffer(72))
+
 	apiOpts := []api.ServerOption{
 		api.WithAlerts(am),
 		api.WithLogger(log.Named("api")),
-		api.WithRHPSessionReporter(sr),
 		api.WithWebhooks(wr),
 		api.WithSQLite3Store(store),
 	}
 	if !cfg.Explorer.Disable {
 		ex := explorer.New(cfg.Explorer.URL)
-		pm, err := pin.NewManager(store, cfm, ex, pin.WithLogger(log.Named("pin")))
+		pm, err := pin.NewManager(store, sm, ex, pin.WithLogger(log.Named("pin")))
 		if err != nil {
 			return fmt.Errorf("failed to create pin manager: %w", err)
 		}
@@ -314,7 +313,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	web := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contractManager, vm, wm, store, cfm, index, apiOpts...)),
+			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contracts, vm, wm, store, sm, index, apiOpts...)),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,

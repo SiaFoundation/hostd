@@ -5,130 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap"
 )
-
-func (s *Store) migrateSector(volumeID int64, minIndex uint64, marker int64, migrateFn storage.MigrateFunc, log *zap.Logger) (int64, bool, error) {
-	start := time.Now()
-
-	var locationLocks []int64
-	var sectorLock int64
-	var oldLoc, newLoc storage.SectorLocation
-	err := s.transaction(func(tx *txn) (err error) {
-		oldLoc, err = sectorForMigration(tx, volumeID, marker)
-		if errors.Is(err, sql.ErrNoRows) {
-			marker = math.MaxInt64
-			return nil
-		} else if err != nil {
-			return fmt.Errorf("failed to get sector for migration: %w", err)
-		}
-		marker = int64(oldLoc.Index)
-
-		sectorDBID, err := sectorDBID(tx, oldLoc.Root)
-		if err != nil {
-			return fmt.Errorf("failed to get sector id: %w", err)
-		}
-
-		sectorLock, err = lockSector(tx, sectorDBID)
-		if err != nil {
-			return fmt.Errorf("failed to lock sector: %w", err)
-		}
-
-		newLoc, err = emptyLocationForMigration(tx, volumeID)
-		if errors.Is(err, storage.ErrNotEnoughStorage) && minIndex > 0 {
-			// if there is no space in other volumes, try to migrate within the
-			// same volume
-			newLoc, err = locationWithinVolume(tx, volumeID, uint64(minIndex))
-			if err != nil {
-				return fmt.Errorf("failed to get empty location in volume: %w", err)
-			}
-		} else if err != nil {
-			return fmt.Errorf("failed to get empty location: %w", err)
-		}
-
-		newLoc.Root = oldLoc.Root
-
-		// lock the old and new locations
-		locationLocks, err = lockLocations(tx, []storage.SectorLocation{oldLoc, newLoc})
-		if err != nil {
-			return fmt.Errorf("failed to lock sectors: %w", err)
-		}
-		return nil
-	})
-	if errors.Is(err, storage.ErrNotEnoughStorage) {
-		return marker, false, nil
-	} else if err != nil {
-		return 0, false, fmt.Errorf("failed to get new location: %w", err)
-	} else if marker == math.MaxInt64 {
-		return marker, false, nil
-	}
-	// unlock the locations
-	defer func() {
-		err = s.transaction(func(tx *txn) error {
-			if err := unlockLocations(tx, locationLocks); err != nil {
-				return fmt.Errorf("failed to unlock sector locations: %w", err)
-			} else if err := unlockSector(tx, log.Named("unlock"), sectorLock); err != nil {
-				return fmt.Errorf("failed to unlock sector: %w", err)
-			}
-			return nil
-		})
-		if err != nil {
-			log.Error("failed to unlock sectors", zap.Error(err))
-		}
-	}()
-
-	// call the migrateFn with the new location, data should be copied to the
-	// new location and synced to disk
-	if err := migrateFn(newLoc); err != nil {
-		log.Error("failed to migrate sector data", zap.Error(err))
-		return marker, false, nil
-	}
-
-	// update the sector location in a separate transaction
-	err = s.transaction(func(tx *txn) error {
-		// get the sector ID
-		var sectorID int64
-		err := tx.QueryRow(`SELECT sector_id FROM volume_sectors WHERE id=$1`, oldLoc.ID).Scan(&sectorID)
-		if err != nil {
-			return fmt.Errorf("failed to get sector id: %w", err)
-		}
-
-		// clear the old sector
-		var oldVolumeID int64
-		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 AND sector_id=$2 RETURNING volume_id`, oldLoc.ID, sectorID).Scan(&oldVolumeID)
-		if err != nil {
-			return fmt.Errorf("failed to clear sector location: %w", err)
-		}
-
-		// update the old volume metadata
-		if err := incrementVolumeUsage(tx, oldVolumeID, -1); err != nil {
-			return fmt.Errorf("failed to update old volume metadata: %w", err)
-		}
-
-		// add the sector to the new location
-		var newVolumeID int64
-		err = tx.QueryRow(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 RETURNING volume_id`, sectorID, newLoc.ID).Scan(&newVolumeID)
-		if err != nil {
-			return fmt.Errorf("failed to update sector location: %w", err)
-		}
-
-		// update the new volume metadata
-		if err := incrementVolumeUsage(tx, newVolumeID, 1); err != nil {
-			return fmt.Errorf("failed to update new volume metadata: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return 0, false, fmt.Errorf("failed to update sector metadata: %w", err)
-	}
-	log.Debug("migrated sector", zap.Uint64("oldIndex", oldLoc.Index), zap.Stringer("root", newLoc.Root), zap.Int64("newVolume", newLoc.Volume), zap.Uint64("newIndex", newLoc.Index), zap.Duration("elapsed", time.Since(start)))
-	return marker, true, nil
-}
 
 func forceDeleteVolumeSectors(tx *txn, volumeID int64) (removed, lost int64, err error) {
 	const query = `DELETE FROM volume_sectors WHERE id IN (SELECT id FROM volume_sectors WHERE volume_id=$1 LIMIT $2) RETURNING sector_id IS NULL AS empty`
@@ -264,20 +147,19 @@ WHERE v.id=$1`
 	return
 }
 
-// StoreSector calls fn with an empty location in a writable volume. If
-// the sector root already exists, fn is called with the existing
-// location and exists is true. Unless exists is true, The sector must
-// be written to disk within fn. If fn returns an error, the metadata is
-// rolled back. If no space is available, ErrNotEnoughStorage is
-// returned. The location is locked until release is called.
+// StoreSector calls fn with an empty location in a writable volume.
 //
-// The sector should be referenced by either a contract or temp store
+// The sector must be written to disk within fn. If fn returns an error,
+// the metadata is rolled back. If no space is available, ErrNotEnoughStorage
+// is returned. If the sector is already stored, fn is skipped and nil
+// is returned.
+//
+// The sector should be referenced by either a contract or temporary storage
 // before release is called to prevent it from being pruned
-func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation, exists bool) error) (func() error, error) {
+//
+// Deprecated: use StoreTempSector instead
+func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation) error) (func() error, error) {
 	var sectorLockID int64
-	var locationLocks []int64
-	var location storage.SectorLocation
-	var exists bool
 
 	log := s.log.Named("StoreSector").With(zap.Stringer("root", root))
 	err := s.transaction(func(tx *txn) error {
@@ -292,38 +174,22 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 			return fmt.Errorf("failed to lock sector: %w", err)
 		}
 
-		// check if the sector is already stored on disk
-		location, err = sectorLocation(tx, sectorID, root)
-		exists = err == nil
-		if errors.Is(err, storage.ErrSectorNotFound) {
-			location, err = emptyLocation(tx)
-			if err != nil {
-				return fmt.Errorf("failed to get empty location: %w", err)
-			}
-		} else if err != nil {
-			return fmt.Errorf("failed to check existing sector location: %w", err)
+		if ok, err := hasSector(tx, sectorID); err != nil {
+			return fmt.Errorf("failed to check sector: %w", err)
+		} else if ok {
+			return nil // sector is already stored
 		}
 
-		// lock the location
-		locationLocks, err = lockLocations(tx, []storage.SectorLocation{location})
-		if err != nil {
-			return fmt.Errorf("failed to lock sector location: %w", err)
-		}
-
-		// if the sector already exists, return the existing location
-		if exists {
+		location, err := storeNewSector(tx, sectorID, root)
+		if errors.Is(err, sqlite3.ErrConstraintForeignKey) {
 			return nil
-		}
-		res, err := tx.Exec(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2`, sectorID, location.ID)
-		if err != nil {
-			return fmt.Errorf("failed to commit sector location: %w", err)
-		} else if rows, err := res.RowsAffected(); err != nil {
-			return fmt.Errorf("failed to check rows affected: %w", err)
-		} else if rows == 0 {
-			return storage.ErrSectorNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to store new sector: %w", err)
 		}
 
-		// increment the volume usage
+		if err := fn(location); err != nil {
+			return fmt.Errorf("failed to store sector: %w", err)
+		}
 		if err := incrementVolumeUsage(tx, location.Volume, 1); err != nil {
 			return fmt.Errorf("failed to update volume metadata: %w", err)
 		}
@@ -332,25 +198,56 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 	if err != nil {
 		return nil, err
 	}
-	log = log.With(zap.Int64("volume", location.Volume), zap.Uint64("index", location.Index))
-	log.Debug("stored sector")
-	unlock := func() error {
+	return func() error {
 		return s.transaction(func(tx *txn) error {
-			if err := unlockLocations(tx, locationLocks); err != nil {
-				return fmt.Errorf("failed to unlock sector location: %w", err)
-			} else if err := unlockSector(tx, log.Named("unlock"), sectorLockID); err != nil {
-				return fmt.Errorf("failed to unlock sector: %w", err)
-			}
-			return nil
+			return unlockSector(tx, log.Named("unlock"), sectorLockID)
 		})
-	}
+	}, nil
+}
 
-	// call fn with the location
-	if err := fn(location, exists); err != nil {
-		unlock()
-		return nil, fmt.Errorf("failed to store sector: %w", err)
-	}
-	return unlock, nil
+// StoreTempSector calls fn with an empty location in a writable volume.
+//
+// The sector must be written to disk within fn. If fn returns an error,
+// the metadata is rolled back. If no space is available, ErrNotEnoughStorage
+// is returned. If the sector is already stored, fn is skipped and nil
+// is returned.
+func (s *Store) StoreTempSector(root types.Hash256, expiration uint64, fn func(loc storage.SectorLocation) error) error {
+	return s.transaction(func(tx *txn) error {
+		sectorID, err := insertSectorDBID(tx, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+
+		// done before other operations to ensure the sector is not pruned
+		// if hasSector returns true
+		_, err = tx.Exec(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) VALUES ($1, $2)`, sectorID, expiration)
+		if err != nil {
+			return fmt.Errorf("failed to insert temp sector: %w", err)
+		}
+
+		if ok, err := hasSector(tx, sectorID); err != nil {
+			return fmt.Errorf("failed to check sector: %w", err)
+		} else if ok {
+			return nil // sector is already stored
+		}
+
+		location, err := storeNewSector(tx, sectorID, root)
+		if errors.Is(err, sqlite3.ErrConstraintForeignKey) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("failed to store new sector: %w", err)
+		}
+
+		if err := fn(location); err != nil {
+			return fmt.Errorf("failed to store sector: %w", err)
+		}
+
+		if err := incrementVolumeUsage(tx, location.Volume, 1); err != nil {
+			return fmt.Errorf("failed to update volume metadata: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // MigrateSectors migrates each occupied sector of a volume starting at
@@ -361,37 +258,67 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 // canceled, the migration will stop and the error will be returned. The
 // number of sectors migrated and failed will always be returned, even if an
 // error occurs.
-func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex uint64, migrateFn storage.MigrateFunc) (migrated, failed int, err error) {
-	log := s.log.Named("migrate").With(zap.Int64("oldVolume", volumeID), zap.Uint64("startIndex", startIndex))
-	// the migration function is called in a loop until all sectors are migrated
-	// marker is used to skip sectors that tried to migrate but failed.
-	// when removing a volume, marker is -1 to also migrate the first sector
-	marker := int64(startIndex) - 1
-	for i := 0; ; i++ {
+func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex uint64, migrateFn func(ol, nl storage.SectorLocation) error) (successful, failed int, _ error) {
+	log := s.log.Named("MigrateSectors").With(zap.Int64("volume", volumeID), zap.Uint64("start", startIndex))
+
+	var sectors uint64
+	err := s.transaction(func(tx *txn) error {
+		return tx.QueryRow(`SELECT MAX(volume_index) FROM volume_sectors WHERE volume_id=$1;`, volumeID).Scan(&sectors)
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get volume size: %w", err)
+	}
+
+	for index := startIndex; index <= sectors; index++ {
 		if ctx.Err() != nil {
-			err = ctx.Err()
-			return
+			return successful, failed, ctx.Err()
 		}
 
-		var successful bool
-		marker, successful, err = s.migrateSector(volumeID, startIndex, marker, migrateFn, log)
+		var migrated bool
+		err := s.transaction(func(tx *txn) (err error) {
+			sectorID, oldLoc, err := sectorForMigration(tx, volumeID, index)
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+
+			_, err = tx.Exec(`UPDATE volume_sectors SET sector_id=NULL WHERE id=$1`, oldLoc.ID)
+			if err != nil {
+				return fmt.Errorf("failed to clear sector location: %w", err)
+			}
+
+			newLoc, err := migrateSector(tx, volumeID, startIndex, sectorID, oldLoc.Root)
+			if err != nil {
+				return fmt.Errorf("failed to update sector location: %w", err)
+			}
+
+			if err := migrateFn(oldLoc, newLoc); err != nil {
+				return fmt.Errorf("failed to migrate sector: %w", err)
+			}
+
+			if err := incrementVolumeUsage(tx, oldLoc.Volume, -1); err != nil {
+				return fmt.Errorf("failed to update old volume metadata: %w", err)
+			} else if err := incrementVolumeUsage(tx, newLoc.Volume, 1); err != nil {
+				return fmt.Errorf("failed to update new volume metadata: %w", err)
+			}
+			migrated = true
+			return nil
+		})
 		if err != nil {
-			err = fmt.Errorf("failed to migrate sector: %w", err)
-			return
-		} else if marker == math.MaxInt64 {
-			return
-		}
-
-		if successful {
-			migrated++
-		} else {
 			failed++
+			log.Error("failed to migrate sector", zap.Uint64("index", index), zap.Error(err))
+
+			if errors.Is(err, storage.ErrNotEnoughStorage) {
+				return successful, failed, err // stop trying if there is no space
+			}
+		} else if migrated {
+			successful++
 		}
 
-		if i%256 == 0 {
+		if index%1024 == 0 {
 			jitterSleep(time.Millisecond) // allow other transactions to run
 		}
 	}
+	return
 }
 
 // AddVolume initializes a new storage volume and adds it to the volume
@@ -527,6 +454,50 @@ func sectorDBID(tx *txn, root types.Hash256) (id int64, err error) {
 	return
 }
 
+// storeNewSector updates an empty volume sector with a new sector ID and returns
+// its location on disk. If there is no space available, ErrNotEnoughStorage
+// is returned.
+func storeNewSector(tx *txn, sectorDBID int64, root types.Hash256) (location storage.SectorLocation, err error) {
+	const query = `UPDATE volume_sectors 
+SET sector_id=$1, sector_writes=sector_writes+1
+WHERE id = (
+	SELECT vs.id FROM volume_sectors vs
+	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
+	WHERE vs.sector_id IS NULL AND sv.available=true AND sv.read_only=false
+	ORDER BY vs.sector_writes ASC
+	LIMIT 1
+)
+RETURNING id, volume_id, volume_index`
+	location.Root = root
+	err = tx.QueryRow(query, sectorDBID).Scan(&location.ID, &location.Volume, &location.Index)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
+	}
+	return
+}
+
+// migrateSector selects a new location for an existing sector. If there is no
+// space available, ErrNotEnoughStorage is returned. The sector may be migrated
+// within the same volume when doing a partial resize (maxIndex > 0).
+func migrateSector(tx *txn, oldVolumeID int64, maxIndex uint64, sectorDBID int64, root types.Hash256) (location storage.SectorLocation, err error) {
+	const query = `UPDATE volume_sectors 
+	SET sector_id=$1, sector_writes=sector_writes+1
+	WHERE id = (
+		SELECT vs.id FROM volume_sectors vs
+		INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
+		WHERE vs.sector_id IS NULL AND ((vs.volume_id=$2 AND vs.volume_index < $3) OR (sv.id != $2 AND sv.available=true AND sv.read_only=false))
+		ORDER BY vs.sector_writes ASC
+		LIMIT 1
+	)
+	RETURNING id, volume_id, volume_index`
+	location.Root = root
+	err = tx.QueryRow(query, sectorDBID, oldVolumeID, maxIndex).Scan(&location.ID, &location.Volume, &location.Index)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
+	}
+	return
+}
+
 // insertSectorDBID inserts a sector root into the stored_sectors table if it
 // does not already exist. If the sector root already exists, the ID is
 // returned.
@@ -577,6 +548,13 @@ func growVolume(tx *txn, id int64, maxSectors uint64) error {
 	return nil
 }
 
+func hasSector(tx *txn, sectorID int64) (exists bool, err error) {
+	if err := tx.QueryRow(`SELECT 1 FROM volume_sectors WHERE sector_id=$1`, sectorID).Scan(&exists); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	return exists, nil
+}
+
 // sectorLocation returns the location of a sector.
 func sectorLocation(tx *txn, sectorID int64, root types.Hash256) (loc storage.SectorLocation, err error) {
 	const query = `SELECT v.id, v.volume_id, v.volume_index
@@ -592,76 +570,12 @@ WHERE v.sector_id=$1`
 	return
 }
 
-// emptyLocation returns an empty location in a writable volume. If there is no
-// space available, ErrNotEnoughStorage is returned.
-func emptyLocation(tx *txn) (loc storage.SectorLocation, err error) {
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index 
-	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
-	LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
-	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
-	WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND sv.available=true AND sv.read_only=false
-	ORDER BY vs.sector_writes ASC
-	LIMIT 1;`
-	err = tx.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = storage.ErrNotEnoughStorage
-		return
-	} else if err != nil {
-		return
-	}
-	_, err = tx.Exec(`UPDATE volume_sectors SET sector_writes=sector_writes+1 WHERE id=$1`, loc.ID)
-	return
-}
-
-// emptyLocationForMigration returns an empty location in a writable volume. If there is no
-// space available, ErrNotEnoughStorage is returned.
-func emptyLocationForMigration(tx *txn, volumeID int64) (loc storage.SectorLocation, err error) {
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index 
-	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
-	LEFT JOIN locked_volume_sectors lvs ON (lvs.volume_sector_id=vs.id)
-	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
-	WHERE vs.sector_id IS NULL AND lvs.volume_sector_id IS NULL AND sv.available=true AND sv.read_only=false AND vs.volume_id <> $1
-	ORDER BY vs.sector_writes ASC
-	LIMIT 1;`
-	err = tx.QueryRow(query, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = storage.ErrNotEnoughStorage
-		return
-	} else if err != nil {
-		return
-	}
-	_, err = tx.Exec(`UPDATE volume_sectors SET sector_writes=sector_writes+1 WHERE id=$1`, loc.ID)
-	return
-}
-
-// sectorForMigration returns the location of the first occupied sector in the
-// volume starting at minIndex and greater than marker.
-func sectorForMigration(tx *txn, volumeID int64, marker int64) (loc storage.SectorLocation, err error) {
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index, s.sector_root
+// sectorForMigration returns the sector location for a migration operation.
+func sectorForMigration(tx *txn, volumeID int64, index uint64) (sectorID int64, loc storage.SectorLocation, err error) {
+	err = tx.QueryRow(`SELECT vs.id, vs.volume_id, vs.volume_index, vs.sector_id, s.sector_root
 	FROM volume_sectors vs
 	INNER JOIN stored_sectors s ON (s.id=vs.sector_id)
-	WHERE vs.sector_id IS NOT NULL AND vs.volume_id=$1 AND vs.volume_index > $2
-	ORDER BY vs.volume_index ASC
-	LIMIT 1`
-
-	err = tx.QueryRow(query, volumeID, marker).Scan(&loc.ID, &loc.Volume, &loc.Index, decode(&loc.Root))
-	return
-}
-
-// locationWithinVolume returns an empty location within the same volume as
-// the given volumeID. If there is no space in the volume, ErrNotEnoughStorage
-// is returned.
-func locationWithinVolume(tx *txn, volumeID int64, maxIndex uint64) (loc storage.SectorLocation, err error) {
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
-	FROM volume_sectors vs
-	WHERE vs.sector_id IS NULL AND vs.id NOT IN (SELECT volume_sector_id FROM locked_volume_sectors) 
-	AND vs.volume_id=$1 AND vs.volume_index<$2
-	LIMIT 1;`
-
-	err = tx.QueryRow(query, volumeID, maxIndex).Scan(&loc.ID, &loc.Volume, &loc.Index)
-	if errors.Is(err, sql.ErrNoRows) {
-		return storage.SectorLocation{}, storage.ErrNotEnoughStorage
-	}
+	WHERE vs.volume_index=$1 AND vs.volume_id=$2`, index, volumeID).Scan(&loc.ID, &loc.Volume, &loc.Index, &sectorID, decode(&loc.Root))
 	return
 }
 

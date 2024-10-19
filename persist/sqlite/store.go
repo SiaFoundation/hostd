@@ -142,19 +142,9 @@ func clearLockedSectors(tx *txn, log *zap.Logger) error {
 	return nil
 }
 
-func clearLockedLocations(tx *txn) error {
-	_, err := tx.Exec(`DELETE FROM locked_volume_sectors`)
-	return err
-}
-
 func (s *Store) clearLocks() error {
 	return s.transaction(func(tx *txn) error {
-		if err := clearLockedLocations(tx); err != nil {
-			return fmt.Errorf("failed to clear locked locations: %w", err)
-		} else if err = clearLockedSectors(tx, s.log.Named("clearLockedSectors")); err != nil {
-			return fmt.Errorf("failed to clear locked sectors: %w", err)
-		}
-		return nil
+		return clearLockedSectors(tx, s.log.Named("clearLockedSectors"))
 	})
 }
 

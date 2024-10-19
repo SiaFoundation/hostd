@@ -49,19 +49,14 @@ type (
 
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
-		// Read reads a sector from the store
-		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
+		// ReadSector reads a sector from the store
+		ReadSector(root types.Hash256) ([rhp2.SectorSize]byte, error)
 	}
 
 	// Alerts registers and dismisses global alerts.
 	Alerts interface {
 		Register(alerts.Alert)
 		Dismiss(...types.Hash256)
-	}
-
-	locker struct {
-		c       chan struct{}
-		waiters int
 	}
 
 	// A Manager manages contracts' lifecycle
@@ -78,12 +73,10 @@ type (
 		chain   ChainManager
 		syncer  Syncer
 		wallet  Wallet
+		locks   *locker // contracts must be locked while they are being modified
 
-		mu sync.Mutex // guards the following fields
-		// caches the sector roots of all contracts to avoid long reads from
-		// the store
-		sectorRoots map[types.FileContractID][]types.Hash256
-		locks       map[types.FileContractID]*locker // contracts must be locked while they are being modified
+		mu          sync.Mutex
+		sectorRoots map[types.FileContractID][]types.Hash256 // caches the sector roots of all contracts to avoid long reads from
 	}
 )
 
@@ -114,58 +107,24 @@ func (cm *Manager) Lock(ctx context.Context, id types.FileContractID) (SignedRev
 	}
 	defer cancel()
 
-	cm.mu.Lock()
-	contract, err := cm.store.Contract(id)
-	if err != nil {
-		cm.mu.Unlock()
-		return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
-	} else if err := cm.isGoodForModification(contract); err != nil {
-		cm.mu.Unlock()
-		return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
+	if err := cm.locks.Lock(ctx, id); err != nil {
+		return SignedRevision{}, err
 	}
 
-	// if the contract isn't already locked, create a new lock
-	if _, exists := cm.locks[id]; !exists {
-		cm.locks[id] = &locker{
-			c:       make(chan struct{}, 1),
-			waiters: 0,
-		}
-		cm.mu.Unlock()
-		return contract.SignedRevision, nil
+	contract, err := cm.store.Contract(id)
+	if err != nil {
+		cm.locks.Unlock(id)
+		return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
+	} else if err := cm.isGoodForModification(contract); err != nil {
+		cm.locks.Unlock(id)
+		return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
 	}
-	cm.locks[id].waiters++
-	c := cm.locks[id].c
-	// mutex must be unlocked before waiting on the channel to prevent deadlock.
-	cm.mu.Unlock()
-	select {
-	case <-c:
-		cm.mu.Lock()
-		defer cm.mu.Unlock()
-		contract, err := cm.store.Contract(id)
-		if err != nil {
-			return SignedRevision{}, fmt.Errorf("failed to get contract: %w", err)
-		} else if err := cm.isGoodForModification(contract); err != nil {
-			return SignedRevision{}, fmt.Errorf("contract is not good for modification: %w", err)
-		}
-		return contract.SignedRevision, nil
-	case <-ctx.Done():
-		return SignedRevision{}, ctx.Err()
-	}
+	return contract.SignedRevision, nil
 }
 
 // Unlock unlocks a locked contract.
 func (cm *Manager) Unlock(id types.FileContractID) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	lock, exists := cm.locks[id]
-	if !exists {
-		return
-	} else if lock.waiters <= 0 {
-		delete(cm.locks, id)
-		return
-	}
-	lock.waiters--
-	lock.c <- struct{}{}
+	cm.locks.Unlock(id)
 }
 
 // Contracts returns a paginated list of contracts matching the filter and the
@@ -449,8 +408,7 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		alerts: alerts.NewNop(),
 		tg:     threadgroup.New(),
 		log:    zap.NewNop(),
-
-		locks: make(map[types.FileContractID]*locker),
+		locks:  newLocker(),
 	}
 
 	for _, opt := range opts {

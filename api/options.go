@@ -4,7 +4,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/explorer"
-	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/webhooks"
 	"go.uber.org/zap"
 )
@@ -51,13 +50,6 @@ func WithExplorer(explorer *explorer.Explorer) ServerOption {
 	}
 }
 
-// WithRHPSessionReporter sets the RHP session reporter for the API server.
-func WithRHPSessionReporter(rsr RHPSessionReporter) ServerOption {
-	return func(a *api) {
-		a.sessions = rsr
-	}
-}
-
 // WithLogger sets the logger for the API server.
 func WithLogger(log *zap.Logger) ServerOption {
 	return func(a *api) {
@@ -81,9 +73,3 @@ type noopAlerts struct{}
 
 func (noopAlerts) Active() []alerts.Alert   { return nil }
 func (noopAlerts) Dismiss(...types.Hash256) {}
-
-type noopSessionReporter struct{}
-
-func (noopSessionReporter) Subscribe(rhp.SessionSubscriber)   {}
-func (noopSessionReporter) Unsubscribe(rhp.SessionSubscriber) {}
-func (noopSessionReporter) Active() []rhp.Session             { return nil }

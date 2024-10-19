@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -248,8 +249,8 @@ func (m *ConfigManager) Settings() Settings {
 	return m.settings
 }
 
-// BandwidthLimiters returns the rate limiters for all traffic
-func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
+// RHPBandwidthLimiters returns the rate limiters for all traffic
+func (m *ConfigManager) RHPBandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
 }
 
@@ -271,8 +272,8 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 		tg:  threadgroup.New(),
 
 		// initialize the rate limiters
-		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
-		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
+		ingressLimit: rate.NewLimiter(rate.Inf, math.MaxInt),
+		egressLimit:  rate.NewLimiter(rate.Inf, math.MaxInt),
 
 		// rhp3 WebSocket TLS
 		rhp3WSTLS: &tls.Config{},

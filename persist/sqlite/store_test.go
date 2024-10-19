@@ -141,7 +141,7 @@ func TestClearLockedSectors(t *testing.T) {
 		// check that the sectors are locked
 		var dbLocked, dbTemp int
 		err := db.transaction(func(tx *txn) error {
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM locked_volume_sectors`).Scan(&dbLocked); err != nil {
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM locked_sectors`).Scan(&dbLocked); err != nil {
 				return fmt.Errorf("query locked sectors: %w", err)
 			} else if err := tx.QueryRow(`SELECT COUNT(*) FROM temp_storage_sector_roots`).Scan(&dbTemp); err != nil {
 				return fmt.Errorf("query temp sectors: %w", err)
@@ -167,7 +167,7 @@ func TestClearLockedSectors(t *testing.T) {
 	// write temp sectors to the database
 	for i := 1; i <= sectors; i++ {
 		sectorRoot := frand.Entropy256()
-		_, err := db.StoreSector(sectorRoot, func(storage.SectorLocation, bool) error {
+		_, err := db.StoreSector(sectorRoot, func(storage.SectorLocation) error {
 			return nil
 		})
 		if err != nil {

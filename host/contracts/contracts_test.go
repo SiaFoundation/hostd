@@ -107,7 +107,7 @@ func TestContractUpdater(t *testing.T) {
 
 			for i := 0; i < test.append; i++ {
 				root := frand.Entropy256()
-				release, err := node.Store.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+				release, err := node.Store.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 				if err != nil {
 					t.Fatal(err)
 				}

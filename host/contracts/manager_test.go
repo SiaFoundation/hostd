@@ -1237,7 +1237,7 @@ func TestSectorRoots(t *testing.T) {
 	for i := 0; i < sectors; i++ {
 		root, err := func() (types.Hash256, error) {
 			root := frand.Entropy256()
-			release, err := node.Store.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+			release, err := node.Store.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 			if err != nil {
 				return types.Hash256{}, fmt.Errorf("failed to store sector: %w", err)
 			}
