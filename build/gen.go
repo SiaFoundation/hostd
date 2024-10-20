@@ -75,26 +75,19 @@ func getGitMeta() (meta gitMeta, _ error) {
 	return
 }
 
-func validSemVer(tag string) error {
+func validSemVer(tag string) bool {
 	if len(tag) == 0 || tag[0] != 'v' {
-		return errors.New("semver must start with 'v'")
+		return false
 	}
 
-	var major, minor, patch int
-	_, err := fmt.Sscanf(tag, "v%d.%d.%d", &major, minor, patch)
+	var major, minor, patch uint8
+	_, err := fmt.Sscanf(tag, "v%d.%d.%d", &major, &minor, &patch)
 	if err != nil {
-		return fmt.Errorf("failed to parse semver: %w", err)
+		return false
+	} else if major == 0 && minor == 0 && patch == 0 {
+		return false
 	}
-
-	switch {
-	case major <= 0:
-		return errors.New("major version must be greater than 0")
-	case minor <= 0:
-		return errors.New("minor version must be greater than 0")
-	case patch <= 0:
-		return errors.New("patch version must be greater than 0")
-	}
-	return nil
+	return true
 }
 
 func main() {
@@ -105,7 +98,7 @@ func main() {
 
 	commit := meta.ShortCommit
 	version := meta.Tag
-	if err := validSemVer(meta.Tag); err != nil {
+	if !validSemVer(meta.Tag) {
 		// no version, use commit and current time for development
 		version = commit
 		meta.Timestamp = gitTime(time.Now())
