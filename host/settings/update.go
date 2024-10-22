@@ -126,7 +126,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 			return nil
 		}
 		shouldAnnounce = index.Height >= nextHeight || announcement.Address != netaddress
-	} else {
+	} else if len(m.rhp4AnnounceAddresses) > 0 {
 		announceHash, announceIndex, err := m.store.LastV2AnnouncementHash()
 		if err != nil {
 			return fmt.Errorf("failed to get last v2 announcement: %w", err)
