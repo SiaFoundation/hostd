@@ -8,7 +8,6 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
-	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.uber.org/zap"
 )
 
@@ -22,19 +21,19 @@ type (
 
 // Announce announces the host to the network
 func (m *ConfigManager) Announce() error {
-	// get the current settings
-	settings := m.Settings()
-
-	if m.validateNetAddress {
-		if err := validateNetAddress(settings.NetAddress); err != nil {
-			return fmt.Errorf("failed to validate net address %q: %w", settings.NetAddress, err)
-		}
-	}
-
 	minerFee := m.chain.RecommendedFee().Mul64(announcementTxnSize)
 
 	cs := m.chain.TipState()
 	if cs.Index.Height < cs.Network.HardforkV2.AllowHeight {
+		// get the current settings
+		settings := m.Settings()
+
+		if m.validateNetAddress {
+			if err := validateNetAddress(settings.NetAddress); err != nil {
+				return fmt.Errorf("failed to validate net address %q: %w", settings.NetAddress, err)
+			}
+		}
+
 		ha := chain.HostAnnouncement{
 			PublicKey:  m.hostKey.PublicKey(),
 			NetAddress: settings.NetAddress,
@@ -62,9 +61,7 @@ func (m *ConfigManager) Announce() error {
 		m.syncer.BroadcastTransactionSet(txnset)
 		m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
 	} else {
-		ha := chain.V2HostAnnouncement{
-			{Protocol: rhp4.ProtocolTCPSiaMux, Address: settings.NetAddress}, // TODO this is not right
-		}
+		ha := chain.V2HostAnnouncement(m.rhp4AnnounceAddresses)
 		// create a v2 transaction with an announcement
 		txn := types.V2Transaction{
 			Attestations: []types.Attestation{
@@ -86,11 +83,16 @@ func (m *ConfigManager) Announce() error {
 			return fmt.Errorf("failed to add transaction to pool: %w", err)
 		}
 		m.syncer.BroadcastV2TransactionSet(cs.Index, txnset)
-		m.log.Debug("broadcast v2 announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
+		addresses := make([]string, 0, len(m.rhp4AnnounceAddresses))
+		for _, addr := range m.rhp4AnnounceAddresses {
+			addresses = append(addresses, fmt.Sprintf("%s/%s", addr.Protocol, addr.Address)) // TODO: implement Stringer?
+		}
+		m.log.Debug("broadcast v2 announcement", zap.String("transactionID", txn.ID().String()), zap.Strings("addresses", addresses), zap.String("cost", minerFee.ExactString()))
 	}
 	return nil
 }
 
+// Deprecated: remove after hardfork
 func validateNetAddress(netaddress string) error {
 	host, port, err := net.SplitHostPort(netaddress)
 	if err != nil {

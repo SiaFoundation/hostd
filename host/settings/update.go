@@ -11,9 +11,19 @@ import (
 // An UpdateStateTx is a transaction that can update the host's announcement
 // state.
 type UpdateStateTx interface {
+	// LastAnnouncement returns the last v1 announcement.
 	LastAnnouncement() (Announcement, error)
+	// RevertLastAnnouncement reverts the last v1 announcement.
 	RevertLastAnnouncement() error
+	// SetLastAnnouncement sets the last v1 announcement.
 	SetLastAnnouncement(Announcement) error
+
+	// LastV2AnnouncementHash returns the hash of the last v2 announcement.
+	LastV2AnnouncementHash() (types.Hash256, types.ChainIndex, error)
+	// RevertLastV2Announcement reverts the last v2 announcement.
+	RevertLastV2Announcement() error
+	// SetLastV2Announcement sets the last v2 announcement.
+	SetLastV2AnnouncementHash(types.Hash256, types.ChainIndex) error
 }
 
 // UpdateChainState updates the host's announcement state based on the given
@@ -25,67 +35,116 @@ func (cm *ConfigManager) UpdateChainState(tx UpdateStateTx, reverted []chain.Rev
 		return fmt.Errorf("failed to get last announcement: %w", err)
 	}
 
+	_, v2AnnouncementIndex, err := tx.LastV2AnnouncementHash()
+	if err != nil {
+		return fmt.Errorf("failed to get last v2 announcement: %w", err)
+
+	}
+
 	for _, cru := range reverted {
 		if cru.State.Index == lastAnnouncement.Index {
 			if err := tx.RevertLastAnnouncement(); err != nil {
 				return fmt.Errorf("failed to revert last announcement: %w", err)
 			}
 		}
+
+		if cru.State.Index == v2AnnouncementIndex {
+			if err := tx.RevertLastV2Announcement(); err != nil {
+				return fmt.Errorf("failed to revert last v2 announcement: %w", err)
+			}
+		}
 	}
 
-	var nextAnnouncement *Announcement
+	var announcement Announcement
+	var v2AnnounceAddresses []chain.NetAddress
+	var v2AnnounceIndex types.ChainIndex
 	for _, cau := range applied {
 		index := cau.State.Index
 
-		chain.ForEachHostAnnouncement(cau.Block, func(announcement chain.HostAnnouncement) {
-			if announcement.PublicKey != pk {
+		chain.ForEachHostAnnouncement(cau.Block, func(a chain.HostAnnouncement) {
+			if a.PublicKey != pk {
 				return
 			}
 
-			nextAnnouncement = &Announcement{
-				Address: announcement.NetAddress,
+			announcement = Announcement{
+				Address: a.NetAddress,
 				Index:   index,
 			}
 		})
+
+		chain.ForEachV2HostAnnouncement(cau.Block, func(hostKey types.PublicKey, addresses []chain.NetAddress) {
+			if hostKey != pk {
+				return
+			}
+
+			v2AnnounceAddresses = addresses
+			v2AnnounceIndex = index
+		})
 	}
 
-	if nextAnnouncement == nil {
-		return nil
+	if announcement.Index != (types.ChainIndex{}) {
+		if err := tx.SetLastAnnouncement(announcement); err != nil {
+			return fmt.Errorf("failed to set last announcement: %w", err)
+		}
+		cm.log.Debug("announcement confirmed", zap.String("netaddress", announcement.Address), zap.Stringer("index", announcement.Index))
 	}
 
-	if err := tx.SetLastAnnouncement(*nextAnnouncement); err != nil {
-		return fmt.Errorf("failed to set last announcement: %w", err)
+	if len(v2AnnounceAddresses) > 0 {
+		h := types.NewHasher()
+		types.EncodeSlice(h.E, v2AnnounceAddresses)
+		if err := h.E.Flush(); err != nil {
+			return fmt.Errorf("failed to hash v2 announcement addresses: %w", err)
+		} else if err := tx.SetLastV2AnnouncementHash(h.Sum(), v2AnnounceIndex); err != nil {
+			return fmt.Errorf("failed to set last v2 announcement: %w", err)
+		}
+
+		addresses := make([]string, 0, len(v2AnnounceAddresses))
+		for _, addr := range v2AnnounceAddresses {
+			addresses = append(addresses, fmt.Sprintf("%s/%s", addr.Protocol, addr.Address)) // TODO: Stringer?
+		}
+		cm.log.Debug("v2 announcement confirmed", zap.Strings("addresses", addresses), zap.Stringer("index", v2AnnounceIndex))
 	}
-	cm.log.Debug("announcement confirmed", zap.String("netaddress", nextAnnouncement.Address), zap.Stringer("index", nextAnnouncement.Index))
+
 	return nil
 }
 
 // ProcessActions processes announcement actions based on the given chain index.
 func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
-	announcement, err := m.store.LastAnnouncement()
-	if err != nil {
-		return fmt.Errorf("failed to get last announcement: %w", err)
-	}
+	n := m.chain.TipState().Network
 
-	nextHeight := announcement.Index.Height + m.announceInterval
-	netaddress := m.Settings().NetAddress
-	if err := validateNetAddress(netaddress); err != nil {
-		if m.validateNetAddress {
+	var shouldAnnounce bool
+	if index.Height < n.HardforkV2.AllowHeight {
+		announcement, err := m.store.LastAnnouncement()
+		if err != nil {
+			return fmt.Errorf("failed to get last announcement: %w", err)
+		}
+
+		nextHeight := announcement.Index.Height + m.announceInterval
+		netaddress := m.Settings().NetAddress
+		if err := validateNetAddress(netaddress); err != nil && m.validateNetAddress {
+			m.log.Warn("invalid net address", zap.String("address", netaddress), zap.Error(err))
 			return nil
 		}
+		shouldAnnounce = index.Height >= nextHeight || announcement.Address != netaddress
+	} else {
+		announceHash, announceIndex, err := m.store.LastV2AnnouncementHash()
+		if err != nil {
+			return fmt.Errorf("failed to get last v2 announcement: %w", err)
+		}
+
+		nextHeight := announceIndex.Height + m.announceInterval
+		h := types.NewHasher()
+		types.EncodeSlice(h.E, m.rhp4AnnounceAddresses)
+		if err := h.E.Flush(); err != nil {
+			return fmt.Errorf("failed to hash v2 announcement: %w", err)
+		}
+		shouldAnnounce = index.Height >= nextHeight || announceHash != h.Sum()
 	}
 
-	// check if a new announcement is needed
-	n := m.chain.TipState().Network
-	// re-announce if the v2 hardfork has activated and the last announcement was before activation
-	reannounceV2 := index.Height >= n.HardforkV2.AllowHeight && announcement.Index.Height < n.HardforkV2.AllowHeight
-	if !reannounceV2 && index.Height < nextHeight && announcement.Address == netaddress {
-		return nil
-	}
-
-	// re-announce
-	if err := m.Announce(); err != nil {
-		m.log.Warn("failed to announce", zap.Error(err))
+	if shouldAnnounce {
+		if err := m.Announce(); err != nil {
+			m.log.Warn("failed to announce", zap.Error(err))
+		}
 	}
 	return nil
 }

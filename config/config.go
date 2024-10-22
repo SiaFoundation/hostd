@@ -1,5 +1,9 @@
 package config
 
+import (
+	"go.sia.tech/coreutils/chain"
+)
+
 type (
 	// HTTP contains the configuration for the HTTP server.
 	HTTP struct {
@@ -43,9 +47,16 @@ type (
 		Address  string `yaml:"address,omitempty"`
 	}
 
+	// RHP4AnnounceAddress contains the configuration for an RHP4 announce address.
+	RHP4AnnounceAddress struct {
+		Protocol chain.Protocol `yaml:"protocol,omitempty"`
+		Address  string         `yaml:"address,omitempty"`
+	}
+
 	// RHP4 contains the configuration for the RHP4 server.
 	RHP4 struct {
-		ListenAddresses []RHP4ListenAddress `yaml:"listenAddresses,omitempty"`
+		ListenAddresses   []RHP4ListenAddress   `yaml:"listenAddresses,omitempty"`
+		AnnounceAddresses []RHP4AnnounceAddress `yaml:"announceAddresses,omitempty"`
 	}
 
 	// LogFile configures the file output of the logger.

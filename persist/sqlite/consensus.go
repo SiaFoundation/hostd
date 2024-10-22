@@ -468,6 +468,25 @@ func (ux *updateTx) LastAnnouncement() (announcement settings.Announcement, err 
 	return
 }
 
+func (ux *updateTx) LastV2AnnouncementHash() (h types.Hash256, index types.ChainIndex, err error) {
+	err = ux.tx.QueryRow(`SELECT last_v2_announce_hash, last_announce_index FROM global_settings`).
+		Scan(decodeNullable(&h), decodeNullable(&index))
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.Hash256{}, types.ChainIndex{}, nil
+	}
+	return
+}
+
+func (ux *updateTx) RevertLastV2Announcement() error {
+	_, err := ux.tx.Exec(`UPDATE global_settings SET last_v2_announce_hash=NULL, last_announce_index=NULL`)
+	return err
+}
+
+func (ux *updateTx) SetLastV2AnnouncementHash(h types.Hash256, index types.ChainIndex) error {
+	_, err := ux.tx.Exec(`UPDATE global_settings SET last_announce_index=?, last_v2_announce_hash=?`, encode(index), encode(h))
+	return err
+}
+
 func (ux *updateTx) RevertLastAnnouncement() error {
 	_, err := ux.tx.Exec(`UPDATE global_settings SET last_announce_address=NULL, last_announce_index=NULL`)
 	return err
