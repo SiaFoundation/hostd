@@ -116,12 +116,12 @@ func (cm *Manager) CheckIntegrity(ctx context.Context, contractID types.FileCont
 			default:
 			}
 			// read each sector from disk and verify its Merkle root
-			sector, err := cm.storage.Read(root)
+			sector, err := cm.storage.ReadSector(root)
 			if err != nil { // sector read failed
 				log.Error("missing sector", zap.String("root", root.String()), zap.Error(err))
 				missing++
 				results <- IntegrityResult{ExpectedRoot: root, Error: err}
-			} else if calculated := rhp2.SectorRoot(sector); root != calculated { // sector data corrupt
+			} else if calculated := rhp2.SectorRoot(&sector); root != calculated { // sector data corrupt
 				log.Error("corrupt sector", zap.String("root", root.String()), zap.String("actual", calculated.String()))
 				corrupt++
 				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculated, Error: errors.New("sector data corrupt")}

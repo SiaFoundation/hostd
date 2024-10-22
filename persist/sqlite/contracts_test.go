@@ -291,7 +291,7 @@ func TestReviseContract(t *testing.T) {
 				case contracts.SectorActionAppend:
 					// add a random sector root
 					root := frand.Entropy256()
-					release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+					release, err := db.StoreSector(root, func(_ storage.SectorLocation, _ bool) error { return nil })
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -301,7 +301,7 @@ func TestReviseContract(t *testing.T) {
 				case contracts.SectorActionUpdate:
 					// replace with a random sector root
 					root := frand.Entropy256()
-					release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+					release, err := db.StoreSector(root, func(_ storage.SectorLocation, _ bool) error { return nil })
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -480,7 +480,7 @@ func BenchmarkTrimSectors(b *testing.B) {
 		roots = append(roots, root)
 		appendActions = append(appendActions, contracts.SectorChange{Action: contracts.SectorActionAppend, Root: root})
 
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		release, err := db.StoreSector(root, func(_ storage.SectorLocation, _ bool) error { return nil })
 		if err != nil {
 			b.Fatal(err)
 		}

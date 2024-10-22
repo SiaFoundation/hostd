@@ -30,6 +30,7 @@ CREATE TABLE stored_sectors (
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
 CREATE INDEX stored_sectors_last_access ON stored_sectors(last_access_timestamp);
 
+-- TODO: remove after hardfork
 CREATE TABLE locked_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
 	id INTEGER PRIMARY KEY,
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id)

@@ -93,10 +93,10 @@ func TestVolumeLoad(t *testing.T) {
 	}
 
 	// check that the sector is still there
-	sector2, err := vm.Read(root)
+	sector2, err := vm.ReadSector(root)
 	if err != nil {
 		t.Fatal(err)
-	} else if *sector2 != sector {
+	} else if sector2 != sector {
 		t.Fatal("sector was corrupted")
 	}
 
@@ -205,10 +205,10 @@ func TestRemoveVolume(t *testing.T) {
 
 	checkRoots := func(roots []types.Hash256) error {
 		for _, root := range roots {
-			sector, err := vm.Read(root)
+			sector, err := vm.ReadSector(root)
 			if err != nil {
 				return fmt.Errorf("failed to read sector: %w", err)
-			} else if rhp2.SectorRoot(sector) != root {
+			} else if rhp2.SectorRoot(&sector) != root {
 				return errors.New("sector was corrupted")
 			}
 		}
@@ -670,10 +670,10 @@ func TestVolumeConcurrency(t *testing.T) {
 
 	// read the sectors back
 	for _, root := range roots {
-		sector, err := vm.Read(root)
+		sector, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
-		} else if rhp2.SectorRoot(sector) != root {
+		} else if rhp2.SectorRoot(&sector) != root {
 			t.Fatal("sector was corrupted")
 		}
 	}
@@ -685,10 +685,10 @@ func TestVolumeConcurrency(t *testing.T) {
 
 	// read the sectors back
 	for _, root := range roots {
-		sector, err := vm.Read(root)
+		sector, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
-		} else if rhp2.SectorRoot(sector) != root {
+		} else if rhp2.SectorRoot(&sector) != root {
 			t.Fatal("sector was corrupted")
 		}
 	}
@@ -1044,11 +1044,11 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	// read the sectors back
 	frand.Shuffle(len(roots), func(i, j int) { roots[i], roots[j] = roots[j], roots[i] })
 	for _, root := range roots {
-		sector, err := vm.Read(root)
+		sector, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		retrievedRoot := rhp2.SectorRoot(sector)
+		retrievedRoot := rhp2.SectorRoot(&sector)
 		if retrievedRoot != root {
 			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
 		}
@@ -1135,7 +1135,7 @@ func TestSectorCache(t *testing.T) {
 
 	// read the last 5 sectors all sectors should be cached
 	for i, root := range roots[5:] {
-		_, err := vm.Read(root)
+		_, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1150,7 +1150,7 @@ func TestSectorCache(t *testing.T) {
 
 	// read the first 5 sectors all sectors should be missed
 	for i, root := range roots[:5] {
-		_, err := vm.Read(root)
+		_, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1165,7 +1165,7 @@ func TestSectorCache(t *testing.T) {
 
 	// read the first 5 sectors again all sectors should be cached
 	for i, root := range roots[:5] {
-		_, err := vm.Read(root)
+		_, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1312,7 +1312,7 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	b.SetBytes(rhp2.SectorSize)
 	// read the sectors back
 	for _, root := range written {
-		if _, err := vm.Read(root); err != nil {
+		if _, err := vm.ReadSector(root); err != nil {
 			b.Fatal(err)
 		}
 	}

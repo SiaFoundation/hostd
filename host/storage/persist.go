@@ -12,7 +12,6 @@ type (
 	// needs to be migrated If the function returns an error, the sector should
 	// be skipped and migration should continue.
 	MigrateFunc func(location SectorLocation) error
-
 	// A VolumeStore stores and retrieves information about storage volumes.
 	VolumeStore interface {
 		// StorageUsage returns the number of used and total bytes in all volumes
@@ -47,6 +46,15 @@ type (
 		// location and synced to disk during migrateFn. If migrateFn returns an
 		// error, migration will continue, but that sector is not migrated.
 		MigrateSectors(ctx context.Context, volumeID int64, min uint64, migrateFn MigrateFunc) (migrated, failed int, err error)
+
+		// StoreTempSector calls fn with an empty location in a writable volume.
+		//
+		// The sector must be written to disk within fn. If fn returns an error,
+		// the metadata is rolled back. If no space is available, ErrNotEnoughStorage
+		// is returned. If the sector is already stored, fn is skipped and nil
+		// is returned.
+		StoreTempSector(root types.Hash256, expiration uint64, fn func(loc SectorLocation) error) error
+
 		// StoreSector calls fn with an empty location in a writable volume. If
 		// the sector root already exists, fn is called with the existing
 		// location and exists is true. Unless exists is true, The sector must
@@ -56,10 +64,14 @@ type (
 		//
 		// The sector should be referenced by either a contract or temp store
 		// before release is called to prevent Prune() from removing it.
+		//
+		// Deprecated: use StoreTempSector instead
 		StoreSector(root types.Hash256, fn func(loc SectorLocation, exists bool) error) (release func() error, err error)
 		// RemoveSector removes the metadata of a sector and returns its
 		// location in the volume.
 		RemoveSector(root types.Hash256) error
+		// HasSector returns true if the sector is stored in the volume store.
+		HasSector(root types.Hash256) (bool, error)
 		// SectorLocation returns the location of a sector or an error if the
 		// sector is not found. The location is locked until release is
 		// called.

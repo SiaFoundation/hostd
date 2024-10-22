@@ -59,7 +59,7 @@ func TestWalletMetrics(t *testing.T) {
 
 	// mine a secondary chain to reorg the first chain
 	n2 := testutil.NewConsensusNode(t, network, genesis, log.Named("node2"))
-	testutil.MineBlocks(t, n2, types.VoidAddress, 250)
+	testutil.MineBlocks(t, n2, types.VoidAddress, 300)
 
 	t.Log("connecting peer 2")
 	if _, err := h1.Syncer.Connect(context.Background(), n2.Syncer.Addr()); err != nil {
