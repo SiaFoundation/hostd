@@ -340,8 +340,6 @@ func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileCon
 	err := tx.QueryRow(updateQuery, encode(revision), encode(revision.RevisionNumber), encode(id)).Scan(&contractDBID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to update contract: %w", err)
-	} else if err := incrementV2ContractUsage(tx, contractDBID, usage); err != nil {
-		return 0, fmt.Errorf("failed to update contract usage: %w", err)
 	} else if err := updateV2ContractUsage(tx, contractDBID, usage); err != nil {
 		return 0, fmt.Errorf("failed to update contract usage: %w", err)
 	}

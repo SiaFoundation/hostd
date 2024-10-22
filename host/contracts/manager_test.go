@@ -901,18 +901,18 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// add a root to the contract
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := frand.Entropy256() // random root
 		roots := []types.Hash256{root}
 
-		release, err := node.Volumes.Write(root, &sector)
+		err := node.Volumes.StoreSector(root, &sector, 10)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 
-		fc.Filesize = rhp2.SectorSize
+		fc.Filesize = proto4.SectorSize
+		fc.Capacity = proto4.SectorSize
 		fc.FileMerkleRoot = rhp2.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
@@ -929,8 +929,6 @@ func TestV2ContractLifecycle(t *testing.T) {
 			RiskedCollateral: collateral,
 		})
 		if err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 		// metrics should not have been updated, contract is still pending
@@ -960,7 +958,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// add a root to the contract
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:])
 		root := rhp2.SectorRoot(&sector)
 		roots := []types.Hash256{root}
@@ -971,7 +969,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		defer release()
 
-		fc.Filesize = rhp2.SectorSize
+		fc.Filesize = proto4.SectorSize
+		fc.Capacity = proto4.SectorSize
 		fc.FileMerkleRoot = rhp2.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
@@ -1008,11 +1007,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		cs := cm.TipState()
 		final := fc
 		final.RevisionNumber = types.MaxRevisionNumber
-		final.FileMerkleRoot = types.Hash256{}
-		final.Filesize = 0
 		final.HostSignature = types.Signature{}
 		final.RenterSignature = types.Signature{}
-		final.RevisionNumber = types.MaxRevisionNumber
 
 		additionalCollateral := types.Siacoins(2)
 		renewal := types.V2FileContractRenewal{
@@ -1020,6 +1016,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 			NewContract: types.V2FileContract{
 				RevisionNumber:   0,
 				Filesize:         fc.Filesize,
+				Capacity:         fc.Capacity,
 				FileMerkleRoot:   fc.FileMerkleRoot,
 				ProofHeight:      final.ProofHeight + 10,
 				ExpirationHeight: final.ExpirationHeight + 10,
