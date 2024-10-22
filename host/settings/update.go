@@ -38,7 +38,6 @@ func (cm *ConfigManager) UpdateChainState(tx UpdateStateTx, reverted []chain.Rev
 	_, v2AnnouncementIndex, err := tx.LastV2AnnouncementHash()
 	if err != nil {
 		return fmt.Errorf("failed to get last v2 announcement: %w", err)
-
 	}
 
 	for _, cru := range reverted {
