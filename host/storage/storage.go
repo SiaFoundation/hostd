@@ -11,6 +11,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	rhp2 "go.sia.tech/core/rhp/v2"
+	rhp4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
@@ -158,7 +159,7 @@ func (vm *VolumeManager) loadVolumes() error {
 // immediately synced after the sector is written.
 func (vm *VolumeManager) migrateSector(loc SectorLocation) error {
 	// read the sector from the old location
-	sector, err := vm.Read(loc.Root)
+	sector, err := vm.ReadSector(loc.Root)
 	if err != nil {
 		return fmt.Errorf("failed to read sector: %w", err)
 	}
@@ -357,6 +358,11 @@ func (vm *VolumeManager) Close() error {
 // SectorReferences returns the references to a sector.
 func (vm *VolumeManager) SectorReferences(root types.Hash256) (SectorReference, error) {
 	return vm.vs.SectorReferences(root)
+}
+
+// HasSector returns true if the host is storing the sector.
+func (vm *VolumeManager) HasSector(root types.Hash256) (bool, error) {
+	return vm.vs.HasSector(root)
 }
 
 // Usage returns the total and used storage space, in sectors, from the storage manager.
@@ -782,8 +788,8 @@ func (vm *VolumeManager) CacheStats() (hits, misses uint64) {
 	return atomic.LoadUint64(&vm.cacheHits), atomic.LoadUint64(&vm.cacheMisses)
 }
 
-// Read reads the sector with the given root
-func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error) {
+// ReadSector reads the sector with the given root
+func (vm *VolumeManager) ReadSector(root types.Hash256) (*[rhp2.SectorSize]byte, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
@@ -831,10 +837,70 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	}
 
 	// Add sector to cache
-	vm.cache.Add(root, sector)
+	go vm.cache.Add(root, sector)
 	vm.recorder.AddCacheMiss()
 	atomic.AddUint64(&vm.cacheMisses, 1)
 	return sector, nil
+}
+
+// StoreSector stores a sector in the volume manager. The sector is written to
+// the first available volume. If no volumes are available, an error is
+// returned.
+//
+// The sector will be stored until the expiration height is reached. If the
+// sector is not referenced by a contract before the expiration height, it will
+// be pruned.
+func (vm *VolumeManager) StoreSector(root types.Hash256, sector *[rhp4.SectorSize]byte, expiration uint64) error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	err = vm.vs.StoreTempSector(root, expiration, func(loc SectorLocation) error {
+		start := time.Now()
+
+		vm.mu.Lock()
+		vol, ok := vm.volumes[loc.Volume]
+		vm.mu.Unlock()
+		if !ok {
+			return fmt.Errorf("volume %v not found", loc.Volume)
+		}
+
+		// write the sector to the volume
+		if err := vol.WriteSector(sector, loc.Index); err != nil {
+			stats := vol.Stats()
+			vm.alerts.Register(alerts.Alert{
+				ID:       vol.alertID("write"),
+				Severity: alerts.SeverityError,
+				Message:  "Failed to write sector",
+				Data: map[string]interface{}{
+					"volume":       vol.Location(),
+					"failedReads":  stats.FailedReads,
+					"failedWrites": stats.FailedWrites,
+					"sector":       root,
+					"error":        err.Error(),
+				},
+				Timestamp: time.Now(),
+			})
+			return err
+		}
+		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
+
+		// mark the volume as changed
+		vm.mu.Lock()
+		vm.changedVolumes[loc.Volume] = true
+		vm.mu.Unlock()
+		// Add newly written sector to cache
+		vm.cache.Add(root, sector)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// Add newly written sector to cache
+	vm.cache.Add(root, sector)
+	return nil
 }
 
 // Sync syncs the data files of changed volumes.
@@ -871,12 +937,15 @@ func (vm *VolumeManager) Sync() error {
 
 // Write writes a sector to a volume. release should only be called after the
 // contract roots have been committed to prevent the sector from being deleted.
+//
+// Deprecated: use StoreSector
 func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) (func() error, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
 	}
 	defer done()
+
 	release, err := vm.vs.StoreSector(root, func(loc SectorLocation, exists bool) error {
 		if exists {
 			return nil
@@ -889,7 +958,6 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 		if !ok {
 			return fmt.Errorf("volume %v not found", loc.Volume)
 		}
-
 		// write the sector to the volume
 		if err := vol.WriteSector(data, loc.Index); err != nil {
 			stats := vol.Stats()
@@ -919,11 +987,18 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 		vm.mu.Unlock()
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	// Add newly written sector to cache
+	vm.cache.Add(root, data)
 	return release, err
 }
 
 // AddTemporarySectors adds sectors to the temporary store. The sectors are not
 // referenced by a contract and will be removed at the expiration height.
+//
+// Deprecated: use StoreSector
 func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
 	if len(sectors) == 0 {
 		return nil

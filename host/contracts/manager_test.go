@@ -10,9 +10,10 @@ import (
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
-	rhp4 "go.sia.tech/core/rhp/v4"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/contracts"
@@ -67,19 +68,19 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		t.Fatal("failed to fund transaction:", err)
 	}
 	w.SignV2Inputs(&txn, toSign)
-	formationSet := contracts.V2FormationTransactionSet{
-		TransactionSet: []types.V2Transaction{txn},
-		Basis:          basis,
+	formationSet := rhp4.TransactionSet{
+		Transactions: []types.V2Transaction{txn},
+		Basis:        basis,
 	}
 
 	if broadcast {
-		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.TransactionSet); err != nil {
+		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.TransactionSet)
+		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
 	}
 
-	if err := c.AddV2Contract(formationSet, contracts.V2Usage{}); err != nil {
+	if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
 		t.Fatal("failed to add contract:", err)
 	}
 	return txn.V2FileContractID(txn.ID(), 0), fc
@@ -853,9 +854,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		defer release()
 
-		fc.Filesize = rhp4.SectorSize
-		fc.Capacity = rhp4.SectorSize
-		fc.FileMerkleRoot = rhp4.MetaRoot(roots)
+		fc.Filesize = proto4.SectorSize
+		fc.Capacity = proto4.SectorSize
+		fc.FileMerkleRoot = proto4.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
 		cost, collateral := types.Siacoins(1), types.Siacoins(2)
@@ -866,8 +867,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc.HostSignature = hostKey.SignHash(sigHash)
 		fc.RenterSignature = renterKey.SignHash(sigHash)
 
-		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, contracts.Usage{
-			StorageRevenue:   cost,
+		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+			Storage:          cost,
 			RiskedCollateral: collateral,
 		})
 		if err != nil {
@@ -902,20 +903,19 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// add a root to the contract
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := frand.Entropy256() // random root
 		roots := []types.Hash256{root}
 
-		release, err := node.Volumes.Write(root, &sector)
+		err := node.Volumes.StoreSector(root, &sector, 10)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 
-		fc.Filesize = rhp4.SectorSize
-		fc.Capacity = rhp4.SectorSize
-		fc.FileMerkleRoot = rhp4.MetaRoot(roots)
+		fc.Filesize = proto4.SectorSize
+		fc.Capacity = proto4.SectorSize
+		fc.FileMerkleRoot = proto4.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
 		cost, collateral := types.Siacoins(1), types.Siacoins(2)
@@ -926,13 +926,11 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc.HostSignature = hostKey.SignHash(sigHash)
 		fc.RenterSignature = renterKey.SignHash(sigHash)
 
-		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, contracts.Usage{
-			StorageRevenue:   cost,
+		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+			Storage:          cost,
 			RiskedCollateral: collateral,
 		})
 		if err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 		// metrics should not have been updated, contract is still pending
@@ -962,7 +960,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// add a root to the contract
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:])
 		root := rhp2.SectorRoot(&sector)
 		roots := []types.Hash256{root}
@@ -973,9 +971,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		defer release()
 
-		fc.Filesize = rhp4.SectorSize
-		fc.Capacity = rhp4.SectorSize
-		fc.FileMerkleRoot = rhp4.MetaRoot(roots)
+		fc.Filesize = proto4.SectorSize
+		fc.Capacity = proto4.SectorSize
+		fc.FileMerkleRoot = proto4.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
 		cost, collateral := types.Siacoins(1), types.Siacoins(2)
@@ -986,8 +984,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc.HostSignature = hostKey.SignHash(sigHash)
 		fc.RenterSignature = renterKey.SignHash(sigHash)
 
-		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, contracts.Usage{
-			StorageRevenue:   cost,
+		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+			Storage:          cost,
 			RiskedCollateral: collateral,
 		})
 		if err != nil {
@@ -1013,7 +1011,6 @@ func TestV2ContractLifecycle(t *testing.T) {
 		final.RevisionNumber = types.MaxRevisionNumber
 		final.HostSignature = types.Signature{}
 		final.RenterSignature = types.Signature{}
-		final.RevisionNumber = types.MaxRevisionNumber
 
 		additionalCollateral := types.Siacoins(2)
 		renewal := types.V2FileContractRenewal{
@@ -1042,7 +1039,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		renewal.HostSignature = hostKey.SignHash(renewalSigHash)
 		renewal.RenterSignature = renterKey.SignHash(renewalSigHash)
 
-		fce, err := com.V2ContractElement(contractID)
+		_, fce, err := com.V2FileContractElement(contractID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1073,16 +1070,16 @@ func TestV2ContractLifecycle(t *testing.T) {
 			},
 		}
 		node.Wallet.SignV2Inputs(&renewalTxn, []int{0})
-		renewalTxnSet := contracts.V2FormationTransactionSet{
-			Basis:          basis,
-			TransactionSet: []types.V2Transaction{setupTxn, renewalTxn},
+		renewalTxnSet := rhp4.TransactionSet{
+			Basis:        basis,
+			Transactions: []types.V2Transaction{setupTxn, renewalTxn},
 		}
-		if _, err := cm.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.TransactionSet); err != nil {
+		if _, err := cm.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
 			t.Fatal("failed to add renewal to pool:", err)
 		}
-		node.Syncer.BroadcastV2TransactionSet(renewalTxnSet.Basis, renewalTxnSet.TransactionSet)
+		node.Syncer.BroadcastV2TransactionSet(renewalTxnSet.Basis, renewalTxnSet.Transactions)
 
-		err = com.RenewV2Contract(renewalTxnSet, contracts.V2Usage{
+		err = com.RenewV2Contract(renewalTxnSet, proto4.Usage{
 			RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
 		})
 		if err != nil {
@@ -1159,14 +1156,14 @@ func TestV2ContractLifecycle(t *testing.T) {
 			t.Fatal("failed to fund transaction:", err)
 		}
 		w.SignV2Inputs(&txn, toSign)
-		formationSet := contracts.V2FormationTransactionSet{
-			TransactionSet: []types.V2Transaction{txn},
-			Basis:          basis,
+		formationSet := rhp4.TransactionSet{
+			Transactions: []types.V2Transaction{txn},
+			Basis:        basis,
 		}
 		contractID := txn.V2FileContractID(txn.ID(), 0)
 		// corrupt the formation set to trigger a rejection
-		formationSet.TransactionSet[len(formationSet.TransactionSet)-1].SiacoinInputs[0].SatisfiedPolicy.Signatures[0] = types.Signature{}
-		if err := c.AddV2Contract(formationSet, contracts.V2Usage{}); err != nil {
+		formationSet.Transactions[len(formationSet.Transactions)-1].SiacoinInputs[0].SatisfiedPolicy.Signatures[0] = types.Signature{}
+		if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
 			t.Fatal("failed to add contract:", err)
 		}
 
@@ -1242,7 +1239,7 @@ func TestSectorRoots(t *testing.T) {
 	for i := 0; i < sectors; i++ {
 		root, err := func() (types.Hash256, error) {
 			root := frand.Entropy256()
-			release, err := node.Store.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+			release, err := node.Store.StoreSector(root, func(storage.SectorLocation, bool) error { return nil })
 			if err != nil {
 				return types.Hash256{}, fmt.Errorf("failed to store sector: %w", err)
 			}

@@ -5,15 +5,17 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
-	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.uber.org/zap"
 )
 
 // An UpdateStateTx is a transaction that can update the host's announcement
 // state.
 type UpdateStateTx interface {
+	// LastAnnouncement returns the last v1 announcement.
 	LastAnnouncement() (Announcement, error)
+	// RevertLastAnnouncement reverts the last v1 announcement.
 	RevertLastAnnouncement() error
+	// SetLastAnnouncement sets the last v1 announcement.
 	SetLastAnnouncement(Announcement) error
 
 	// LastV2AnnouncementHash returns the hash of the last v2 announcement.
@@ -136,11 +138,11 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 		nextHeight := announcement.Index.Height + m.announceInterval
 		netaddress := m.Settings().NetAddress
 		if err := validateNetAddress(netaddress); err != nil && m.validateNetAddress {
-			m.log.Debug("failed to validate net address", zap.Error(err))
+			m.log.Warn("invalid net address", zap.String("address", netaddress), zap.Error(err))
 			return nil
 		}
 		shouldAnnounce = index.Height >= nextHeight || announcement.Address != netaddress
-	} else {
+	} else if len(m.rhp4AnnounceAddresses) > 0 {
 		announceHash, announceIndex, err := m.store.LastV2AnnouncementHash()
 		if err != nil {
 			return fmt.Errorf("failed to get last v2 announcement: %w", err)
@@ -148,7 +150,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 
 		nextHeight := announceIndex.Height + m.announceInterval
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: rhp4.ProtocolTCPSiaMux, Address: m.Settings().NetAddress}})
+		types.EncodeSlice(h.E, m.rhp4AnnounceAddresses)
 		if err := h.E.Flush(); err != nil {
 			return fmt.Errorf("failed to hash v2 announcement: %w", err)
 		}

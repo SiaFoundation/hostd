@@ -57,6 +57,11 @@ var (
 		RHP3: config.RHP3{
 			TCPAddress: ":9983",
 		},
+		RHP4: config.RHP4{
+			ListenAddresses: []config.RHP4ListenAddress{
+				{Protocol: "tcp", Address: ":9984"},
+			},
+		},
 		Log: config.Log{
 			Path:  os.Getenv(logFileEnvVar), // deprecated. included for compatibility.
 			Level: "info",

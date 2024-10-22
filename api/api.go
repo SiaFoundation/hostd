@@ -20,7 +20,6 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
@@ -86,7 +85,7 @@ type (
 		SetReadOnly(id int64, readOnly bool) error
 		RemoveSector(root types.Hash256) error
 		ResizeCache(size uint32)
-		Read(types.Hash256) (*[rhp2.SectorSize]byte, error)
+		ReadSector(types.Hash256) (*[rhp2.SectorSize]byte, error)
 
 		// SectorReferences returns the references to a sector
 		SectorReferences(root types.Hash256) (storage.SectorReference, error)
@@ -152,14 +151,6 @@ type (
 		BroadcastToWebhook(id int64, event, scope string, data interface{}) error
 	}
 
-	// A RHPSessionReporter reports on RHP session lifecycle events
-	RHPSessionReporter interface {
-		Subscribe(rhp.SessionSubscriber)
-		Unsubscribe(rhp.SessionSubscriber)
-
-		Active() []rhp.Session
-	}
-
 	// An api provides an HTTP API for the host
 	api struct {
 		hostKey types.PublicKey
@@ -168,7 +159,6 @@ type (
 		log      *zap.Logger
 		alerts   Alerts
 		webhooks Webhooks
-		sessions RHPSessionReporter
 
 		sqlite3Store SQLite3Store
 
@@ -201,22 +191,12 @@ func (a *api) requiresExplorer(h jape.Handler) jape.Handler {
 	}
 }
 
-// NewServer initializes the API
-// syncer
-// chain
-// accounts
-// contracts
-// volumes
-// wallet
-// metrics
-// settings
-// index
+// NewServer initializes the API server with the given options
 func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, am AccountManager, c ContractManager, vm VolumeManager, wm Wallet, mm MetricManager, sm Settings, im Index, opts ...ServerOption) http.Handler {
 	a := &api{
 		hostKey: hostKey,
 		name:    name,
 
-		sessions: noopSessionReporter{},
 		alerts:   noopAlerts{},
 		webhooks: noopWebhooks{},
 		log:      zap.NewNop(),
@@ -291,9 +271,6 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		"DELETE /volumes/:id":        a.handleDeleteVolume,
 		"DELETE /volumes/:id/cancel": a.handleDELETEVolumeCancelOp,
 		"PUT /volumes/:id/resize":    a.handlePUTVolumeResize,
-		// session endpoints
-		"GET /sessions":           a.handleGETSessions,
-		"GET /sessions/subscribe": a.handleGETSessionsSubscribe,
 		// tpool endpoints
 		"GET /tpool/fee": a.handleGETTPoolFee,
 		// wallet endpoints

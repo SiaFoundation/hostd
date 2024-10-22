@@ -7,6 +7,7 @@ import (
 	"time"
 
 	rhp3 "go.sia.tech/core/rhp/v3"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
@@ -40,7 +41,127 @@ func incrementContractAccountFunding(tx *txn, accountID, contractID int64, amoun
 	return nil
 }
 
+// RHP4AccountBalance returns the balance of the account with the given ID.
+func (s *Store) RHP4AccountBalance(account proto4.Account) (balance types.Currency, err error) {
+	err = s.transaction(func(tx *txn) error {
+		return tx.QueryRow(`SELECT balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(decode(&balance))
+	})
+	return
+}
+
+// RHP4DebitAccount debits the account with the given ID.
+func (s *Store) RHP4DebitAccount(account proto4.Account, usage contracts.V2Usage) error {
+	return s.transaction(func(tx *txn) error {
+		var dbID int64
+		var balance types.Currency
+		err := tx.QueryRow(`SELECT id, balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(&dbID, decode(&balance))
+		if err != nil {
+			return fmt.Errorf("failed to query balance: %w", err)
+		}
+
+		total := usage.RenterCost()
+		balance, underflow := balance.SubWithUnderflow(total)
+		if underflow {
+			return fmt.Errorf("insufficient balance")
+		}
+
+		_, err = tx.Exec(`UPDATE accounts SET balance=$1 WHERE id=$2`, encode(balance), dbID)
+		if err != nil {
+			return fmt.Errorf("failed to update balance: %w", err)
+		}
+
+		if err := incrementCurrencyStat(tx, metricAccountBalance, total, true, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment balance metric: %w", err)
+		}
+		// TODO: allocate usage to funding contracts
+		return nil
+	})
+}
+
+// RHP4CreditAccounts credits the accounts with the given deposits and revises
+// the contract.
+func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract, usage contracts.V2Usage) (balances []types.Currency, err error) {
+	err = s.transaction(func(tx *txn) error {
+		getBalanceStmt, err := tx.Prepare(`SELECT balance FROM accounts WHERE account_id=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare get balance statement: %w", err)
+		}
+		defer getBalanceStmt.Close()
+
+		updateBalanceStmt, err := tx.Prepare(`INSERT INTO accounts (account_id, balance, expiration_timestamp) VALUES ($1, $2, $3) ON CONFLICT (account_id) DO UPDATE SET balance=EXCLUDED.balance, expiration_timestamp=EXCLUDED.expiration_timestamp RETURNING id`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare update balance statement: %w", err)
+		}
+		defer updateBalanceStmt.Close()
+
+		getFundingAmountStmt, err := tx.Prepare(`SELECT amount FROM contract_v2_account_funding WHERE contract_id=$1 AND account_id=$2`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare get funding amount statement: %w", err)
+		}
+		defer getFundingAmountStmt.Close()
+
+		updateFundingAmountStmt, err := tx.Prepare(`INSERT INTO contract_v2_account_funding (contract_id, account_id, amount) VALUES ($1, $2, $3) ON CONFLICT (contract_id, account_id) DO UPDATE SET amount=EXCLUDED.amount`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare update funding amount statement: %w", err)
+		}
+		defer updateFundingAmountStmt.Close()
+
+		var contractDBID int64
+		err = tx.QueryRow(`SELECT id FROM contracts_v2 WHERE contract_id=$1`, encode(contractID)).Scan(&contractDBID)
+		if err != nil {
+			return fmt.Errorf("failed to get contract ID: %w", err)
+		}
+
+		var totalDeposits types.Currency
+		var createdAccounts int
+		for _, deposit := range deposits {
+			var balance types.Currency
+			err := getBalanceStmt.QueryRow(encode(deposit.Account)).Scan(decode(&balance))
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to get balance: %w", err)
+			} else if errors.Is(err, sql.ErrNoRows) {
+				createdAccounts++
+			}
+
+			balance = balance.Add(deposit.Amount)
+
+			var accountDBID int64
+			err = updateBalanceStmt.QueryRow(encode(deposit.Account), encode(balance), encode(time.Now().Add(90*24*time.Hour))).Scan(&accountDBID)
+			if err != nil {
+				return fmt.Errorf("failed to update balance: %w", err)
+			}
+			balances = append(balances, balance)
+
+			var fundAmount types.Currency
+			if err := getFundingAmountStmt.QueryRow(contractDBID, accountDBID).Scan(decode(&fundAmount)); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to get funding amount: %w", err)
+			}
+			fundAmount = fundAmount.Add(deposit.Amount)
+			if _, err := updateFundingAmountStmt.Exec(contractDBID, accountDBID, encode(fundAmount)); err != nil {
+				return fmt.Errorf("failed to update funding amount: %w", err)
+			}
+			totalDeposits = totalDeposits.Add(deposit.Amount)
+		}
+
+		_, err = reviseV2Contract(tx, contractID, revision, usage)
+		if err != nil {
+			return fmt.Errorf("failed to revise contract: %w", err)
+		}
+
+		if err := incrementCurrencyStat(tx, metricAccountBalance, totalDeposits, false, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment balance metric: %w", err)
+		} else if err := incrementNumericStat(tx, metricActiveAccounts, createdAccounts, time.Now()); err != nil {
+			return fmt.Errorf("failed to increment active accounts metric: %w", err)
+		}
+
+		return nil
+	})
+	return
+}
+
 // CreditAccountWithContract adds the specified amount to the account with the given ID.
+//
+// Deprecated: use CreditAccountsWithV2Contract instead.
 func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract) error {
 	return s.transaction(func(tx *txn) error {
 		// get current balance

@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/settings/pin"
+	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/testutil"
 	"go.uber.org/zap/zaptest"
 )
@@ -119,7 +120,13 @@ func TestPinnedFields(t *testing.T) {
 		currency: "usd",
 	}
 
-	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil)
+	storage, err := storage.NewVolumeManager(node.Store)
+	if err != nil {
+		t.Fatal("failed to create storage manager:", err)
+	}
+	defer storage.Close()
+
+	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil, storage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +225,13 @@ func TestAutomaticUpdate(t *testing.T) {
 		currency: "usd",
 	}
 
-	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil)
+	storage, err := storage.NewVolumeManager(node.Store)
+	if err != nil {
+		t.Fatal("failed to create storage manager:", err)
+	}
+	defer storage.Close()
+
+	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil, storage)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -96,22 +96,12 @@ func TestContractUpdater(t *testing.T) {
 			}
 			defer updater.Close()
 
-			var releaseFuncs []func() error
-			defer func() {
-				for _, release := range releaseFuncs {
-					if err := release(); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}()
-
 			for i := 0; i < test.append; i++ {
 				root := frand.Entropy256()
-				release, err := node.Store.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+				err := node.Store.StoreTempSector(root, 10, func(loc storage.SectorLocation) error { return nil })
 				if err != nil {
 					t.Fatal(err)
 				}
-				releaseFuncs = append(releaseFuncs, release)
 				updater.AppendSector(root)
 				roots = append(roots, root)
 			}
@@ -134,11 +124,6 @@ func TestContractUpdater(t *testing.T) {
 				t.Fatal(err)
 			} else if err := updater.Close(); err != nil {
 				t.Fatal(err)
-			}
-			for _, release := range releaseFuncs {
-				if err := release(); err != nil {
-					t.Fatal(err)
-				}
 			}
 
 			// check that the sector roots are correct in the database

@@ -1,3 +1,6 @@
+// Package accounts implements RHP3 ephemeral account management for the host.
+//
+// Deprecated: will be merged with the contractor and removed after the hardfork
 package accounts
 
 import (

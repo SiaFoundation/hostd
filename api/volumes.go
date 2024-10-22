@@ -224,10 +224,10 @@ func (a *api) handleGETVerifySector(jc jape.Context) {
 	}
 
 	// try to read the sector data and verify the root
-	data, err := a.volumes.Read(root)
+	sector, err := a.volumes.ReadSector(root)
 	if err != nil {
 		resp.Error = err.Error()
-	} else if calc := rhp2.SectorRoot(data); calc != root {
+	} else if calc := rhp2.SectorRoot(sector); calc != root {
 		resp.Error = fmt.Sprintf("sector is corrupt: expected root %q, got %q", root, calc)
 	}
 	jc.Encode(resp)

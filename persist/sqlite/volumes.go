@@ -273,6 +273,8 @@ WHERE v.id=$1`
 //
 // The sector should be referenced by either a contract or temp store
 // before release is called to prevent it from being pruned
+//
+// Deprecated: use StoreTempSector instead
 func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocation, exists bool) error) (func() error, error) {
 	var sectorLockID int64
 	var locationLocks []int64
@@ -351,6 +353,110 @@ func (s *Store) StoreSector(root types.Hash256, fn func(loc storage.SectorLocati
 		return nil, fmt.Errorf("failed to store sector: %w", err)
 	}
 	return unlock, nil
+}
+
+// StoreTempSector calls fn with an empty location in a writable volume.
+//
+// The sector must be written to disk within fn. If fn returns an error,
+// the metadata is rolled back. If no space is available, ErrNotEnoughStorage
+// is returned. If the sector is already stored, fn is skipped and nil
+// is returned.
+func (s *Store) StoreTempSector(root types.Hash256, expiration uint64, fn func(loc storage.SectorLocation) error) error {
+	var locationLocks []int64
+	var location storage.SectorLocation
+	var exists bool
+
+	// this weird manual locking and two-stage transaction is required to ensure
+	// atomicity with the disk without locking the whole database while
+	// waiting on IO that may be slow. In a database with saner locking, this
+	// could be a single transaction.
+	log := s.log.Named("StoreSector").With(zap.Stringer("root", root))
+	err := s.transaction(func(tx *txn) error {
+		var err error
+		sectorID, err := insertSectorDBID(tx, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+
+		// check if the sector is already stored on disk
+		location, err = sectorLocation(tx, sectorID, root)
+		exists = err == nil
+		if exists {
+			// skip if the sector is already stored
+			return nil
+		} else if err != nil && !errors.Is(err, storage.ErrSectorNotFound) {
+			return fmt.Errorf("failed to check existing sector location: %w", err)
+		}
+
+		location, err = emptyLocation(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get empty location: %w", err)
+		}
+
+		// lock the location
+		locationLocks, err = lockLocations(tx, []storage.SectorLocation{location})
+		if err != nil {
+			return fmt.Errorf("failed to lock sector location: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := s.transaction(func(tx *txn) error {
+			return unlockLocations(tx, locationLocks)
+		})
+		if err != nil {
+			log.Warn("failed to unlock sector location", zap.Error(err))
+		}
+	}()
+
+	if !exists {
+		// only call fn if the sector is not already stored
+		if err := fn(location); err != nil {
+			return fmt.Errorf("failed to store sector: %w", err)
+		}
+	}
+
+	// commit the sector
+	err = s.transaction(func(tx *txn) error {
+		sectorID, err := insertSectorDBID(tx, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+
+		_, err = tx.Exec(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) VALUES ($1, $2)`, sectorID, expiration)
+		if err != nil {
+			return fmt.Errorf("failed to commit temp sector: %w", err)
+		}
+
+		if err := incrementNumericStat(tx, metricTempSectors, 1, time.Now()); err != nil {
+			return fmt.Errorf("failed to update temp sector metric: %w", err)
+		}
+
+		if !exists {
+			// skip volume updates if the sector already exists
+			if err := incrementVolumeUsage(tx, location.Volume, 1); err != nil {
+				return fmt.Errorf("failed to update volume metadata: %w", err)
+			}
+
+			res, err := tx.Exec(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2`, sectorID, location.ID)
+			if err != nil {
+				return fmt.Errorf("failed to commit sector location: %w", err)
+			} else if rows, err := res.RowsAffected(); err != nil {
+				return fmt.Errorf("failed to check rows affected: %w", err)
+			} else if rows == 0 {
+				return storage.ErrSectorNotFound
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to commit sector: %w", err)
+	}
+	return nil
 }
 
 // MigrateSectors migrates each occupied sector of a volume starting at

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"go.sia.tech/coreutils/chain"
 	"go.uber.org/zap"
 )
 
@@ -44,5 +45,13 @@ func WithValidateNetAddress(validate bool) Option {
 func WithInitialSettings(settings Settings) Option {
 	return func(c *ConfigManager) {
 		c.initialSettings = settings
+	}
+}
+
+// WithRHP4AnnounceAddresses sets the addresses to announce on the blockchain
+// for RHP4.
+func WithRHP4AnnounceAddresses(addresses []chain.NetAddress) Option {
+	return func(c *ConfigManager) {
+		c.rhp4AnnounceAddresses = addresses
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/alerts"
@@ -94,6 +95,71 @@ func deleteSiadData(dir string) error {
 		}
 	}
 	return nil
+}
+
+func parseAnnounceAddresses(listen []config.RHP4ListenAddress, announce []config.RHP4AnnounceAddress) ([]chain.NetAddress, error) {
+	// build a map of the ports that each supported protocol is listening on
+	protocolPorts := make(map[chain.Protocol]map[uint16]bool)
+	for _, addr := range listen {
+		switch addr.Protocol {
+		case "tcp", "tcp4", "tcp6":
+			hostname, port, err := net.SplitHostPort(addr.Address)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse listen address %q: %w", addr.Address, err)
+			} else if ip := net.ParseIP(hostname); hostname != "" && ip == nil {
+				return nil, fmt.Errorf("rhp4 listen address %q should be an IP address", addr.Address)
+			}
+			ports, ok := protocolPorts[rhp4.ProtocolTCPSiaMux]
+			if !ok {
+				ports = make(map[uint16]bool)
+			}
+			n, err := strconv.ParseUint(port, 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse port %q: %w", port, err)
+			}
+			ports[uint16(n)] = true
+			protocolPorts[rhp4.ProtocolTCPSiaMux] = ports
+		default:
+			return nil, fmt.Errorf("unsupported protocol %q: %s", addr.Address, addr.Protocol)
+		}
+	}
+
+	var addrs []chain.NetAddress
+	for _, addr := range announce {
+		switch addr.Protocol {
+		case rhp4.ProtocolTCPSiaMux:
+		default:
+			return nil, fmt.Errorf("unsupported protocol %q", addr.Protocol)
+		}
+
+		hostname, port, err := net.SplitHostPort(addr.Address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse announce address %q: %w", addr.Address, err)
+		}
+		ip := net.ParseIP(hostname)
+		if ip != nil && (ip.IsLoopback() || ip.IsUnspecified() || ip.IsGlobalUnicast()) {
+			return nil, fmt.Errorf("invalid announce address %q: must be a public IP address", addr.Address)
+		}
+
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse port %q: %w", port, err)
+		}
+
+		// ensure the port is being listened on
+		ports, ok := protocolPorts[addr.Protocol]
+		if !ok {
+			return nil, fmt.Errorf("no listen address for protocol %q", addr.Protocol)
+		} else if !ports[uint16(n)] {
+			return nil, fmt.Errorf("no listen address for protocol %q port %d", addr.Protocol, n)
+		}
+
+		addrs = append(addrs, chain.NetAddress{
+			Protocol: addr.Protocol,
+			Address:  net.JoinHostPort(addr.Address, port),
+		})
+	}
+	return addrs, nil
 }
 
 // startLocalhostListener https://github.com/SiaFoundation/hostd/issues/202
@@ -186,18 +252,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer syncerListener.Close()
 
-	rhp2Listener, err := net.Listen("tcp", cfg.RHP2.Address)
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
-	}
-	defer rhp2Listener.Close()
-
-	rhp3Listener, err := net.Listen("tcp", cfg.RHP3.TCPAddress)
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
-	}
-	defer rhp3Listener.Close()
-
 	syncerAddr := syncerListener.Addr().String()
 	if cfg.Syncer.EnableUPnP {
 		_, portStr, _ := net.SplitHostPort(cfg.Syncer.Address)
@@ -234,9 +288,16 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
-	}, syncer.WithLogger(log.Named("syncer")))
+	}, syncer.WithLogger(log.Named("syncer")), syncer.WithMaxInboundPeers(64), syncer.WithMaxOutboundPeers(16))
 	go s.Run(ctx)
 	defer s.Close()
+
+	wr, err := webhooks.NewManager(store, log.Named("webhooks"))
+	if err != nil {
+		return fmt.Errorf("failed to create webhook reporter: %w", err)
+	}
+	defer wr.Close()
+	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
 
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {
@@ -244,42 +305,53 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer wm.Close()
 
-	wr, err := webhooks.NewManager(store, log.Named("webhooks"))
-	if err != nil {
-		return fmt.Errorf("failed to create webhook reporter: %w", err)
-	}
-	defer wr.Close()
-	sr := rhp.NewSessionReporter()
-
-	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
-
-	cfm, err := settings.NewConfigManager(hostKey, store, cm, s, wm, settings.WithAlertManager(am), settings.WithLog(log.Named("settings")))
-	if err != nil {
-		return fmt.Errorf("failed to create settings manager: %w", err)
-	}
-	defer cfm.Close()
-
 	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
 	if err != nil {
 		return fmt.Errorf("failed to create storage manager: %w", err)
 	}
 	defer vm.Close()
 
-	contractManager, err := contracts.NewManager(store, vm, cm, s, wm, contracts.WithLog(log.Named("contracts")), contracts.WithAlerter(am))
+	announceAddresses, err := parseAnnounceAddresses(cfg.RHP4.ListenAddresses, cfg.RHP4.AnnounceAddresses)
+	if err != nil {
+		return fmt.Errorf("failed to parse announce addresses: %w", err)
+	}
+
+	sm, err := settings.NewConfigManager(hostKey, store, cm, s, wm, vm,
+		settings.WithRHP4AnnounceAddresses(announceAddresses),
+		settings.WithAlertManager(am),
+		settings.WithLog(log.Named("settings")))
+	if err != nil {
+		return fmt.Errorf("failed to create settings manager: %w", err)
+	}
+	defer sm.Close()
+
+	contracts, err := contracts.NewManager(store, vm, cm, s, wm, contracts.WithLog(log.Named("contracts")), contracts.WithAlerter(am))
 	if err != nil {
 		return fmt.Errorf("failed to create contracts manager: %w", err)
 	}
-	defer contractManager.Close()
+	defer contracts.Close()
 
-	index, err := index.NewManager(store, cm, contractManager, wm, cfm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
+	index, err := index.NewManager(store, cm, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
 	if err != nil {
 		return fmt.Errorf("failed to create index manager: %w", err)
 	}
 	defer index.Close()
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
+	rl, wl := sm.RHPBandwidthLimiters()
+	rhp2Listener, err := rhp.Listen("tcp", cfg.RHP2.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+	if err != nil {
+		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
+	}
+	defer rhp2Listener.Close()
 
-	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, s, wm, contractManager, cfm, vm, rhp2.WithDataMonitor(dr), rhp2.WithLog(log.Named("rhp2")))
+	rhp3Listener, err := rhp.Listen("tcp", cfg.RHP3.TCPAddress, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+	if err != nil {
+		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
+	}
+	defer rhp3Listener.Close()
+
+	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, s, wm, contracts, sm, vm, log.Named("rhp2"))
 	if err != nil {
 		return fmt.Errorf("failed to create rhp2 session handler: %w", err)
 	}
@@ -287,24 +359,47 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer rhp2.Close()
 
 	registry := registry.NewManager(hostKey, store, log.Named("registry"))
-	accounts := accounts.NewManager(store, cfm)
-	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, cfm, rhp3.WithDataMonitor(dr), rhp3.WithSessionReporter(sr), rhp3.WithLog(log.Named("rhp3")))
+	accounts := accounts.NewManager(store, sm)
+	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contracts, registry, vm, sm, log.Named("rhp3"))
 	if err != nil {
 		return fmt.Errorf("failed to create rhp3 session handler: %w", err)
 	}
 	go rhp3.Serve()
 	defer rhp3.Close()
 
+	rhp4 := rhp4.NewServer(hostKey, cm, s, contracts, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute), rhp4.WithContractProofWindowBuffer(72))
+
+	var stopListenerFuncs []func() error
+	defer func() {
+		for _, f := range stopListenerFuncs {
+			if err := f(); err != nil {
+				log.Error("failed to stop listener", zap.Error(err))
+			}
+		}
+	}()
+	for _, addr := range cfg.RHP4.ListenAddresses {
+		switch addr.Protocol {
+		case "tcp", "tcp4", "tcp6":
+			l, err := rhp.Listen(addr.Protocol, addr.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+			if err != nil {
+				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
+			}
+			stopListenerFuncs = append(stopListenerFuncs, l.Close)
+			go rhp.ServeRHP4SiaMux(l, rhp4, log.Named("rhp4"))
+		default:
+			return fmt.Errorf("unsupported protocol: %s", addr.Protocol)
+		}
+	}
+
 	apiOpts := []api.ServerOption{
 		api.WithAlerts(am),
 		api.WithLogger(log.Named("api")),
-		api.WithRHPSessionReporter(sr),
 		api.WithWebhooks(wr),
 		api.WithSQLite3Store(store),
 	}
 	if !cfg.Explorer.Disable {
 		ex := explorer.New(cfg.Explorer.URL)
-		pm, err := pin.NewManager(store, cfm, ex, pin.WithLogger(log.Named("pin")))
+		pm, err := pin.NewManager(store, sm, ex, pin.WithLogger(log.Named("pin")))
 		if err != nil {
 			return fmt.Errorf("failed to create pin manager: %w", err)
 		}
@@ -314,7 +409,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	web := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contractManager, vm, wm, store, cfm, index, apiOpts...)),
+			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contracts, vm, wm, store, sm, index, apiOpts...)),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,

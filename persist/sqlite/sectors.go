@@ -80,6 +80,22 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 	})
 }
 
+// HasSector returns true if the sector is stored on the host or false
+// otherwise.
+func (s *Store) HasSector(root types.Hash256) (exists bool, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT 1 FROM stored_sectors ss
+	INNER JOIN volume_sectors vs ON ss.id=vs.sector_id
+	WHERE ss.sector_root=$1;`
+		err = tx.QueryRow(query, encode(root)).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	})
+	return
+}
+
 // SectorLocation returns the location of a sector or an error if the
 // sector is not found. The sector is locked until release is
 // called.
