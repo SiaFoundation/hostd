@@ -193,16 +193,10 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 			return fmt.Errorf("failed to update renewed contract: %w", err)
 		}
 
-		insertSectorsStmt, err := tx.Prepare(`INSERT INTO contract_v2_sector_roots (contract_id, sector_id, root_index) VALUES ($1, $2, $3)`)
+		// move the sector roots from the old contract to the new contract
+		_, err = tx.Exec(`UPDATE contract_v2_sector_roots SET contract_id=$1 WHERE contract_id=$2`, renewedDBID, clearedDBID)
 		if err != nil {
-			return fmt.Errorf("failed to prepare insert sectors statement: %w", err)
-		}
-		defer insertSectorsStmt.Close()
-
-		for i, root := range roots {
-			if _, err := insertSectorsStmt.Exec(renewedDBID, encode(root), i); err != nil {
-				return fmt.Errorf("failed to insert sector root: %w", err)
-			}
+			return fmt.Errorf("failed to copy sector roots: %w", err)
 		}
 		return nil
 	})
