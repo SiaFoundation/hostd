@@ -92,6 +92,8 @@ func (m *ConfigManager) Announce() error {
 	return nil
 }
 
+// validateNetAddress validates a net address.
+//
 // Deprecated: remove after hardfork
 func validateNetAddress(netaddress string) error {
 	host, port, err := net.SplitHostPort(netaddress)

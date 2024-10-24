@@ -97,6 +97,71 @@ func deleteSiadData(dir string) error {
 	return nil
 }
 
+func parseAnnounceAddresses(listen []config.RHP4ListenAddress, announce []config.RHP4AnnounceAddress) ([]chain.NetAddress, error) {
+	// build a map of the ports that each supported protocol is listening on
+	protocolPorts := make(map[chain.Protocol]map[uint16]bool)
+	for _, addr := range listen {
+		switch addr.Protocol {
+		case "tcp", "tcp4", "tcp6":
+			hostname, port, err := net.SplitHostPort(addr.Address)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse listen address %q: %w", addr.Address, err)
+			} else if ip := net.ParseIP(hostname); len(hostname) != 0 && ip == nil {
+				return nil, fmt.Errorf("rhp4 listen address %q should be an IP address", addr.Address)
+			}
+			ports, ok := protocolPorts[rhp4.ProtocolTCPSiaMux]
+			if !ok {
+				ports = make(map[uint16]bool)
+			}
+			n, err := strconv.ParseUint(port, 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse port %q: %w", port, err)
+			}
+			ports[uint16(n)] = true
+			protocolPorts[rhp4.ProtocolTCPSiaMux] = ports
+		default:
+			return nil, fmt.Errorf("unsupported protocol %q: %s", addr.Address, addr.Protocol)
+		}
+	}
+
+	var addrs []chain.NetAddress
+	for _, addr := range announce {
+		switch addr.Protocol {
+		case rhp4.ProtocolTCPSiaMux:
+		default:
+			return nil, fmt.Errorf("unsupported protocol %q", addr.Protocol)
+		}
+
+		hostname, port, err := net.SplitHostPort(addr.Address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse announce address %q: %w", addr.Address, err)
+		}
+		ip := net.ParseIP(hostname)
+		if ip != nil && (ip.IsLoopback() || ip.IsUnspecified() || ip.IsGlobalUnicast()) {
+			return nil, fmt.Errorf("invalid announce address %q: must be a public IP address", addr.Address)
+		}
+
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse port %q: %w", port, err)
+		}
+
+		// ensure the port is being listened on
+		ports, ok := protocolPorts[addr.Protocol]
+		if !ok {
+			return nil, fmt.Errorf("no listen address for protocol %q", addr.Protocol)
+		} else if !ports[uint16(n)] {
+			return nil, fmt.Errorf("no listen address for protocol %q port %d", addr.Protocol, n)
+		}
+
+		addrs = append(addrs, chain.NetAddress{
+			Protocol: addr.Protocol,
+			Address:  net.JoinHostPort(addr.Address, port),
+		})
+	}
+	return addrs, nil
+}
+
 // startLocalhostListener https://github.com/SiaFoundation/hostd/issues/202
 func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener, err error) {
 	addr, port, err := net.SplitHostPort(listenAddr)
@@ -246,7 +311,15 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer vm.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, store, cm, s, wm, vm, settings.WithAlertManager(am), settings.WithLog(log.Named("settings")))
+	announceAddresses, err := parseAnnounceAddresses(cfg.RHP4.ListenAddresses, cfg.RHP4.AnnounceAddresses)
+	if err != nil {
+		return fmt.Errorf("failed to parse announce addresses: %w", err)
+	}
+
+	sm, err := settings.NewConfigManager(hostKey, store, cm, s, wm, vm,
+		settings.WithRHP4AnnounceAddresses(announceAddresses),
+		settings.WithAlertManager(am),
+		settings.WithLog(log.Named("settings")))
 	if err != nil {
 		return fmt.Errorf("failed to create settings manager: %w", err)
 	}
