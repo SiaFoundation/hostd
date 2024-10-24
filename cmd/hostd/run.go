@@ -106,7 +106,7 @@ func parseAnnounceAddresses(listen []config.RHP4ListenAddress, announce []config
 			hostname, port, err := net.SplitHostPort(addr.Address)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse listen address %q: %w", addr.Address, err)
-			} else if ip := net.ParseIP(hostname); len(hostname) != 0 && ip == nil {
+			} else if ip := net.ParseIP(hostname); hostname != "" && ip == nil {
 				return nil, fmt.Errorf("rhp4 listen address %q should be an IP address", addr.Address)
 			}
 			ports, ok := protocolPorts[rhp4.ProtocolTCPSiaMux]
