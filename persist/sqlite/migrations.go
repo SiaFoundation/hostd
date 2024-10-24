@@ -10,6 +10,11 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion31(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`ALTER TABLE global_settings ADD COLUMN last_v2_announce_hash BLOB`)
+	return err
+}
+
 func migrateVersion30(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 ALTER TABLE contracts_v2 DROP COLUMN registry_read;
@@ -923,4 +928,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion28,
 	migrateVersion29,
 	migrateVersion30,
+	migrateVersion31,
 }

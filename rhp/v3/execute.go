@@ -227,7 +227,7 @@ func (pe *programExecutor) executeReadOffset(instr *rhp3.InstrReadOffset, log *z
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.storage.Read(root)
+	sector, err := pe.storage.ReadSector(root)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
@@ -240,7 +240,7 @@ func (pe *programExecutor) executeReadOffset(instr *rhp3.InstrReadOffset, log *z
 	proofStartTime := time.Now()
 	proofStart := relOffset / rhp2.LeafSize
 	proofEnd := (relOffset + length) / rhp2.LeafSize
-	proof := rhp2.BuildProof(sector, proofStart, proofEnd, nil)
+	proof := rhp2.BuildProof(&sector, proofStart, proofEnd, nil)
 	log.Debug("built proof", zap.Duration("duration", time.Since(proofStartTime)))
 	return sector[relOffset : relOffset+length], proof, nil
 }
@@ -276,7 +276,7 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 	}
 
 	// read the sector
-	sector, err := pe.storage.Read(root)
+	sector, err := pe.storage.ReadSector(root)
 	if errors.Is(err, storage.ErrSectorNotFound) {
 		log.Debug("failed to read sector", zap.String("root", root.String()), zap.Error(err))
 		return nil, nil, storage.ErrSectorNotFound
@@ -293,7 +293,7 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 	proofStartTime := time.Now()
 	proofStart := offset / rhp2.LeafSize
 	proofEnd := (offset + length) / rhp2.LeafSize
-	proof := rhp2.BuildProof(sector, proofStart, proofEnd, nil)
+	proof := rhp2.BuildProof(&sector, proofStart, proofEnd, nil)
 	log.Debug("built proof", zap.Duration("duration", time.Since(proofStartTime)))
 	return sector[offset : offset+length], proof, nil
 }
@@ -365,7 +365,7 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.storage.Read(oldRoot)
+	sector, err := pe.storage.ReadSector(oldRoot)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
@@ -377,8 +377,8 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 	copy(sector[relOffset:], patch)
 
 	// store the new sector
-	newRoot := rhp2.SectorRoot((*[rhp2.SectorSize]byte)(sector))
-	release, err := pe.storage.Write(newRoot, sector)
+	newRoot := rhp2.SectorRoot(&sector)
+	release, err := pe.storage.Write(newRoot, &sector)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
 	}

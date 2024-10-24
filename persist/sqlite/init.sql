@@ -30,6 +30,7 @@ CREATE TABLE stored_sectors (
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
 CREATE INDEX stored_sectors_last_access ON stored_sectors(last_access_timestamp);
 
+-- TODO: remove after hardfork
 CREATE TABLE locked_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
 	id INTEGER PRIMARY KEY,
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id)
@@ -296,7 +297,8 @@ CREATE TABLE global_settings (
 	wallet_hash BLOB, -- used to prevent wallet seed changes
 	last_scanned_index BLOB, -- chain index of the last scanned block
 	last_announce_index BLOB, -- chain index of the last host announcement
-	last_announce_address TEXT -- address of the last host announcement
+	last_announce_address TEXT, -- address of the last host announcement
+ 	last_v2_announce_hash BLOB -- hash of the last v2 host announcement
 );
 
 -- initialize the global settings table

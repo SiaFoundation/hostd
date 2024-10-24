@@ -144,13 +144,6 @@ type (
 		RenewedFrom types.FileContractID `json:"renewedFrom"`
 	}
 
-	// A V2FormationTransactionSet contains the formation transaction set for a
-	// v2 contract.
-	V2FormationTransactionSet struct {
-		TransactionSet []types.V2Transaction
-		Basis          types.ChainIndex
-	}
-
 	// A Contract contains metadata on the current state of a file contract.
 	Contract struct {
 		SignedRevision
@@ -259,6 +252,11 @@ var (
 	// the contract already exists.
 	ErrContractExists = errors.New("contract already exists")
 )
+
+// RenterCost returns the total cost of the usage to the renter.
+func (u V2Usage) RenterCost() types.Currency {
+	return u.RPCRevenue.Add(u.StorageRevenue).Add(u.EgressRevenue).Add(u.IngressRevenue).Add(u.AccountFunding)
+}
 
 // Add returns u + b
 func (a Usage) Add(b Usage) (c Usage) {
