@@ -54,6 +54,9 @@ type (
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddPoolTransactions([]types.Transaction) (known bool, err error)
 
+		PoolTransactions() []types.Transaction
+		V2PoolTransactions() []types.V2Transaction
+
 		V2TransactionSet(types.ChainIndex, types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
 	}

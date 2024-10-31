@@ -107,6 +107,33 @@ func (cm *ConfigManager) UpdateChainState(tx UpdateStateTx, reverted []chain.Rev
 // ProcessActions processes announcement actions based on the given chain index.
 func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 	n := m.chain.TipState().Network
+	hostPub := m.hostKey.PublicKey()
+
+	// check if there is an unconfirmed announcement
+	var unconfirmedAnnouncement bool
+	for _, txn := range m.chain.PoolTransactions() {
+		var ha chain.HostAnnouncement
+		for _, arb := range txn.ArbitraryData {
+			if !ha.FromArbitraryData(arb) {
+				continue
+			} else if ha.PublicKey == hostPub {
+				unconfirmedAnnouncement = true
+				break
+			}
+		}
+	}
+	for _, txn := range m.chain.V2PoolTransactions() {
+		for _, att := range txn.Attestations {
+			if att.PublicKey == hostPub {
+				unconfirmedAnnouncement = true
+				break
+			}
+		}
+	}
+
+	if unconfirmedAnnouncement {
+		return nil
+	}
 
 	var shouldAnnounce bool
 	if index.Height < n.HardforkV2.AllowHeight {
@@ -118,7 +145,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 		nextHeight := announcement.Index.Height + m.announceInterval
 		netaddress := m.Settings().NetAddress
 		if err := validateNetAddress(netaddress); err != nil && m.validateNetAddress {
-			m.log.Warn("invalid net address", zap.String("address", netaddress), zap.Error(err))
+			m.log.Debug("failed to validate net address", zap.Error(err))
 			return nil
 		}
 		shouldAnnounce = index.Height >= nextHeight || announcement.Address != netaddress
@@ -139,7 +166,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 
 	if shouldAnnounce {
 		if err := m.Announce(); err != nil {
-			m.log.Warn("failed to announce", zap.Error(err))
+			m.log.Debug("failed to announce", zap.Error(err))
 		}
 	}
 	return nil
