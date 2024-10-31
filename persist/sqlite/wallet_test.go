@@ -31,6 +31,29 @@ func TestWalletMetrics(t *testing.T) {
 		}
 	}
 
+	assertEvent := func(t *testing.T, db *sqlite.Store, eventID types.Hash256, outflow, inflow types.Currency) {
+		t.Helper()
+
+		events, err := db.WalletEvents(0, 1000)
+		if err != nil {
+			t.Fatal(err)
+		} else if events == nil {
+			t.Fatalf("event %v not found", eventID)
+		}
+		for _, e := range events {
+			t.Log("event", e.ID)
+			if e.ID == eventID {
+				if !e.SiacoinOutflow().Equals(outflow) {
+					t.Fatalf("expected outflow %v, got %v", outflow, e.SiacoinOutflow())
+				} else if !e.SiacoinInflow().Equals(inflow) {
+					t.Fatalf("expected inflow %v, got %v", inflow, e.SiacoinInflow())
+				}
+				return
+			}
+		}
+		t.Fatalf("event %q not found", eventID)
+	}
+
 	assertWalletMetrics := func(t *testing.T, db *sqlite.Store, mature types.Currency, immature types.Currency) {
 		t.Helper()
 
@@ -45,17 +68,21 @@ func TestWalletMetrics(t *testing.T) {
 	}
 
 	var expectedMature types.Currency
-	expectedImmature := n1.Chain.TipState().BlockReward()
+	cs := n1.Chain.TipState()
+	expectedImmature := cs.BlockReward()
 
 	// mine a single block to get the first block reward
 	mineAndSync(t, n1, h1.Wallet.Address(), 1)
+	eventID := types.Hash256(n1.Chain.Tip().ID.MinerOutputID(0))
 	assertWalletMetrics(t, h1.Store, expectedMature, expectedImmature)
+	assertEvent(t, h1.Store, eventID, types.ZeroCurrency, expectedImmature)
 
 	// mine until the first block reward matures
 	mineAndSync(t, n1, types.VoidAddress, int(network.MaturityDelay))
 	expectedMature = expectedImmature
 	expectedImmature = types.ZeroCurrency
 	assertWalletMetrics(t, h1.Store, expectedMature, expectedImmature)
+	assertEvent(t, h1.Store, eventID, types.ZeroCurrency, expectedMature)
 
 	// mine a secondary chain to reorg the first chain
 	n2 := testutil.NewConsensusNode(t, network, genesis, log.Named("node2"))
