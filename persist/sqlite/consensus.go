@@ -1,8 +1,8 @@
 package sqlite
 
 import (
+	"bytes"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -656,12 +656,14 @@ func createWalletEvents(tx *txn, events []wallet.Event) error {
 	}
 	defer stmt.Close()
 
+	buf := bytes.NewBuffer(nil)
+	enc := types.NewEncoder(buf)
 	for _, event := range events {
-		buf, err := json.Marshal(event)
-		if err != nil {
-			return fmt.Errorf("failed to marshal wallet event: %w", err)
-		}
-		if _, err := stmt.Exec(encode(event.ID), encode(event.Index), event.MaturityHeight, event.Type, buf); err != nil {
+		buf.Reset()
+		event.EncodeTo(enc)
+		_ = enc.Flush() // writes cannot fail
+
+		if _, err := stmt.Exec(encode(event.ID), encode(event.Index), event.MaturityHeight, event.Type, buf.Bytes()); err != nil {
 			return fmt.Errorf("failed to insert wallet event: %w", err)
 		}
 	}

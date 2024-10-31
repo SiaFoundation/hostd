@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -57,13 +56,9 @@ func (s *Store) WalletEvents(offset, limit int) (events []wallet.Event, err erro
 		defer rows.Close()
 
 		for rows.Next() {
-			var buf []byte
-			if err := rows.Scan(&buf); err != nil {
-				return fmt.Errorf("failed to scan wallet event: %w", err)
-			}
 			var event wallet.Event
-			if err := json.Unmarshal(buf, &event); err != nil {
-				return fmt.Errorf("failed to unmarshal wallet event: %w", err)
+			if err := rows.Scan(decode(&event)); err != nil {
+				return fmt.Errorf("failed to scan wallet event: %w", err)
 			}
 			events = append(events, event)
 		}
