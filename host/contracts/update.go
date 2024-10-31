@@ -7,6 +7,7 @@ import (
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/coreutils/wallet"
 	"go.uber.org/zap"
 )
 
@@ -58,12 +59,9 @@ type (
 	// An UpdateStateTx atomically updates the state of contracts in the contract
 	// store.
 	UpdateStateTx interface {
-		// ContractStateElements returns all state elements from the contract
-		// store
-		ContractStateElements() ([]types.StateElement, error)
-		// UpdateContractStateElements updates the state elements in the host
+		// UpdateContractElementProofs updates the state elements in the host
 		// contract store
-		UpdateContractStateElements([]types.StateElement) error
+		UpdateContractElementProofs(wallet.ProofUpdater) error
 		// ContractRelevant returns whether the contract with the provided id is
 		// relevant to the host
 		ContractRelevant(id types.FileContractID) (bool, error)
@@ -81,18 +79,18 @@ type (
 		// been confirmed to rejected
 		RejectContracts(height uint64) (v1, v2 []types.FileContractID, err error)
 
-		// ContractChainIndexElements returns all chain index elements from the
-		// contract store
-		ContractChainIndexElements() (elements []types.ChainIndexElement, err error)
-		// ApplyContractChainIndexElements adds or updates the merkle proof of
+		// AddContractChainIndexElement adds or updates the merkle proof of
 		// chain index state elements
-		ApplyContractChainIndexElements(elements []types.ChainIndexElement) error
+		AddContractChainIndexElement(elements types.ChainIndexElement) error
 		// RevertContractChainIndexElements removes chain index state elements
 		// that were reverted
 		RevertContractChainIndexElement(types.ChainIndex) error
+		// UpdateChainIndexElementProofs returns all chain index elements from the
+		// contract store
+		UpdateChainIndexElementProofs(wallet.ProofUpdater) error
 		// DeleteExpiredContractChainIndexElements deletes chain index state
 		// elements that are no long necessary
-		DeleteExpiredContractChainIndexElements(height uint64) error
+		DeleteExpiredChainIndexElements(height uint64) error
 	}
 )
 
@@ -533,20 +531,6 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
 	log := cm.log.Named("updateChainState")
 
-	chainElements, err := tx.ContractChainIndexElements()
-	if err != nil {
-		return fmt.Errorf("failed to get chain index state elements: %w", err)
-	}
-
-	v2ContractStateElements, err := tx.ContractStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get contract state elements: %w", err)
-	}
-	v2ContractElementMap := make(map[types.Hash256]*types.StateElement, len(v2ContractStateElements))
-	for _, ele := range v2ContractStateElements {
-		v2ContractElementMap[ele.ID] = &ele
-	}
-
 	for _, cru := range reverted {
 		revertedIndex := types.ChainIndex{
 			ID:     cru.Block.ID(),
@@ -557,32 +541,12 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		state := buildContractState(tx, cru, true, log.Named("revert").With(zap.Stringer("index", revertedIndex)))
 		if err := tx.RevertContracts(revertedIndex, state); err != nil {
 			return fmt.Errorf("failed to revert contracts: %w", err)
-		}
-
-		// delete reverted contract state elements from the map
-		for _, reverted := range state.ConfirmedV2 {
-			delete(v2ContractElementMap, reverted.ID)
-		}
-		// update remaining contract state elements
-		for key := range v2ContractElementMap {
-			cru.UpdateElementProof(v2ContractElementMap[key])
-		}
-
-		// revert contract chain index element
-		if err := tx.RevertContractChainIndexElement(revertedIndex); err != nil {
+		} else if err := tx.RevertContractChainIndexElement(revertedIndex); err != nil {
 			return fmt.Errorf("failed to revert chain index state element: %w", err)
-		}
-
-		// update chain state elements
-		if len(chainElements) > 0 {
-			last := chainElements[len(chainElements)-1]
-			if last.ChainIndex != revertedIndex {
-				panic(fmt.Errorf("unexpected chain index: %v != %v", last.ChainIndex, revertedIndex)) // developer error
-			}
-			chainElements = chainElements[:len(chainElements)-1]
-			for i := range chainElements {
-				cru.UpdateElementProof(&chainElements[i].StateElement)
-			}
+		} else if err := tx.UpdateChainIndexElementProofs(cru); err != nil {
+			return fmt.Errorf("failed to update chain index elements: %w", err)
+		} else if err := tx.UpdateContractElementProofs(cru); err != nil {
+			return fmt.Errorf("failed to update contract element proofs: %w", err)
 		}
 	}
 
@@ -593,23 +557,12 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 			return fmt.Errorf("failed to revert contracts: %w", err)
 		}
 
-		// update existing contract state elements
-		for id := range v2ContractElementMap {
-			cau.UpdateElementProof(v2ContractElementMap[id])
-		}
-		// add new contract state elements
-		for _, applied := range state.ConfirmedV2 {
-			v2ContractElementMap[applied.ID] = &applied.StateElement
-		}
-
-		// update existing chain index elements proofs
-		for i := range chainElements {
-			cau.UpdateElementProof(&chainElements[i].StateElement)
-		}
-		// add new chain index element
-		chainElements = append(chainElements, cau.ChainIndexElement())
-		if len(chainElements) > chainIndexBuffer {
-			chainElements = chainElements[len(chainElements)-chainIndexBuffer:]
+		if err := tx.UpdateChainIndexElementProofs(cau); err != nil {
+			return fmt.Errorf("failed to update chain index elements: %w", err)
+		} else if err := tx.UpdateContractElementProofs(cau); err != nil {
+			return fmt.Errorf("failed to update contract element proofs: %w", err)
+		} else if err := tx.AddContractChainIndexElement(cau.ChainIndexElement()); err != nil {
+			return fmt.Errorf("failed to add chain index state element: %w", err)
 		}
 
 		// reject any contracts that have not been confirmed after the reject buffer
@@ -632,27 +585,9 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		// delete any chain index elements outside of the proof window buffer
 		if cau.State.Index.Height > chainIndexBuffer {
 			minHeight := cau.State.Index.Height - chainIndexBuffer
-			if err := tx.DeleteExpiredContractChainIndexElements(minHeight); err != nil {
+			if err := tx.DeleteExpiredChainIndexElements(minHeight); err != nil {
 				return fmt.Errorf("failed to delete expired chain index elements: %w", err)
 			}
-		}
-	}
-
-	// update chain index state elements
-	if len(chainElements) > 0 {
-		if err := tx.ApplyContractChainIndexElements(chainElements); err != nil {
-			return fmt.Errorf("failed to update chain index state elements: %w", err)
-		}
-	}
-
-	// update contract state elements
-	if len(v2ContractElementMap) > 0 {
-		contractStateElements := make([]types.StateElement, 0, len(v2ContractElementMap))
-		for _, ele := range v2ContractElementMap {
-			contractStateElements = append(contractStateElements, *ele)
-		}
-		if err := tx.UpdateContractStateElements(contractStateElements); err != nil {
-			return fmt.Errorf("failed to update contract state elements: %w", err)
 		}
 	}
 	return nil

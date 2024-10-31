@@ -107,7 +107,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -213,7 +213,7 @@ func TestRenew(t *testing.T) {
 	}
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -421,7 +421,7 @@ func TestRPCV2(t *testing.T) {
 	}
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {

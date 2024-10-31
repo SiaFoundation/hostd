@@ -39,6 +39,8 @@ type (
 		UpdateSettings(s Settings) error
 
 		LastAnnouncement() (Announcement, error)
+		// LastV2AnnouncementHash returns the hash of the last v2 announcement.
+		LastV2AnnouncementHash() (types.Hash256, types.ChainIndex, error)
 	}
 
 	// ChainManager defines the interface required by the contract manager to

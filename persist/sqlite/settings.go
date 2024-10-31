@@ -180,6 +180,19 @@ func (s *Store) LastAnnouncement() (ann settings.Announcement, err error) {
 	return
 }
 
+// LastV2AnnouncementHash returns the hash of the last v2 announcement and the
+// chain index it was confirmed in.
+func (s *Store) LastV2AnnouncementHash() (h types.Hash256, index types.ChainIndex, err error) {
+	err = s.transaction(func(tx *txn) error {
+		return tx.QueryRow(`SELECT last_v2_announce_hash, last_announce_index FROM global_settings`).
+			Scan(decodeNullable(&h), decodeNullable(&index))
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.Hash256{}, types.ChainIndex{}, nil
+	}
+	return
+}
+
 // UpdateLastAnnouncement updates the last announcement.
 func (s *Store) UpdateLastAnnouncement(ann settings.Announcement) error {
 	const query = `UPDATE global_settings SET last_announce_index=$1, last_announce_address=$2;`

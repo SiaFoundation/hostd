@@ -133,11 +133,11 @@ FROM contracts_v2 c
 INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
 WHERE c.contract_id=?`
 
-		err := tx.QueryRow(query, encode(contractID)).Scan(decode(&ele.V2FileContract), decode(&ele.LeafIndex), decode(&ele.MerkleProof))
+		err := tx.QueryRow(query, encode(contractID)).Scan(decode(&ele.V2FileContract), decode(&ele.StateElement.LeafIndex), decode(&ele.StateElement.MerkleProof))
 		if errors.Is(err, sql.ErrNoRows) {
 			return contracts.ErrNotFound
 		}
-		ele.ID = types.Hash256(contractID)
+		ele.ID = contractID
 		return err
 	})
 	return
@@ -551,9 +551,9 @@ func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight 
 // ContractChainIndexElement returns the chain index element for the given height.
 func (s *Store) ContractChainIndexElement(index types.ChainIndex) (element types.ChainIndexElement, err error) {
 	err = s.transaction(func(tx *txn) error {
-		err := tx.QueryRow(`SELECT leaf_index, merkle_proof FROM contracts_v2_chain_index_elements WHERE id=? AND height=?`, encode(index.ID), index.Height).Scan(decode(&element.LeafIndex), decode(&element.MerkleProof))
+		err := tx.QueryRow(`SELECT leaf_index, merkle_proof FROM contracts_v2_chain_index_elements WHERE id=? AND height=?`, encode(index.ID), index.Height).Scan(decode(&element.StateElement.LeafIndex), decode(&element.StateElement.MerkleProof))
 		element.ChainIndex = index
-		element.ID = types.Hash256(index.ID)
+		element.ID = index.ID
 		return err
 	})
 	return
@@ -986,8 +986,8 @@ func broadcastV2Revision(tx *txn, index types.ChainIndex, revisionBroadcastHeigh
 
 		err = rows.Scan(decode(&rev.Revision),
 			decode(&rev.Parent.ID),
-			decode(&rev.Parent.LeafIndex),
-			decode(&rev.Parent.MerkleProof),
+			decode(&rev.Parent.StateElement.LeafIndex),
+			decode(&rev.Parent.StateElement.MerkleProof),
 			decode(&rev.Parent.V2FileContract))
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan contract: %w", err)
@@ -1014,7 +1014,7 @@ func proofV2Contracts(tx *txn, index types.ChainIndex) (elements []types.V2FileC
 
 	for rows.Next() {
 		var fce types.V2FileContractElement
-		if err := rows.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.LeafIndex), decode(&fce.MerkleProof)); err != nil {
+		if err := rows.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.StateElement.LeafIndex), decode(&fce.StateElement.MerkleProof)); err != nil {
 			return nil, fmt.Errorf("failed to scan contract: %w", err)
 		}
 		elements = append(elements, fce)
@@ -1039,7 +1039,7 @@ func expireV2Contracts(tx *txn, index types.ChainIndex) (elements []types.V2File
 
 	for rows.Next() {
 		var fce types.V2FileContractElement
-		if err := rows.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.LeafIndex), decode(&fce.MerkleProof)); err != nil {
+		if err := rows.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.StateElement.LeafIndex), decode(&fce.StateElement.MerkleProof)); err != nil {
 			return nil, fmt.Errorf("failed to scan contract: %w", err)
 		}
 		elements = append(elements, fce)

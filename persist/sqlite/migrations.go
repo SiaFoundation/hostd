@@ -10,6 +10,22 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion31(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+ALTER TABLE global_settings ADD COLUMN last_v2_announce_hash BLOB;
+-- reset v2 contracts (should be no-op)
+DELETE FROM contracts_v2_chain_index_elements;
+DELETE FROM contract_v2_state_elements;
+-- reset wallet
+DELETE FROM wallet_siacoin_elements;
+DELETE FROM wallet_events;
+-- reset wallet metrics
+DELETE FROM host_stats WHERE stat IN (?,?); -- reset wallet stats since they are derived from the chain
+-- trigger rescan
+UPDATE global_settings SET last_scanned_index=NULL;`, metricWalletBalance, metricWalletImmatureBalance)
+	return err
+}
+
 func migrateVersion30(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 ALTER TABLE contracts_v2 DROP COLUMN registry_read;
@@ -923,4 +939,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion28,
 	migrateVersion29,
 	migrateVersion30,
+	migrateVersion31,
 }
