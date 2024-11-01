@@ -119,6 +119,7 @@ type (
 	Syncer interface {
 		Addr() string
 		Peers() []*syncer.Peer
+		PeerInfo(string) (syncer.PeerInfo, error)
 		Connect(ctx context.Context, addr string) (*syncer.Peer, error)
 
 		BroadcastTransactionSet(txns []types.Transaction)

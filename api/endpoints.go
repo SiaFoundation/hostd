@@ -12,6 +12,7 @@ import (
 
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/metrics"
@@ -112,15 +113,29 @@ func (a *api) handleGETSyncerAddr(jc jape.Context) {
 }
 
 func (a *api) handleGETSyncerPeers(jc jape.Context) {
-	p := a.syncer.Peers()
-	peers := make([]Peer, len(p))
-	for i, peer := range p {
-		peers[i] = Peer{
-			Address: peer.ConnAddr,
-			Version: peer.Version(),
+	var peers []Peer
+	for _, p := range a.syncer.Peers() {
+		// create peer response with known fields
+		peer := Peer{
+			Address: p.Addr(),
+			Inbound: p.Inbound,
+			Version: p.Version(),
 		}
+		//  add more info if available
+		info, err := a.syncer.PeerInfo(p.Addr())
+		if errors.Is(err, syncer.ErrPeerNotFound) {
+			continue
+		} else if err != nil {
+			jc.Error(err, http.StatusInternalServerError)
+			return
+		}
+		peer.FirstSeen = info.FirstSeen
+		peer.ConnectedSince = info.LastConnect
+		peer.SyncedBlocks = info.SyncedBlocks
+		peer.SyncDuration = info.SyncDuration
+		peers = append(peers, peer)
 	}
-	a.writeResponse(jc, PeerResp(peers))
+	jc.Encode(peers)
 }
 
 func (a *api) handlePUTSyncerPeer(jc jape.Context) {
