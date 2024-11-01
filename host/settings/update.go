@@ -113,9 +113,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 	for _, txn := range m.chain.PoolTransactions() {
 		var ha chain.HostAnnouncement
 		for _, arb := range txn.ArbitraryData {
-			if !ha.FromArbitraryData(arb) {
-				continue
-			} else if ha.PublicKey == hostPub {
+			if ha.FromArbitraryData(arb) && ha.PublicKey == hostPub {
 				return nil
 			}
 		}
