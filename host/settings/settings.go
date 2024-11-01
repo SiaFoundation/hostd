@@ -39,6 +39,8 @@ type (
 		UpdateSettings(s Settings) error
 
 		LastAnnouncement() (Announcement, error)
+		// LastV2AnnouncementHash returns the hash of the last v2 announcement.
+		LastV2AnnouncementHash() (types.Hash256, types.ChainIndex, error)
 	}
 
 	// ChainManager defines the interface required by the contract manager to
@@ -51,6 +53,9 @@ type (
 
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddPoolTransactions([]types.Transaction) (known bool, err error)
+
+		PoolTransactions() []types.Transaction
+		V2PoolTransactions() []types.V2Transaction
 
 		V2TransactionSet(types.ChainIndex, types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)

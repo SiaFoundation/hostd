@@ -129,7 +129,7 @@ func TestPriceTable(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -199,7 +199,7 @@ func TestAppendSector(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -278,7 +278,7 @@ func TestStoreSector(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -348,7 +348,7 @@ func TestReadSectorOffset(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -412,7 +412,7 @@ func TestRenew(t *testing.T) {
 	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)
@@ -606,7 +606,7 @@ func TestRPCV2(t *testing.T) {
 	}
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	// start the node
 	sh2, sh3 := setupRHP3Host(t, node, hostKey, 10, log)

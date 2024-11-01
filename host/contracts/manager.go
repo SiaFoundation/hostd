@@ -355,14 +355,12 @@ func (cm *Manager) RenewV2Contract(renewal V2FormationTransactionSet, usage V2Us
 	fc := resolution.NewContract
 
 	// sanity checks
-	if finalRevision.FileMerkleRoot != (types.Hash256{}) {
-		return errors.New("existing contract must be cleared")
-	} else if finalRevision.Filesize != 0 {
-		return errors.New("existing contract must be cleared")
-	} else if finalRevision.RevisionNumber != types.MaxRevisionNumber {
+	if finalRevision.RevisionNumber != types.MaxRevisionNumber {
 		return errors.New("existing contract must be cleared")
 	} else if fc.Filesize != existing.Filesize {
 		return errors.New("renewal contract must have same file size as existing contract")
+	} else if fc.Capacity != existing.Capacity {
+		return errors.New("renewal contract must have same capacity as existing contract")
 	} else if fc.FileMerkleRoot != existing.FileMerkleRoot {
 		return errors.New("renewal root does not match existing roots")
 	}

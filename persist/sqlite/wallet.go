@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -22,7 +21,7 @@ func (s *Store) UnspentSiacoinElements() (utxos []types.SiacoinElement, err erro
 		defer rows.Close()
 		for rows.Next() {
 			var se types.SiacoinElement
-			if err := rows.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.SiacoinOutput.Address), decode(&se.LeafIndex), decode(&se.MerkleProof), &se.MaturityHeight); err != nil {
+			if err := rows.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.SiacoinOutput.Address), decode(&se.StateElement.LeafIndex), decode(&se.StateElement.MerkleProof), &se.MaturityHeight); err != nil {
 				return fmt.Errorf("failed to scan unspent siacoin element: %w", err)
 			}
 			utxos = append(utxos, se)
@@ -57,13 +56,9 @@ func (s *Store) WalletEvents(offset, limit int) (events []wallet.Event, err erro
 		defer rows.Close()
 
 		for rows.Next() {
-			var buf []byte
-			if err := rows.Scan(&buf); err != nil {
-				return fmt.Errorf("failed to scan wallet event: %w", err)
-			}
 			var event wallet.Event
-			if err := json.Unmarshal(buf, &event); err != nil {
-				return fmt.Errorf("failed to unmarshal wallet event: %w", err)
+			if err := rows.Scan(decode(&event)); err != nil {
+				return fmt.Errorf("failed to scan wallet event: %w", err)
 			}
 			events = append(events, event)
 		}

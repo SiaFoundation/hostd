@@ -10,6 +10,7 @@ import (
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	rhp4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
@@ -35,6 +36,7 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 	fc := types.V2FileContract{
 		RevisionNumber:   0,
 		Filesize:         0,
+		Capacity:         0,
 		FileMerkleRoot:   types.Hash256{},
 		ProofHeight:      cs.Index.Height + duration,
 		ExpirationHeight: cs.Index.Height + duration + 10,
@@ -227,7 +229,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		network, genesis := testutil.V1Network()
 		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
-		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 		cm := node.Chain
 		c := node.Contracts
@@ -287,7 +289,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		network, genesis := testutil.V1Network()
 		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
-		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, false)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
@@ -325,7 +327,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -437,7 +439,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -531,7 +533,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -610,7 +612,7 @@ func TestContractLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
@@ -723,7 +725,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	}
 
 	// fund the wallet
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	assertContractStatus := func(t *testing.T, contractID types.FileContractID, status contracts.V2ContractStatus) {
 		t.Helper()
@@ -851,8 +853,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		defer release()
 
-		fc.Filesize = rhp2.SectorSize
-		fc.FileMerkleRoot = rhp2.MetaRoot(roots)
+		fc.Filesize = rhp4.SectorSize
+		fc.Capacity = rhp4.SectorSize
+		fc.FileMerkleRoot = rhp4.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
 		cost, collateral := types.Siacoins(1), types.Siacoins(2)
@@ -910,8 +913,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		defer release()
 
-		fc.Filesize = rhp2.SectorSize
-		fc.FileMerkleRoot = rhp2.MetaRoot(roots)
+		fc.Filesize = rhp4.SectorSize
+		fc.Capacity = rhp4.SectorSize
+		fc.FileMerkleRoot = rhp4.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
 		cost, collateral := types.Siacoins(1), types.Siacoins(2)
@@ -969,8 +973,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		defer release()
 
-		fc.Filesize = rhp2.SectorSize
-		fc.FileMerkleRoot = rhp2.MetaRoot(roots)
+		fc.Filesize = rhp4.SectorSize
+		fc.Capacity = rhp4.SectorSize
+		fc.FileMerkleRoot = rhp4.MetaRoot(roots)
 		fc.RevisionNumber++
 		// transfer some funds from the renter to the host
 		cost, collateral := types.Siacoins(1), types.Siacoins(2)
@@ -1006,8 +1011,6 @@ func TestV2ContractLifecycle(t *testing.T) {
 		cs := cm.TipState()
 		final := fc
 		final.RevisionNumber = types.MaxRevisionNumber
-		final.FileMerkleRoot = types.Hash256{}
-		final.Filesize = 0
 		final.HostSignature = types.Signature{}
 		final.RenterSignature = types.Signature{}
 		final.RevisionNumber = types.MaxRevisionNumber
@@ -1018,6 +1021,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 			NewContract: types.V2FileContract{
 				RevisionNumber:   0,
 				Filesize:         fc.Filesize,
+				Capacity:         fc.Capacity,
 				FileMerkleRoot:   fc.FileMerkleRoot,
 				ProofHeight:      final.ProofHeight + 10,
 				ExpirationHeight: final.ExpirationHeight + 10,
@@ -1124,6 +1128,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc := types.V2FileContract{
 			RevisionNumber:   0,
 			Filesize:         0,
+			Capacity:         0,
 			FileMerkleRoot:   types.Hash256{},
 			ProofHeight:      cs.Index.Height + duration,
 			ExpirationHeight: cs.Index.Height + duration + 10,
@@ -1198,7 +1203,7 @@ func TestSectorRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testutil.MineAndSync(t, node, node.Wallet.Address(), 150)
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
 	// create a fake volume so disk space is not used
 	id, err := node.Store.AddVolume("test", false)

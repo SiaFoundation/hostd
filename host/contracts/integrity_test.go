@@ -81,7 +81,7 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 
 	// mine enough for the wallet to have some funds
-	mineAndSync(t, cm, db, wm.Address(), 150)
+	mineAndSync(t, cm, db, wm.Address(), cm.Tip().Network.MaturityDelay+5)
 
 	rev, err := formContract(renterKey, hostKey, 50, 60, types.Siacoins(500), types.Siacoins(1000), c, node, node.ChainManager(), node.TPool())
 	if err != nil {

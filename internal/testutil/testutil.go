@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
+	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
@@ -51,35 +52,13 @@ type (
 // V1Network is a test helper that returns a consensus.Network and genesis block
 // suited for testing the v1 network
 func V1Network() (*consensus.Network, types.Block) {
-	// use a modified version of Zen
-	n, genesisBlock := chain.TestnetZen()
-	n.InitialTarget = types.BlockID{0xFF}
-	n.HardforkDevAddr.Height = 1
-	n.HardforkTax.Height = 1
-	n.HardforkStorageProof.Height = 1
-	n.HardforkOak.Height = 1
-	n.HardforkASIC.Height = 1
-	n.HardforkFoundation.Height = 1
-	n.HardforkV2.AllowHeight = 500 // comfortably above MaturityHeight
-	n.HardforkV2.RequireHeight = 600
-	return n, genesisBlock
+	return testutil.Network()
 }
 
 // V2Network is a test helper that returns a consensus.Network and genesis block
 // suited for testing after the v2 hardfork
 func V2Network() (*consensus.Network, types.Block) {
-	// use a modified version of Zen
-	n, genesisBlock := chain.TestnetZen()
-	n.InitialTarget = types.BlockID{0xFF}
-	n.HardforkDevAddr.Height = 1
-	n.HardforkTax.Height = 1
-	n.HardforkStorageProof.Height = 1
-	n.HardforkOak.Height = 1
-	n.HardforkASIC.Height = 1
-	n.HardforkFoundation.Height = 1
-	n.HardforkV2.AllowHeight = 145 // just above the maturity height
-	n.HardforkV2.RequireHeight = 180
-	return n, genesisBlock
+	return testutil.V2Network()
 }
 
 // WaitForSync is a helper to wait for the chain and indexer to sync

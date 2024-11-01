@@ -1,8 +1,8 @@
 package sqlite
 
 import (
+	"bytes"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -35,6 +35,16 @@ type (
 		Usage            contracts.V2Usage
 		Status           contracts.V2ContractStatus
 	}
+
+	stateElement struct {
+		ID types.Hash256
+		types.StateElement
+	}
+
+	contractStateElement struct {
+		ID int64
+		types.StateElement
+	}
 )
 
 var _ index.UpdateTx = (*updateTx)(nil)
@@ -58,47 +68,166 @@ UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, la
 	})
 }
 
-// WalletStateElements returns all state elements related to the wallet. It is used
-// to update the proofs of all state elements affected by the update.
-func (ux *updateTx) WalletStateElements() (elements []types.StateElement, err error) {
-	const query = `SELECT id, merkle_proof, leaf_index FROM wallet_siacoin_elements`
-	rows, err := ux.tx.Query(query)
+func getSiacoinStateElements(tx *txn) (elements []stateElement, err error) {
+	const query = `SELECT id, leaf_index, merkle_proof FROM wallet_siacoin_elements`
+	rows, err := tx.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query wallet state elements: %w", err)
+		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var se types.StateElement
-		if err := rows.Scan(decode(&se.ID), decode(&se.MerkleProof), decode(&se.LeafIndex)); err != nil {
-			return nil, fmt.Errorf("failed to scan element: %w", err)
+		var se stateElement
+		if err := rows.Scan(decode(&se.ID), decode(&se.LeafIndex), decode(&se.MerkleProof)); err != nil {
+			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
 		}
 		elements = append(elements, se)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("scan error: %w", err)
+		return nil, fmt.Errorf("failed to scan siacoin elements: %w", err)
 	}
 	return elements, nil
 }
 
-// UpdateWalletStateElements updates the proofs of all state elements affected by the
-// update.
-func (ux *updateTx) UpdateWalletStateElements(elements []types.StateElement) error {
-	if len(elements) == 0 {
-		return nil
-	}
-	stmt, err := ux.tx.Prepare(`UPDATE wallet_siacoin_elements SET merkle_proof=?, leaf_index=? WHERE id=?`)
+func updateSiacoinStateElements(tx *txn, elements []stateElement) error {
+	stmt, err := tx.Prepare(`UPDATE wallet_siacoin_elements SET merkle_proof=?, leaf_index=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, se := range elements {
-		if _, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), encode(se.ID)); err != nil {
-			return fmt.Errorf("failed to update wallet state element: %w", err)
+		if res, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), encode(se.ID)); err != nil {
+			return fmt.Errorf("failed to update siacoin element: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
 		}
 	}
 	return nil
+}
+
+func getContractStateElements(tx *txn) (elements []contractStateElement, err error) {
+	const query = `SELECT contract_id, leaf_index, merkle_proof FROM contract_v2_state_elements`
+	rows, err := tx.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var se contractStateElement
+		if err := rows.Scan(&se.ID, decode(&se.LeafIndex), decode(&se.MerkleProof)); err != nil {
+			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
+		}
+		elements = append(elements, se)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan siacoin elements: %w", err)
+	}
+	return elements, nil
+}
+
+func updateContractStateElements(tx *txn, elements []contractStateElement) error {
+	stmt, err := tx.Prepare(`UPDATE contract_v2_state_elements SET merkle_proof=?, leaf_index=? WHERE contract_id=?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, se := range elements {
+		if res, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), se.ID); err != nil {
+			return fmt.Errorf("failed to update siacoin element: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+		}
+	}
+	return nil
+}
+
+func getChainStateElements(tx *txn) (elements []stateElement, err error) {
+	const query = `SELECT id, leaf_index, merkle_proof FROM contracts_v2_chain_index_elements`
+	rows, err := tx.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var se stateElement
+		if err := rows.Scan(decode(&se.ID), decode(&se.LeafIndex), decode(&se.MerkleProof)); err != nil {
+			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
+		}
+		elements = append(elements, se)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan siacoin elements: %w", err)
+	}
+	return elements, nil
+}
+
+func updateChainStateElements(tx *txn, elements []stateElement) error {
+	stmt, err := tx.Prepare(`UPDATE contracts_v2_chain_index_elements SET merkle_proof=?, leaf_index=? WHERE id=?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, se := range elements {
+		if res, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), encode(se.ID)); err != nil {
+			return fmt.Errorf("failed to update siacoin element: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+		}
+	}
+	return nil
+}
+
+// UpdateWalletSiacoinElementProofs updates the proofs of all state elements
+// affected by the update. ProofUpdater.UpdateElementProof must be called
+// for each state element in the database.
+func (ux *updateTx) UpdateWalletSiacoinElementProofs(updater wallet.ProofUpdater) error {
+	se, err := getSiacoinStateElements(ux.tx)
+	if err != nil {
+		return fmt.Errorf("failed to get siacoin state elements: %w", err)
+	}
+	for i := range se {
+		updater.UpdateElementProof(&se[i].StateElement)
+	}
+	return updateSiacoinStateElements(ux.tx, se)
+}
+
+// UpdateContractElementProofs updates the proofs of all state elements
+// affected by the update. ProofUpdater.UpdateElementProof must be called
+// for each state element in the database.
+func (ux *updateTx) UpdateContractElementProofs(updater wallet.ProofUpdater) error {
+	se, err := getContractStateElements(ux.tx)
+	if err != nil {
+		return fmt.Errorf("failed to get contract state elements: %w", err)
+	}
+	for i := range se {
+		updater.UpdateElementProof(&se[i].StateElement)
+	}
+	return updateContractStateElements(ux.tx, se)
+}
+
+// UpdateChainIndexElementProofs updates the proofs of all state elements affected
+// by the update. ProofUpdater.UpdateElementProof must be called for each state
+// element in the database.
+func (ux *updateTx) UpdateChainIndexElementProofs(updater wallet.ProofUpdater) error {
+	se, err := getChainStateElements(ux.tx)
+	if err != nil {
+		return fmt.Errorf("failed to get contract state elements: %w", err)
+	}
+	for i := range se {
+		updater.UpdateElementProof(&se[i].StateElement)
+	}
+	return updateChainStateElements(ux.tx, se)
 }
 
 // WalletApplyIndex is called with the chain index that is being applied.
@@ -176,99 +305,18 @@ func (ux *updateTx) RevertContractChainIndexElement(index types.ChainIndex) erro
 	return err
 }
 
-// ContractChainIndexElements returns chain index state elements that
-// need to be updated. The elements must be ordered by height.
-func (ux *updateTx) ContractChainIndexElements() (elements []types.ChainIndexElement, err error) {
-	rows, err := ux.tx.Query(`SELECT id, height, merkle_proof, leaf_index FROM contracts_v2_chain_index_elements ORDER BY height ASC`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query contract chain index state elements: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var ele types.ChainIndexElement
-		if err := rows.Scan(decode(&ele.ChainIndex.ID), &ele.ChainIndex.Height, decode(&ele.MerkleProof), decode(&ele.LeafIndex)); err != nil {
-			return nil, fmt.Errorf("failed to scan state element: %w", err)
-		}
-		ele.ID = types.Hash256(ele.ChainIndex.ID)
-		elements = append(elements, ele)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan contract chain index state elements: %w", err)
-	}
-	return elements, nil
-}
-
 // ApplyContractChainIndexElements adds or updates the merkle proof of
 // chain index state elements
-func (ux *updateTx) ApplyContractChainIndexElements(elements []types.ChainIndexElement) error {
-	if len(elements) == 0 {
-		return nil
-	}
-
-	stmt, err := ux.tx.Prepare(`INSERT INTO contracts_v2_chain_index_elements (id, height, merkle_proof, leaf_index) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET merkle_proof=EXCLUDED.merkle_proof, leaf_index=EXCLUDED.leaf_index, height=EXCLUDED.height`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare update statement: %w", err)
-	}
-	defer stmt.Close()
-
-	for _, se := range elements {
-		if _, err := stmt.Exec(encode(se.ChainIndex.ID), se.ChainIndex.Height, encode(se.MerkleProof), encode(se.LeafIndex)); err != nil {
-			return fmt.Errorf("failed to update contract chain index state element: %w", err)
-		}
-	}
-	return nil
-}
-
-// DeleteExpiredContractChainIndexElements deletes chain index state
-// elements that are no long necessary
-func (ux *updateTx) DeleteExpiredContractChainIndexElements(height uint64) error {
-	_, err := ux.tx.Exec(`DELETE FROM contracts_v2_chain_index_elements WHERE height <= ?`, height)
+func (ux *updateTx) AddContractChainIndexElement(ci types.ChainIndexElement) error {
+	_, err := ux.tx.Exec(`INSERT INTO contracts_v2_chain_index_elements (id, height, merkle_proof, leaf_index) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET merkle_proof=EXCLUDED.merkle_proof, leaf_index=EXCLUDED.leaf_index, height=EXCLUDED.height`, encode(ci.ChainIndex.ID), ci.ChainIndex.Height, encode(ci.StateElement.MerkleProof), encode(ci.StateElement.LeafIndex))
 	return err
 }
 
-// ContractStateElements returns all state elements from the contract
-// store
-func (ux *updateTx) ContractStateElements() (elements []types.StateElement, err error) {
-	rows, err := ux.tx.Query(`SELECT c.contract_id, cs.merkle_proof, cs.leaf_index FROM contract_v2_state_elements cs
-INNER JOIN contracts_v2 c ON (c.id=cs.contract_id)`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query contract state elements: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var se types.StateElement
-		if err := rows.Scan(decode(&se.ID), decode(&se.MerkleProof), decode(&se.LeafIndex)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract state element: %w", err)
-		}
-		elements = append(elements, se)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan contract state elements: %w", err)
-	}
-	return elements, nil
-}
-
-// UpdateContractStateElements updates the state elements in the host
-// contract store
-func (ux *updateTx) UpdateContractStateElements(elements []types.StateElement) error {
-	if len(elements) == 0 {
-		return nil
-	}
-
-	stmt, err := ux.tx.Prepare(`UPDATE contract_v2_state_elements SET merkle_proof=?, leaf_index=? WHERE contract_id=(SELECT id FROM contracts_v2 WHERE contract_id=?)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare update statement: %w", err)
-	}
-	defer stmt.Close()
-
-	for _, se := range elements {
-		if _, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), encode(se.ID)); err != nil {
-			return fmt.Errorf("failed to update contract state element %q: %w", se.ID, err)
-		}
-	}
-	return nil
+// DeleteExpiredChainIndexElements deletes chain index state
+// elements that are no long necessary
+func (ux *updateTx) DeleteExpiredChainIndexElements(height uint64) error {
+	_, err := ux.tx.Exec(`DELETE FROM contracts_v2_chain_index_elements WHERE height <= ?`, height)
+	return err
 }
 
 // ApplyContracts applies relevant contract changes to the contract
@@ -468,6 +516,25 @@ func (ux *updateTx) LastAnnouncement() (announcement settings.Announcement, err 
 	return
 }
 
+func (ux *updateTx) LastV2AnnouncementHash() (h types.Hash256, index types.ChainIndex, err error) {
+	err = ux.tx.QueryRow(`SELECT last_v2_announce_hash, last_announce_index FROM global_settings`).
+		Scan(decodeNullable(&h), decodeNullable(&index))
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.Hash256{}, types.ChainIndex{}, nil
+	}
+	return
+}
+
+func (ux *updateTx) RevertLastV2Announcement() error {
+	_, err := ux.tx.Exec(`UPDATE global_settings SET last_v2_announce_hash=NULL, last_announce_index=NULL`)
+	return err
+}
+
+func (ux *updateTx) SetLastV2AnnouncementHash(h types.Hash256, index types.ChainIndex) error {
+	_, err := ux.tx.Exec(`UPDATE global_settings SET last_announce_index=?, last_v2_announce_hash=?`, encode(index), encode(h))
+	return err
+}
+
 func (ux *updateTx) RevertLastAnnouncement() error {
 	_, err := ux.tx.Exec(`UPDATE global_settings SET last_announce_address=NULL, last_announce_index=NULL`)
 	return err
@@ -534,7 +601,7 @@ func createSiacoinElements(tx *txn, index types.ChainIndex, created []types.Siac
 	defer stmt.Close()
 
 	for _, elem := range created {
-		if _, err := stmt.Exec(encode(elem.ID), encode(elem.SiacoinOutput.Value), encode(elem.SiacoinOutput.Address), encode(elem.MerkleProof), encode(elem.LeafIndex), elem.MaturityHeight); err != nil {
+		if _, err := stmt.Exec(encode(elem.ID), encode(elem.SiacoinOutput.Value), encode(elem.SiacoinOutput.Address), encode(elem.StateElement.MerkleProof), encode(elem.StateElement.LeafIndex), elem.MaturityHeight); err != nil {
 			return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to insert siacoin element %q: %w", elem.ID, err)
 		}
 
@@ -589,12 +656,14 @@ func createWalletEvents(tx *txn, events []wallet.Event) error {
 	}
 	defer stmt.Close()
 
+	buf := bytes.NewBuffer(nil)
+	enc := types.NewEncoder(buf)
 	for _, event := range events {
-		buf, err := json.Marshal(event)
-		if err != nil {
-			return fmt.Errorf("failed to marshal wallet event: %w", err)
-		}
-		if _, err := stmt.Exec(encode(event.ID), encode(event.Index), event.MaturityHeight, event.Type, buf); err != nil {
+		buf.Reset()
+		event.EncodeTo(enc)
+		_ = enc.Flush() // writes cannot fail
+
+		if _, err := stmt.Exec(encode(event.ID), encode(event.Index), event.MaturityHeight, event.Type, buf.Bytes()); err != nil {
 			return fmt.Errorf("failed to insert wallet event: %w", err)
 		}
 	}
@@ -1342,7 +1411,7 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 			return fmt.Errorf("failed to get contract state %q: %w", fce.ID, err)
 		}
 
-		if _, err := insertElementStmt.Exec(state.ID, fce.LeafIndex, encode(fce.MerkleProof), encode(fce.V2FileContract), encode(fce.V2FileContract.RevisionNumber)); err != nil {
+		if _, err := insertElementStmt.Exec(state.ID, fce.StateElement.LeafIndex, encode(fce.StateElement.MerkleProof), encode(fce.V2FileContract), encode(fce.V2FileContract.RevisionNumber)); err != nil {
 			return fmt.Errorf("failed to insert contract state element %q: %w", fce.ID, err)
 		}
 
@@ -1474,7 +1543,7 @@ func applyV2ContractRevision(tx *txn, revised []types.V2FileContractElement) err
 		var contractID int64
 		if err := selectIDStmt.QueryRow(encode(fce.ID)).Scan(&contractID); err != nil {
 			return fmt.Errorf("failed to update contract revision %q: %w", fce.ID, err)
-		} else if _, err := updateElementStmt.Exec(fce.LeafIndex, encode(fce.MerkleProof), encode(fce.V2FileContract), encode(fce.V2FileContract.RevisionNumber), contractID); err != nil {
+		} else if _, err := updateElementStmt.Exec(fce.StateElement.LeafIndex, encode(fce.StateElement.MerkleProof), encode(fce.V2FileContract), encode(fce.V2FileContract.RevisionNumber), contractID); err != nil {
 			return fmt.Errorf("failed to update contract state element %q: %w", fce.ID, err)
 		}
 	}

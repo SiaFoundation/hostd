@@ -8,6 +8,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.uber.org/zap"
 )
 
@@ -32,17 +33,15 @@ func (m *ConfigManager) Announce() error {
 
 	minerFee := m.chain.RecommendedFee().Mul64(announcementTxnSize)
 
-	ha := chain.HostAnnouncement{
-		PublicKey:  m.hostKey.PublicKey(),
-		NetAddress: settings.NetAddress,
-	}
-
 	cs := m.chain.TipState()
 	if cs.Index.Height < cs.Network.HardforkV2.AllowHeight {
 		// create a transaction with an announcement
 		txn := types.Transaction{
 			ArbitraryData: [][]byte{
-				ha.ToArbitraryData(m.hostKey),
+				chain.HostAnnouncement{
+					PublicKey:  m.hostKey.PublicKey(),
+					NetAddress: settings.NetAddress,
+				}.ToArbitraryData(m.hostKey),
 			},
 			MinerFees: []types.Currency{minerFee},
 		}
@@ -64,7 +63,9 @@ func (m *ConfigManager) Announce() error {
 		// create a v2 transaction with an announcement
 		txn := types.V2Transaction{
 			Attestations: []types.Attestation{
-				ha.ToAttestation(cs, m.hostKey),
+				chain.V2HostAnnouncement{
+					{Protocol: rhp4.ProtocolTCPSiaMux, Address: settings.NetAddress}, // TODO: this isn't correct
+				}.ToAttestation(cs, m.hostKey),
 			},
 			MinerFee: minerFee,
 		}
