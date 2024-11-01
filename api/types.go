@@ -127,10 +127,16 @@ type (
 		SubtractMinerFee bool           `json:"subtractMinerFee"`
 	}
 
-	// A Peer is a peer in the network.
+	// A Peer is a currently-connected peer.
 	Peer struct {
 		Address string `json:"address"`
+		Inbound bool   `json:"inbound"`
 		Version string `json:"version"`
+
+		FirstSeen      time.Time     `json:"firstSeen,omitempty"`
+		ConnectedSince time.Time     `json:"connectedSince,omitempty"`
+		SyncedBlocks   uint64        `json:"syncedBlocks,omitempty"`
+		SyncDuration   time.Duration `json:"syncDuration,omitempty"`
 	}
 
 	// A Setting updates a single setting on the host. It can be combined with
