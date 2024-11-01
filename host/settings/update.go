@@ -110,29 +110,22 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 	hostPub := m.hostKey.PublicKey()
 
 	// check if there is an unconfirmed announcement
-	var unconfirmedAnnouncement bool
 	for _, txn := range m.chain.PoolTransactions() {
 		var ha chain.HostAnnouncement
 		for _, arb := range txn.ArbitraryData {
 			if !ha.FromArbitraryData(arb) {
 				continue
 			} else if ha.PublicKey == hostPub {
-				unconfirmedAnnouncement = true
-				break
+				return nil
 			}
 		}
 	}
 	for _, txn := range m.chain.V2PoolTransactions() {
 		for _, att := range txn.Attestations {
 			if att.PublicKey == hostPub {
-				unconfirmedAnnouncement = true
-				break
+				return nil
 			}
 		}
-	}
-
-	if unconfirmedAnnouncement {
-		return nil
 	}
 
 	var shouldAnnounce bool
