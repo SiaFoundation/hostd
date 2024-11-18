@@ -126,6 +126,37 @@ func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener,
 	return
 }
 
+func getRandomOpenPort() (uint16, error) {
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	_, portStr, err := net.SplitHostPort(l.Addr().String())
+	if err != nil {
+		return 0, fmt.Errorf("failed to split port: %w", err)
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse port: %w", err)
+	}
+	return uint16(port), nil
+}
+
+func normalizeAddress(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	} else if port == "" || port == "0" {
+		randPort, err := getRandomOpenPort()
+		if err != nil {
+			return "", fmt.Errorf("failed to get open port: %w", err)
+		}
+		return net.JoinHostPort(host, strconv.FormatUint(uint64(randPort), 10)), nil
+	}
+	return addr, nil
+}
+
 func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
 	if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
@@ -186,27 +217,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer syncerListener.Close()
 
-	rhp2Listener, err := net.Listen("tcp", cfg.RHP2.Address)
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
-	}
-	defer rhp2Listener.Close()
-
-	rhp3Listener, err := net.Listen("tcp", cfg.RHP3.TCPAddress)
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
-	}
-	defer rhp3Listener.Close()
-
-	_, rhp3PortStr, err := net.SplitHostPort(rhp3Listener.Addr().String())
-	if err != nil {
-		return fmt.Errorf("failed to parse rhp3 port: %w", err)
-	}
-	rhp3Port, err := strconv.ParseUint(rhp3PortStr, 10, 16)
-	if err != nil {
-		return fmt.Errorf("failed to parse rhp3 port: %w", err)
-	}
-
 	syncerAddr := syncerListener.Addr().String()
 	if cfg.Syncer.EnableUPnP {
 		_, portStr, _ := net.SplitHostPort(cfg.Syncer.Address)
@@ -258,9 +268,22 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		return fmt.Errorf("failed to create webhook reporter: %w", err)
 	}
 	defer wr.Close()
-	sr := rhp.NewSessionReporter()
 
 	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
+
+	rhp3Addr, err := normalizeAddress(cfg.RHP3.TCPAddress)
+	if err != nil {
+		return fmt.Errorf("failed to normalize RHP3 address: %w", err)
+	}
+
+	_, rhp3PortStr, err := net.SplitHostPort(rhp3Addr)
+	if err != nil {
+		return fmt.Errorf("failed to parse rhp3 port: %w", err)
+	}
+	rhp3Port, err := strconv.ParseUint(rhp3PortStr, 10, 16)
+	if err != nil {
+		return fmt.Errorf("failed to parse rhp3 port: %w", err)
+	}
 
 	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
 	if err != nil {
@@ -287,27 +310,32 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer index.Close()
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
-
-	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, cm, s, wm, contractManager, sm, vm, rhp2.WithDataMonitor(dr), rhp2.WithLog(log.Named("rhp2")))
+	rl, wl := sm.RHPBandwidthLimiters()
+	rhp2Listener, err := rhp.Listen("tcp", cfg.RHP2.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
 	if err != nil {
-		return fmt.Errorf("failed to create rhp2 session handler: %w", err)
+		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
 	}
+	defer rhp2Listener.Close()
+
+	rhp3Listener, err := rhp.Listen("tcp", rhp3Addr, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+	if err != nil {
+		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
+	}
+	defer rhp3Listener.Close()
+
+	rhp2 := rhp2.NewSessionHandler(rhp2Listener, hostKey, cm, s, wm, contractManager, sm, vm, log.Named("rhp2"))
 	go rhp2.Serve()
 	defer rhp2.Close()
 
 	registry := registry.NewManager(hostKey, store, log.Named("registry"))
 	accounts := accounts.NewManager(store, sm)
-	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, sm, rhp3.WithDataMonitor(dr), rhp3.WithSessionReporter(sr), rhp3.WithLog(log.Named("rhp3")))
-	if err != nil {
-		return fmt.Errorf("failed to create rhp3 session handler: %w", err)
-	}
+	rhp3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, sm, log.Named("rhp3"))
 	go rhp3.Serve()
 	defer rhp3.Close()
 
 	apiOpts := []api.ServerOption{
 		api.WithAlerts(am),
 		api.WithLogger(log.Named("api")),
-		api.WithRHPSessionReporter(sr),
 		api.WithWebhooks(wr),
 		api.WithSQLite3Store(store),
 	}

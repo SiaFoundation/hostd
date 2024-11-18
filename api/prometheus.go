@@ -462,24 +462,3 @@ func (w WalletPendingResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	}
 	return
 }
-
-// PrometheusMetric returns Prometheus samples for the hosts sessions
-func (s SessionResp) PrometheusMetric() (metrics []prometheus.Metric) {
-	for _, session := range s {
-		metrics = append(metrics, prometheus.Metric{
-			Name: "hostd_session_ingress",
-			Labels: map[string]any{
-				"peer": session.PeerAddress,
-			},
-			Value: float64(session.Ingress),
-		})
-		metrics = append(metrics, prometheus.Metric{
-			Name: "hostd_session_egress",
-			Labels: map[string]any{
-				"peer": session.PeerAddress,
-			},
-			Value: float64(session.Egress),
-		})
-	}
-	return
-}

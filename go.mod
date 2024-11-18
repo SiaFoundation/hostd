@@ -23,7 +23,6 @@ require (
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.5.1
 	lukechampine.com/upnp v0.3.0
-	nhooyr.io/websocket v1.8.17
 )
 
 require (
