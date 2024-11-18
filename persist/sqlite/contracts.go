@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/hostd/host/contracts"
 	"go.uber.org/zap"
 )
@@ -72,9 +74,9 @@ func (s *Store) Contracts(filter contracts.ContractFilter) (contracts []contract
 		return nil, 0, fmt.Errorf("failed to build where clause: %w", err)
 	}
 
-	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed,
 	COALESCE(c.revision_number=c.confirmed_revision_number, false) AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
-	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
+	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig
 FROM contracts c
 INNER JOIN contract_renters r ON (c.renter_id=r.id)
 LEFT JOIN contracts rt ON (c.renewed_to=rt.id)
@@ -126,14 +128,15 @@ func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, 
 }
 
 // V2ContractElement returns the latest v2 state element with the given ID.
-func (s *Store) V2ContractElement(contractID types.FileContractID) (ele types.V2FileContractElement, err error) {
+func (s *Store) V2ContractElement(contractID types.FileContractID) (basis types.ChainIndex, ele types.V2FileContractElement, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT cs.raw_contract, cs.leaf_index, cs.merkle_proof
+		const query = `SELECT cs.raw_contract, cs.leaf_index, cs.merkle_proof, g.last_scanned_index AS basis
 FROM contracts_v2 c
 INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
+CROSS JOIN global_settings g
 WHERE c.contract_id=?`
 
-		err := tx.QueryRow(query, encode(contractID)).Scan(decode(&ele.V2FileContract), decode(&ele.StateElement.LeafIndex), decode(&ele.StateElement.MerkleProof))
+		err := tx.QueryRow(query, encode(contractID)).Scan(decode(&ele.V2FileContract), decode(&ele.StateElement.LeafIndex), decode(&ele.StateElement.MerkleProof), decode(&basis))
 		if errors.Is(err, sql.ErrNoRows) {
 			return contracts.ErrNotFound
 		}
@@ -146,7 +149,7 @@ WHERE c.contract_id=?`
 // V2Contract returns the contract with the given ID.
 func (s *Store) V2Contract(id types.FileContractID) (contract contracts.V2Contract, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index, 
+		const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index,
 COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_index, c.rpc_revenue,
 c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision
 FROM contracts_v2 c
@@ -161,7 +164,7 @@ WHERE c.contract_id=$1;`
 }
 
 // AddV2Contract adds a new contract to the database.
-func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet contracts.V2FormationTransactionSet) error {
+func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.TransactionSet) error {
 	return s.transaction(func(tx *txn) error {
 		_, err := insertV2Contract(tx, contract, formationSet)
 		return err
@@ -172,7 +175,7 @@ func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet contra
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract. The status of the old contract should continue
 // to be active until the renewal is confirmed
-func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet contracts.V2FormationTransactionSet, renewedID types.FileContractID, clearing types.V2FileContract) error {
+func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID, clearing types.V2FileContract, roots []types.Hash256) error {
 	return s.transaction(func(tx *txn) error {
 		// add the new contract
 		renewedDBID, err := insertV2Contract(tx, renewal, renewalSet)
@@ -238,14 +241,14 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 	})
 }
 
-func incrementV2ContractUsage(tx *txn, dbID int64, usage contracts.Usage) error {
+func incrementV2ContractUsage(tx *txn, dbID int64, usage proto4.Usage) error {
 	const query = `SELECT rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral FROM contracts_v2 WHERE id=$1;`
-	var existing contracts.Usage
+	var existing proto4.Usage
 	err := tx.QueryRow(query, dbID).Scan(
-		decode(&existing.RPCRevenue),
-		decode(&existing.StorageRevenue),
-		decode(&existing.IngressRevenue),
-		decode(&existing.EgressRevenue),
+		decode(&existing.RPC),
+		decode(&existing.Storage),
+		decode(&existing.Ingress),
+		decode(&existing.Egress),
 		decode(&existing.AccountFunding),
 		decode(&existing.RiskedCollateral))
 	if err != nil {
@@ -259,10 +262,10 @@ func incrementV2ContractUsage(tx *txn, dbID int64, usage contracts.Usage) error 
 
 	var updatedID int64
 	err = tx.QueryRow(`UPDATE contracts_v2 SET (rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6) WHERE id=$7 RETURNING id;`,
-		encode(total.RPCRevenue),
-		encode(total.StorageRevenue),
-		encode(total.IngressRevenue),
-		encode(total.EgressRevenue),
+		encode(total.RPC),
+		encode(total.Storage),
+		encode(total.Ingress),
+		encode(total.Egress),
 		encode(total.AccountFunding),
 		encode(total.RiskedCollateral),
 		dbID).Scan(&updatedID)
@@ -272,133 +275,14 @@ func incrementV2ContractUsage(tx *txn, dbID int64, usage contracts.Usage) error 
 	return nil
 }
 
-func cleanupDanglingRoots(tx *txn, contractID int64, length int64) (deleted []int64, err error) {
-	rows, err := tx.Query(`DELETE FROM contract_sector_roots WHERE contract_id=$1 AND root_index >= $2 RETURNING sector_id`, contractID, length)
-	if err != nil {
-		return nil, fmt.Errorf("failed to cleanup dangling roots: %w", err)
-	}
-	defer rows.Close()
-
-	used := make(map[int64]bool)
-	for rows.Next() {
-		var sectorID int64
-		if err := rows.Scan(&sectorID); err != nil {
-			return nil, fmt.Errorf("failed to scan sector ID: %w", err)
-		}
-
-		if used[sectorID] {
-			continue
-		}
-		deleted = append(deleted, sectorID)
-		used[sectorID] = true
-	}
-	return deleted, nil
-}
-
 // ReviseV2Contract atomically updates a contract's revision and sectors
-func (s *Store) ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, roots []types.Hash256, usage contracts.Usage) error {
+func (s *Store) ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, roots []types.Hash256, usage proto4.Usage) error {
 	return s.transaction(func(tx *txn) error {
-		incrementCurrencyStat, done, err := incrementCurrencyStatStmt(tx)
+		contractDBID, err := reviseV2Contract(tx, id, revision, usage)
 		if err != nil {
-			return fmt.Errorf("failed to prepare increment currency stat statement: %w", err)
-		}
-		defer done()
-
-		const updateQuery = `UPDATE contracts_v2 SET raw_revision=?, revision_number=? WHERE contract_id=? RETURNING id, contract_status`
-
-		var contractDBID int64
-		var status contracts.V2ContractStatus
-		err = tx.QueryRow(updateQuery, encode(revision), encode(revision.RevisionNumber), encode(id)).Scan(&contractDBID, &status)
-		if err != nil {
-			return fmt.Errorf("failed to update contract: %w", err)
-		} else if err := incrementV2ContractUsage(tx, contractDBID, usage); err != nil {
-			return fmt.Errorf("failed to update contract usage: %w", err)
-		}
-
-		// only increment metrics if the contract is active.
-		// If the contract is pending or some variant of successful, the metrics
-		// will already be handled.
-		if status == contracts.V2ContractStatusActive {
-			if err := updatePotentialRevenueMetrics(usage, false, incrementCurrencyStat); err != nil {
-				return fmt.Errorf("failed to update potential revenue: %w", err)
-			} else if err := updateCollateralMetrics(types.ZeroCurrency, usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
-				return fmt.Errorf("failed to update collateral metrics: %w", err)
-			}
-		}
-
-		selectOldSectorStmt, err := tx.Prepare(`SELECT sector_id FROM contract_v2_sector_roots WHERE contract_id=? AND root_index=?`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare select old sector statement: %w", err)
-		}
-		defer selectOldSectorStmt.Close()
-
-		selectRootIDStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=?`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare select root ID statement: %w", err)
-		}
-		defer selectRootIDStmt.Close()
-
-		updateRootStmt, err := tx.Prepare(`INSERT INTO contract_v2_sector_roots (contract_id, sector_id, root_index) VALUES (?, ?, ?) ON CONFLICT (contract_id, root_index) DO UPDATE SET sector_id=excluded.sector_id`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare update root statement: %w", err)
-		}
-		defer updateRootStmt.Close()
-
-		var appended int
-		var deleted []int64
-		seen := make(map[int64]bool)
-		for i, root := range roots {
-			// TODO: benchmark this against an exceptionally large contract.
-			// This is less efficient than the v1 implementation, but it leaves
-			// less room for update edge-cases now that all sectors are loaded
-			// into memory.
-			var newSectorID int64
-			if err := selectRootIDStmt.QueryRow(encode(root)).Scan(&newSectorID); err != nil {
-				return fmt.Errorf("failed to get sector ID: %w", err)
-			}
-
-			var oldSectorID int64
-			err := selectOldSectorStmt.QueryRow(contractDBID, i).Scan(&oldSectorID)
-			if errors.Is(err, sql.ErrNoRows) {
-				// new sector
-				appended++
-			} else if err != nil {
-				// db error
-				return fmt.Errorf("failed to get sector ID: %w", err)
-			} else if newSectorID == oldSectorID {
-				// no change
-				continue
-			} else if !seen[oldSectorID] {
-				// updated root
-				deleted = append(deleted, oldSectorID) // mark for pruning
-				seen[oldSectorID] = true
-			}
-
-			if _, err := updateRootStmt.Exec(contractDBID, newSectorID, i); err != nil {
-				return fmt.Errorf("failed to update sector root: %w", err)
-			}
-		}
-
-		cleaned, err := cleanupDanglingRoots(tx, contractDBID, int64(len(roots)))
-		if err != nil {
-			return fmt.Errorf("failed to cleanup dangling roots: %w", err)
-		}
-		for _, sectorID := range cleaned {
-			if seen[sectorID] {
-				continue
-			}
-			deleted = append(deleted, sectorID)
-		}
-
-		delta := appended - len(deleted)
-		if err := incrementNumericStat(tx, metricContractSectors, delta, time.Now()); err != nil {
+			return fmt.Errorf("failed to revise contract: %w", err)
+		} else if err := updateV2ContractSectors(tx, contractDBID, roots, s.log.Named("ReviseV2Contract").With(zap.Stringer("contract", id))); err != nil {
 			return fmt.Errorf("failed to update contract sectors: %w", err)
-		}
-
-		if pruned, err := pruneSectors(tx, deleted); err != nil {
-			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if len(pruned) > 0 {
-			s.log.Debug("pruned sectors", zap.Int("count", len(pruned)), zap.Stringers("sectors", pruned))
 		}
 		return nil
 	})
@@ -594,9 +478,9 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 }
 
 func getContract(tx *txn, contractID int64) (contracts.Contract, error) {
-	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed, 
+	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.formation_confirmed,
 	COALESCE(c.revision_number=c.confirmed_revision_number, false) AS revision_confirmed, c.resolution_height, c.locked_collateral, c.rpc_revenue,
-	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig 
+	c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision, c.host_sig, c.renter_sig
 	FROM contracts c
 	LEFT JOIN contracts rt ON (c.renewed_to = rt.id)
 	LEFT JOIN contracts rf ON (c.renewed_from = rf.id)
@@ -713,7 +597,7 @@ ORDER BY root_index ASC;`, contractID, i, j)
 func trimSectors(tx *txn, contractID int64, n uint64, log *zap.Logger) ([]types.Hash256, error) {
 	selectStmt, err := tx.Prepare(`SELECT csr.id, csr.sector_id, ss.sector_root FROM contract_sector_roots csr
 INNER JOIN stored_sectors ss ON (csr.sector_id=ss.id)
-WHERE csr.contract_id=$1 
+WHERE csr.contract_id=$1
 ORDER BY root_index DESC
 LIMIT 1`)
 	if err != nil {
@@ -920,7 +804,7 @@ func broadcastRevision(tx *txn, index types.ChainIndex, revisionBroadcastHeight 
 }
 
 func proofContracts(tx *txn, index types.ChainIndex) (revisions []contracts.SignedRevision, err error) {
-	const query = `SELECT raw_revision, host_sig, renter_sig 
+	const query = `SELECT raw_revision, host_sig, renter_sig
 	FROM contracts
 	WHERE formation_confirmed AND resolution_height IS NULL AND window_start <= $1 AND window_end > $1`
 
@@ -943,7 +827,7 @@ func proofContracts(tx *txn, index types.ChainIndex) (revisions []contracts.Sign
 	return
 }
 
-func rebroadcastV2Contracts(tx *txn) (rebroadcast []contracts.V2FormationTransactionSet, err error) {
+func rebroadcastV2Contracts(tx *txn) (rebroadcast []rhp4.TransactionSet, err error) {
 	rows, err := tx.Query(`SELECT formation_txn_set, formation_txn_set_basis FROM contracts_v2 WHERE confirmation_index IS NULL AND contract_status <> ?`, contracts.ContractStatusRejected)
 	if err != nil {
 		return nil, err
@@ -951,13 +835,13 @@ func rebroadcastV2Contracts(tx *txn) (rebroadcast []contracts.V2FormationTransac
 	defer rows.Close()
 
 	for rows.Next() {
-		var formationSet contracts.V2FormationTransactionSet
+		var formationSet rhp4.TransactionSet
 		var buf []byte
 		if err := rows.Scan(&buf, decode(&formationSet.Basis)); err != nil {
 			return nil, fmt.Errorf("failed to scan contract id: %w", err)
 		}
 		dec := types.NewBufDecoder(buf)
-		types.DecodeSlice(dec, &formationSet.TransactionSet)
+		types.DecodeSlice(dec, &formationSet.Transactions)
 		if err := dec.Err(); err != nil {
 			return nil, fmt.Errorf("failed to decode formation txn set: %w", err)
 		}
@@ -1092,8 +976,8 @@ func renterDBID(tx *txn, renterKey types.PublicKey) (int64, error) {
 }
 
 func insertContract(tx *txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) (dbID int64, err error) {
-	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
-egress_revenue, registry_read, registry_write, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
+	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue,
+egress_revenue, registry_read, registry_write, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set,
 raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, formation_confirmed) VALUES
  ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, false) RETURNING id;`
 	renterID, err := renterDBID(tx, revision.RenterKey())
@@ -1129,9 +1013,9 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, 
 	return
 }
 
-func insertV2Contract(tx *txn, contract contracts.V2Contract, formationSet contracts.V2FormationTransactionSet) (dbID int64, err error) {
-	const query = `INSERT INTO contracts_v2 (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, 
-egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set, 
+func insertV2Contract(tx *txn, contract contracts.V2Contract, formationSet rhp4.TransactionSet) (dbID int64, err error) {
+	const query = `INSERT INTO contracts_v2 (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue,
+egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set,
 formation_txn_set_basis, raw_revision, contract_status) VALUES
  ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id;`
 	renterID, err := renterDBID(tx, contract.RenterPublicKey)
@@ -1143,17 +1027,17 @@ formation_txn_set_basis, raw_revision, contract_status) VALUES
 		encode(contract.ID),
 		renterID,
 		encode(contract.V2FileContract.TotalCollateral),
-		encode(contract.Usage.RPCRevenue),
-		encode(contract.Usage.StorageRevenue),
-		encode(contract.Usage.IngressRevenue),
-		encode(contract.Usage.EgressRevenue),
+		encode(contract.Usage.RPC),
+		encode(contract.Usage.Storage),
+		encode(contract.Usage.Ingress),
+		encode(contract.Usage.Egress),
 		encode(contract.Usage.AccountFunding),
 		encode(contract.Usage.RiskedCollateral),
 		encode(contract.RevisionNumber),
 		contract.NegotiationHeight,          // stored as int64 for queries, should never overflow
 		contract.V2FileContract.ProofHeight, // stored as int64 for queries, should never overflow
 		contract.ExpirationHeight,           // stored as int64 for queries, should never overflow
-		encodeSlice(formationSet.TransactionSet),
+		encodeSlice(formationSet.Transactions),
 		encode(formationSet.Basis),
 		encode(contract.V2FileContract),
 		contracts.V2ContractStatusPending,
@@ -1162,6 +1046,150 @@ formation_txn_set_basis, raw_revision, contract_status) VALUES
 		return 0, fmt.Errorf("failed to insert contract: %w", err)
 	}
 	return
+}
+
+func updateV2ContractUsage(tx *txn, contractDBID int64, usage proto4.Usage) error {
+	if err := incrementV2ContractUsage(tx, contractDBID, usage); err != nil {
+		return fmt.Errorf("failed to update contract usage: %w", err)
+	}
+
+	var status contracts.V2ContractStatus
+	err := tx.QueryRow(`SELECT contract_status FROM contracts_v2 WHERE id=$1`, contractDBID).Scan(&status)
+	if err != nil {
+		return fmt.Errorf("failed to get contract status: %w", err)
+	}
+
+	// only increment metrics if the contract is active.
+	// If the contract is pending or some variant of successful, the metrics
+	// will already be handled.
+	if status == contracts.V2ContractStatusActive {
+		incrementCurrencyStat, done, err := incrementCurrencyStatStmt(tx)
+		if err != nil {
+			return fmt.Errorf("failed to prepare increment currency stat statement: %w", err)
+		}
+		defer done()
+
+		if err := updateV2PotentialRevenueMetrics(usage, false, incrementCurrencyStat); err != nil {
+			return fmt.Errorf("failed to update potential revenue: %w", err)
+		} else if err := updateCollateralMetrics(types.ZeroCurrency, usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
+			return fmt.Errorf("failed to update collateral metrics: %w", err)
+		}
+	}
+	return nil
+}
+
+func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileContract, usage proto4.Usage) (int64, error) {
+	const updateQuery = `UPDATE contracts_v2 SET raw_revision=?, revision_number=? WHERE contract_id=? RETURNING id`
+
+	var contractDBID int64
+	err := tx.QueryRow(updateQuery, encode(revision), encode(revision.RevisionNumber), encode(id)).Scan(&contractDBID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to update contract: %w", err)
+	} else if err := updateV2ContractUsage(tx, contractDBID, usage); err != nil {
+		return 0, fmt.Errorf("failed to update contract usage: %w", err)
+	}
+	return contractDBID, nil
+}
+
+func cleanupDanglingRoots(tx *txn, contractID int64, length int64) (deleted []int64, err error) {
+	rows, err := tx.Query(`DELETE FROM contract_sector_roots WHERE contract_id=$1 AND root_index >= $2 RETURNING sector_id`, contractID, length)
+	if err != nil {
+		return nil, fmt.Errorf("failed to cleanup dangling roots: %w", err)
+	}
+	defer rows.Close()
+
+	used := make(map[int64]bool)
+	for rows.Next() {
+		var sectorID int64
+		if err := rows.Scan(&sectorID); err != nil {
+			return nil, fmt.Errorf("failed to scan sector ID: %w", err)
+		}
+
+		if used[sectorID] {
+			continue
+		}
+		deleted = append(deleted, sectorID)
+		used[sectorID] = true
+	}
+	return deleted, nil
+}
+
+func updateV2ContractSectors(tx *txn, contractDBID int64, roots []types.Hash256, log *zap.Logger) error {
+	selectOldSectorStmt, err := tx.Prepare(`SELECT sector_id FROM contract_v2_sector_roots WHERE contract_id=? AND root_index=?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare select old sector statement: %w", err)
+	}
+	defer selectOldSectorStmt.Close()
+
+	selectRootIDStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare select root ID statement: %w", err)
+	}
+	defer selectRootIDStmt.Close()
+
+	updateRootStmt, err := tx.Prepare(`INSERT INTO contract_v2_sector_roots (contract_id, sector_id, root_index) VALUES (?, ?, ?) ON CONFLICT (contract_id, root_index) DO UPDATE SET sector_id=excluded.sector_id`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update root statement: %w", err)
+	}
+	defer updateRootStmt.Close()
+
+	var appended int
+	var deleted []int64
+	seen := make(map[int64]bool)
+	for i, root := range roots {
+		// TODO: benchmark this against an exceptionally large contract.
+		// This is less efficient than the v1 implementation, but it leaves
+		// less room for update edge-cases now that all sectors are loaded
+		// into memory.
+		var newSectorID int64
+		if err := selectRootIDStmt.QueryRow(encode(root)).Scan(&newSectorID); err != nil {
+			return fmt.Errorf("failed to get sector ID: %w", err)
+		}
+
+		var oldSectorID int64
+		err := selectOldSectorStmt.QueryRow(contractDBID, i).Scan(&oldSectorID)
+		if errors.Is(err, sql.ErrNoRows) {
+			// new sector
+			appended++
+		} else if err != nil {
+			// db error
+			return fmt.Errorf("failed to get sector ID: %w", err)
+		} else if newSectorID == oldSectorID {
+			// no change
+			continue
+		} else if !seen[oldSectorID] {
+			// updated root
+			deleted = append(deleted, oldSectorID) // mark for pruning
+			seen[oldSectorID] = true
+		}
+
+		if _, err := updateRootStmt.Exec(contractDBID, newSectorID, i); err != nil {
+			return fmt.Errorf("failed to update sector root: %w", err)
+		}
+	}
+
+	cleaned, err := cleanupDanglingRoots(tx, contractDBID, int64(len(roots)))
+	if err != nil {
+		return fmt.Errorf("failed to cleanup dangling roots: %w", err)
+	}
+	for _, sectorID := range cleaned {
+		if seen[sectorID] {
+			continue
+		}
+		deleted = append(deleted, sectorID)
+	}
+
+	delta := appended - len(deleted)
+	if err := incrementNumericStat(tx, metricContractSectors, delta, time.Now()); err != nil {
+		return fmt.Errorf("failed to update contract sectors: %w", err)
+	}
+
+	if pruned, err := pruneSectors(tx, deleted); err != nil {
+		return fmt.Errorf("failed to prune sectors: %w", err)
+	} else if len(pruned) > 0 {
+		log.Debug("pruned sectors", zap.Int("count", len(pruned)), zap.Stringers("sectors", pruned))
+	}
+	return nil
 }
 
 func encodeTxnSet(txns []types.Transaction) []byte {
@@ -1301,10 +1329,10 @@ func scanV2Contract(row scanner) (c contracts.V2Contract, err error) {
 		decodeNullable(&c.FormationIndex),
 		&c.RevisionConfirmed,
 		decodeNullable(&c.ResolutionIndex),
-		decode(&c.Usage.RPCRevenue),
-		decode(&c.Usage.StorageRevenue),
-		decode(&c.Usage.IngressRevenue),
-		decode(&c.Usage.EgressRevenue),
+		decode(&c.Usage.RPC),
+		decode(&c.Usage.Storage),
+		decode(&c.Usage.Ingress),
+		decode(&c.Usage.Egress),
 		decode(&c.Usage.AccountFunding),
 		decode(&c.Usage.RiskedCollateral),
 		decode(&c.V2FileContract),

@@ -7,6 +7,7 @@ import (
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/wallet"
 	"go.uber.org/zap"
 )
@@ -33,7 +34,7 @@ type (
 		BroadcastProof       []SignedRevision
 
 		// V2 actions
-		RebroadcastV2Formation []V2FormationTransactionSet
+		RebroadcastV2Formation []rhp4.TransactionSet
 		BroadcastV2Revision    []types.V2FileContractRevision
 		BroadcastV2Proof       []types.V2FileContractElement
 		BroadcastV2Expiration  []types.V2FileContractElement
@@ -295,10 +296,10 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	}
 
 	for _, formationSet := range actions.RebroadcastV2Formation {
-		if len(formationSet.TransactionSet) == 0 {
+		if len(formationSet.Transactions) == 0 {
 			continue
 		}
-		formationTxn := formationSet.TransactionSet[len(formationSet.TransactionSet)-1]
+		formationTxn := formationSet.Transactions[len(formationSet.Transactions)-1]
 		if len(formationTxn.FileContracts) == 0 {
 			continue
 		}
@@ -306,12 +307,12 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		contractID := formationTxn.V2FileContractID(formationTxn.ID(), 0)
 		log := log.Named("v2 formation").With(zap.Stringer("basis", formationSet.Basis), zap.Stringer("contractID", contractID))
 
-		if _, err := cm.chain.AddV2PoolTransactions(formationSet.Basis, formationSet.TransactionSet); err != nil {
+		if _, err := cm.chain.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
 			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(formationSet.Basis, formationSet.TransactionSet)
-		log.Debug("broadcast transaction", zap.String("transactionID", formationSet.TransactionSet[len(formationSet.TransactionSet)-1].ID().String()))
+		cm.syncer.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
+		log.Debug("broadcast transaction", zap.String("transactionID", formationSet.Transactions[len(formationSet.Transactions)-1].ID().String()))
 	}
 
 	for _, fcr := range actions.BroadcastV2Revision {
