@@ -8,8 +8,6 @@ import (
 	"time"
 
 	rhp3 "go.sia.tech/core/rhp/v3"
-	"go.sia.tech/core/types"
-	"lukechampine.com/frand"
 )
 
 type (
@@ -102,73 +100,6 @@ func (pm *priceTableManager) Register(pt rhp3.HostPriceTable) {
 		// set.
 		pm.expirationTimer.Reset(time.Until(expiration))
 	}
-}
-
-// PriceTable returns the session handler's current price table.
-func (sh *SessionHandler) PriceTable() (rhp3.HostPriceTable, error) {
-	settings := sh.settings.Settings()
-	count, limit, err := sh.registry.Entries()
-	if err != nil {
-		return rhp3.HostPriceTable{}, fmt.Errorf("failed to get registry entries: %w", err)
-	}
-
-	fee := sh.chain.RecommendedFee()
-	currentHeight := sh.chain.TipState().Index.Height
-	oneHasting := types.NewCurrency64(1)
-	return rhp3.HostPriceTable{
-		UID:             frand.Entropy128(),
-		HostBlockHeight: currentHeight,
-		Validity:        settings.PriceTableValidity,
-
-		// ephemeral account costs
-		AccountBalanceCost:   oneHasting,
-		FundAccountCost:      oneHasting,
-		UpdatePriceTableCost: oneHasting,
-
-		// MDM costs
-		HasSectorBaseCost:   oneHasting,
-		MemoryTimeCost:      oneHasting,
-		DropSectorsBaseCost: oneHasting,
-		DropSectorsUnitCost: oneHasting,
-		SwapSectorBaseCost:  oneHasting,
-
-		ReadBaseCost:    settings.SectorAccessPrice,
-		ReadLengthCost:  oneHasting,
-		WriteBaseCost:   settings.SectorAccessPrice,
-		WriteLengthCost: oneHasting,
-		WriteStoreCost:  settings.StoragePrice,
-		InitBaseCost:    settings.BaseRPCPrice,
-
-		// bandwidth costs
-		DownloadBandwidthCost: settings.EgressPrice,
-		UploadBandwidthCost:   settings.IngressPrice,
-
-		// LatestRevisionCost is set to a reasonable base + the estimated
-		// bandwidth cost of downloading a filecontract. This isn't perfect but
-		// at least scales a bit as the host updates their download bandwidth
-		// prices.
-		LatestRevisionCost: settings.BaseRPCPrice.Add(settings.EgressPrice.Mul64(2048)),
-
-		// Contract Formation/Renewal related fields
-		ContractPrice:     settings.ContractPrice,
-		CollateralCost:    settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
-		MaxCollateral:     settings.MaxCollateral,
-		MaxDuration:       settings.MaxContractDuration,
-		WindowSize:        settings.WindowSize,
-		RenewContractCost: types.Siacoins(100).Div64(1e9),
-
-		// Registry related fields.
-		RegistryEntriesLeft:  limit - count,
-		RegistryEntriesTotal: limit,
-
-		// Subscription related fields.
-		SubscriptionMemoryCost:       oneHasting,
-		SubscriptionNotificationCost: oneHasting,
-
-		// TxnFee related fields.
-		TxnFeeMinRecommended: fee.Div64(3),
-		TxnFeeMaxRecommended: fee,
-	}, nil
 }
 
 // readPriceTable reads the price table ID from the stream and returns an error

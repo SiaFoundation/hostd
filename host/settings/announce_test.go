@@ -48,7 +48,7 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer storage.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 	}
 	defer storage.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,7 +59,7 @@ func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, _ uint64) (rhp3
 		return rhp3.ZeroAccount, types.ZeroCurrency, ErrInvalidRenterSignature
 	}
 
-	settings := sh.settings.Settings()
+	settings, err := sh.settings.RHP2Settings()
 	hostSig := sh.privateKey.SignHash(sigHash)
 	fundReq := accounts.FundAccountWithContract{
 		Account: req.RefundAccount,
@@ -69,7 +69,7 @@ func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, _ uint64) (rhp3
 			RenterSignature: req.Signature,
 		},
 		Amount:     fundAmount,
-		Expiration: time.Now().Add(settings.AccountExpiry),
+		Expiration: time.Now().Add(settings.EphemeralAccountExpiry),
 	}
 	// credit the account with the deposit
 	_, err = sh.accounts.Credit(fundReq, true)
@@ -199,7 +199,11 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhp3.HostPriceTable, s *r
 		return types.ZeroCurrency, types.ZeroCurrency, ErrInvalidRenterSignature
 	}
 
-	settings := sh.settings.Settings()
+	settings, err := sh.settings.RHP2Settings()
+	if err != nil {
+		s.WriteResponseErr(ErrHostInternalError)
+		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
+	}
 	// credit the account with the deposit
 	hostSig := sh.privateKey.SignHash(sigHash)
 	fundReq := accounts.FundAccountWithContract{
@@ -211,7 +215,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhp3.HostPriceTable, s *r
 		},
 		Cost:       pt.FundAccountCost,
 		Amount:     totalAmount.Sub(pt.FundAccountCost),
-		Expiration: time.Now().Add(settings.AccountExpiry),
+		Expiration: time.Now().Add(settings.EphemeralAccountExpiry),
 	}
 	// credit the account with the deposit
 	balance, err = sh.accounts.Credit(fundReq, false)

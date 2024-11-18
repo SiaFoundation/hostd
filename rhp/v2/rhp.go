@@ -11,9 +11,7 @@ import (
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
@@ -21,7 +19,8 @@ import (
 )
 
 const (
-	defaultBatchSize = 20 * (1 << 20) // 20 MiB
+	// DefaultBatchSize is the maximum size in bytes of an RPC read and write request
+	DefaultBatchSize = 20 * (1 << 20) // 20 MiB
 
 	// Version is the current version of the RHP2 protocol.
 	Version = "1.6.0"
@@ -49,10 +48,8 @@ type (
 		SectorRoots(id types.FileContractID) []types.Hash256
 	}
 
-	// A StorageManager manages the storage of sectors on disk.
-	StorageManager interface {
-		Usage() (used, total uint64, _ error)
-
+	// Sectors reads and writes sectors to persistent storage
+	Sectors interface {
 		// Write writes a sector to persistent storage. release should only be
 		// called after the contract roots have been committed to prevent the
 		// sector from being deleted.
@@ -88,7 +85,7 @@ type (
 
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
-		Settings() settings.Settings
+		RHP2Settings() (rhp2.HostSettings, error)
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 
@@ -102,7 +99,6 @@ type (
 	// manages renter sessions
 	SessionHandler struct {
 		privateKey types.PrivateKey
-		rhp3Port   string
 
 		listener net.Listener
 		monitor  rhp.DataMonitor
@@ -115,7 +111,7 @@ type (
 		contracts ContractManager
 		sessions  SessionReporter
 		settings  SettingsReporter
-		storage   StorageManager
+		sectors   Sectors
 		log       *zap.Logger
 	}
 )
@@ -210,55 +206,6 @@ func (sh *SessionHandler) Close() error {
 	return sh.listener.Close()
 }
 
-// Settings returns the host's current settings
-func (sh *SessionHandler) Settings() (rhp2.HostSettings, error) {
-	settings := sh.settings.Settings()
-	usedSectors, totalSectors, err := sh.storage.Usage()
-	if err != nil {
-		return rhp2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
-	}
-
-	return rhp2.HostSettings{
-		// build info
-		Release: "hostd " + build.Version(),
-		// protocol version
-		Version: Version,
-
-		// host info
-		Address:          sh.wallet.Address(),
-		SiaMuxPort:       sh.rhp3Port,
-		NetAddress:       settings.NetAddress,
-		TotalStorage:     totalSectors * rhp2.SectorSize,
-		RemainingStorage: (totalSectors - usedSectors) * rhp2.SectorSize,
-
-		// network defaults
-		MaxDownloadBatchSize: defaultBatchSize,
-		MaxReviseBatchSize:   defaultBatchSize,
-		SectorSize:           rhp2.SectorSize,
-		WindowSize:           settings.WindowSize,
-
-		// contract formation
-		AcceptingContracts: settings.AcceptingContracts,
-		MaxDuration:        settings.MaxContractDuration,
-		ContractPrice:      settings.ContractPrice,
-
-		// rpc prices
-		BaseRPCPrice:           settings.BaseRPCPrice,
-		SectorAccessPrice:      settings.SectorAccessPrice,
-		Collateral:             settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
-		MaxCollateral:          settings.MaxCollateral,
-		StoragePrice:           settings.StoragePrice,
-		DownloadBandwidthPrice: settings.EgressPrice,
-		UploadBandwidthPrice:   settings.IngressPrice,
-
-		// ea settings
-		MaxEphemeralAccountBalance: settings.MaxAccountBalance,
-		EphemeralAccountExpiry:     settings.AccountExpiry,
-
-		RevisionNumber: settings.Revision,
-	}, nil
-}
-
 // Serve starts listening for new connections and blocks until closed
 func (sh *SessionHandler) Serve() error {
 	for {
@@ -287,25 +234,18 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, s Syncer, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, opts ...SessionHandlerOption) (*SessionHandler, error) {
-	_, rhp3Port, err := net.SplitHostPort(rhp3Addr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse rhp3 addr: %w", err)
-	}
-
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, cm ChainManager, s Syncer, wallet Wallet, contracts ContractManager, settings SettingsReporter, sectors Sectors, opts ...SessionHandlerOption) (*SessionHandler, error) {
 	sh := &SessionHandler{
 		privateKey: hostKey,
-		rhp3Port:   rhp3Port,
 
 		listener: l,
-
-		chain:  cm,
-		syncer: s,
-		wallet: wallet,
+		chain:    cm,
+		syncer:   s,
+		wallet:   wallet,
 
 		contracts: contracts,
 		settings:  settings,
-		storage:   storage,
+		sectors:   sectors,
 
 		log:      zap.NewNop(),
 		monitor:  rhp.NewNoOpMonitor(),

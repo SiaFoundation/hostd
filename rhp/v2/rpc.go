@@ -46,7 +46,7 @@ var (
 )
 
 func (sh *SessionHandler) rpcSettings(s *session, log *zap.Logger) (contracts.Usage, error) {
-	settings, err := sh.Settings()
+	settings, err := sh.settings.RHP2Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
@@ -130,7 +130,13 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 		return contracts.Usage{}, ErrV2Hardfork
 	}
 
-	if !sh.settings.Settings().AcceptingContracts {
+	settings, err := sh.settings.RHP2Settings()
+	if err != nil {
+		s.t.WriteResponseErr(ErrHostInternalError)
+		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
+	}
+
+	if !settings.AcceptingContracts {
 		s.t.WriteResponseErr(ErrNotAcceptingContracts)
 		return contracts.Usage{}, ErrNotAcceptingContracts
 	}
@@ -153,11 +159,6 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 	renterPub := *(*types.PublicKey)(req.RenterKey.Key)
 	// get the host's public key, current block height, and settings
 	hostPub := sh.privateKey.PublicKey()
-	settings, err := sh.Settings()
-	if err != nil {
-		s.t.WriteResponseErr(ErrHostInternalError)
-		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
-	}
 
 	// get the contract from the transaction set
 	formationTxn, formationTxnSet := formationTxnSet[len(formationTxnSet)-1], formationTxnSet[:len(formationTxnSet)-1]
@@ -268,7 +269,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 		return contracts.Usage{}, ErrV2Hardfork
 	}
 
-	settings, err := sh.Settings()
+	settings, err := sh.settings.RHP2Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
@@ -479,7 +480,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, err
 	}
 
-	settings, err := sh.Settings()
+	settings, err := sh.settings.RHP2Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
@@ -569,7 +570,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
 	}
-	settings, err := sh.Settings()
+	settings, err := sh.settings.RHP2Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to get settings: %w", err)
@@ -633,7 +634,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 			}
 			sector := (*[rhp2.SectorSize]byte)(action.Data)
 			root := rhp2.SectorRoot(sector)
-			release, err := sh.storage.Write(root, sector)
+			release, err := sh.sectors.Write(root, sector)
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
 				s.t.WriteResponseErr(err)
@@ -661,7 +662,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				return contracts.Usage{}, err
 			}
 
-			sector, err := sh.storage.Read(root)
+			sector, err := sh.sectors.Read(root)
 			if err != nil {
 				s.t.WriteResponseErr(ErrHostInternalError)
 				return contracts.Usage{}, fmt.Errorf("failed to read sector %v: %w", root, err)
@@ -686,7 +687,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-			release, err := sh.storage.Write(root, sector)
+			release, err := sh.sectors.Write(root, sector)
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
 				s.t.WriteResponseErr(err)
@@ -733,7 +734,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	}
 
 	// sync the storage manager
-	if err := sh.storage.Sync(); err != nil {
+	if err := sh.sectors.Sync(); err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to sync storage manager: %w", err)
 	}
@@ -770,7 +771,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 	}
 
 	// get the host's current settings
-	settings, err := sh.Settings()
+	settings, err := sh.settings.RHP2Settings()
 	if err != nil {
 		s.t.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to get host settings: %w", err)
@@ -859,7 +860,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 
 	// enter response loop
 	for i, sec := range req.Sections {
-		sector, err := sh.storage.Read(sec.MerkleRoot)
+		sector, err := sh.sectors.Read(sec.MerkleRoot)
 		if err != nil {
 			err := fmt.Errorf("failed to get sector: %w", err)
 			s.t.WriteResponseErr(err)
