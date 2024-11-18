@@ -48,7 +48,11 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer storage.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
+	v2AnnounceAddresses := []chain.NetAddress{
+		{Protocol: rhp4.ProtocolTCPSiaMux, Address: "foo.bar:1234"},
+		{Protocol: rhp4.ProtocolTCPSiaMux, Address: "foo.bar:1236"},
+	}
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, storage, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithRHP4AnnounceAddresses(v2AnnounceAddresses))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +86,7 @@ func TestAutoAnnounce(t *testing.T) {
 		}
 	}
 
-	assertV2Announcement := func(t *testing.T, expectedAddr string, height uint64) {
+	assertV2Announcement := func(t *testing.T, addresses []chain.NetAddress, height uint64) {
 		t.Helper()
 
 		index, ok := node.Chain.BestIndex(height)
@@ -96,7 +100,7 @@ func TestAutoAnnounce(t *testing.T) {
 		}
 
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: rhp4.ProtocolTCPSiaMux, Address: expectedAddr}})
+		types.EncodeSlice(h.E, addresses)
 		if err := h.E.Flush(); err != nil {
 			t.Fatal(err)
 		}
@@ -144,11 +148,11 @@ func TestAutoAnnounce(t *testing.T) {
 	// v2 attestation.
 	n := node.Chain.TipState().Network
 	mineAndSync(t, n.HardforkV2.AllowHeight-node.Chain.Tip().Height+1)
-	assertV2Announcement(t, "baz.qux:5678", n.HardforkV2.AllowHeight+1)
+	assertV2Announcement(t, v2AnnounceAddresses, n.HardforkV2.AllowHeight+1)
 
 	// mine a few more blocks to ensure the host doesn't re-announce
 	mineAndSync(t, 10)
-	assertV2Announcement(t, "baz.qux:5678", n.HardforkV2.AllowHeight+1)
+	assertV2Announcement(t, v2AnnounceAddresses, n.HardforkV2.AllowHeight+1)
 }
 
 func TestAutoAnnounceV2(t *testing.T) {
@@ -186,7 +190,11 @@ func TestAutoAnnounceV2(t *testing.T) {
 	}
 	defer storage.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
+	v2AnnounceAddresses := []chain.NetAddress{
+		{Protocol: rhp4.ProtocolTCPSiaMux, Address: "foo.bar:1234"},
+		{Protocol: rhp4.ProtocolTCPSiaMux, Address: "foo.bar:1236"},
+	}
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, storage, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithRHP4AnnounceAddresses(v2AnnounceAddresses))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +220,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 		}
 	}
 
-	assertV2Announcement := func(t *testing.T, expectedAddr string, height uint64) {
+	assertV2Announcement := func(t *testing.T, addresses []chain.NetAddress, height uint64) {
 		t.Helper()
 
 		index, ok := node.Chain.BestIndex(height)
@@ -226,7 +234,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 		}
 
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: rhp4.ProtocolTCPSiaMux, Address: expectedAddr}})
+		types.EncodeSlice(h.E, chain.V2HostAnnouncement(addresses))
 		if err := h.E.Flush(); err != nil {
 			t.Fatal(err)
 		}
@@ -239,24 +247,24 @@ func TestAutoAnnounceV2(t *testing.T) {
 		}
 	}
 
-	settings := settings.DefaultSettings
-	settings.NetAddress = "foo.bar:1234"
-	sm.UpdateSettings(settings)
-
 	// fund the wallet and trigger the first auto-announce
 	mineAndSync(t, network.MaturityDelay+1+1)
-	assertV2Announcement(t, "foo.bar:1234", network.MaturityDelay+1+1) // first maturity height + funds available + confirmation
+	assertV2Announcement(t, v2AnnounceAddresses, network.MaturityDelay+1+1) // first maturity height + funds available + confirmation
 	// mine until the next announcement and confirm it
 	lastHeight := node.Chain.Tip().Height
 	mineAndSync(t, 51)
-	assertV2Announcement(t, "foo.bar:1234", lastHeight+50+1) // first confirm + interval + confirmation
+	assertV2Announcement(t, v2AnnounceAddresses, lastHeight+50+1) // first confirm + interval + confirmation
 
 	// change the address
-	settings.NetAddress = "baz.qux:5678"
-	sm.UpdateSettings(settings)
+	v2AnnounceAddresses[1].Address = "baz.qux:5678"
+	sm, err = settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, wm, storage, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithRHP4AnnounceAddresses(v2AnnounceAddresses))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sm.Close()
 
 	// trigger and confirm the new announcement
 	lastHeight = node.Chain.Tip().Height
 	mineAndSync(t, 2)
-	assertV2Announcement(t, "baz.qux:5678", lastHeight+2)
+	assertV2Announcement(t, v2AnnounceAddresses, lastHeight+2)
 }

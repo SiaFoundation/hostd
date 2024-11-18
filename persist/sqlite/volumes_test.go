@@ -43,11 +43,8 @@ func TestVolumeSetReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// try to add a sector to the volume
-	release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error { return nil })
+	err = db.StoreTempSector(frand.Entropy256(), 1, func(loc storage.SectorLocation) error { return nil })
 	if err != nil {
-		t.Fatal(err)
-	} else if err := release(); err != nil { // immediately release the sector so it can be used again
 		t.Fatal(err)
 	}
 
@@ -56,9 +53,9 @@ func TestVolumeSetReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// try to add another sector to the volume, should fail with
+	// add another sector to the volume, should fail with
 	// ErrNotEnoughStorage
-	_, err = db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error { return nil })
+	err = db.StoreTempSector(frand.Entropy256(), 1, func(loc storage.SectorLocation) error { return nil })
 	if !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
@@ -82,7 +79,7 @@ func TestAddSector(t *testing.T) {
 	root := frand.Entropy256()
 	// try to store a sector in the empty volume, should return
 	// ErrNotEnoughStorage
-	_, err = db.StoreSector(root, func(storage.SectorLocation, bool) error { return nil })
+	err = db.StoreTempSector(root, 1, func(storage.SectorLocation) error { return nil })
 	if !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
@@ -92,7 +89,7 @@ func TestAddSector(t *testing.T) {
 		t.Fatal(err)
 	}
 	// store the sector
-	release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
+	err = db.StoreTempSector(root, 1, func(loc storage.SectorLocation) error {
 		// check that the sector was stored in the expected location
 		if loc.Volume != volumeID {
 			t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
@@ -104,11 +101,6 @@ func TestAddSector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := release(); err != nil {
-			t.Fatal("failed to release sector1:", err)
-		}
-	}()
 
 	// check the location was added
 	loc, release, err := db.SectorLocation(root)
@@ -134,21 +126,12 @@ func TestAddSector(t *testing.T) {
 		t.Fatalf("expected 1 used sector, got %v", volumes[0].UsedSectors)
 	}
 
-	// store the sector again, exists should be true
-	release, err = db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
-		switch {
-		case !exists:
-			t.Fatal("sector does not exist")
-		case loc.Volume != volumeID:
-			t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
-		case loc.Index != 0:
-			t.Fatalf("expected sector index 0, got %v", loc.Index)
-		}
+	// store the sector again, should succeed
+	err = db.StoreTempSector(root, 1, func(loc storage.SectorLocation) error {
+		t.Fatal("write func called for existing sector")
 		return nil
 	})
 	if err != nil {
-		t.Fatal(err)
-	} else if err := release(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,7 +147,7 @@ func TestAddSector(t *testing.T) {
 
 	// try to store another sector in the volume, should return
 	// ErrNotEnoughStorage
-	_, err = db.StoreSector(frand.Entropy256(), func(storage.SectorLocation, bool) error { return nil })
+	err = db.StoreTempSector(frand.Entropy256(), 1, func(storage.SectorLocation) error { return nil })
 	if !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
@@ -336,23 +319,18 @@ func TestShrinkVolume(t *testing.T) {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors/2, m.Storage.TotalSectors)
 	}
 
-	// add a few sectors
-	var releaseFns []func() error
 	for i := 0; i < 5; i++ {
-		release, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error {
+		err := db.StoreTempSector(frand.Entropy256(), 1, func(loc storage.SectorLocation) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
-			} else if exists {
-				t.Fatal("sector exists")
 			}
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		releaseFns = append(releaseFns, release)
 	}
 
 	// check that the volume cannot be shrunk below the used sectors
@@ -367,12 +345,6 @@ func TestShrinkVolume(t *testing.T) {
 		t.Fatal(err)
 	} else if m.Storage.TotalSectors != 5 {
 		t.Fatalf("expected %v total sectors, got %v", 5, m.Storage.TotalSectors)
-	}
-
-	for _, fn := range releaseFns {
-		if err := fn(); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 
@@ -404,24 +376,15 @@ func TestRemoveVolume(t *testing.T) {
 	// add a few sectors
 	for i := 0; i < 5; i++ {
 		sectorRoot := frand.Entropy256()
-		release, err := db.StoreSector(sectorRoot, func(loc storage.SectorLocation, exists bool) error {
+		err = db.StoreTempSector(sectorRoot, uint64(i+1), func(loc storage.SectorLocation) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index 0, got %v", loc.Index)
-			} else if exists {
-				t.Fatal("sector exists")
 			}
 			return nil
 		})
 		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = db.AddTemporarySectors([]storage.TempSector{{Root: sectorRoot, Expiration: uint64(i)}})
-		if err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -479,23 +442,15 @@ func TestMigrateSectors(t *testing.T) {
 	for i := range roots {
 		root := frand.Entropy256()
 		roots[i] = root
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
+		err = db.StoreTempSector(root, uint64(i+1), func(loc storage.SectorLocation) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
-			} else if exists {
-				t.Fatal("sector already exists")
 			}
 			return nil
 		})
 		if err != nil {
-			t.Fatal(err)
-		}
-
-		if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: uint64(i)}}); err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -603,16 +558,13 @@ func TestPrune(t *testing.T) {
 
 	// store enough sectors to fill the volume
 	roots := make([]types.Hash256, 0, sectors)
-	releaseFns := make([]func() error, 0, sectors)
 	for i := 0; i < sectors; i++ {
 		root := frand.Entropy256()
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error {
+		err := db.StoreTempSector(root, 1, func(loc storage.SectorLocation) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
 			} else if loc.Index != uint64(i) {
 				t.Fatalf("expected sector index %v, got %v", i, loc.Index)
-			} else if exists {
-				t.Fatal("sector already exists")
 			}
 			return nil
 		})
@@ -620,7 +572,6 @@ func TestPrune(t *testing.T) {
 			t.Fatal(err)
 		}
 		roots = append(roots, root)
-		releaseFns = append(releaseFns, release)
 	}
 
 	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
@@ -648,7 +599,7 @@ func TestPrune(t *testing.T) {
 	if err := db.AddContract(c, []types.Transaction{}, types.MaxCurrency, contracts.Usage{}, 100); err != nil {
 		t.Fatal(err)
 	}
-	contractSectors, tempSectors, lockedSectors, deletedSectors := roots[:20], roots[20:40], roots[40:60], roots[60:]
+	contractSectors := roots[:50]
 	// append the contract sectors to the contract
 	var changes []contracts.SectorChange
 	for _, root := range contractSectors {
@@ -662,46 +613,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// add the temporary sectors
-	var tempRoots []storage.TempSector
-	for _, root := range tempSectors {
-		tempRoots = append(tempRoots, storage.TempSector{
-			Root:       root,
-			Expiration: 100,
-		})
-	}
-	if err := db.AddTemporarySectors(tempRoots); err != nil {
-		t.Fatal(err)
-	}
-
-	// lock the remaining sectors
-	var locks []int64
-	for _, root := range lockedSectors {
-		err := db.transaction(func(tx *txn) error {
-			sectorID, err := sectorDBID(tx, root)
-			if err != nil {
-				return err
-			}
-			lockID, err := lockSector(tx, sectorID)
-			if err != nil {
-				return err
-			}
-			locks = append(locks, lockID)
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// remove the initial locks
-	for _, fn := range releaseFns {
-		if err := fn(); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	checkConsistency := func(contract, temp, locked, deleted []types.Hash256) error {
+	checkConsistency := func(contract, temp, deleted []types.Hash256, expectedSectors uint64) error {
 		for _, root := range contract {
 			if _, release, err := db.SectorLocation(root); err != nil {
 				return fmt.Errorf("sector %v not found: %w", root, err)
@@ -718,14 +630,6 @@ func TestPrune(t *testing.T) {
 			}
 		}
 
-		for _, root := range locked {
-			if _, release, err := db.SectorLocation(root); err != nil {
-				return fmt.Errorf("sector %v not found: %w", root, err)
-			} else if err := release(); err != nil {
-				return fmt.Errorf("failed to release sector %v: %w", root, err)
-			}
-		}
-
 		for i, root := range deleted {
 			if _, _, err := db.SectorLocation(root); !errors.Is(err, storage.ErrSectorNotFound) {
 				return fmt.Errorf("expected ErrSectorNotFound for sector %d %q, got %v", i, root, err)
@@ -733,7 +637,6 @@ func TestPrune(t *testing.T) {
 		}
 
 		// check the volume usage
-		expectedSectors := uint64(len(contract) + len(temp) + len(locked))
 		used, _, err := db.StorageUsage()
 		if err != nil {
 			return fmt.Errorf("failed to get storage usage: %w", err)
@@ -755,28 +658,17 @@ func TestPrune(t *testing.T) {
 		return nil
 	}
 
-	if err := checkConsistency(contractSectors, tempSectors, lockedSectors, deletedSectors); err != nil {
-		t.Fatal(err)
-	}
-
-	// unlock locked sectors
-	err = db.transaction(func(tx *txn) error {
-		return unlockSector(tx, log.Named("unlockSector"), locks...)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := checkConsistency(contractSectors, tempSectors, nil, roots[60:]); err != nil {
+	// all sectors start out as temporary
+	if err := checkConsistency(contractSectors, roots, []types.Hash256{}, 100); err != nil {
 		t.Fatal(err)
 	}
 
 	// expire the temp sectors
-	if err := db.ExpireTempSectors(100); err != nil {
+	if err := db.ExpireTempSectors(1); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := checkConsistency(contractSectors, nil, nil, roots[40:]); err != nil {
+	if err := checkConsistency(contractSectors, nil, roots[50:], 50); err != nil {
 		t.Fatal(err)
 	}
 
@@ -789,7 +681,7 @@ func TestPrune(t *testing.T) {
 	}
 	contractSectors = contractSectors[:len(contractSectors)/2]
 
-	if err := checkConsistency(contractSectors, nil, nil, roots[50:]); err != nil {
+	if err := checkConsistency(contractSectors[:25], nil, roots[50:], 25); err != nil {
 		t.Fatal(err)
 	}
 
@@ -798,7 +690,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := checkConsistency(nil, nil, nil, roots); err != nil {
+	if err := checkConsistency(nil, nil, roots, 0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -870,11 +762,9 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	roots := make([]types.Hash256, b.N)
 	for i := range roots {
 		roots[i] = frand.Entropy256()
-		release, err := db.StoreSector(roots[i], func(loc storage.SectorLocation, exists bool) error { return nil })
+		err := db.StoreTempSector(roots[i], 10, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
 			b.Fatalf("failed to store sector %v: %v", i, err)
-		} else if err := release(); err != nil {
-			b.Fatal(err)
 		}
 	}
 
@@ -888,7 +778,7 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 
 	// migrate all sectors from the first volume to the second
-	migrated, failed, err := db.MigrateSectors(context.Background(), volume1.ID, 0, func(loc storage.SectorLocation) error {
+	migrated, failed, err := db.MigrateSectors(context.Background(), volume1.ID, 0, func(_ storage.SectorLocation) error {
 		return nil
 	})
 	if err != nil {
@@ -918,7 +808,7 @@ func BenchmarkStoreSector(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 
 	for i := 0; i < b.N; i++ {
-		_, err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation, exists bool) error { return nil })
+		err := db.StoreTempSector(frand.Entropy256(), 1, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
 			b.Fatal(err)
 		}

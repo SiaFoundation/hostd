@@ -94,15 +94,12 @@ func (pe *programExecutor) executeAppendSector(instr *rhp3.InstrAppendSector, lo
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
-	rootCalcStart := time.Now()
 	root := rhp2.SectorRoot(sector)
-	log.Debug("calculated sector root", zap.Duration("duration", time.Since(rootCalcStart)))
 	// pay for execution
 	cost := pe.priceTable.AppendSectorCost(pe.remainingDuration)
 	if err := pe.payForExecution(cost, costToAccountUsage(cost)); err != nil {
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
-
 	release, err := pe.storage.Write(root, sector)
 	if errors.Is(err, storage.ErrNotEnoughStorage) {
 		return nil, nil, err
@@ -111,15 +108,11 @@ func (pe *programExecutor) executeAppendSector(instr *rhp3.InstrAppendSector, lo
 	}
 	pe.releaseFuncs = append(pe.releaseFuncs, release)
 	pe.updater.AppendSector(root)
-
 	if !instr.ProofRequired {
 		return nil, nil, nil
 	}
-
-	proofStart := time.Now()
 	roots := pe.updater.SectorRoots()
 	proof, _ := rhp2.BuildDiffProof([]rhp2.RPCWriteAction{{Type: rhp2.RPCWriteActionAppend}}, roots[:len(roots)-1]) // TODO: add rhp3 proof methods
-	log.Debug("built proof", zap.Duration("duration", time.Since(proofStart)))
 	return nil, proof, nil
 }
 
@@ -227,7 +220,7 @@ func (pe *programExecutor) executeReadOffset(instr *rhp3.InstrReadOffset, log *z
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.storage.Read(root)
+	sector, err := pe.storage.ReadSector(root)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
@@ -276,7 +269,7 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 	}
 
 	// read the sector
-	sector, err := pe.storage.Read(root)
+	sector, err := pe.storage.ReadSector(root)
 	if errors.Is(err, storage.ErrSectorNotFound) {
 		log.Debug("failed to read sector", zap.String("root", root.String()), zap.Error(err))
 		return nil, nil, storage.ErrSectorNotFound
@@ -365,20 +358,23 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.storage.Read(oldRoot)
+	sector, err := pe.storage.ReadSector(oldRoot)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
+
+	var updated [rhp2.SectorSize]byte
+	copy(updated[:], sector[:])
 
 	// validate and apply the patch
 	if relOffset+length > rhp2.SectorSize {
 		return nil, nil, fmt.Errorf("update offset %v length %v is out of bounds", relOffset, length)
 	}
-	copy(sector[relOffset:], patch)
+	copy(updated[relOffset:], patch)
 
 	// store the new sector
-	newRoot := rhp2.SectorRoot((*[rhp2.SectorSize]byte)(sector))
-	release, err := pe.storage.Write(newRoot, sector)
+	newRoot := rhp2.SectorRoot(&updated)
+	release, err := pe.storage.Write(newRoot, &updated)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
 	}

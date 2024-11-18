@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +18,7 @@ import (
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -57,8 +58,8 @@ type (
 		// called after the contract roots have been committed to prevent the
 		// sector from being deleted.
 		Write(root types.Hash256, data *[rhp2.SectorSize]byte) (release func() error, _ error)
-		// Read reads the sector with the given root from the manager.
-		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
+		// ReadSector reads the sector with the given root from the manager.
+		ReadSector(root types.Hash256) (*[rhp2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 	}
@@ -89,13 +90,6 @@ type (
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
 		Settings() settings.Settings
-		BandwidthLimiters() (ingress, egress *rate.Limiter)
-	}
-
-	// SessionReporter reports session metrics
-	SessionReporter interface {
-		StartSession(conn *rhp.Conn, proto string, version int) (sessionID rhp.UID, end func())
-		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(contracts.Usage, error))
 	}
 
 	// A SessionHandler handles the host side of the renter-host protocol and
@@ -113,7 +107,6 @@ type (
 		wallet Wallet
 
 		contracts ContractManager
-		sessions  SessionReporter
 		settings  SettingsReporter
 		storage   StorageManager
 		log       *zap.Logger
@@ -155,12 +148,10 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 		return err
 	}
 	start := time.Now()
-	rpcID, end := sh.sessions.StartRPC(sess.id, id)
-	log = log.Named(id.String()).With(zap.Stringer("rpcID", rpcID))
+
+	log = log.Named(id.String()).With(zap.String("rpcID", hex.EncodeToString(frand.Bytes(4))))
 	log.Debug("RPC start")
-	usage, err := rpcFn(sess, log)
-	end(usage, err)
-	if err != nil {
+	if _, err := rpcFn(sess, log); err != nil {
 		log.Warn("RPC error", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
 		return fmt.Errorf("RPC %q error: %w", id, err)
 	}
@@ -170,22 +161,13 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 
 // upgrade performs the RHP2 handshake and begins handling RPCs
 func (sh *SessionHandler) upgrade(conn net.Conn) error {
-	// wrap the conn with the bandwidth limiters
-	ingressLimiter, egressLimiter := sh.settings.BandwidthLimiters()
-	rhpConn := rhp.NewConn(conn, sh.monitor, ingressLimiter, egressLimiter)
-
-	t, err := rhp2.NewHostTransport(rhpConn, sh.privateKey)
+	t, err := rhp2.NewHostTransport(conn, sh.privateKey)
 	if err != nil {
 		return err
 	}
 
-	sessionID, end := sh.sessions.StartSession(rhpConn, rhp.SessionProtocolTCP, 2)
-	defer end()
-
 	sess := &session{
-		id:   sessionID,
-		conn: rhpConn,
-		t:    t,
+		t: t,
 	}
 	defer t.Close()
 
@@ -195,7 +177,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 		}
 	}()
 
-	log := sh.log.With(zap.Stringer("sessionID", sessionID), zap.Stringer("peerAddr", conn.RemoteAddr()))
+	log := sh.log.With(zap.String("sessionID", hex.EncodeToString(frand.Bytes(4))), zap.Stringer("peerAddr", conn.RemoteAddr()))
 
 	for {
 		if err := sh.rpcLoop(sess, log); err != nil {
@@ -287,7 +269,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, s Syncer, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, opts ...SessionHandlerOption) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string, cm ChainManager, s Syncer, wallet Wallet, contracts ContractManager, settings SettingsReporter, storage StorageManager, log *zap.Logger) (*SessionHandler, error) {
 	_, rhp3Port, err := net.SplitHostPort(rhp3Addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse rhp3 addr: %w", err)
@@ -307,14 +289,8 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, rhp3Addr string
 		settings:  settings,
 		storage:   storage,
 
-		log:      zap.NewNop(),
-		monitor:  rhp.NewNoOpMonitor(),
-		sessions: noopSessionReporter{},
-
-		tg: threadgroup.New(),
-	}
-	for _, opt := range opts {
-		opt(sh)
+		log: log,
+		tg:  threadgroup.New(),
 	}
 	return sh, nil
 }

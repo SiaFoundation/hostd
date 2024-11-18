@@ -2,17 +2,20 @@ package settings
 
 import (
 	"crypto/ed25519"
-	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"go.sia.tech/core/consensus"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/hostd/alerts"
+	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -38,6 +41,8 @@ type (
 		// UpdateSettings updates the host's settings.
 		UpdateSettings(s Settings) error
 
+		// LastAnnouncement returns the last announcement that was made by the
+		// host
 		LastAnnouncement() (Announcement, error)
 		// LastV2AnnouncementHash returns the hash of the last v2 announcement.
 		LastV2AnnouncementHash() (types.Hash256, types.ChainIndex, error)
@@ -67,6 +72,11 @@ type (
 		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
 	}
 
+	// Storage provides information about the host's storage capacity
+	Storage interface {
+		Usage() (used, total uint64, _ error)
+	}
+
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
@@ -87,7 +97,7 @@ type (
 	Settings struct {
 		// Host settings
 		AcceptingContracts  bool   `json:"acceptingContracts"`
-		NetAddress          string `json:"netAddress"`
+		NetAddress          string `json:"netAddress"` // TODO: remove after hardfork
 		MaxContractDuration uint64 `json:"maxContractDuration"`
 		WindowSize          uint64 `json:"windowSize"`
 
@@ -126,18 +136,20 @@ type (
 
 	// A ConfigManager manages the host's current configuration
 	ConfigManager struct {
-		hostKey            types.PrivateKey
-		announceInterval   uint64
-		validateNetAddress bool
-		initialSettings    Settings
+		hostKey               types.PrivateKey
+		announceInterval      uint64
+		validateNetAddress    bool // TODO: remove after hardfork
+		rhp4AnnounceAddresses []chain.NetAddress
+		initialSettings       Settings
 
 		store Store
 		a     Alerts
 		log   *zap.Logger
 
-		chain  ChainManager
-		syncer Syncer
-		wallet Wallet
+		chain   ChainManager
+		syncer  Syncer
+		wallet  Wallet
+		storage Storage
 
 		mu         sync.Mutex // guards the following fields
 		settings   Settings   // in-memory cache of the host's settings
@@ -149,8 +161,6 @@ type (
 		ddnsUpdateTimer *time.Timer
 		lastIPv4        net.IP
 		lastIPv6        net.IP
-
-		rhp3WSTLS *tls.Config
 
 		tg *threadgroup.ThreadGroup
 	}
@@ -253,34 +263,66 @@ func (m *ConfigManager) Settings() Settings {
 	return m.settings
 }
 
-// BandwidthLimiters returns the rate limiters for all traffic
-func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
+// RHPBandwidthLimiters returns the rate limiters for all traffic
+func (m *ConfigManager) RHPBandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
 }
 
+// RHP4Settings returns the host's settings in the RHP4 format. The settings
+// are not signed.
+func (m *ConfigManager) RHP4Settings() proto4.HostSettings {
+	m.mu.Lock()
+	settings := m.settings
+	m.mu.Unlock()
+
+	used, total, err := m.storage.Usage()
+	if err != nil {
+		m.log.Error("failed to get storage usage", zap.Error(err))
+	}
+
+	hs := proto4.HostSettings{
+		Release:             "hostd " + build.Version(),
+		WalletAddress:       m.wallet.Address(),
+		AcceptingContracts:  settings.AcceptingContracts,
+		MaxCollateral:       settings.MaxCollateral,
+		MaxContractDuration: settings.MaxContractDuration,
+		MaxSectorDuration:   3 * 144,
+		MaxSectorBatchSize:  25600, // 100 GiB
+		RemainingStorage:    total - used,
+		TotalStorage:        total,
+		Prices: proto4.HostPrices{
+			ContractPrice:   settings.ContractPrice,
+			StoragePrice:    settings.StoragePrice,
+			Collateral:      settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
+			IngressPrice:    settings.IngressPrice,
+			EgressPrice:     settings.EgressPrice,
+			FreeSectorPrice: types.Siacoins(1).Div64((1 << 40) / proto4.SectorSize), // 1 SC / TB
+		},
+	}
+	return hs
+}
+
 // NewConfigManager initializes a new config manager
-func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, wm Wallet, opts ...Option) (*ConfigManager, error) {
+func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, wm Wallet, sm Storage, opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
 		announceInterval:   144 * 90, // 90 days
 		validateNetAddress: true,
 		hostKey:            hostKey,
 		initialSettings:    DefaultSettings,
 
-		store:  store,
-		chain:  cm,
-		syncer: s,
-		wallet: wm,
+		store:   store,
+		chain:   cm,
+		syncer:  s,
+		wallet:  wm,
+		storage: sm,
 
 		log: zap.NewNop(),
 		a:   alerts.NewNop(),
 		tg:  threadgroup.New(),
 
 		// initialize the rate limiters
-		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
-		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
-
-		// rhp3 WebSocket TLS
-		rhp3WSTLS: &tls.Config{},
+		ingressLimit: rate.NewLimiter(rate.Inf, math.MaxInt),
+		egressLimit:  rate.NewLimiter(rate.Inf, math.MaxInt),
 	}
 
 	for _, opt := range opts {

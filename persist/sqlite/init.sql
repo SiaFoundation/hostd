@@ -30,6 +30,7 @@ CREATE TABLE stored_sectors (
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
 CREATE INDEX stored_sectors_last_access ON stored_sectors(last_access_timestamp);
 
+-- TODO: remove after hardfork
 CREATE TABLE locked_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
 	id INTEGER PRIMARY KEY,
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id)
@@ -215,6 +216,14 @@ CREATE INDEX accounts_expiration_timestamp ON accounts(expiration_timestamp);
 CREATE TABLE contract_account_funding (
 	id INTEGER PRIMARY KEY,
 	contract_id INTEGER NOT NULL REFERENCES contracts(id),
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
+	amount BLOB NOT NULL,
+	UNIQUE (contract_id, account_id)
+);
+
+CREATE TABLE contract_v2_account_funding (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts_v2(id),
 	account_id INTEGER NOT NULL REFERENCES accounts(id),
 	amount BLOB NOT NULL,
 	UNIQUE (contract_id, account_id)

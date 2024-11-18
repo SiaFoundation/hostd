@@ -188,7 +188,7 @@ func NewHostNode(t *testing.T, pk types.PrivateKey, network *consensus.Network, 
 	initialSettings.AcceptingContracts = true
 	initialSettings.NetAddress = "127.0.0.1:9981"
 	initialSettings.WindowSize = 10
-	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings))
+	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, wm, vm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings))
 	if err != nil {
 		t.Fatal(err)
 	}

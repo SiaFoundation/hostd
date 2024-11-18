@@ -661,11 +661,13 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				return contracts.Usage{}, err
 			}
 
-			sector, err := sh.storage.Read(root)
+			sector, err := sh.storage.ReadSector(root)
 			if err != nil {
 				s.t.WriteResponseErr(ErrHostInternalError)
 				return contracts.Usage{}, fmt.Errorf("failed to read sector %v: %w", root, err)
 			}
+			var updated [rhp2.SectorSize]byte
+			copy(updated[:], sector[:])
 
 			i, offset := action.A, action.B
 			if offset > rhp2.SectorSize {
@@ -678,7 +680,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				return contracts.Usage{}, err
 			}
 
-			copy(sector[offset:], action.Data)
+			copy(updated[offset:], action.Data)
 			newRoot := rhp2.SectorRoot(sector)
 
 			if err := contractUpdater.UpdateSector(newRoot, i); err != nil {
@@ -686,7 +688,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-			release, err := sh.storage.Write(root, sector)
+			release, err := sh.storage.Write(root, &updated)
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
 				s.t.WriteResponseErr(err)
@@ -859,7 +861,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 
 	// enter response loop
 	for i, sec := range req.Sections {
-		sector, err := sh.storage.Read(sec.MerkleRoot)
+		sector, err := sh.storage.ReadSector(sec.MerkleRoot)
 		if err != nil {
 			err := fmt.Errorf("failed to get sector: %w", err)
 			s.t.WriteResponseErr(err)
