@@ -150,7 +150,7 @@ func TestContractLockUnlock(t *testing.T) {
 	rev := contracts.SignedRevision{
 		Revision: types.FileContractRevision{
 			FileContract: types.FileContract{
-				UnlockHash:  types.Hash256(contractUnlockConditions.UnlockHash()),
+				UnlockHash:  contractUnlockConditions.UnlockHash(),
 				WindowStart: 100,
 				WindowEnd:   200,
 			},
@@ -1225,7 +1225,7 @@ func TestSectorRoots(t *testing.T) {
 	rev := contracts.SignedRevision{
 		Revision: types.FileContractRevision{
 			FileContract: types.FileContract{
-				UnlockHash:  types.Hash256(contractUnlockConditions.UnlockHash()),
+				UnlockHash:  contractUnlockConditions.UnlockHash(),
 				WindowStart: 100,
 				WindowEnd:   200,
 			},

@@ -759,13 +759,13 @@ func prepareContractRenewal(currentRevision types.FileContractRevision, renterAd
 		WindowStart:    uint64(endHeight),
 		WindowEnd:      uint64(endHeight + host.WindowSize),
 		Payout:         taxAdjustedPayout(renterPayout.Add(hostValidPayout)),
-		UnlockHash: types.Hash256(types.UnlockConditions{
+		UnlockHash: types.UnlockConditions{
 			PublicKeys: []types.UnlockKey{
 				renterKey.PublicKey().UnlockKey(),
 				hostKey.UnlockKey(),
 			},
 			SignaturesRequired: 2,
-		}.UnlockHash()),
+		}.UnlockHash(),
 		RevisionNumber: 0,
 		ValidProofOutputs: []types.SiacoinOutput{
 			{Value: renterPayout, Address: renterAddress},

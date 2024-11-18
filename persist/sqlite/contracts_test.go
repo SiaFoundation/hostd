@@ -87,7 +87,7 @@ func TestReviseContract(t *testing.T) {
 			ParentID:         frand.Entropy256(),
 			UnlockConditions: contractUnlockConditions,
 			FileContract: types.FileContract{
-				UnlockHash:     types.Hash256(contractUnlockConditions.UnlockHash()),
+				UnlockHash:     contractUnlockConditions.UnlockHash(),
 				RevisionNumber: 1,
 				WindowStart:    100,
 				WindowEnd:      200,
@@ -382,7 +382,7 @@ func TestContracts(t *testing.T) {
 			ParentID:         frand.Entropy256(),
 			UnlockConditions: contractUnlockConditions,
 			FileContract: types.FileContract{
-				UnlockHash:     types.Hash256(contractUnlockConditions.UnlockHash()),
+				UnlockHash:     contractUnlockConditions.UnlockHash(),
 				RevisionNumber: 1,
 				WindowStart:    100,
 				WindowEnd:      200,
@@ -450,7 +450,7 @@ func BenchmarkTrimSectors(b *testing.B) {
 			ParentID:         frand.Entropy256(),
 			UnlockConditions: contractUnlockConditions,
 			FileContract: types.FileContract{
-				UnlockHash:     types.Hash256(contractUnlockConditions.UnlockHash()),
+				UnlockHash:     contractUnlockConditions.UnlockHash(),
 				RevisionNumber: 1,
 				WindowStart:    100,
 				WindowEnd:      200,
