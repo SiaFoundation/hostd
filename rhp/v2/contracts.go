@@ -64,7 +64,7 @@ func validateContractFormation(fc types.FileContract, hostKey, renterKey types.U
 		return types.ZeroCurrency, errors.New("host valid and missed outputs must be equal")
 	case fc.ValidHostPayout().Cmp(settings.MaxCollateral) > 0:
 		return types.ZeroCurrency, errors.New("excessive initial collateral")
-	case fc.UnlockHash != types.Hash256(contractUnlockConditions(hostKey, renterKey).UnlockHash()):
+	case fc.UnlockHash != contractUnlockConditions(hostKey, renterKey).UnlockHash():
 		return types.ZeroCurrency, errors.New("incorrect unlock hash")
 	}
 	return fc.ValidHostPayout().Sub(settings.ContractPrice), nil
@@ -99,7 +99,7 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for missed host output")
 	case renewal.MissedProofOutputs[2].Address != types.VoidAddress:
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")
-	case renewal.UnlockHash != types.Hash256(contractUnlockConditions(hostKey, renterKey).UnlockHash()):
+	case renewal.UnlockHash != contractUnlockConditions(hostKey, renterKey).UnlockHash():
 		return types.ZeroCurrency, types.ZeroCurrency, types.ZeroCurrency, errors.New("incorrect unlock hash")
 	}
 

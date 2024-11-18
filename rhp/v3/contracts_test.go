@@ -33,10 +33,10 @@ func TestValidateContractRenewal(t *testing.T) {
 			WindowStart:    100,
 			WindowEnd:      300,
 			Payout:         types.ZeroCurrency, // not validated here
-			UnlockHash: types.Hash256(types.UnlockConditions{
+			UnlockHash: types.UnlockConditions{
 				PublicKeys:         []types.UnlockKey{renterKey.UnlockKey(), hostKey.UnlockKey()},
 				SignaturesRequired: 2,
-			}.UnlockHash()),
+			}.UnlockHash(),
 			ValidProofOutputs: []types.SiacoinOutput{
 				{Address: renterAddress, Value: renterAllowance},
 				{Address: hostAddress, Value: hostCollateral},
@@ -67,7 +67,7 @@ func TestValidateContractRenewal(t *testing.T) {
 
 	// bad renter key
 	badRenterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)).PublicKey().UnlockKey()
-	renewal.UnlockHash = types.Hash256(contractUnlockConditions(hostKey.UnlockKey(), badRenterKey).UnlockHash())
+	renewal.UnlockHash = contractUnlockConditions(hostKey.UnlockKey(), badRenterKey).UnlockHash()
 	_, _, err := validateContractRenewal(existing, renewal, hostKey.UnlockKey(), renterKey.UnlockKey(), hostAddress, types.ZeroCurrency, types.ZeroCurrency, pt)
 	if err == nil || err.Error() != "incorrect unlock hash" {
 		t.Fatalf("expected unlock hash error, got %v", err)
@@ -75,14 +75,14 @@ func TestValidateContractRenewal(t *testing.T) {
 
 	// bad host key
 	badHostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)).PublicKey().UnlockKey()
-	renewal.UnlockHash = types.Hash256(contractUnlockConditions(badHostKey, renterKey.UnlockKey()).UnlockHash())
+	renewal.UnlockHash = contractUnlockConditions(badHostKey, renterKey.UnlockKey()).UnlockHash()
 	_, _, err = validateContractRenewal(existing, renewal, hostKey.UnlockKey(), renterKey.UnlockKey(), hostAddress, types.ZeroCurrency, types.ZeroCurrency, pt)
 	if err == nil || err.Error() != "incorrect unlock hash" {
 		t.Fatalf("expected unlock hash error, got %v", err)
 	}
 
 	// original keys
-	renewal.UnlockHash = types.Hash256(contractUnlockConditions(hostKey.UnlockKey(), renterKey.UnlockKey()).UnlockHash())
+	renewal.UnlockHash = contractUnlockConditions(hostKey.UnlockKey(), renterKey.UnlockKey()).UnlockHash()
 	_, _, err = validateContractRenewal(existing, renewal, hostKey.UnlockKey(), renterKey.UnlockKey(), hostAddress, types.ZeroCurrency, types.ZeroCurrency, pt)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestValidateContractRenewal(t *testing.T) {
 
 	// different renter key, same host key
 	newRenterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)).PublicKey().UnlockKey()
-	renewal.UnlockHash = types.Hash256(contractUnlockConditions(hostKey.UnlockKey(), newRenterKey).UnlockHash())
+	renewal.UnlockHash = contractUnlockConditions(hostKey.UnlockKey(), newRenterKey).UnlockHash()
 	_, _, err = validateContractRenewal(existing, renewal, hostKey.UnlockKey(), newRenterKey, hostAddress, types.ZeroCurrency, types.ZeroCurrency, pt)
 	if err != nil {
 		t.Fatal(err)

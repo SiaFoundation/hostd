@@ -639,7 +639,7 @@ func TestPrune(t *testing.T) {
 			UnlockConditions: contractUnlockConditions,
 			ParentID:         types.FileContractID(frand.Entropy256()),
 			FileContract: types.FileContract{
-				UnlockHash:  types.Hash256(contractUnlockConditions.UnlockHash()),
+				UnlockHash:  contractUnlockConditions.UnlockHash(),
 				WindowStart: 90,
 				WindowEnd:   100,
 			},

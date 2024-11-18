@@ -52,7 +52,7 @@ func validateContractRenewal(existing types.FileContractRevision, renewal types.
 		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for missed host output")
 	case renewal.MissedProofOutputs[2].Address != types.VoidAddress:
 		return types.ZeroCurrency, types.ZeroCurrency, errors.New("wrong address for void output")
-	case renewal.UnlockHash != types.Hash256(contractUnlockConditions(hostKey, renterKey).UnlockHash()):
+	case renewal.UnlockHash != contractUnlockConditions(hostKey, renterKey).UnlockHash():
 		return types.ZeroCurrency, types.ZeroCurrency, errors.New("incorrect unlock hash")
 	}
 
