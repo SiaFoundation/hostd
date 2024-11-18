@@ -14,7 +14,6 @@ import (
 	"go.sia.tech/hostd/host/metrics"
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/rhp"
 )
 
 // JSON keys for host setting fields
@@ -193,9 +192,6 @@ type (
 
 	// WalletPendingResp is the response body for the [GET] /wallet/pending endpoint
 	WalletPendingResp []wallet.Event
-
-	// SessionResp is the response body for the [GET] /sessions endpoint
-	SessionResp []rhp.Session
 )
 
 // MarshalJSON implements json.Marshaler

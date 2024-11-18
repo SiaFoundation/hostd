@@ -20,7 +20,6 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/rhp"
 	"go.sia.tech/hostd/webhooks"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
@@ -152,14 +151,6 @@ type (
 		BroadcastToWebhook(id int64, event, scope string, data interface{}) error
 	}
 
-	// A RHPSessionReporter reports on RHP session lifecycle events
-	RHPSessionReporter interface {
-		Subscribe(rhp.SessionSubscriber)
-		Unsubscribe(rhp.SessionSubscriber)
-
-		Active() []rhp.Session
-	}
-
 	// An api provides an HTTP API for the host
 	api struct {
 		hostKey types.PublicKey
@@ -168,7 +159,6 @@ type (
 		log      *zap.Logger
 		alerts   Alerts
 		webhooks Webhooks
-		sessions RHPSessionReporter
 
 		sqlite3Store SQLite3Store
 
@@ -216,7 +206,6 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		hostKey: hostKey,
 		name:    name,
 
-		sessions: noopSessionReporter{},
 		alerts:   noopAlerts{},
 		webhooks: noopWebhooks{},
 		log:      zap.NewNop(),
@@ -291,9 +280,6 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		"DELETE /volumes/:id":        a.handleDeleteVolume,
 		"DELETE /volumes/:id/cancel": a.handleDELETEVolumeCancelOp,
 		"PUT /volumes/:id/resize":    a.handlePUTVolumeResize,
-		// session endpoints
-		"GET /sessions":           a.handleGETSessions,
-		"GET /sessions/subscribe": a.handleGETSessionsSubscribe,
 		// tpool endpoints
 		"GET /tpool/fee": a.handleGETTPoolFee,
 		// wallet endpoints

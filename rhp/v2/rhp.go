@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,9 +14,8 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/internal/threadgroup"
-	"go.sia.tech/hostd/rhp"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -86,13 +86,6 @@ type (
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
 		RHP2Settings() (rhp2.HostSettings, error)
-		BandwidthLimiters() (ingress, egress *rate.Limiter)
-	}
-
-	// SessionReporter reports session metrics
-	SessionReporter interface {
-		StartSession(conn *rhp.Conn, proto string, version int) (sessionID rhp.UID, end func())
-		StartRPC(sessionID rhp.UID, rpc types.Specifier) (rpcID rhp.UID, end func(contracts.Usage, error))
 	}
 
 	// A SessionHandler handles the host side of the renter-host protocol and
@@ -101,7 +94,6 @@ type (
 		privateKey types.PrivateKey
 
 		listener net.Listener
-		monitor  rhp.DataMonitor
 		tg       *threadgroup.ThreadGroup
 
 		chain  ChainManager
@@ -109,10 +101,10 @@ type (
 		wallet Wallet
 
 		contracts ContractManager
-		sessions  SessionReporter
-		settings  SettingsReporter
-		sectors   Sectors
-		log       *zap.Logger
+
+		settings SettingsReporter
+		sectors  Sectors
+		log      *zap.Logger
 	}
 )
 
@@ -151,12 +143,10 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 		return err
 	}
 	start := time.Now()
-	rpcID, end := sh.sessions.StartRPC(sess.id, id)
-	log = log.Named(id.String()).With(zap.Stringer("rpcID", rpcID))
+	rpcID := hex.EncodeToString(frand.Bytes(8))
+	log = log.Named(id.String()).With(zap.String("rpcID", rpcID))
 	log.Debug("RPC start")
-	usage, err := rpcFn(sess, log)
-	end(usage, err)
-	if err != nil {
+	if _, err := rpcFn(sess, log); err != nil {
 		log.Warn("RPC error", zap.Error(err), zap.Duration("elapsed", time.Since(start)))
 		return fmt.Errorf("RPC %q error: %w", id, err)
 	}
@@ -166,22 +156,14 @@ func (sh *SessionHandler) rpcLoop(sess *session, log *zap.Logger) error {
 
 // upgrade performs the RHP2 handshake and begins handling RPCs
 func (sh *SessionHandler) upgrade(conn net.Conn) error {
-	// wrap the conn with the bandwidth limiters
-	ingressLimiter, egressLimiter := sh.settings.BandwidthLimiters()
-	rhpConn := rhp.NewConn(conn, sh.monitor, ingressLimiter, egressLimiter)
-
-	t, err := rhp2.NewHostTransport(rhpConn, sh.privateKey)
+	t, err := rhp2.NewHostTransport(conn, sh.privateKey)
 	if err != nil {
 		return err
 	}
 
-	sessionID, end := sh.sessions.StartSession(rhpConn, rhp.SessionProtocolTCP, 2)
-	defer end()
-
+	sessionID := hex.EncodeToString(frand.Bytes(8))
 	sess := &session{
-		id:   sessionID,
-		conn: rhpConn,
-		t:    t,
+		t: t,
 	}
 	defer t.Close()
 
@@ -191,7 +173,7 @@ func (sh *SessionHandler) upgrade(conn net.Conn) error {
 		}
 	}()
 
-	log := sh.log.With(zap.Stringer("sessionID", sessionID), zap.Stringer("peerAddr", conn.RemoteAddr()))
+	log := sh.log.With(zap.String("sessionID", sessionID), zap.Stringer("peerAddr", conn.RemoteAddr()))
 
 	for {
 		if err := sh.rpcLoop(sess, log); err != nil {
@@ -234,7 +216,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new RHP2 SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, cm ChainManager, s Syncer, wallet Wallet, contracts ContractManager, settings SettingsReporter, sectors Sectors, opts ...SessionHandlerOption) (*SessionHandler, error) {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, cm ChainManager, s Syncer, wallet Wallet, contracts ContractManager, settings SettingsReporter, sectors Sectors, log *zap.Logger) *SessionHandler {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
@@ -247,14 +229,9 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, cm ChainManager
 		settings:  settings,
 		sectors:   sectors,
 
-		log:      zap.NewNop(),
-		monitor:  rhp.NewNoOpMonitor(),
-		sessions: noopSessionReporter{},
+		log: log,
 
 		tg: threadgroup.New(),
 	}
-	for _, opt := range opts {
-		opt(sh)
-	}
-	return sh, nil
+	return sh
 }

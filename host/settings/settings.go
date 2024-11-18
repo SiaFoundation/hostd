@@ -264,8 +264,8 @@ func (m *ConfigManager) Settings() Settings {
 	return m.settings
 }
 
-// BandwidthLimiters returns the rate limiters for all traffic
-func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
+// RHPBandwidthLimiters returns the rate limiters for all RHP traffic
+func (m *ConfigManager) RHPBandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
 }
 
