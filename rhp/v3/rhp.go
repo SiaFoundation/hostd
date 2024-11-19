@@ -13,7 +13,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/threadgroup"
 	"go.sia.tech/hostd/rhp"
@@ -52,8 +51,6 @@ type (
 
 	// A StorageManager manages the storage of sectors on disk.
 	StorageManager interface {
-		Usage() (used, total uint64, _ error)
-
 		// LockSector locks the sector with the given root. If the sector does not
 		// exist, an error is returned. Release must be called when the sector is no
 		// longer needed.
@@ -106,7 +103,9 @@ type (
 
 	// A SettingsReporter reports the host's current configuration.
 	SettingsReporter interface {
-		Settings() settings.Settings
+		AcceptingContracts() bool
+		RHP2Settings() (rhp2.HostSettings, error)
+		RHP3PriceTable() (rhp3.HostPriceTable, error)
 		BandwidthLimiters() (ingress, egress *rate.Limiter)
 	}
 

@@ -2,20 +2,25 @@ package settings
 
 import (
 	"crypto/ed25519"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"go.sia.tech/core/consensus"
+	proto2 "go.sia.tech/core/rhp/v2"
+	proto3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
+	"go.sia.tech/hostd/build"
 	"go.sia.tech/hostd/internal/threadgroup"
+	rhp2 "go.sia.tech/hostd/rhp/v2"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -65,6 +70,11 @@ type (
 	Syncer interface {
 		BroadcastTransactionSet([]types.Transaction)
 		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
+	}
+
+	// Storage provides information about the host's storage capacity
+	Storage interface {
+		Usage() (used, total uint64, _ error)
 	}
 
 	// A Wallet manages Siacoins and funds transactions
@@ -135,9 +145,10 @@ type (
 		a     Alerts
 		log   *zap.Logger
 
-		chain  ChainManager
-		syncer Syncer
-		wallet Wallet
+		chain   ChainManager
+		syncer  Syncer
+		storage Storage
+		wallet  Wallet
 
 		mu         sync.Mutex // guards the following fields
 		settings   Settings   // in-memory cache of the host's settings
@@ -150,7 +161,7 @@ type (
 		lastIPv4        net.IP
 		lastIPv6        net.IP
 
-		rhp3WSTLS *tls.Config
+		rhp3Port uint16
 
 		tg *threadgroup.ThreadGroup
 	}
@@ -258,18 +269,138 @@ func (m *ConfigManager) BandwidthLimiters() (ingress, egress *rate.Limiter) {
 	return m.ingressLimit, m.egressLimit
 }
 
+// AcceptingContracts returns true if the host is currently accepting contracts
+func (m *ConfigManager) AcceptingContracts() bool {
+	s := m.Settings()
+	return s.AcceptingContracts
+}
+
+// RHP2Settings returns the host's current RHP2 settings
+func (m *ConfigManager) RHP2Settings() (proto2.HostSettings, error) {
+	usedSectors, totalSectors, err := m.storage.Usage()
+	if err != nil {
+		return proto2.HostSettings{}, fmt.Errorf("failed to get storage usage: %w", err)
+	}
+	settings := m.Settings()
+
+	return proto2.HostSettings{
+		// build info
+		Release: "hostd " + build.Version(),
+		// protocol version
+		Version: rhp2.Version,
+
+		// host info
+		Address:          m.wallet.Address(),
+		SiaMuxPort:       strconv.FormatUint(uint64(m.rhp3Port), 10),
+		NetAddress:       settings.NetAddress,
+		TotalStorage:     totalSectors * proto2.SectorSize,
+		RemainingStorage: (totalSectors - usedSectors) * proto2.SectorSize,
+
+		// network defaults
+		MaxDownloadBatchSize: rhp2.DefaultBatchSize,
+		MaxReviseBatchSize:   rhp2.DefaultBatchSize,
+		SectorSize:           proto2.SectorSize,
+		WindowSize:           settings.WindowSize,
+
+		// contract formation
+		AcceptingContracts: settings.AcceptingContracts,
+		MaxDuration:        settings.MaxContractDuration,
+		ContractPrice:      settings.ContractPrice,
+
+		// rpc prices
+		BaseRPCPrice:           settings.BaseRPCPrice,
+		SectorAccessPrice:      settings.SectorAccessPrice,
+		Collateral:             settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
+		MaxCollateral:          settings.MaxCollateral,
+		StoragePrice:           settings.StoragePrice,
+		DownloadBandwidthPrice: settings.EgressPrice,
+		UploadBandwidthPrice:   settings.IngressPrice,
+
+		// ea settings
+		MaxEphemeralAccountBalance: settings.MaxAccountBalance,
+		EphemeralAccountExpiry:     settings.AccountExpiry,
+
+		RevisionNumber: settings.Revision,
+	}, nil
+}
+
+// RHP3PriceTable returns the host's current RHP3 price table
+func (m *ConfigManager) RHP3PriceTable() (proto3.HostPriceTable, error) {
+	settings := m.Settings()
+
+	fee := m.chain.RecommendedFee()
+	currentHeight := m.chain.TipState().Index.Height
+	oneHasting := types.NewCurrency64(1)
+
+	return proto3.HostPriceTable{
+		UID:             frand.Entropy128(),
+		HostBlockHeight: currentHeight,
+		Validity:        settings.PriceTableValidity,
+
+		// ephemeral account costs
+		AccountBalanceCost:   oneHasting,
+		FundAccountCost:      oneHasting,
+		UpdatePriceTableCost: oneHasting,
+
+		// MDM costs
+		HasSectorBaseCost:   oneHasting,
+		MemoryTimeCost:      oneHasting,
+		DropSectorsBaseCost: oneHasting,
+		DropSectorsUnitCost: oneHasting,
+		SwapSectorBaseCost:  oneHasting,
+
+		ReadBaseCost:    settings.SectorAccessPrice,
+		ReadLengthCost:  oneHasting,
+		WriteBaseCost:   settings.SectorAccessPrice,
+		WriteLengthCost: oneHasting,
+		WriteStoreCost:  settings.StoragePrice,
+		InitBaseCost:    settings.BaseRPCPrice,
+
+		// bandwidth costs
+		DownloadBandwidthCost: settings.EgressPrice,
+		UploadBandwidthCost:   settings.IngressPrice,
+
+		// LatestRevisionCost is set to a reasonable base + the estimated
+		// bandwidth cost of downloading a filecontract. This isn't perfect but
+		// at least scales a bit as the host updates their download bandwidth
+		// prices.
+		LatestRevisionCost: settings.BaseRPCPrice.Add(settings.EgressPrice.Mul64(2048)),
+
+		// Contract Formation/Renewal related fields
+		ContractPrice:     settings.ContractPrice,
+		CollateralCost:    settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
+		MaxCollateral:     settings.MaxCollateral,
+		MaxDuration:       settings.MaxContractDuration,
+		WindowSize:        settings.WindowSize,
+		RenewContractCost: types.Siacoins(100).Div64(1e9),
+
+		// Registry related fields.
+		RegistryEntriesLeft:  0,
+		RegistryEntriesTotal: 0,
+
+		// Subscription related fields.
+		SubscriptionMemoryCost:       oneHasting,
+		SubscriptionNotificationCost: oneHasting,
+
+		// TxnFee related fields.
+		TxnFeeMinRecommended: fee.Div64(3),
+		TxnFeeMaxRecommended: fee,
+	}, nil
+}
+
 // NewConfigManager initializes a new config manager
-func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, wm Wallet, opts ...Option) (*ConfigManager, error) {
+func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, sm Storage, wm Wallet, opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
 		announceInterval:   144 * 90, // 90 days
 		validateNetAddress: true,
 		hostKey:            hostKey,
 		initialSettings:    DefaultSettings,
 
-		store:  store,
-		chain:  cm,
-		syncer: s,
-		wallet: wm,
+		store:   store,
+		chain:   cm,
+		syncer:  s,
+		storage: sm,
+		wallet:  wm,
 
 		log: zap.NewNop(),
 		a:   alerts.NewNop(),
@@ -279,8 +410,7 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
 		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
 
-		// rhp3 WebSocket TLS
-		rhp3WSTLS: &tls.Config{},
+		rhp3Port: 9983,
 	}
 
 	for _, opt := range opts {

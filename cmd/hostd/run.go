@@ -198,6 +198,15 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer rhp3Listener.Close()
 
+	_, rhp3PortStr, err := net.SplitHostPort(rhp3Listener.Addr().String())
+	if err != nil {
+		return fmt.Errorf("failed to parse rhp3 port: %w", err)
+	}
+	rhp3Port, err := strconv.ParseUint(rhp3PortStr, 10, 16)
+	if err != nil {
+		return fmt.Errorf("failed to parse rhp3 port: %w", err)
+	}
+
 	syncerAddr := syncerListener.Addr().String()
 	if cfg.Syncer.EnableUPnP {
 		_, portStr, _ := net.SplitHostPort(cfg.Syncer.Address)
@@ -253,17 +262,17 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
 
-	cfm, err := settings.NewConfigManager(hostKey, store, cm, s, wm, settings.WithAlertManager(am), settings.WithLog(log.Named("settings")))
-	if err != nil {
-		return fmt.Errorf("failed to create settings manager: %w", err)
-	}
-	defer cfm.Close()
-
 	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
 	if err != nil {
 		return fmt.Errorf("failed to create storage manager: %w", err)
 	}
 	defer vm.Close()
+
+	sm, err := settings.NewConfigManager(hostKey, store, cm, s, vm, wm, settings.WithAlertManager(am), settings.WithRHP3Port(uint16(rhp3Port)), settings.WithLog(log.Named("settings")))
+	if err != nil {
+		return fmt.Errorf("failed to create settings manager: %w", err)
+	}
+	defer sm.Close()
 
 	contractManager, err := contracts.NewManager(store, vm, cm, s, wm, contracts.WithLog(log.Named("contracts")), contracts.WithAlerter(am))
 	if err != nil {
@@ -271,7 +280,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer contractManager.Close()
 
-	index, err := index.NewManager(store, cm, contractManager, wm, cfm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
+	index, err := index.NewManager(store, cm, contractManager, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
 	if err != nil {
 		return fmt.Errorf("failed to create index manager: %w", err)
 	}
@@ -279,7 +288,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
 
-	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, rhp3Listener.Addr().String(), cm, s, wm, contractManager, cfm, vm, rhp2.WithDataMonitor(dr), rhp2.WithLog(log.Named("rhp2")))
+	rhp2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, cm, s, wm, contractManager, sm, vm, rhp2.WithDataMonitor(dr), rhp2.WithLog(log.Named("rhp2")))
 	if err != nil {
 		return fmt.Errorf("failed to create rhp2 session handler: %w", err)
 	}
@@ -287,8 +296,8 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer rhp2.Close()
 
 	registry := registry.NewManager(hostKey, store, log.Named("registry"))
-	accounts := accounts.NewManager(store, cfm)
-	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, cfm, rhp3.WithDataMonitor(dr), rhp3.WithSessionReporter(sr), rhp3.WithLog(log.Named("rhp3")))
+	accounts := accounts.NewManager(store, sm)
+	rhp3, err := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, sm, rhp3.WithDataMonitor(dr), rhp3.WithSessionReporter(sr), rhp3.WithLog(log.Named("rhp3")))
 	if err != nil {
 		return fmt.Errorf("failed to create rhp3 session handler: %w", err)
 	}
@@ -304,7 +313,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	if !cfg.Explorer.Disable {
 		ex := explorer.New(cfg.Explorer.URL)
-		pm, err := pin.NewManager(store, cfm, ex, pin.WithLogger(log.Named("pin")))
+		pm, err := pin.NewManager(store, sm, ex, pin.WithLogger(log.Named("pin")))
 		if err != nil {
 			return fmt.Errorf("failed to create pin manager: %w", err)
 		}
@@ -314,7 +323,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	web := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contractManager, vm, wm, store, cfm, index, apiOpts...)),
+			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contractManager, vm, wm, store, sm, index, apiOpts...)),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,

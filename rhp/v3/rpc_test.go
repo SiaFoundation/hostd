@@ -105,7 +105,7 @@ func setupRHP3Host(t *testing.T, node *testutil.HostNode, hostKey types.PrivateK
 		t.Fatal(err)
 	}
 
-	sh2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, rhp3Listener.Addr().String(), node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log.Named("rhp2")))
+	sh2, err := rhp2.NewSessionHandler(rhp2Listener, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log.Named("rhp2")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestPriceTable(t *testing.T) {
 	}
 	defer session.Close()
 
-	pt, err := sh3.PriceTable()
+	pt, err := node.Settings.RHP3PriceTable()
 	if err != nil {
 		t.Fatal(err)
 	}

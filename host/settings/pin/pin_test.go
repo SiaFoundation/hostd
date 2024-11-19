@@ -119,7 +119,7 @@ func TestPinnedFields(t *testing.T) {
 		currency: "usd",
 	}
 
-	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil)
+	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestAutomaticUpdate(t *testing.T) {
 		currency: "usd",
 	}
 
-	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil)
+	sm, err := settings.NewConfigManager(types.GeneratePrivateKey(), node.Store, node.Chain, node.Syncer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

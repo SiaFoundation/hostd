@@ -52,7 +52,7 @@ var (
 
 // handleRPCPriceTable sends the host's price table to the renter.
 func (sh *SessionHandler) handleRPCPriceTable(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
-	pt, err := sh.PriceTable()
+	pt, err := sh.settings.RHP3PriceTable()
 	if err != nil {
 		s.WriteResponseErr(ErrHostInternalError)
 		return contracts.Usage{}, fmt.Errorf("failed to get price table: %w", err)
@@ -255,14 +255,14 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	}
 
 	s.SetDeadline(time.Now().Add(2 * time.Minute))
-	if !sh.settings.Settings().AcceptingContracts {
+	if !sh.settings.AcceptingContracts() {
 		s.WriteResponseErr(ErrNotAcceptingContracts)
 		return contracts.Usage{}, ErrNotAcceptingContracts
 	}
 	pt, err := sh.readPriceTable(s)
 	if errors.Is(err, ErrNoPriceTable) {
 		// no price table, send the renter a default one
-		pt, err = sh.PriceTable()
+		pt, err = sh.settings.RHP3PriceTable()
 		if err != nil {
 			s.WriteResponseErr(ErrHostInternalError)
 			return contracts.Usage{}, fmt.Errorf("failed to get price table: %w", err)

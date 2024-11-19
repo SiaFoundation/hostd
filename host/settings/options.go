@@ -46,3 +46,11 @@ func WithInitialSettings(settings Settings) Option {
 		c.initialSettings = settings
 	}
 }
+
+// WithRHP3Port sets the port that the host is listening for
+// RHP3 connections on. This is part of the RHP2 settings.
+func WithRHP3Port(port uint16) Option {
+	return func(c *ConfigManager) {
+		c.rhp3Port = port
+	}
+}

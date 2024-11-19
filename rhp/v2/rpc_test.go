@@ -59,7 +59,7 @@ func TestSettings(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh, err := rhp2.NewSessionHandler(l, hostKey, "localhost:9983", node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
+	sh, err := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected, err := sh.Settings()
+	expected, err := node.Settings.RHP2Settings()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh, err := rhp2.NewSessionHandler(l, hostKey, "localhost:9983", node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
+	sh, err := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestRenew(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh, err := rhp2.NewSessionHandler(l, hostKey, "localhost:9983", node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
+	sh, err := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestRPCV2(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh, err := rhp2.NewSessionHandler(l, hostKey, "localhost:9983", node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
+	sh, err := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, rhp2.WithLog(log))
 	if err != nil {
 		t.Fatal(err)
 	}
