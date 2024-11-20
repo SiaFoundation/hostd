@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap/zaptest"
@@ -425,6 +427,251 @@ func TestContracts(t *testing.T) {
 	}
 }
 
+func TestV2Contracts(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	c, count, err := db.V2Contracts(contracts.V2ContractFilter{})
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 0 {
+		t.Fatal("expected no contracts")
+	} else if count != 0 {
+		t.Fatal("expected no contracts")
+	}
+
+	// add a contract to the database
+	contract := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RenterPublicKey:  renterKey.PublicKey(),
+			HostPublicKey:    hostKey.PublicKey(),
+			ProofHeight:      100,
+			ExpirationHeight: 200,
+		},
+	}
+
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+		t.Fatal(err)
+	}
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		t.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	c, count, err = db.V2Contracts(contracts.V2ContractFilter{})
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 1 {
+		t.Fatal("expected one contract")
+	} else if count != 1 {
+		t.Fatal("expected one contract")
+	}
+
+	filter := contracts.V2ContractFilter{
+		Statuses: []contracts.V2ContractStatus{contracts.V2ContractStatusActive},
+	}
+	c, count, err = db.V2Contracts(filter)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 0 {
+		t.Fatal("expected no contracts")
+	} else if count != 0 {
+		t.Fatal("expected no contracts")
+	}
+}
+
+func TestReviseV2ContractConsistency(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	c, count, err := db.V2Contracts(contracts.V2ContractFilter{})
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 0 {
+		t.Fatal("expected no contracts")
+	} else if count != 0 {
+		t.Fatal("expected no contracts")
+	}
+
+	// add a contract to the database
+	contract := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RenterPublicKey:  renterKey.PublicKey(),
+			HostPublicKey:    hostKey.PublicKey(),
+			ProofHeight:      100,
+			ExpirationHeight: 200,
+		},
+	}
+
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+		t.Fatal(err)
+	}
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		t.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, 1000); err != nil {
+		t.Fatal(err)
+	}
+
+	checkRootConsistency := func(t *testing.T, expected []types.Hash256) {
+		t.Helper()
+
+		err := db.transaction(func(*txn) error {
+			stmt, err := db.db.Prepare(`SELECT ss.sector_root FROM stored_sectors ss
+INNER JOIN contract_v2_sector_roots csr ON (ss.id = csr.sector_id)
+INNER JOIN contracts_v2 c ON (csr.contract_id = c.id)
+WHERE c.contract_id=$1 AND csr.root_index= $2`)
+			if err != nil {
+				t.Fatal("failed to prepare statement:", err)
+			}
+			defer stmt.Close()
+
+			for i, root := range expected {
+				var dbRoot types.Hash256
+				if err := stmt.QueryRow(encode(contract.ID), i).Scan(decode(&dbRoot)); err != nil {
+					t.Fatalf("failed to scan root %d: %s", i, err)
+				} else if dbRoot != root {
+					t.Fatalf("expected root %q at index %d, got %q", root, i, dbRoot)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal("failed to get db roots:", err)
+		}
+	}
+
+	checkMetricConsistency := func(t *testing.T, expected uint64) {
+		t.Helper()
+
+		m, err := db.Metrics(time.Now())
+		if err != nil {
+			t.Fatal("failed to get metrics:", err)
+		} else if m.Storage.ContractSectors != expected {
+			t.Fatalf("expected %d contract sectors, got %d", expected, m.Storage.ContractSectors)
+		}
+	}
+
+	var roots []types.Hash256
+	appendSectors := func(t *testing.T, n int) {
+		t.Helper()
+
+		var releaseFn []func() error
+		var appended []types.Hash256
+		for i := 0; i < n; i++ {
+			root := frand.Entropy256()
+			release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+			if err != nil {
+				t.Fatal("failed to store sector:", err)
+			}
+			appended = append(appended, root)
+			releaseFn = append(releaseFn, release)
+		}
+		newRoots := append(append([]types.Hash256(nil), roots...), appended...)
+		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
+			t.Fatal("failed to revise contract:", err)
+		}
+
+		for _, fn := range releaseFn {
+			if err := fn(); err != nil {
+				t.Fatal("failed to release sector:", err)
+			}
+		}
+
+		checkRootConsistency(t, newRoots)
+		checkMetricConsistency(t, uint64(len(newRoots)))
+		roots = newRoots
+	}
+
+	swapSectors := func(t *testing.T) {
+		t.Helper()
+
+		a, b := frand.Intn(len(roots)), frand.Intn(len(roots))
+
+		newRoots := append([]types.Hash256(nil), roots...)
+		newRoots[a], newRoots[b] = newRoots[b], newRoots[a]
+
+		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
+			t.Fatal("failed to revise contract:", err)
+		}
+		checkRootConsistency(t, newRoots)
+		checkMetricConsistency(t, uint64(len(newRoots)))
+		roots = newRoots
+	}
+
+	deleteSectors := func(t *testing.T, n int) {
+		t.Helper()
+
+		newRoots := append([]types.Hash256(nil), roots...)
+		for i := 0; i < n; i++ {
+			j := frand.Intn(len(newRoots))
+			newRoots = append(newRoots[:j], newRoots[j+1:]...)
+		}
+
+		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
+			t.Fatal("failed to revise contract:", err)
+		}
+
+		checkRootConsistency(t, newRoots)
+		checkMetricConsistency(t, uint64(len(newRoots)))
+		roots = newRoots
+	}
+
+	trimSectors := func(t *testing.T, n int) {
+		t.Helper()
+
+		newRoots := append([]types.Hash256(nil), roots...)
+		newRoots = newRoots[:len(newRoots)-n]
+
+		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
+			t.Fatal("failed to revise contract:", err)
+		}
+
+		checkRootConsistency(t, newRoots)
+		checkMetricConsistency(t, uint64(len(newRoots)))
+		roots = newRoots
+	}
+
+	appendSectors(t, 15)
+	swapSectors(t)
+	deleteSectors(t, 1)
+	trimSectors(t, 5)
+
+	appendSectors(t, frand.Intn(49)+1)
+	for i := 0; i < 100; i++ {
+		swapSectors(t)
+	}
+	for i := 0; i < 10; i++ {
+		appendSectors(t, 1)
+		deleteSectors(t, frand.Intn(len(roots)/4)+1)
+	}
+	trimSectors(t, frand.Intn(len(roots)/4)+1)
+}
+
 func BenchmarkTrimSectors(b *testing.B) {
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
@@ -501,6 +748,118 @@ func BenchmarkTrimSectors(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 
 	if err := db.ReviseContract(contract, roots, contracts.Usage{}, []contracts.SectorChange{{Action: contracts.SectorActionTrim, A: uint64(b.N)}}); err != nil {
+		b.Fatal(err)
+	}
+}
+
+func BenchmarkV2AppendSectors(b *testing.B) {
+	log := zaptest.NewLogger(b)
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// add a contract to the database
+	contract := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RevisionNumber: 1,
+		},
+	}
+
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+		b.Fatal(err)
+	}
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		b.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		b.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	roots := make([]types.Hash256, 0, b.N)
+
+	for i := 0; i < b.N; i++ {
+		root := types.Hash256(frand.Entropy256())
+		roots = append(roots, root)
+
+		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		if err != nil {
+			b.Fatal(err)
+		} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
+			b.Fatal(err)
+		} else if err := release(); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.ReportMetric(float64(b.N), "sectors")
+
+	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+		b.Fatal(err)
+	}
+}
+
+func BenchmarkV2TrimSectors(b *testing.B) {
+	log := zaptest.NewLogger(b)
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// add a contract to the database
+	contract := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RevisionNumber: 1,
+		},
+	}
+
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+		b.Fatal(err)
+	}
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		b.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		b.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, uint64(b.N)); err != nil {
+		b.Fatal(err)
+	}
+
+	roots := make([]types.Hash256, 0, b.N)
+
+	for i := 0; i < b.N; i++ {
+		root := types.Hash256(frand.Entropy256())
+		roots = append(roots, root)
+
+		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		if err != nil {
+			b.Fatal(err)
+		} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
+			b.Fatal(err)
+		} else if err := release(); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.ReportMetric(float64(b.N), "sectors")
+
+	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, nil, proto4.Usage{}); err != nil {
 		b.Fatal(err)
 	}
 }

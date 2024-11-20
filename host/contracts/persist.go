@@ -51,7 +51,7 @@ type (
 		RenewV2Contract(renewal V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID, clearing types.V2FileContract, roots []types.Hash256) error
 		// ReviseV2Contract atomically updates a contract and its associated
 		// sector roots.
-		ReviseV2Contract(types.FileContractID, types.V2FileContract, []types.Hash256, proto4.Usage) error
+		ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, oldRoots, newRoots []types.Hash256, usage proto4.Usage) error
 		// ExpireV2ContractSectors removes sector roots for any v2 contracts that are
 		// rejected or past their proof window.
 		ExpireV2ContractSectors(height uint64) error
