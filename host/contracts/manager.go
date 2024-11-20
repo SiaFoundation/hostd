@@ -172,7 +172,7 @@ func (cm *Manager) RenewContract(renewal SignedRevision, existing SignedRevision
 }
 
 // ReviseV2Contract atomically updates a contract and its associated sector roots.
-func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision types.V2FileContract, roots []types.Hash256, usage proto4.Usage) error {
+func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision types.V2FileContract, newRoots []types.Hash256, usage proto4.Usage) error {
 	done, err := cm.tg.Add()
 	if err != nil {
 		return err
@@ -184,6 +184,8 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 		return fmt.Errorf("failed to get existing contract: %w", err)
 	}
 
+	oldRoots := cm.getSectorRoots(contractID)
+
 	// validate the contract revision fields
 	switch {
 	case existing.RenterPublicKey != revision.RenterPublicKey:
@@ -194,8 +196,10 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 		return errors.New("proof height does not match")
 	case existing.ExpirationHeight != revision.ExpirationHeight:
 		return errors.New("expiration height does not match")
-	case revision.Filesize != uint64(rhp2.SectorSize*len(roots)):
+	case revision.Filesize != uint64(rhp2.SectorSize*len(newRoots)):
 		return errors.New("revision has incorrect file size")
+	case revision.Capacity < revision.Filesize:
+		return errors.New("revision capacity must be greater than or equal to file size")
 	}
 
 	// validate signatures
@@ -207,20 +211,18 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 	}
 
 	// validate contract Merkle root
-	metaRoot := rhp2.MetaRoot(roots)
+	metaRoot := rhp2.MetaRoot(newRoots)
 	if revision.FileMerkleRoot != metaRoot {
 		return errors.New("revision root does not match")
-	} else if revision.Filesize != uint64(rhp2.SectorSize*len(roots)) {
-		return errors.New("revision has incorrect file size")
 	}
 
 	// revise the contract in the store
-	err = cm.store.ReviseV2Contract(contractID, revision, roots, usage)
+	err = cm.store.ReviseV2Contract(contractID, revision, oldRoots, newRoots, usage)
 	if err != nil {
 		return err
 	}
 	// update the sector roots cache
-	cm.setSectorRoots(contractID, roots)
+	cm.setSectorRoots(contractID, newRoots)
 	cm.log.Debug("contract revised", zap.Stringer("contractID", contractID), zap.Uint64("revisionNumber", revision.RevisionNumber))
 	return nil
 }

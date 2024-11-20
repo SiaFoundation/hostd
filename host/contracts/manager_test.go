@@ -753,8 +753,6 @@ func TestV2ContractLifecycle(t *testing.T) {
 			t.Fatalf("expected %v successful contracts, got %v", expectedStatuses[contracts.V2ContractStatusSuccessful], m.Contracts.Successful)
 		} else if m.Contracts.Renewed != expectedStatuses[contracts.V2ContractStatusRenewed] {
 			t.Fatalf("expected %v renewed contracts, got %v", expectedStatuses[contracts.V2ContractStatusRenewed], m.Contracts.Renewed)
-		} else if m.Contracts.Finalized != expectedStatuses[contracts.V2ContractStatusFinalized] {
-			t.Fatalf("expected %v finalized contracts, got %v", expectedStatuses[contracts.V2ContractStatusFinalized], m.Contracts.Finalized)
 		} else if m.Contracts.Failed != expectedStatuses[contracts.V2ContractStatusFailed] {
 			t.Fatalf("expected %v failed contracts, got %v", expectedStatuses[contracts.V2ContractStatusFailed], m.Contracts.Failed)
 		} else if !m.Contracts.LockedCollateral.Equals(locked) {

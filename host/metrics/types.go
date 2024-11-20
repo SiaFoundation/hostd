@@ -48,7 +48,6 @@ type (
 		Rejected   uint64 `json:"rejected"`
 		Failed     uint64 `json:"failed"`
 		Renewed    uint64 `json:"renewed"`
-		Finalized  uint64 `json:"finalized"`
 		Successful uint64 `json:"successful"`
 
 		LockedCollateral types.Currency `json:"lockedCollateral"`

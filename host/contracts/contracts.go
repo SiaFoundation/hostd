@@ -55,8 +55,6 @@ const (
 	// V2ContractStatusActive indicates that the contract has been confirmed on
 	// the blockchain and is currently active.
 	V2ContractStatusActive V2ContractStatus = "active"
-	// V2ContractStatusFinalized indicates that the contract has been finalized.
-	V2ContractStatusFinalized V2ContractStatus = "finalized"
 	// V2ContractStatusRenewed indicates that the contract has been renewed.
 	V2ContractStatusRenewed V2ContractStatus = "renewed"
 	// V2ContractStatusSuccessful indicates that a storage proof has been

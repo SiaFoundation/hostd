@@ -340,8 +340,6 @@ func (ux *updateTx) ApplyContracts(index types.ChainIndex, state contracts.State
 		return fmt.Errorf("failed to apply v2 contract revisions: %w", err)
 	} else if err := applySuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusSuccessful, state.SuccessfulV2); err != nil {
 		return fmt.Errorf("failed to apply successful v2 resolution: %w", err)
-	} else if err := applySuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusFinalized, state.FinalizedV2); err != nil {
-		return fmt.Errorf("failed to apply v2 finalized v2 resolution: %w", err)
 	} else if err := applySuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusRenewed, state.RenewedV2); err != nil {
 		return fmt.Errorf("failed to apply v2 renewed v2 resolution: %w", err)
 	} else if err := applyFailedV2Contracts(ux.tx, index, state.FailedV2); err != nil {
@@ -370,8 +368,6 @@ func (ux *updateTx) RevertContracts(index types.ChainIndex, state contracts.Stat
 		return fmt.Errorf("failed to revert v2 contract revisions: %w", err)
 	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusSuccessful, state.SuccessfulV2); err != nil {
 		return fmt.Errorf("failed to revert v2 successful resolution: %w", err)
-	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusFinalized, state.FinalizedV2); err != nil {
-		return fmt.Errorf("failed to revert v2 finalized resolution: %w", err)
 	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusRenewed, state.RenewedV2); err != nil {
 		return fmt.Errorf("failed to revert v2 renewed resolution: %w", err)
 	} else if err := revertFailedV2Contracts(ux.tx, state.FailedV2); err != nil {
@@ -878,8 +874,6 @@ func v2ContractStatusMetric(status contracts.V2ContractStatus) string {
 		return metricSuccessfulContracts
 	case contracts.V2ContractStatusFailed:
 		return metricFailedContracts
-	case contracts.V2ContractStatusFinalized:
-		return metricFinalizedContracts
 	case contracts.V2ContractStatusRenewed:
 		return metricRenewedContracts
 	default:
