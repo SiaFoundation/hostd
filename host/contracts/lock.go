@@ -129,13 +129,10 @@ func (cm *Manager) LockV2Contract(id types.FileContractID) (rev rhp4.RevisionSta
 		return rhp4.RevisionState{}, nil, fmt.Errorf("failed to get contract: %w", err)
 	}
 
-	var once sync.Once
 	return rhp4.RevisionState{
 			Revision: contract.V2FileContract,
 			Roots:    cm.getSectorRoots(id),
 		}, func() {
-			once.Do(func() {
-				cm.locks.Unlock(id)
-			})
+			cm.locks.Unlock(id)
 		}, nil
 }
