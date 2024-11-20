@@ -1335,10 +1335,10 @@ func buildV2ContractFilter(filter contracts.V2ContractFilter) (string, []any, er
 		whereClause = append(whereClause, `c.expiration_height BETWEEN ? AND ?`)
 		queryParams = append(queryParams, filter.MinExpirationHeight, filter.MaxExpirationHeight)
 	} else if filter.MinExpirationHeight > 0 {
-		whereClause = append(whereClause, `c.expiration_hieght >= ?`)
+		whereClause = append(whereClause, `c.expiration_height >= ?`)
 		queryParams = append(queryParams, filter.MinExpirationHeight)
 	} else if filter.MaxExpirationHeight > 0 {
-		whereClause = append(whereClause, `c.expiration_hieght <= ?`)
+		whereClause = append(whereClause, `c.expiration_height <= ?`)
 		queryParams = append(queryParams, filter.MaxExpirationHeight)
 	}
 	if len(whereClause) == 0 {
