@@ -1,7 +1,6 @@
 package api
 
 import (
-	"strings"
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
@@ -430,7 +429,7 @@ func (w WalletTransactionsResp) PrometheusMetric() (metrics []prometheus.Metric)
 		metrics = append(metrics, prometheus.Metric{
 			Name: metricName,
 			Labels: map[string]any{
-				"txid": strings.Split(txn.ID.String(), ":")[1],
+				"txid": txn.ID.String(),
 				"type": txn.Type,
 			},
 			Value: value,
@@ -454,7 +453,7 @@ func (w WalletPendingResp) PrometheusMetric() (metrics []prometheus.Metric) {
 		metrics = append(metrics, prometheus.Metric{
 			Name: metricName,
 			Labels: map[string]any{
-				"txid": strings.Split(txn.ID.String(), ":")[1],
+				"txid": txn.ID.String(),
 				"type": txn.Type,
 			},
 			Value: value,
