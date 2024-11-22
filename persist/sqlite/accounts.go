@@ -14,10 +14,18 @@ import (
 	"go.uber.org/zap"
 )
 
+const accountExpirationTime = 90 * 24 * time.Hour
+
 // RHP4AccountBalance returns the balance of the account with the given ID.
 func (s *Store) RHP4AccountBalance(account proto4.Account) (balance types.Currency, err error) {
 	err = s.transaction(func(tx *txn) error {
-		return tx.QueryRow(`SELECT balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(decode(&balance))
+		err := tx.QueryRow(`SELECT balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(decode(&balance))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		return nil
 	})
 	return
 }
@@ -28,20 +36,22 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 		var dbID int64
 		var balance types.Currency
 		err := tx.QueryRow(`SELECT id, balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(&dbID, decode(&balance))
-		if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return proto4.ErrNotEnoughFunds
+		} else if err != nil {
 			return fmt.Errorf("failed to query balance: %w", err)
 		}
 
 		total := usage.RenterCost()
 		balance, underflow := balance.SubWithUnderflow(total)
 		if underflow {
-			return fmt.Errorf("insufficient balance")
+			return proto4.ErrNotEnoughFunds
 		}
 
-		_, err = tx.Exec(`UPDATE accounts SET balance=$1 WHERE id=$2`, encode(balance), dbID)
+		_, err = tx.Exec(`UPDATE accounts SET balance=$1, expiration_timestamp=$2 WHERE id=$3`, encode(balance), time.Now().Add(accountExpirationTime), dbID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
-		} else if err := updateV2ContractFunding(tx, dbID, usage); err != nil {
+		} else if err := distributeRHP4AccountUsage(tx, dbID, usage); err != nil {
 			return fmt.Errorf("failed to update contract funding: %w", err)
 		}
 		return nil
@@ -96,7 +106,7 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 			balance = balance.Add(deposit.Amount)
 
 			var accountDBID int64
-			err = updateBalanceStmt.QueryRow(encode(deposit.Account), encode(balance), encode(time.Now().Add(90*24*time.Hour))).Scan(&accountDBID)
+			err = updateBalanceStmt.QueryRow(encode(deposit.Account), encode(balance), encode(time.Now().Add(accountExpirationTime))).Scan(&accountDBID)
 			if err != nil {
 				return fmt.Errorf("failed to update balance: %w", err)
 			}
@@ -348,9 +358,9 @@ func contractFunding(tx *txn, accountID int64) (fund []fundAmount, err error) {
 	return
 }
 
-// updateV2ContractFunding distributes account usage to the contracts that funded
+// distributeRHP4AccountUsage distributes account usage to the contracts that funded
 // the account.
-func updateV2ContractFunding(tx *txn, accountID int64, usage proto4.Usage) error {
+func distributeRHP4AccountUsage(tx *txn, accountID int64, usage proto4.Usage) error {
 	funding, err := contractV2Funding(tx, accountID)
 	if err != nil {
 		return fmt.Errorf("failed to get contract funding: %w", err)
