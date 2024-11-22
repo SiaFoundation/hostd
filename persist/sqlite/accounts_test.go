@@ -77,6 +77,13 @@ func TestRHP4Accounts(t *testing.T) {
 	sk := types.GeneratePrivateKey()
 	account := proto4.Account(sk.PublicKey())
 
+	balance, err := db.RHP4AccountBalance(account)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.IsZero() {
+		t.Fatal("expected balance to be 0")
+	}
+
 	// deposit funds
 	balances, err := db.RHP4CreditAccounts([]proto4.AccountDeposit{
 		{Account: account, Amount: types.Siacoins(10)},
@@ -87,6 +94,13 @@ func TestRHP4Accounts(t *testing.T) {
 		t.Fatalf("expected %d balances, got %d", 1, len(balances))
 	} else if !balances[0].Equals(types.Siacoins(10)) {
 		t.Fatalf("expected balance %v, got %v", types.Siacoins(10), balances[0])
+	}
+
+	balance, err = db.RHP4AccountBalance(account)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(types.Siacoins(10)) {
+		t.Fatalf("expected balance to be %v, got %v", types.Siacoins(10), balance)
 	}
 
 	// try to spend more than the account balance
@@ -105,6 +119,13 @@ func TestRHP4Accounts(t *testing.T) {
 	}
 	if err := db.RHP4DebitAccount(account, expectedUsage); err != nil {
 		t.Fatal(err)
+	}
+
+	balance, err = db.RHP4AccountBalance(account)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Equals(types.Siacoins(4)) {
+		t.Fatalf("expected balance to be %v, got %v", types.Siacoins(4), balance)
 	}
 
 	// pending accounts do not affect metrics
