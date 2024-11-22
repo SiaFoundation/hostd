@@ -10,6 +10,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion33 adds the contract_v2_account_funding table.
+func migrateVersion33(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`CREATE TABLE contract_v2_account_funding (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts_v2(id),
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
+	amount BLOB NOT NULL,
+	UNIQUE (contract_id, account_id)
+);`)
+	return err
+}
+
 // migrateVersion32 adds the proof height and expiration_height columns to the contracts_v2 table.
 func migrateVersion32(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
@@ -961,4 +973,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion30,
 	migrateVersion31,
 	migrateVersion32,
+	migrateVersion33,
 }
