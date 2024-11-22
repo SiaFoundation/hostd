@@ -220,6 +220,14 @@ CREATE TABLE contract_account_funding (
 	UNIQUE (contract_id, account_id)
 );
 
+CREATE TABLE contract_v2_account_funding (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts_v2(id),
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
+	amount BLOB NOT NULL,
+	UNIQUE (contract_id, account_id)
+);
+
 CREATE TABLE host_stats (
 	date_created INTEGER NOT NULL,
 	stat TEXT NOT NULL,

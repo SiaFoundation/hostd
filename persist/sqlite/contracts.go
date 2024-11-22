@@ -1106,9 +1106,6 @@ func updateV2ContractUsage(tx *txn, contractDBID int64, usage proto4.Usage) erro
 		return fmt.Errorf("failed to get contract status: %w", err)
 	}
 
-	// only increment metrics if the contract is active.
-	// If the contract is pending or some variant of successful, the metrics
-	// will already be handled.
 	if status == contracts.V2ContractStatusActive {
 		incrementCurrencyStat, done, err := incrementCurrencyStatStmt(tx)
 		if err != nil {
@@ -1121,8 +1118,30 @@ func updateV2ContractUsage(tx *txn, contractDBID int64, usage proto4.Usage) erro
 		} else if err := updateCollateralMetrics(types.ZeroCurrency, usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
 		}
+	} else if status == contracts.V2ContractStatusSuccessful || status == contracts.V2ContractStatusRenewed {
+		incrementCurrencyStat, done, err := incrementCurrencyStatStmt(tx)
+		if err != nil {
+			return fmt.Errorf("failed to prepare increment currency stat statement: %w", err)
+		}
+		defer done()
+
+		if err := updateV2PotentialRevenueMetrics(usage, false, incrementCurrencyStat); err != nil {
+			return fmt.Errorf("failed to update potential revenue: %w", err)
+		}
 	}
 	return nil
+}
+
+func getV2Contract(tx *txn, dbID int64) (contracts.V2Contract, error) {
+	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index,
+COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_index, c.rpc_revenue,
+c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision
+FROM contracts_v2 c
+LEFT JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
+LEFT JOIN contracts_v2 rt ON (c.renewed_to = rt.id)
+LEFT JOIN contracts_v2 rf ON (c.renewed_from = rf.id)
+WHERE c.id=$1;`
+	return scanV2Contract(tx.QueryRow(query, dbID))
 }
 
 func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileContract, usage proto4.Usage) (int64, error) {

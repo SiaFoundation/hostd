@@ -1,0 +1,22 @@
+package contracts
+
+import (
+	proto4 "go.sia.tech/core/rhp/v4"
+	"go.sia.tech/core/types"
+)
+
+// AccountBalance returns the balance of an account.
+func (cm *Manager) AccountBalance(account proto4.Account) (types.Currency, error) {
+	return cm.store.RHP4AccountBalance(account)
+}
+
+// CreditAccountsWithContract atomically revises a contract and credits the accounts
+// returning the new balance of each account.
+func (cm *Manager) CreditAccountsWithContract(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract) ([]types.Currency, error) {
+	return cm.store.RHP4CreditAccounts(deposits, contractID, revision)
+}
+
+// DebitAccount debits an account.
+func (cm *Manager) DebitAccount(account proto4.Account, usage proto4.Usage) error {
+	return cm.store.RHP4DebitAccount(account, usage)
+}
