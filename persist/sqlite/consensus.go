@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/contracts"
@@ -32,7 +33,7 @@ type (
 	v2ContractState struct {
 		ID               int64
 		LockedCollateral types.Currency
-		Usage            contracts.V2Usage
+		Usage            proto4.Usage
 		Status           contracts.V2ContractStatus
 	}
 
@@ -339,8 +340,6 @@ func (ux *updateTx) ApplyContracts(index types.ChainIndex, state contracts.State
 		return fmt.Errorf("failed to apply v2 contract revisions: %w", err)
 	} else if err := applySuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusSuccessful, state.SuccessfulV2); err != nil {
 		return fmt.Errorf("failed to apply successful v2 resolution: %w", err)
-	} else if err := applySuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusFinalized, state.FinalizedV2); err != nil {
-		return fmt.Errorf("failed to apply v2 finalized v2 resolution: %w", err)
 	} else if err := applySuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusRenewed, state.RenewedV2); err != nil {
 		return fmt.Errorf("failed to apply v2 renewed v2 resolution: %w", err)
 	} else if err := applyFailedV2Contracts(ux.tx, index, state.FailedV2); err != nil {
@@ -369,8 +368,6 @@ func (ux *updateTx) RevertContracts(index types.ChainIndex, state contracts.Stat
 		return fmt.Errorf("failed to revert v2 contract revisions: %w", err)
 	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusSuccessful, state.SuccessfulV2); err != nil {
 		return fmt.Errorf("failed to revert v2 successful resolution: %w", err)
-	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusFinalized, state.FinalizedV2); err != nil {
-		return fmt.Errorf("failed to revert v2 finalized resolution: %w", err)
 	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusRenewed, state.RenewedV2); err != nil {
 		return fmt.Errorf("failed to revert v2 renewed resolution: %w", err)
 	} else if err := revertFailedV2Contracts(ux.tx, state.FailedV2); err != nil {
@@ -721,9 +718,9 @@ func updateBalanceMetric(tx *txn, matureInflow, matureOutflow, immatureInflow, i
 
 // getContractStateStmt helper to get the current state of a contract.
 func getContractStateStmt(tx *txn) (func(contractID types.FileContractID) (contractState, error), func() error, error) {
-	stmt, err := tx.Prepare(`SELECT id, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, 
-ingress_revenue, egress_revenue, registry_read, registry_write, contract_status 
-FROM contracts 
+	stmt, err := tx.Prepare(`SELECT id, locked_collateral, risked_collateral, rpc_revenue, storage_revenue,
+ingress_revenue, egress_revenue, registry_read, registry_write, contract_status
+FROM contracts
 WHERE contract_id=?`)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to prepare select statement: %w", err)
@@ -740,9 +737,9 @@ WHERE contract_id=?`)
 
 // getV2ContractStateStmt helper to get the current state of a v2 contract.
 func getV2ContractStateStmt(tx *txn) (func(contractID types.FileContractID) (v2ContractState, error), func() error, error) {
-	stmt, err := tx.Prepare(`SELECT id, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, 
-ingress_revenue, egress_revenue, contract_status 
-FROM contracts_v2 
+	stmt, err := tx.Prepare(`SELECT id, locked_collateral, risked_collateral, rpc_revenue, storage_revenue,
+ingress_revenue, egress_revenue, contract_status
+FROM contracts_v2
 WHERE contract_id=?`)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to prepare select statement: %w", err)
@@ -750,8 +747,8 @@ WHERE contract_id=?`)
 
 	return func(contractID types.FileContractID) (state v2ContractState, err error) {
 		err = stmt.QueryRow(encode(contractID)).Scan(&state.ID,
-			decode(&state.LockedCollateral), decode(&state.Usage.RiskedCollateral), decode(&state.Usage.RPCRevenue),
-			decode(&state.Usage.StorageRevenue), decode(&state.Usage.IngressRevenue), decode(&state.Usage.EgressRevenue),
+			decode(&state.LockedCollateral), decode(&state.Usage.RiskedCollateral), decode(&state.Usage.RPC),
+			decode(&state.Usage.Storage), decode(&state.Usage.Ingress), decode(&state.Usage.Egress),
 			&state.Status)
 		return
 	}, stmt.Close, nil
@@ -794,28 +791,28 @@ func updatePotentialRevenueMetrics(usage contracts.Usage, negative bool, fn func
 }
 
 // updateV2EarnedRevenueMetrics helper to update the earned revenue metrics.
-func updateV2EarnedRevenueMetrics(usage contracts.V2Usage, negative bool, fn func(stat string, delta types.Currency, negative bool, timestamp time.Time) error) error {
-	if err := fn(metricEarnedRPCRevenue, usage.RPCRevenue, negative, time.Now()); err != nil {
+func updateV2EarnedRevenueMetrics(usage proto4.Usage, negative bool, fn func(stat string, delta types.Currency, negative bool, timestamp time.Time) error) error {
+	if err := fn(metricEarnedRPCRevenue, usage.RPC, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricEarnedRPCRevenue, err)
-	} else if err := fn(metricEarnedStorageRevenue, usage.StorageRevenue, negative, time.Now()); err != nil {
+	} else if err := fn(metricEarnedStorageRevenue, usage.Storage, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricEarnedStorageRevenue, err)
-	} else if err := fn(metricEarnedIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
+	} else if err := fn(metricEarnedIngressRevenue, usage.Ingress, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricEarnedIngressRevenue, err)
-	} else if err := fn(metricEarnedEgressRevenue, usage.EgressRevenue, negative, time.Now()); err != nil {
+	} else if err := fn(metricEarnedEgressRevenue, usage.Egress, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricEarnedEgressRevenue, err)
 	}
 	return nil
 }
 
 // updateV2PotentialRevenueMetrics helper to update the potential revenue metrics.
-func updateV2PotentialRevenueMetrics(usage contracts.V2Usage, negative bool, fn func(stat string, delta types.Currency, negative bool, timestamp time.Time) error) error {
-	if err := fn(metricPotentialRPCRevenue, usage.RPCRevenue, negative, time.Now()); err != nil {
+func updateV2PotentialRevenueMetrics(usage proto4.Usage, negative bool, fn func(stat string, delta types.Currency, negative bool, timestamp time.Time) error) error {
+	if err := fn(metricPotentialRPCRevenue, usage.RPC, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricPotentialRPCRevenue, err)
-	} else if err := fn(metricPotentialStorageRevenue, usage.StorageRevenue, negative, time.Now()); err != nil {
+	} else if err := fn(metricPotentialStorageRevenue, usage.Storage, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricPotentialStorageRevenue, err)
-	} else if err := fn(metricPotentialIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
+	} else if err := fn(metricPotentialIngressRevenue, usage.Ingress, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricPotentialIngressRevenue, err)
-	} else if err := fn(metricPotentialEgressRevenue, usage.EgressRevenue, negative, time.Now()); err != nil {
+	} else if err := fn(metricPotentialEgressRevenue, usage.Egress, negative, time.Now()); err != nil {
 		return fmt.Errorf("failed to update metric %q: %w", metricPotentialEgressRevenue, err)
 	}
 	return nil
@@ -877,8 +874,6 @@ func v2ContractStatusMetric(status contracts.V2ContractStatus) string {
 		return metricSuccessfulContracts
 	case contracts.V2ContractStatusFailed:
 		return metricFailedContracts
-	case contracts.V2ContractStatusFinalized:
-		return metricFinalizedContracts
 	case contracts.V2ContractStatusRenewed:
 		return metricRenewedContracts
 	default:

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.uber.org/zap"
 )
@@ -54,8 +55,6 @@ const (
 	// V2ContractStatusActive indicates that the contract has been confirmed on
 	// the blockchain and is currently active.
 	V2ContractStatusActive V2ContractStatus = "active"
-	// V2ContractStatusFinalized indicates that the contract has been finalized.
-	V2ContractStatusFinalized V2ContractStatus = "finalized"
 	// V2ContractStatusRenewed indicates that the contract has been renewed.
 	V2ContractStatusRenewed V2ContractStatus = "renewed"
 	// V2ContractStatusSuccessful indicates that a storage proof has been
@@ -106,23 +105,13 @@ type (
 		RiskedCollateral types.Currency `json:"riskedCollateral"`
 	}
 
-	// V2Usage tracks the usage of a contract's funds.
-	V2Usage struct {
-		RPCRevenue       types.Currency `json:"rpc"`
-		StorageRevenue   types.Currency `json:"storage"`
-		EgressRevenue    types.Currency `json:"egress"`
-		IngressRevenue   types.Currency `json:"ingress"`
-		AccountFunding   types.Currency `json:"accountFunding"`
-		RiskedCollateral types.Currency `json:"riskedCollateral"`
-	}
-
 	// A V2Contract contains metadata on the current state of a v2 file contract.
 	V2Contract struct {
 		types.V2FileContract
 
 		ID     types.FileContractID `json:"id"`
 		Status V2ContractStatus     `json:"status"`
-		Usage  V2Usage              `json:"usage"`
+		Usage  proto4.Usage         `json:"usage"`
 
 		// NegotiationHeight is the height the contract was negotiated at.
 		NegotiationHeight uint64 `json:"negotiationHeight"`
@@ -142,13 +131,6 @@ type (
 		// RenewedFrom is the ID of the contract that this contract renewed. If
 		// this contract is not a renewal, the field is the zero value.
 		RenewedFrom types.FileContractID `json:"renewedFrom"`
-	}
-
-	// A V2FormationTransactionSet contains the formation transaction set for a
-	// v2 contract.
-	V2FormationTransactionSet struct {
-		TransactionSet []types.V2Transaction
-		Basis          types.ChainIndex
 	}
 
 	// A Contract contains metadata on the current state of a file contract.
@@ -285,30 +267,6 @@ func (a Usage) Sub(b Usage) (c Usage) {
 		RiskedCollateral: a.RiskedCollateral.Sub(b.RiskedCollateral),
 		RegistryRead:     a.RegistryRead.Sub(b.RegistryRead),
 		RegistryWrite:    a.RegistryWrite.Sub(b.RegistryWrite),
-	}
-}
-
-// Add returns u + b
-func (a V2Usage) Add(b V2Usage) (c V2Usage) {
-	return V2Usage{
-		RPCRevenue:       a.RPCRevenue.Add(b.RPCRevenue),
-		StorageRevenue:   a.StorageRevenue.Add(b.StorageRevenue),
-		EgressRevenue:    a.EgressRevenue.Add(b.EgressRevenue),
-		IngressRevenue:   a.IngressRevenue.Add(b.IngressRevenue),
-		AccountFunding:   a.AccountFunding.Add(b.AccountFunding),
-		RiskedCollateral: a.RiskedCollateral.Add(b.RiskedCollateral),
-	}
-}
-
-// Sub returns a - b
-func (a V2Usage) Sub(b V2Usage) (c V2Usage) {
-	return V2Usage{
-		RPCRevenue:       a.RPCRevenue.Sub(b.RPCRevenue),
-		StorageRevenue:   a.StorageRevenue.Sub(b.StorageRevenue),
-		EgressRevenue:    a.EgressRevenue.Sub(b.EgressRevenue),
-		IngressRevenue:   a.IngressRevenue.Sub(b.IngressRevenue),
-		AccountFunding:   a.AccountFunding.Sub(b.AccountFunding),
-		RiskedCollateral: a.RiskedCollateral.Sub(b.RiskedCollateral),
 	}
 }
 

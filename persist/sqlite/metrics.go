@@ -20,8 +20,7 @@ const (
 	metricFailedContracts     = "failedContracts"
 
 	// v2
-	metricFinalizedContracts = "finalizedContracts"
-	metricRenewedContracts   = "renewedContracts"
+	metricRenewedContracts = "renewedContracts"
 
 	metricLockedCollateral = "lockedCollateral"
 	metricRiskedCollateral = "riskedCollateral"
@@ -354,8 +353,6 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Contracts.Successful = mustScanUint64(buf)
 	case metricFailedContracts:
 		m.Contracts.Failed = mustScanUint64(buf)
-	case metricFinalizedContracts:
-		m.Contracts.Finalized = mustScanUint64(buf)
 	case metricRenewedContracts:
 		m.Contracts.Renewed = mustScanUint64(buf)
 	case metricLockedCollateral:

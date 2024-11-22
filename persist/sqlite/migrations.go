@@ -10,6 +10,26 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion32 adds the proof height and expiration_height columns to the contracts_v2 table.
+func migrateVersion32(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+ALTER TABLE contracts_v2 ADD COLUMN proof_height INTEGER NOT NULL;
+ALTER TABLE contracts_v2 ADD COLUMN expiration_height INTEGER NOT NULL;
+ALTER TABLE contracts_v2 DROP COLUMN window_start;
+ALTER TABLE contracts_v2 DROP COLUMN window_end;
+DROP INDEX contracts_v2_window_start;
+DROP INDEX contracts_v2_window_end;
+DROP INDEX contracts_v2_confirmation_index_resolution_index_window_start;
+DROP INDEX contracts_v2_confirmation_index_resolution_index_window_end;
+DROP INDEX contracts_v2_confirmation_index_window_start;
+CREATE INDEX contracts_v2_proof_height ON contracts_v2(proof_height);
+CREATE INDEX contracts_v2_expiration_height ON contracts_v2(expiration_height);
+CREATE INDEX contracts_v2_confirmation_index_resolution_index_proof_height ON contracts_v2(confirmation_index, resolution_index, proof_height);
+CREATE INDEX contracts_v2_confirmation_index_resolution_index_expiration_height ON contracts_v2(confirmation_index, resolution_index, expiration_height);
+CREATE INDEX contracts_v2_confirmation_index_proof_height ON contracts_v2(confirmation_index, proof_height);`)
+	return err
+}
+
 func migrateVersion31(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 ALTER TABLE global_settings ADD COLUMN last_v2_announce_hash BLOB;
@@ -52,7 +72,7 @@ UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, la
 // migrateVersion28 prepares the database for version 2
 func migrateVersion28(tx *txn, log *zap.Logger) error {
 	_, err := tx.Exec(`
--- Drop v1 tables	
+-- Drop v1 tables
 DROP TABLE wallet_utxos;
 DROP TABLE wallet_transactions;
 
@@ -457,8 +477,8 @@ func migrateVersion18(tx *txn, _ *zap.Logger) error {
 func migrateVersion17(tx *txn, _ *zap.Logger) error {
 	const query = `
 -- create a temp table that contains the new indices
-CREATE TEMP TABLE temp_contract_sector_roots AS 
-SELECT * FROM (SELECT id, contract_id, root_index, ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY root_index ASC)-1 AS expected_root_index 
+CREATE TEMP TABLE temp_contract_sector_roots AS
+SELECT * FROM (SELECT id, contract_id, root_index, ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY root_index ASC)-1 AS expected_root_index
 FROM contract_sector_roots) a WHERE root_index <> expected_root_index ORDER BY contract_id, root_index ASC;
 -- update the contract_sector_roots table with the new indices
 UPDATE contract_sector_roots
@@ -563,7 +583,7 @@ CREATE TABLE contracts_new (
 );
 
 -- copy the data from the old contracts table to the new contracts table
-INSERT INTO contracts_new (id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write, risked_collateral, confirmed_revision_number, host_sig, renter_sig, raw_revision, formation_confirmed, resolution_height, negotiation_height, window_start, window_end, contract_status) 
+INSERT INTO contracts_new (id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write, risked_collateral, confirmed_revision_number, host_sig, renter_sig, raw_revision, formation_confirmed, resolution_height, negotiation_height, window_start, window_end, contract_status)
 	SELECT id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, locked_collateral, $1, $1, $1, $1, $1, $1, $1, risked_collateral, confirmed_revision_number, host_sig, renter_sig, raw_revision, formation_confirmed, resolution_height, negotiation_height, window_start, window_end, contract_status FROM contracts;
 
 -- drop the old contracts table and rename the new contracts table
@@ -820,13 +840,13 @@ func migrateVersion4(tx *txn, _ *zap.Logger) error {
 			ddns_opts BLOB,
 			registry_limit INTEGER NOT NULL
 		);`
-		migrateSettings = `INSERT INTO host_settings (id, settings_revision, accepting_contracts, net_address, 
-contract_price, base_rpc_price, sector_access_price, collateral_multiplier, max_collateral, storage_price, egress_price, 
-ingress_price, max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
+		migrateSettings = `INSERT INTO host_settings (id, settings_revision, accepting_contracts, net_address,
+contract_price, base_rpc_price, sector_access_price, collateral_multiplier, max_collateral, storage_price, egress_price,
+ingress_price, max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size,
 ingress_limit, egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit)
-SELECT 0, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price, 
-sector_access_price, 2.0, max_collateral, storage_price, egress_price, ingress_price, 
-max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
+SELECT 0, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price,
+sector_access_price, 2.0, max_collateral, storage_price, egress_price, ingress_price,
+max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit,
 egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit FROM host_settings_old;`
 	)
 
@@ -882,13 +902,13 @@ func migrateVersion2(tx *txn, _ *zap.Logger) error {
 			ddns_opts BLOB,
 			registry_limit INTEGER NOT NULL
 		);`
-		migrateSettings = `INSERT INTO host_settings (id, settings_revision, accepting_contracts, net_address, 
-contract_price, base_rpc_price, sector_access_price, collateral, max_collateral, storage_price, egress_price, 
-ingress_price, max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
+		migrateSettings = `INSERT INTO host_settings (id, settings_revision, accepting_contracts, net_address,
+contract_price, base_rpc_price, sector_access_price, collateral, max_collateral, storage_price, egress_price,
+ingress_price, max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size,
 ingress_limit, egress_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit)
-SELECT 0, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price, 
-sector_access_price, collateral, max_collateral, min_storage_price, min_egress_price, min_ingress_price, 
-max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
+SELECT 0, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price,
+sector_access_price, collateral, max_collateral, min_storage_price, min_egress_price, min_ingress_price,
+max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit,
 egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, registry_limit FROM host_settings_old;`
 	)
 
@@ -940,4 +960,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion29,
 	migrateVersion30,
 	migrateVersion31,
+	migrateVersion32,
 }
