@@ -25,15 +25,15 @@ func migrateVersion33(tx *txn, _ *zap.Logger) error {
 // migrateVersion32 adds the proof height and expiration_height columns to the contracts_v2 table.
 func migrateVersion32(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
-ALTER TABLE contracts_v2 ADD COLUMN proof_height INTEGER NOT NULL;
-ALTER TABLE contracts_v2 ADD COLUMN expiration_height INTEGER NOT NULL;
-ALTER TABLE contracts_v2 DROP COLUMN window_start;
-ALTER TABLE contracts_v2 DROP COLUMN window_end;
 DROP INDEX contracts_v2_window_start;
 DROP INDEX contracts_v2_window_end;
 DROP INDEX contracts_v2_confirmation_index_resolution_index_window_start;
 DROP INDEX contracts_v2_confirmation_index_resolution_index_window_end;
 DROP INDEX contracts_v2_confirmation_index_window_start;
+ALTER TABLE contracts_v2 DROP COLUMN window_start;
+ALTER TABLE contracts_v2 DROP COLUMN window_end;
+ALTER TABLE contracts_v2 ADD COLUMN proof_height INTEGER NOT NULL;
+ALTER TABLE contracts_v2 ADD COLUMN expiration_height INTEGER NOT NULL;
 CREATE INDEX contracts_v2_proof_height ON contracts_v2(proof_height);
 CREATE INDEX contracts_v2_expiration_height ON contracts_v2(expiration_height);
 CREATE INDEX contracts_v2_confirmation_index_resolution_index_proof_height ON contracts_v2(confirmation_index, resolution_index, proof_height);
