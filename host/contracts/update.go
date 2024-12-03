@@ -500,9 +500,6 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 			}
 		case res != nil:
 			switch res := res.(type) {
-			case *types.V2FileContractFinalization:
-				state.FinalizedV2 = append(state.FinalizedV2, types.FileContractID(fce.ID))
-				log.Debug("finalized v2 contract", zap.Stringer("contractID", fce.ID))
 			case *types.V2FileContractRenewal:
 				state.RenewedV2 = append(state.RenewedV2, types.FileContractID(fce.ID))
 				log.Debug("renewed v2 contract", zap.Stringer("contractID", fce.ID))

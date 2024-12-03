@@ -1007,37 +1007,35 @@ func TestV2ContractLifecycle(t *testing.T) {
 		cm := node.Chain
 
 		cs := cm.TipState()
-		final := fc
-		final.RevisionNumber = types.MaxRevisionNumber
-		final.HostSignature = types.Signature{}
-		final.RenterSignature = types.Signature{}
 
 		additionalCollateral := types.Siacoins(2)
 		renewal := types.V2FileContractRenewal{
-			FinalRevision: final,
 			NewContract: types.V2FileContract{
 				RevisionNumber:   0,
 				Filesize:         fc.Filesize,
 				Capacity:         fc.Capacity,
 				FileMerkleRoot:   fc.FileMerkleRoot,
-				ProofHeight:      final.ProofHeight + 10,
-				ExpirationHeight: final.ExpirationHeight + 10,
-				RenterOutput:     final.RenterOutput,
+				ProofHeight:      fc.ProofHeight + 10,
+				ExpirationHeight: fc.ExpirationHeight + 10,
+				RenterOutput:     fc.RenterOutput,
 				HostOutput: types.SiacoinOutput{
-					Address: final.HostOutput.Address,
-					Value:   final.HostOutput.Value.Add(additionalCollateral),
+					Address: fc.HostOutput.Address,
+					Value:   fc.HostOutput.Value.Add(additionalCollateral),
 				},
-				MissedHostValue: final.MissedHostValue.Add(additionalCollateral),
-				TotalCollateral: final.TotalCollateral.Add(additionalCollateral),
+				MissedHostValue: fc.MissedHostValue.Add(additionalCollateral),
+				TotalCollateral: fc.TotalCollateral.Add(additionalCollateral),
 				RenterPublicKey: renterKey.PublicKey(),
 				HostPublicKey:   hostKey.PublicKey(),
 			},
-			HostRollover:   final.HostOutput.Value,
-			RenterRollover: final.RenterOutput.Value,
+			HostRollover:   fc.HostOutput.Value,
+			RenterRollover: fc.RenterOutput.Value,
 		}
 		renewalSigHash := cs.RenewalSigHash(renewal)
 		renewal.HostSignature = hostKey.SignHash(renewalSigHash)
 		renewal.RenterSignature = renterKey.SignHash(renewalSigHash)
+		contractSigHash := cs.ContractSigHash(renewal.NewContract)
+		renewal.NewContract.HostSignature = hostKey.SignHash(contractSigHash)
+		renewal.NewContract.RenterSignature = renterKey.SignHash(contractSigHash)
 
 		_, fce, err := com.V2FileContractElement(contractID)
 		if err != nil {

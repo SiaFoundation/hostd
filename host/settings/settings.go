@@ -26,9 +26,6 @@ const (
 
 	blocksPerMonth = 144 * 30 // 144 blocks per day * 30 days
 
-	// defaultBurstSize allow for large reads and writes on the limiter
-	defaultBurstSize = 256 * (1 << 20) // 256 MiB
-
 	dnsUpdateFrequency = 30 * time.Second
 )
 
@@ -286,8 +283,6 @@ func (m *ConfigManager) RHP4Settings() proto4.HostSettings {
 		AcceptingContracts:  settings.AcceptingContracts,
 		MaxCollateral:       settings.MaxCollateral,
 		MaxContractDuration: settings.MaxContractDuration,
-		MaxSectorDuration:   3 * 144,
-		MaxSectorBatchSize:  25600, // 100 GiB
 		RemainingStorage:    total - used,
 		TotalStorage:        total,
 		Prices: proto4.HostPrices{
