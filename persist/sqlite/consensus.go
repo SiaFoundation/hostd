@@ -323,7 +323,7 @@ func (ux *updateTx) DeleteExpiredChainIndexElements(height uint64) error {
 // ApplyContracts applies relevant contract changes to the contract
 // store
 func (ux *updateTx) ApplyContracts(index types.ChainIndex, state contracts.StateChanges) error {
-	if err := applyContractFormation(ux.tx, state.Confirmed, ux.tx.log.Named("applyContractFormation")); err != nil {
+	if err := applyContractFormation(ux.tx, state.Confirmed); err != nil {
 		return fmt.Errorf("failed to apply contract formation: %w", err)
 	} else if err := applyContractRevision(ux.tx, state.Revised); err != nil {
 		return fmt.Errorf("failed to apply contract revisions: %w", err)
@@ -924,7 +924,7 @@ func applyContractRevision(tx *txn, revisions []types.FileContractElement) error
 }
 
 // applyContractFormation updates the contract table with the confirmation index and new status.
-func applyContractFormation(tx *txn, confirmed []types.FileContractElement, log *zap.Logger) error {
+func applyContractFormation(tx *txn, confirmed []types.FileContractElement) error {
 	if len(confirmed) == 0 {
 		return nil
 	}
@@ -959,13 +959,6 @@ func applyContractFormation(tx *txn, confirmed []types.FileContractElement, log 
 			return fmt.Errorf("failed to get contract state %q: %w", fce.ID, err)
 		}
 
-		// skip the update if the contract is not active, rejected, or pending.
-		// This should only happen during a rescan.
-		if state.Status != contracts.ContractStatusPending && state.Status != contracts.ContractStatusRejected && state.Status != contracts.ContractStatusActive {
-			log.Debug("skipping rescan state transition", zap.Stringer("contractID", fce.ID), zap.Stringer("current", state.Status))
-			continue
-		}
-
 		// update the contract table with the confirmation index and new status.
 		res, err := updateStmt.Exec(contracts.ContractStatusActive, state.ID)
 		if err != nil {
@@ -974,20 +967,17 @@ func applyContractFormation(tx *txn, confirmed []types.FileContractElement, log 
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
 			return fmt.Errorf("failed to update contract %q: %w", fce.ID, err)
-		}
-
-		// skip the  metric update if the contract is already active.
-		// This should only happen during a rescan
-		if state.Status == contracts.ContractStatusActive {
-			continue
-		}
-
-		if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
-			return fmt.Errorf("failed to update collateral metrics: %w", err)
-		} else if err := updatePotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
-			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 		} else if err := updateStatusMetrics(state.Status, contracts.ContractStatusActive, incrementNumericStat); err != nil {
 			return fmt.Errorf("failed to update contract metrics: %w", err)
+		}
+
+		// if the contract is pending or rejected, add the usage to the potential revenue metrics
+		if state.Status == contracts.ContractStatusPending || state.Status == contracts.ContractStatusRejected {
+			if err := updatePotentialRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to add potential revenue metrics: %w", err)
+			} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to add collateral metrics: %w", err)
+			}
 		}
 	}
 	return nil
@@ -1031,7 +1021,7 @@ func applySuccessfulContracts(tx *txn, index types.ChainIndex, successful []type
 		}
 
 		if state.Status == contracts.ContractStatusSuccessful {
-			// skip update if the contract was already successful
+			// skip update if the contract is already successful
 			continue
 		} else if state.Status != contracts.ContractStatusActive && state.Status != contracts.ContractStatusFailed {
 			// panic if the contract is not active or failed. Proper reverts
@@ -1064,7 +1054,7 @@ func applySuccessfulContracts(tx *txn, index types.ChainIndex, successful []type
 		// if the state is failed, the potential revenue metrics have already
 		// been reduced. If the state is active, subtract the usage from the
 		// potential revenue metrics.
-		if state.Status == contracts.ContractStatusActive {
+		if state.Status == contracts.ContractStatusActive || state.Status == contracts.ContractStatusPending {
 			if err := updatePotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
 				return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 			} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {

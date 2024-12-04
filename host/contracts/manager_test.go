@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/internal/testutil"
 	"go.sia.tech/hostd/persist/sqlite"
@@ -87,12 +88,16 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 	return txn.V2FileContractID(txn.ID(), 0), fc
 }
 
-func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) contracts.SignedRevision {
+func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, sm *settings.ConfigManager, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) contracts.SignedRevision {
 	t.Helper()
 
-	contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterFunds, hostFunds, cm.Tip().Height+duration, rhp2.HostSettings{WindowSize: 10}, w.Address())
+	settings, err := sm.RHP2Settings()
+	if err != nil {
+		t.Fatalf("failed to get rhp2 settings: %v", err)
+	}
+	contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterFunds, hostFunds, cm.Tip().Height+duration, settings, w.Address())
 	state := cm.TipState()
-	formationCost := rhp2.ContractFormationCost(state, contract, types.ZeroCurrency)
+	formationCost := rhp2.ContractFormationCost(state, contract, settings.ContractPrice)
 	contractUnlockConditions := types.UnlockConditions{
 		PublicKeys: []types.UnlockKey{
 			renterKey.PublicKey().UnlockKey(),
@@ -128,7 +133,9 @@ func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wall
 		HostSignature:   hostKey.SignHash(sigHash),
 		RenterSignature: renterKey.SignHash(sigHash),
 	}
-	if err := c.AddContract(rev, formationSet, hostFunds, contracts.Usage{}); err != nil {
+	if err := c.AddContract(rev, formationSet, hostFunds, contracts.Usage{
+		RPCRevenue: settings.ContractPrice,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return rev
@@ -293,7 +300,7 @@ func TestContractLifecycle(t *testing.T) {
 		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
 		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
 
-		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, false)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, node.Settings, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, false)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -333,7 +340,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, node.Settings, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		// pending contracts do not contribute to metrics
@@ -445,7 +452,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, node.Settings, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
@@ -539,7 +546,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, node.Settings, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
@@ -618,7 +625,7 @@ func TestContractLifecycle(t *testing.T) {
 
 		renterFunds := types.Siacoins(500)
 		hostCollateral := types.Siacoins(1000)
-		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
+		rev := formContract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, node.Settings, renterKey, hostKey, renterFunds, hostCollateral, 10, true)
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
