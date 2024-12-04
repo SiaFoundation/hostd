@@ -48,7 +48,7 @@ type (
 		AddV2Contract(V2Contract, rhp4.TransactionSet) error
 		// RenewV2Contract renews a contract. It is expected that the existing
 		// contract will be cleared.
-		RenewV2Contract(renewal V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID, clearing types.V2FileContract, roots []types.Hash256) error
+		RenewV2Contract(renewal V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID, roots []types.Hash256) error
 		// ReviseV2Contract atomically updates a contract and its associated
 		// sector roots.
 		ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, oldRoots, newRoots []types.Hash256, usage proto4.Usage) error

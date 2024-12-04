@@ -184,6 +184,11 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 		return fmt.Errorf("failed to get existing contract: %w", err)
 	}
 
+	// note: not checking status here since that is only changed after the renewal is confirmed.
+	if existing.RenewedTo != (types.FileContractID{}) {
+		return errors.New("renewed contracts cannot be revised")
+	}
+
 	oldRoots := cm.getSectorRoots(contractID)
 
 	// validate the contract revision fields
@@ -290,13 +295,10 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	if err != nil {
 		return fmt.Errorf("failed to get existing contract: %w", err)
 	}
-	finalRevision := resolution.FinalRevision
 	fc := resolution.NewContract
 
 	// sanity checks
-	if finalRevision.RevisionNumber != types.MaxRevisionNumber {
-		return errors.New("final revision must have max revision number")
-	} else if fc.Filesize != existing.Filesize {
+	if fc.Filesize != existing.Filesize {
 		return errors.New("renewal contract must have same file size as existing contract")
 	} else if fc.Capacity != existing.Capacity {
 		return errors.New("renewal contract must have same capacity as existing contract")
@@ -320,7 +322,7 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 		Usage:             usage,
 	}
 
-	if err := cm.store.RenewV2Contract(contract, renewal, existingID, finalRevision, existingRoots); err != nil {
+	if err := cm.store.RenewV2Contract(contract, renewal, existingID, existingRoots); err != nil {
 		return err
 	}
 	cm.setSectorRoots(contract.ID, existingRoots)

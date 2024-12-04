@@ -223,7 +223,7 @@ func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.T
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract. The status of the old contract should continue
 // to be active until the renewal is confirmed
-func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID, clearing types.V2FileContract, roots []types.Hash256) error {
+func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID, roots []types.Hash256) error {
 	return s.transaction(func(tx *txn) error {
 		// add the new contract
 		renewedDBID, err := insertV2Contract(tx, renewal, renewalSet)
@@ -231,7 +231,7 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 			return fmt.Errorf("failed to insert renewed contract: %w", err)
 		}
 
-		clearedDBID, err := updateResolvedV2Contract(tx, renewedID, clearing, renewedDBID)
+		clearedDBID, err := updateResolvedV2Contract(tx, renewedID, renewedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to resolve existing contract: %w", err)
 		}
@@ -737,12 +737,10 @@ RETURNING sector_id;`
 }
 
 // updateResolvedV2Contract clears a contract and returns its ID
-func updateResolvedV2Contract(tx *txn, contractID types.FileContractID, clearing types.V2FileContract, renewedDBID int64) (dbID int64, err error) {
-	const clearQuery = `UPDATE contracts_v2 SET (renewed_to, revision_number, raw_revision) = ($1, $2, $3) WHERE contract_id=$4 RETURNING id;`
+func updateResolvedV2Contract(tx *txn, contractID types.FileContractID, renewedDBID int64) (dbID int64, err error) {
+	const clearQuery = `UPDATE contracts_v2 SET renewed_to=$1 WHERE contract_id=$2 RETURNING id;`
 	err = tx.QueryRow(clearQuery,
 		renewedDBID,
-		encode(clearing.RevisionNumber),
-		encode(clearing),
 		encode(contractID),
 	).Scan(&dbID)
 	return
