@@ -458,7 +458,7 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 				log.Debug("revised contract", zap.Uint64("current", rev.FileContract.RevisionNumber), zap.Uint64("revised", fce.FileContract.RevisionNumber))
 			} else {
 				state.Revised = append(state.Revised, *rev)
-				log.Debug("revised contract", zap.Uint64("current", fce.FileContract.RevisionNumber), zap.Uint64("revised", fce.FileContract.RevisionNumber))
+				log.Debug("revised contract", zap.Uint64("current", fce.FileContract.RevisionNumber), zap.Uint64("revised", rev.FileContract.RevisionNumber))
 			}
 		case resolved && valid:
 			state.Successful = append(state.Successful, types.FileContractID(fce.ID))

@@ -186,7 +186,7 @@ func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract)
 			RPCRevenue:     fund.Cost,
 			AccountFunding: fund.Amount,
 		}
-		contractID, err := reviseContract(tx, fund.Revision)
+		contractID, err := reviseContract(tx, fund.Revision, usage)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
 		}
@@ -194,13 +194,6 @@ func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract)
 		// update the funding source
 		if err := incrementContractAccountFunding(tx, accountID, contractID, fund.Amount); err != nil {
 			return fmt.Errorf("failed to update funding source: %w", err)
-		}
-
-		// update the contract usage and potential revenue metrics
-		if err := incrementContractUsage(tx, contractID, usage); err != nil {
-			return fmt.Errorf("failed to update contract usage: %w", err)
-		} else if err := incrementPotentialRevenueMetrics(tx, usage, false); err != nil {
-			return fmt.Errorf("failed to increment contract potential revenue: %w", err)
 		}
 		return nil
 	})
@@ -224,7 +217,7 @@ func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) error
 		err = tx.QueryRow(query, encode(balance), dbID).Scan(&dbID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
-		} else if err := updateContractUsage(tx, dbID, usage, s.log); err != nil {
+		} else if err := distributeRHP3AccountUsage(tx, dbID, usage, s.log); err != nil {
 			return fmt.Errorf("failed to update contract usage: %w", err)
 		}
 
@@ -408,18 +401,16 @@ func distributeRHP4AccountUsage(tx *txn, accountID int64, usage proto4.Usage) er
 		contractExistingFunding = contractExistingFunding.Sub(f.Amount.Sub(remainder))
 		if _, err := tx.Exec(`UPDATE contracts_v2 SET account_funding=$1 WHERE id=$2`, encode(contractExistingFunding), f.ContractID); err != nil {
 			return fmt.Errorf("failed to update contract account funding: %w", err)
-		}
-
-		if err := updateV2ContractUsage(tx, f.ContractID, additionalUsage); err != nil {
+		} else if err := updateV2ContractUsage(tx, f.ContractID, additionalUsage); err != nil {
 			return fmt.Errorf("failed to update contract usage: %w", err)
 		}
 	}
 	return nil
 }
 
-// updateContractUsage distributes account usage to the contracts that funded
+// distributeRHP3AccountUsage distributes account usage to the contracts that funded
 // the account.
-func updateContractUsage(tx *txn, accountID int64, usage accounts.Usage, log *zap.Logger) error {
+func distributeRHP3AccountUsage(tx *txn, accountID int64, usage accounts.Usage, log *zap.Logger) error {
 	funding, err := contractFunding(tx, accountID)
 	if err != nil {
 		return fmt.Errorf("failed to get contract funding: %w", err)
@@ -468,18 +459,8 @@ func updateContractUsage(tx *txn, accountID int64, usage accounts.Usage, log *za
 		unspentContractFunds := contract.Usage.AccountFunding.Sub(f.Amount.Sub(remainder))
 		if err := setContractRemainingFunds(tx, f.ContractID, unspentContractFunds); err != nil {
 			return fmt.Errorf("failed to decrement account funding: %w", err)
-		}
-
-		if contract.Status == contracts.ContractStatusActive {
-			// increment potential revenue
-			if err := incrementPotentialRevenueMetrics(tx, additionalUsage, false); err != nil {
-				return fmt.Errorf("failed to increment contract potential revenue: %w", err)
-			}
-		} else if contract.Status == contracts.ContractStatusSuccessful && contract.RevisionConfirmed {
-			// increment earned revenue
-			if err := incrementEarnedRevenueMetrics(tx, additionalUsage, false); err != nil {
-				return fmt.Errorf("failed to increment contract earned revenue: %w", err)
-			}
+		} else if err := updateContractUsage(tx, f.ContractID, types.ZeroCurrency, additionalUsage); err != nil {
+			return fmt.Errorf("failed to update contract usage: %w", err)
 		}
 	}
 

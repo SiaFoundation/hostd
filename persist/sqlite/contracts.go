@@ -255,7 +255,10 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
 	return s.transaction(func(tx *txn) error {
 		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
-		return err
+		if err != nil {
+			return fmt.Errorf("failed to add contract: %w", err)
+		}
+		return nil
 	})
 }
 
@@ -340,17 +343,9 @@ func (s *Store) ReviseV2Contract(id types.FileContractID, revision types.V2FileC
 func (s *Store) ReviseContract(revision contracts.SignedRevision, roots []types.Hash256, usage contracts.Usage, sectorChanges []contracts.SectorChange) error {
 	return s.transaction(func(tx *txn) error {
 		// revise the contract
-		contractID, err := reviseContract(tx, revision)
+		contractID, err := reviseContract(tx, revision, usage)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
-		}
-		// update the contract usage and metrics
-		if err := incrementContractUsage(tx, contractID, usage); err != nil {
-			return fmt.Errorf("failed to update contract usage: %w", err)
-		} else if err := incrementCurrencyStat(tx, metricRiskedCollateral, usage.RiskedCollateral, false, time.Now()); err != nil {
-			return fmt.Errorf("failed to track risked collateral: %w", err)
-		} else if err := incrementPotentialRevenueMetrics(tx, usage, false); err != nil {
-			return fmt.Errorf("failed to track potential revenue: %w", err)
 		}
 
 		// update the sector roots
@@ -748,52 +743,77 @@ func updateResolvedV2Contract(tx *txn, contractID types.FileContractID, renewedD
 
 // clearContract clears a contract and returns its ID
 func clearContract(tx *txn, revision contracts.SignedRevision, renewedDBID int64, usage contracts.Usage) (dbID int64, err error) {
-	// get the existing contract's current usage
-	var total contracts.Usage
-	err = tx.QueryRow(`SELECT id, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral FROM contracts WHERE contract_id=$1`, encode(revision.Revision.ParentID)).Scan(
-		&dbID,
-		decode(&total.RPCRevenue),
-		decode(&total.StorageRevenue),
-		decode(&total.IngressRevenue),
-		decode(&total.EgressRevenue),
-		decode(&total.AccountFunding),
-		decode(&total.RiskedCollateral))
-	if err != nil {
-		return 0, fmt.Errorf("failed to get existing usage: %w", err)
-	}
-	total = total.Add(usage)
-
 	// update the existing contract
-	const clearQuery = `UPDATE contracts SET (renewed_to, revision_number, host_sig, renter_sig, raw_revision, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral) = ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) WHERE id=$12 RETURNING id;`
+	const clearQuery = `UPDATE contracts SET (renewed_to, revision_number, host_sig, renter_sig, raw_revision) = ($1, $2, $3, $4, $5) WHERE contract_id=$6 RETURNING id;`
 	err = tx.QueryRow(clearQuery,
 		renewedDBID,
 		encode(revision.Revision.RevisionNumber),
 		encode(revision.HostSignature),
 		encode(revision.RenterSignature),
 		encode(revision.Revision),
-		encode(total.RPCRevenue),
-		encode(total.StorageRevenue),
-		encode(total.IngressRevenue),
-		encode(total.EgressRevenue),
-		encode(total.AccountFunding),
-		encode(total.RiskedCollateral),
-		dbID,
+		encode(revision.Revision.ParentID),
 	).Scan(&dbID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to update contract %q: %w", revision.Revision.ParentID, err)
+	} else if err := updateContractUsage(tx, dbID, types.ZeroCurrency, usage); err != nil {
+		return 0, fmt.Errorf("failed to update usage: %w", err)
+	}
 	return
 }
 
 // reviseContract revises a contract and returns its ID
-func reviseContract(tx *txn, revision contracts.SignedRevision) (dbID int64, err error) {
-	err = tx.QueryRow(`UPDATE contracts SET (revision_number, window_start, window_end, raw_revision, host_sig, renter_sig) = ($1, $2, $3, $4, $5, $6) WHERE contract_id=$7 RETURNING id;`,
+func reviseContract(tx *txn, revision contracts.SignedRevision, usage contracts.Usage) (int64, error) {
+	var contractID int64
+	err := tx.QueryRow(`UPDATE contracts SET (revision_number, raw_revision, host_sig, renter_sig) = ($1, $2, $3, $4) WHERE contract_id=$6 RETURNING id;`,
 		encode(revision.Revision.RevisionNumber),
-		revision.Revision.WindowStart,
-		revision.Revision.WindowEnd,
 		encode(revision.Revision),
 		encode(revision.HostSignature),
 		encode(revision.RenterSignature),
 		encode(revision.Revision.ParentID),
-	).Scan(&dbID)
-	return
+	).Scan(&contractID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to update contract: %w", err)
+	} else if err := updateContractUsage(tx, contractID, types.ZeroCurrency, usage); err != nil {
+		return 0, fmt.Errorf("failed to update contract usage: %w", err)
+	}
+	return contractID, nil
+}
+
+func updateContractUsage(tx *txn, contractID int64, lockedCollateral types.Currency, usage contracts.Usage) error {
+	if err := incrementContractUsage(tx, contractID, usage); err != nil {
+		return fmt.Errorf("failed to update contract usage: %w", err)
+	}
+
+	var status contracts.ContractStatus
+	err := tx.QueryRow(`SELECT contract_status FROM contracts WHERE id=$1`, contractID).Scan(&status)
+	if err != nil {
+		return fmt.Errorf("failed to get contract status: %w", err)
+	}
+
+	if status == contracts.ContractStatusActive {
+		incrementCurrencyStat, done, err := incrementCurrencyStatStmt(tx)
+		if err != nil {
+			return fmt.Errorf("failed to prepare increment currency stat statement: %w", err)
+		}
+		defer done()
+
+		if err := updatePotentialRevenueMetrics(usage, false, incrementCurrencyStat); err != nil {
+			return fmt.Errorf("failed to update potential revenue: %w", err)
+		} else if err := updateCollateralMetrics(lockedCollateral, usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
+			return fmt.Errorf("failed to update collateral metrics: %w", err)
+		}
+	} else if status == contracts.ContractStatusSuccessful {
+		incrementCurrencyStat, done, err := incrementCurrencyStatStmt(tx)
+		if err != nil {
+			return fmt.Errorf("failed to prepare increment currency stat statement: %w", err)
+		}
+		defer done()
+
+		if err := updateEarnedRevenueMetrics(usage, false, incrementCurrencyStat); err != nil {
+			return fmt.Errorf("failed to update potential revenue: %w", err)
+		}
+	}
+	return nil
 }
 
 func rebroadcastContracts(tx *txn) (rebroadcast [][]types.Transaction, err error) {
@@ -1123,23 +1143,11 @@ func updateV2ContractUsage(tx *txn, contractDBID int64, usage proto4.Usage) erro
 		}
 		defer done()
 
-		if err := updateV2PotentialRevenueMetrics(usage, false, incrementCurrencyStat); err != nil {
+		if err := updateV2EarnedRevenueMetrics(usage, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue: %w", err)
 		}
 	}
 	return nil
-}
-
-func getV2Contract(tx *txn, dbID int64) (contracts.V2Contract, error) {
-	const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index,
-COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_index, c.rpc_revenue,
-c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision
-FROM contracts_v2 c
-LEFT JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
-LEFT JOIN contracts_v2 rt ON (c.renewed_to = rt.id)
-LEFT JOIN contracts_v2 rf ON (c.renewed_from = rf.id)
-WHERE c.id=$1;`
-	return scanV2Contract(tx.QueryRow(query, dbID))
 }
 
 func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileContract, usage proto4.Usage) (int64, error) {
@@ -1442,38 +1450,4 @@ func scanSignedRevision(row scanner) (rev contracts.SignedRevision, err error) {
 func scanContractSectorRootRef(s scanner) (ref contractSectorRootRef, err error) {
 	err = s.Scan(&ref.dbID, &ref.sectorID, decode(&ref.root))
 	return
-}
-
-func incrementPotentialRevenueMetrics(tx *txn, usage contracts.Usage, negative bool) error {
-	if err := incrementCurrencyStat(tx, metricPotentialRPCRevenue, usage.RPCRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment rpc revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricPotentialStorageRevenue, usage.StorageRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment storage revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricPotentialEgressRevenue, usage.EgressRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment egress revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricPotentialIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment ingress revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricPotentialRegistryReadRevenue, usage.RegistryRead, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry read revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricPotentialRegistryWriteRevenue, usage.RegistryWrite, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry write revenue stat: %w", err)
-	}
-	return nil
-}
-
-func incrementEarnedRevenueMetrics(tx *txn, usage contracts.Usage, negative bool) error {
-	if err := incrementCurrencyStat(tx, metricEarnedRPCRevenue, usage.RPCRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment rpc revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricEarnedStorageRevenue, usage.StorageRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment storage revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricEarnedEgressRevenue, usage.EgressRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment egress revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricEarnedIngressRevenue, usage.IngressRevenue, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment ingress revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricEarnedRegistryReadRevenue, usage.RegistryRead, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry read revenue stat: %w", err)
-	} else if err := incrementCurrencyStat(tx, metricEarnedRegistryWriteRevenue, usage.RegistryWrite, negative, time.Now()); err != nil {
-		return fmt.Errorf("failed to increment registry write revenue stat: %w", err)
-	}
-	return nil
 }
