@@ -86,12 +86,7 @@ func MineBlocks(t *testing.T, cn *ConsensusNode, addr types.Address, n int) {
 		}
 
 		if b.V2 == nil {
-			cn.Syncer.BroadcastHeader(gateway.BlockHeader{
-				ParentID:   b.ParentID,
-				Nonce:      b.Nonce,
-				Timestamp:  b.Timestamp,
-				MerkleRoot: b.MerkleRoot(),
-			})
+			cn.Syncer.BroadcastHeader(b.Header())
 		} else {
 			cn.Syncer.BroadcastV2BlockOutline(gateway.OutlineBlock(b, cn.Chain.PoolTransactions(), cn.Chain.V2PoolTransactions()))
 		}

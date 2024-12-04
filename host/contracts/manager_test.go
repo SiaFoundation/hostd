@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1008,38 +1009,35 @@ func TestV2ContractLifecycle(t *testing.T) {
 		cm := node.Chain
 
 		cs := cm.TipState()
-		final := fc
-		final.RevisionNumber = types.MaxRevisionNumber
-		final.HostSignature = types.Signature{}
-		final.RenterSignature = types.Signature{}
-		final.RevisionNumber = types.MaxRevisionNumber
 
 		additionalCollateral := types.Siacoins(2)
 		renewal := types.V2FileContractRenewal{
-			FinalRevision: final,
 			NewContract: types.V2FileContract{
 				RevisionNumber:   0,
 				Filesize:         fc.Filesize,
 				Capacity:         fc.Capacity,
 				FileMerkleRoot:   fc.FileMerkleRoot,
-				ProofHeight:      final.ProofHeight + 10,
-				ExpirationHeight: final.ExpirationHeight + 10,
-				RenterOutput:     final.RenterOutput,
+				ProofHeight:      fc.ProofHeight + 10,
+				ExpirationHeight: fc.ExpirationHeight + 10,
+				RenterOutput:     fc.RenterOutput,
 				HostOutput: types.SiacoinOutput{
-					Address: final.HostOutput.Address,
-					Value:   final.HostOutput.Value.Add(additionalCollateral),
+					Address: fc.HostOutput.Address,
+					Value:   fc.HostOutput.Value.Add(additionalCollateral),
 				},
-				MissedHostValue: final.MissedHostValue.Add(additionalCollateral),
-				TotalCollateral: final.TotalCollateral.Add(additionalCollateral),
+				MissedHostValue: fc.MissedHostValue.Add(additionalCollateral),
+				TotalCollateral: fc.TotalCollateral.Add(additionalCollateral),
 				RenterPublicKey: renterKey.PublicKey(),
 				HostPublicKey:   hostKey.PublicKey(),
 			},
-			HostRollover:   final.HostOutput.Value,
-			RenterRollover: final.RenterOutput.Value,
+			HostRollover:   fc.HostOutput.Value,
+			RenterRollover: fc.RenterOutput.Value,
 		}
 		renewalSigHash := cs.RenewalSigHash(renewal)
 		renewal.HostSignature = hostKey.SignHash(renewalSigHash)
 		renewal.RenterSignature = renterKey.SignHash(renewalSigHash)
+		contractSigHash := cs.ContractSigHash(renewal.NewContract)
+		renewal.NewContract.HostSignature = hostKey.SignHash(contractSigHash)
+		renewal.NewContract.RenterSignature = renterKey.SignHash(contractSigHash)
 
 		_, fce, err := com.V2FileContractElement(contractID)
 		if err != nil {
@@ -1096,6 +1094,15 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.Siacoins(20), collateral)
 		assertStorageMetrics(t, 1, 1)
 
+		// try to revise the original contract before the renewal is confirmed
+		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+			Storage:          cost,
+			RiskedCollateral: collateral,
+		})
+		if err == nil || !strings.Contains(err.Error(), "renewed contracts cannot be revised") {
+			t.Fatalf("expected renewal error, got %v", err)
+		}
+
 		// mine to confirm the renewal
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		// new contract pending -> active, old contract active -> renewed
@@ -1114,6 +1121,15 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		assertStorageMetrics(t, 0, 0)
+
+		// try to revise the original contract after the renewal is confirmed
+		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+			Storage:          cost,
+			RiskedCollateral: collateral,
+		})
+		if err == nil || !strings.Contains(err.Error(), "renewed contracts cannot be revised") {
+			t.Fatalf("expected renewal error, got %v", err)
+		}
 	})
 
 	t.Run("reject", func(t *testing.T) {
