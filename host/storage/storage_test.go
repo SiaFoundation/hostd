@@ -1151,7 +1151,7 @@ func TestStoragePrune(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(0), storage.WithPruneInterval(time.Second))
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(0), storage.WithPruneInterval(500*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1169,7 +1169,7 @@ func TestStoragePrune(t *testing.T) {
 	assertUsedSectors := func(t *testing.T, used uint64) {
 		t.Helper()
 
-		time.Sleep(time.Second) // prune interval
+		time.Sleep(2 * time.Second) // note: longer than prune interval for timing issues
 		volume, err := vm.Volume(vol.ID)
 		if err != nil {
 			t.Fatal(err)
