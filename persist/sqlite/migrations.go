@@ -10,6 +10,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion34 removes the lock tables
+func migrateVersion34(tx *txn, log *zap.Logger) error {
+	_, err := tx.Exec(`DROP TABLE locked_sectors;
+DROP TABLE locked_volume_sectors;`)
+	if err != nil {
+		return fmt.Errorf("failed to remove lock tables: %w", err)
+	} else if err := recalcVolumeMetrics(tx, log); err != nil {
+		return fmt.Errorf("failed to recalculate volume metrics: %w", err)
+	}
+	return nil
+}
+
 // migrateVersion33 adds the contract_v2_account_funding table.
 func migrateVersion33(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE TABLE contract_v2_account_funding (
@@ -974,4 +986,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion31,
 	migrateVersion32,
 	migrateVersion33,
+	migrateVersion34,
 }

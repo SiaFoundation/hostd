@@ -49,16 +49,12 @@ type (
 		ReviseContract(contractID types.FileContractID) (*contracts.ContractUpdater, error)
 	}
 
-	// A StorageManager manages the storage of sectors on disk.
-	StorageManager interface {
-		// LockSector locks the sector with the given root. If the sector does not
-		// exist, an error is returned. Release must be called when the sector is no
-		// longer needed.
-		LockSector(root types.Hash256) (func() error, error)
-		// Write writes a sector to persistent storage. release should only be
-		// called after the contract roots have been committed to prevent the
-		// sector from being deleted.
-		Write(root types.Hash256, data *[rhp2.SectorSize]byte) (release func() error, _ error)
+	// Sectors reads and writes sectors to persistent storage.
+	Sectors interface {
+		// HasSector returns true if the sector with the given root is stored
+		HasSector(root types.Hash256) (bool, error)
+		// Write writes a sector to persistent storage.
+		Write(root types.Hash256, data *[rhp2.SectorSize]byte) error
 		// Read reads the sector with the given root from the manager.
 		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
@@ -118,7 +114,7 @@ type (
 		accounts  AccountManager
 		contracts ContractManager
 		registry  RegistryManager
-		storage   StorageManager
+		sectors   Sectors
 		settings  SettingsReporter
 
 		chain  ChainManager
@@ -270,7 +266,7 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, syncer Syncer, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, storage StorageManager, settings SettingsReporter, log *zap.Logger) *SessionHandler {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, syncer Syncer, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, sectors Sectors, settings SettingsReporter, log *zap.Logger) *SessionHandler {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
@@ -284,7 +280,7 @@ func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainMana
 		contracts: contracts,
 		registry:  registry,
 		settings:  settings,
-		storage:   storage,
+		sectors:   sectors,
 
 		log: log,
 		tg:  threadgroup.New(),

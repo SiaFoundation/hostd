@@ -30,12 +30,6 @@ CREATE TABLE stored_sectors (
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
 CREATE INDEX stored_sectors_last_access ON stored_sectors(last_access_timestamp);
 
-CREATE TABLE locked_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
-	id INTEGER PRIMARY KEY,
-	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id)
-);
-CREATE INDEX locked_sectors_sector_id ON locked_sectors(sector_id);
-
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
 	disk_path TEXT UNIQUE NOT NULL,
@@ -60,12 +54,6 @@ CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sec
 CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
 CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index ASC);
 CREATE INDEX volume_sectors_sector_id ON volume_sectors(sector_id);
-
-CREATE TABLE locked_volume_sectors ( -- should be cleared at startup. currently persisted for simplicity, but may be moved to memory
-	id INTEGER PRIMARY KEY,
-	volume_sector_id INTEGER REFERENCES volume_sectors(id) ON DELETE CASCADE
-);
-CREATE INDEX locked_volume_sectors_sector_id ON locked_volume_sectors(volume_sector_id);
 
 CREATE TABLE contract_renters (
 	id INTEGER PRIMARY KEY,

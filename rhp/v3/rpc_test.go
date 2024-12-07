@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	crhp2 "go.sia.tech/core/rhp/v2"
 	crhp3 "go.sia.tech/core/rhp/v3"
@@ -325,6 +326,10 @@ func TestStoreSector(t *testing.T) {
 
 	// mine until the sector expires
 	testutil.MineAndSync(t, node, node.Wallet.Address(), 10)
+	// ensure the dereferenced sector has been pruned
+	if err := node.Store.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 
 	// check that the sector was deleted
 	usage = pt.ReadSectorCost(crhp2.SectorSize)

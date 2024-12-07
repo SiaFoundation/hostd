@@ -218,7 +218,7 @@ func (a *api) handleGETVerifySector(jc jape.Context) {
 
 	// if the sector is not referenced return the empty response without
 	// attempting to read the sector data
-	if len(refs.Contracts) == 0 && refs.TempStorage == 0 && refs.Locks == 0 {
+	if len(refs.Contracts) == 0 && refs.TempStorage == 0 {
 		jc.Encode(resp)
 		return
 	}

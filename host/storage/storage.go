@@ -10,7 +10,8 @@ import (
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
-	rhp2 "go.sia.tech/core/rhp/v2"
+	proto2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/internal/threadgroup"
@@ -60,14 +61,14 @@ type (
 	SectorReference struct {
 		Contracts   []types.FileContractID `json:"contracts"`
 		TempStorage int                    `json:"tempStorage"`
-		Locks       int                    `json:"locks"`
 	}
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
-		cacheHits   uint64 // ensure 64-bit alignment on 32-bit systems
-		cacheMisses uint64
-		cacheSize   int
+		cacheHits     uint64 // ensure 64-bit alignment on 32-bit systems
+		cacheMisses   uint64
+		cacheSize     int
+		pruneInterval time.Duration
 
 		vs       VolumeStore
 		recorder *sectorAccessRecorder
@@ -80,7 +81,7 @@ type (
 		volumes map[int64]*volume
 		// changedVolumes tracks volumes that need to be fsynced
 		changedVolumes map[int64]bool
-		cache          *lru.Cache[types.Hash256, *[rhp2.SectorSize]byte] // Added cache
+		cache          *lru.Cache[types.Hash256, *[proto2.SectorSize]byte] // Added cache
 	}
 )
 
@@ -156,27 +157,30 @@ func (vm *VolumeManager) loadVolumes() error {
 // migrateSector migrates a sector to a new location. The sector is read from
 // its current location and written to its new location. The volume is
 // immediately synced after the sector is written.
-func (vm *VolumeManager) migrateSector(loc SectorLocation) error {
+func (vm *VolumeManager) migrateSector(from, to SectorLocation) error {
 	// read the sector from the old location
-	sector, err := vm.Read(loc.Root)
+	sector, err := vm.readLocation(from)
 	if err != nil {
 		return fmt.Errorf("failed to read sector: %w", err)
 	}
 	// calculate the returned root
-	root := rhp2.SectorRoot(sector)
+	root := proto2.SectorRoot(sector)
 	// verify the the sector is not corrupt
-	if root != loc.Root {
-		return fmt.Errorf("sector corrupt: %v != %v", loc.Root, root)
+	if root != from.Root {
+		return fmt.Errorf("sector corrupt: %v != %v", from.Root, root)
+	} else if root != to.Root {
+		// sanity check
+		panic("migrateSector called with mismatched roots")
 	}
 
 	vm.mu.Lock()
-	vol, ok := vm.volumes[loc.Volume]
+	vol, ok := vm.volumes[to.Volume]
 	vm.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("volume %v not found", loc.Volume)
+		return fmt.Errorf("volume %v not found", from.Volume)
 	}
 	// write the sector to the new location and sync the volume
-	if err := vol.WriteSector(sector, loc.Index); err != nil {
+	if err := vol.WriteSector(sector, to.Index); err != nil {
 		return fmt.Errorf("failed to write sector: %w", err)
 	} else if err := vol.Sync(); err != nil {
 		return fmt.Errorf("failed to sync volume: %w", err)
@@ -269,8 +273,8 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 
 	// migrate any sectors outside of the target range.
 	var migrated int
-	migrated, failed, err := vm.vs.MigrateSectors(ctx, id, newMaxSectors, func(newLoc SectorLocation) error {
-		if err := vm.migrateSector(newLoc); err != nil {
+	migrated, failed, err := vm.vs.MigrateSectors(ctx, id, newMaxSectors, func(from, to SectorLocation) error {
+		if err := vm.migrateSector(from, to); err != nil {
 			return err
 		}
 		migrated++
@@ -571,8 +575,8 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 		}
 
 		doMigration := func() error {
-			migrated, failed, err = vm.vs.MigrateSectors(ctx, id, 0, func(newLoc SectorLocation) error {
-				err := vm.migrateSector(newLoc)
+			migrated, failed, err = vm.vs.MigrateSectors(ctx, id, 0, func(from, to SectorLocation) error {
+				err := vm.migrateSector(from, to)
 				if err != nil {
 					failed++
 				} else {
@@ -730,20 +734,19 @@ func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 	}
 	defer done()
 
-	// get and lock the sector's current location
-	loc, release, err := vm.vs.SectorLocation(root)
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
+	// get the sector's current location
+	loc, err := vm.vs.SectorLocation(root)
 	if err != nil {
 		return fmt.Errorf("failed to locate sector %v: %w", root, err)
 	}
-	defer release()
 
 	// remove the sector from the volume store
 	if err := vm.vs.RemoveSector(root); err != nil {
 		return fmt.Errorf("failed to remove sector %v: %w", root, err)
 	}
-
-	vm.mu.Lock()
-	defer vm.mu.Unlock()
 
 	// get the volume from memory
 	vol, ok := vm.volumes[loc.Volume]
@@ -752,7 +755,7 @@ func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 	}
 
 	// zero the sector and immediately sync the volume
-	var zeroes [rhp2.SectorSize]byte
+	var zeroes [proto2.SectorSize]byte
 	if err := vol.WriteSector(&zeroes, loc.Index); err != nil {
 		return fmt.Errorf("failed to zero sector %v: %w", root, err)
 	} else if err := vol.Sync(); err != nil {
@@ -764,46 +767,12 @@ func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 	return nil
 }
 
-// LockSector prevents the sector with the given root from being pruned. If the
-// sector does not exist, an error is returned. Release must be called when the
-// sector is no longer needed.
-func (vm *VolumeManager) LockSector(root types.Hash256) (func() error, error) {
-	done, err := vm.tg.Add()
-	if err != nil {
-		return nil, err
-	}
-	defer done()
-	_, release, err := vm.vs.SectorLocation(root)
-	return release, err
-}
-
 // CacheStats returns the number of cache hits and misses.
 func (vm *VolumeManager) CacheStats() (hits, misses uint64) {
 	return atomic.LoadUint64(&vm.cacheHits), atomic.LoadUint64(&vm.cacheMisses)
 }
 
-// Read reads the sector with the given root
-func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error) {
-	done, err := vm.tg.Add()
-	if err != nil {
-		return nil, err
-	}
-	defer done()
-
-	// Check the cache first
-	if sector, ok := vm.cache.Get(root); ok {
-		vm.recorder.AddCacheHit()
-		atomic.AddUint64(&vm.cacheHits, 1)
-		return sector, nil
-	}
-
-	// Cache miss, read from disk
-	loc, release, err := vm.vs.SectorLocation(root)
-	if err != nil {
-		return nil, fmt.Errorf("failed to locate sector: %w", err)
-	}
-	defer release()
-
+func (vm *VolumeManager) readLocation(loc SectorLocation) (*[proto2.SectorSize]byte, error) {
 	vm.mu.Lock()
 	v, ok := vm.volumes[loc.Volume]
 	if !ok {
@@ -822,7 +791,7 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 				"volume":       v.Location(),
 				"failedReads":  stats.FailedReads,
 				"failedWrites": stats.FailedWrites,
-				"sector":       root,
+				"sector":       loc.Root,
 				"error":        err.Error(),
 			},
 			Timestamp: time.Now(),
@@ -831,10 +800,33 @@ func (vm *VolumeManager) Read(root types.Hash256) (*[rhp2.SectorSize]byte, error
 	}
 
 	// Add sector to cache
-	vm.cache.Add(root, sector)
+	vm.cache.Add(loc.Root, sector)
 	vm.recorder.AddCacheMiss()
 	atomic.AddUint64(&vm.cacheMisses, 1)
 	return sector, nil
+}
+
+// Read reads the sector with the given root
+func (vm *VolumeManager) Read(root types.Hash256) (*[proto2.SectorSize]byte, error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
+	// Check the cache first
+	if sector, ok := vm.cache.Get(root); ok {
+		vm.recorder.AddCacheHit()
+		atomic.AddUint64(&vm.cacheHits, 1)
+		return sector, nil
+	}
+
+	// Cache miss, read from disk
+	loc, err := vm.vs.SectorLocation(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate sector: %w", err)
+	}
+	return vm.readLocation(loc)
 }
 
 // Sync syncs the data files of changed volumes.
@@ -869,18 +861,20 @@ func (vm *VolumeManager) Sync() error {
 	return nil
 }
 
-// Write writes a sector to a volume. release should only be called after the
-// contract roots have been committed to prevent the sector from being deleted.
-func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) (func() error, error) {
+// HasSector returns true if the host is storing a sector
+func (vm *VolumeManager) HasSector(root types.Hash256) (bool, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	defer done()
-	release, err := vm.vs.StoreSector(root, func(loc SectorLocation, exists bool) error {
-		if exists {
-			return nil
-		}
+
+	return vm.vs.HasSector(root)
+}
+
+// storeSector writes a sector to disk
+func (vm *VolumeManager) storeSector(root types.Hash256, data *[proto4.SectorSize]byte) error {
+	return vm.vs.StoreSector(root, func(loc SectorLocation) error {
 		start := time.Now()
 
 		vm.mu.Lock()
@@ -919,7 +913,27 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[rhp2.SectorSize]byte) 
 		vm.mu.Unlock()
 		return nil
 	})
-	return release, err
+}
+
+// StoreSector writes a sector to disk and adds it to temporary storage
+func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSize]byte, expiration uint64) error {
+	if err := vm.storeSector(root, data); err != nil {
+		return fmt.Errorf("failed to store sector: %w", err)
+	} else if err := vm.vs.AddTempSector(root, expiration); err != nil {
+		return fmt.Errorf("failed to reference temporary sector: %w", err)
+	}
+	return nil
+}
+
+// Write writes a sector to a volume.
+func (vm *VolumeManager) Write(root types.Hash256, data *[proto2.SectorSize]byte) error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	return vm.storeSector(root, data)
 }
 
 // AddTemporarySectors adds sectors to the temporary store. The sectors are not
@@ -958,7 +972,8 @@ func (vm *VolumeManager) ProcessActions(index types.ChainIndex) error {
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManager, error) {
 	vm := &VolumeManager{
-		vs: vs,
+		pruneInterval: 5 * time.Minute,
+		vs:            vs,
 
 		log:    zap.NewNop(),
 		alerts: alerts.NewNop(),
@@ -972,8 +987,28 @@ func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManag
 		opt(vm)
 	}
 
+	go func() {
+		ctx, cancel, err := vm.tg.AddContext(context.Background())
+		if err != nil {
+			vm.log.Debug("failed to start pruning thread", zap.Error(err))
+			return
+		}
+		defer cancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(vm.pruneInterval):
+				if err := vm.vs.PruneSectors(ctx, time.Now().Add(-1*vm.pruneInterval)); err != nil && !errors.Is(err, context.Canceled) {
+					vm.log.Error("failed to prune sectors", zap.Error(err))
+				}
+			}
+		}
+	}()
+
 	// Initialize cache with LRU eviction and a max capacity of 64
-	cache, err := lru.New[types.Hash256, *[rhp2.SectorSize]byte](64)
+	cache, err := lru.New[types.Hash256, *[proto2.SectorSize]byte](64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cache: %w", err)
 	}

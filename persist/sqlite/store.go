@@ -120,44 +120,6 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
 	return nil
 }
 
-func clearLockedSectors(tx *txn, log *zap.Logger) error {
-	rows, err := tx.Query(`DELETE FROM locked_sectors RETURNING sector_id`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	var sectorIDs []int64
-	for rows.Next() {
-		var sectorID int64
-		if err := rows.Scan(&sectorID); err != nil {
-			return fmt.Errorf("failed to scan sector id: %w", err)
-		}
-	}
-
-	removed, err := pruneSectors(tx, sectorIDs)
-	if err != nil {
-		return fmt.Errorf("failed to prune sectors: %w", err)
-	}
-	log.Debug("cleared locked sectors", zap.Int("locked", len(sectorIDs)), zap.Stringers("removed", removed))
-	return nil
-}
-
-func clearLockedLocations(tx *txn) error {
-	_, err := tx.Exec(`DELETE FROM locked_volume_sectors`)
-	return err
-}
-
-func (s *Store) clearLocks() error {
-	return s.transaction(func(tx *txn) error {
-		if err := clearLockedLocations(tx); err != nil {
-			return fmt.Errorf("failed to clear locked locations: %w", err)
-		} else if err = clearLockedSectors(tx, s.log.Named("clearLockedSectors")); err != nil {
-			return fmt.Errorf("failed to clear locked sectors: %w", err)
-		}
-		return nil
-	})
-}
-
 func sqlConn(ctx context.Context, db *sql.DB) (c *sqlite3.SQLiteConn, err error) {
 	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
@@ -285,10 +247,6 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	}
 	if err := store.init(); err != nil {
 		return nil, err
-	} else if err = store.clearLocks(); err != nil {
-		// clear any locked sectors, metadata not synced to disk is safe to
-		// overwrite.
-		return nil, fmt.Errorf("failed to clear locked sectors table: %w", err)
 	}
 	sqliteVersion, _, _ := sqlite3.Version()
 	log.Debug("database initialized", zap.String("sqliteVersion", sqliteVersion), zap.Int("schemaVersion", len(migrations)+1), zap.String("path", fp))
