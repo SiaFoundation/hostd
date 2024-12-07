@@ -325,6 +325,49 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 	return nil
 }
 
+// writeSector atomically adds a sector to the database and writes it to disk
+func (vm *VolumeManager) writeSector(root types.Hash256, data *[proto4.SectorSize]byte) error {
+	return vm.vs.StoreSector(root, func(loc SectorLocation) error {
+		start := time.Now()
+
+		vm.mu.Lock()
+		vol, ok := vm.volumes[loc.Volume]
+		vm.mu.Unlock()
+		if !ok {
+			return fmt.Errorf("volume %v not found", loc.Volume)
+		}
+
+		// write the sector to the volume
+		if err := vol.WriteSector(data, loc.Index); err != nil {
+			stats := vol.Stats()
+			vm.alerts.Register(alerts.Alert{
+				ID:       vol.alertID("write"),
+				Severity: alerts.SeverityError,
+				Message:  "Failed to write sector",
+				Data: map[string]interface{}{
+					"volume":       vol.Location(),
+					"failedReads":  stats.FailedReads,
+					"failedWrites": stats.FailedWrites,
+					"sector":       root,
+					"error":        err.Error(),
+				},
+				Timestamp: time.Now(),
+			})
+			return err
+		}
+		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
+
+		// Add newly written sector to cache
+		vm.cache.Add(root, data)
+
+		// mark the volume as changed
+		vm.mu.Lock()
+		vm.changedVolumes[loc.Volume] = true
+		vm.mu.Unlock()
+		return nil
+	})
+}
+
 // volumeStats returns the stats for a volume. A lock must be held on the volume
 // manager before this function is called.
 func (vm *VolumeManager) volumeStats(id int64) VolumeStats {
@@ -872,52 +915,9 @@ func (vm *VolumeManager) HasSector(root types.Hash256) (bool, error) {
 	return vm.vs.HasSector(root)
 }
 
-// storeSector writes a sector to disk
-func (vm *VolumeManager) storeSector(root types.Hash256, data *[proto4.SectorSize]byte) error {
-	return vm.vs.StoreSector(root, func(loc SectorLocation) error {
-		start := time.Now()
-
-		vm.mu.Lock()
-		vol, ok := vm.volumes[loc.Volume]
-		vm.mu.Unlock()
-		if !ok {
-			return fmt.Errorf("volume %v not found", loc.Volume)
-		}
-
-		// write the sector to the volume
-		if err := vol.WriteSector(data, loc.Index); err != nil {
-			stats := vol.Stats()
-			vm.alerts.Register(alerts.Alert{
-				ID:       vol.alertID("write"),
-				Severity: alerts.SeverityError,
-				Message:  "Failed to write sector",
-				Data: map[string]interface{}{
-					"volume":       vol.Location(),
-					"failedReads":  stats.FailedReads,
-					"failedWrites": stats.FailedWrites,
-					"sector":       root,
-					"error":        err.Error(),
-				},
-				Timestamp: time.Now(),
-			})
-			return err
-		}
-		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
-
-		// Add newly written sector to cache
-		vm.cache.Add(root, data)
-
-		// mark the volume as changed
-		vm.mu.Lock()
-		vm.changedVolumes[loc.Volume] = true
-		vm.mu.Unlock()
-		return nil
-	})
-}
-
 // StoreSector writes a sector to disk and adds it to temporary storage
 func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSize]byte, expiration uint64) error {
-	if err := vm.storeSector(root, data); err != nil {
+	if err := vm.writeSector(root, data); err != nil {
 		return fmt.Errorf("failed to store sector: %w", err)
 	} else if err := vm.vs.AddTempSector(root, expiration); err != nil {
 		return fmt.Errorf("failed to reference temporary sector: %w", err)
@@ -933,7 +933,7 @@ func (vm *VolumeManager) Write(root types.Hash256, data *[proto2.SectorSize]byte
 	}
 	defer done()
 
-	return vm.storeSector(root, data)
+	return vm.writeSector(root, data)
 }
 
 // AddTemporarySectors adds sectors to the temporary store. The sectors are not

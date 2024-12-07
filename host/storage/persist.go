@@ -79,7 +79,7 @@ type (
 		// The sectors are not referenced by a contract and will be removed
 		// at the expiration height.
 		//
-		//deprecated: use AddTempSector
+		// Deprecated: use AddTempSector
 		AddTemporarySectors(sectors []TempSector) error
 		// ExpireTempSectors removes all temporary sectors that expired before
 		// the given height.
