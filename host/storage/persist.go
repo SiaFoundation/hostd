@@ -3,15 +3,19 @@ package storage
 import (
 	"context"
 	"errors"
+	"time"
 
 	"go.sia.tech/core/types"
 )
 
 type (
-	// MigrateFunc is a callback function that is called for each sector that
-	// needs to be migrated If the function returns an error, the sector should
-	// be skipped and migration should continue.
-	MigrateFunc func(location SectorLocation) error
+	// StoreFunc is called for every sector that needs written
+	// to disk.
+	StoreFunc func(loc SectorLocation) error
+	// MigrateFunc is called for every sector that needs migration.
+	// The sector should be migrated from 'from' to 'to' during
+	// migrate func.
+	MigrateFunc func(from, to SectorLocation) error
 
 	// A VolumeStore stores and retrieves information about storage volumes.
 	VolumeStore interface {
@@ -42,31 +46,40 @@ type (
 		// SetAvailable sets the available flag on a volume.
 		SetAvailable(volumeID int64, available bool) error
 
+		// PruneSectors removes all sectors that have not been accessed since
+		// lastAccess and are no longer referenced by a contract or temp storage.
+		// If the context is canceled, pruning is stopped and the function returns
+		// with the error.
+		PruneSectors(ctx context.Context, lastAccess time.Time) error
+
 		// MigrateSectors returns a new location for each occupied sector of a
 		// volume starting at min. The sector data should be copied to the new
 		// location and synced to disk during migrateFn. If migrateFn returns an
 		// error, migration will continue, but that sector is not migrated.
-		MigrateSectors(ctx context.Context, volumeID int64, min uint64, migrateFn MigrateFunc) (migrated, failed int, err error)
+		MigrateSectors(ctx context.Context, volumeID int64, min uint64, fn MigrateFunc) (migrated, failed int, err error)
 		// StoreSector calls fn with an empty location in a writable volume. If
-		// the sector root already exists, fn is called with the existing
-		// location and exists is true. Unless exists is true, The sector must
-		// be written to disk within fn. If fn returns an error, the metadata is
-		// rolled back. If no space is available, ErrNotEnoughStorage is
-		// returned. The location is locked until release is called.
-		//
-		// The sector should be referenced by either a contract or temp store
-		// before release is called to prevent Prune() from removing it.
-		StoreSector(root types.Hash256, fn func(loc SectorLocation, exists bool) error) (release func() error, err error)
+		// the sector root already exists, nil is returned. The sector should be
+		// written to disk within fn. If fn returns an error, the metadata is
+		// rolled back and the error is returned. If no space is available,
+		// ErrNotEnoughStorage is returned.
+		StoreSector(root types.Hash256, fn StoreFunc) error
 		// RemoveSector removes the metadata of a sector and returns its
 		// location in the volume.
 		RemoveSector(root types.Hash256) error
+		// HasSector returns true if the sector is stored by the host.
+		HasSector(root types.Hash256) (bool, error)
 		// SectorLocation returns the location of a sector or an error if the
 		// sector is not found. The location is locked until release is
 		// called.
-		SectorLocation(root types.Hash256) (loc SectorLocation, release func() error, err error)
+		SectorLocation(root types.Hash256) (loc SectorLocation, err error)
+		// AddTempSector adds a sector to temporary storage. The sectors will be deleted
+		// after the expiration height
+		AddTempSector(root types.Hash256, expiration uint64) error
 		// AddTemporarySectors adds a list of sectors to the temporary store.
 		// The sectors are not referenced by a contract and will be removed
 		// at the expiration height.
+		//
+		// Deprecated: use AddTempSector
 		AddTemporarySectors(sectors []TempSector) error
 		// ExpireTempSectors removes all temporary sectors that expired before
 		// the given height.

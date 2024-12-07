@@ -104,16 +104,14 @@ func TestCheckIntegrity(t *testing.T) {
 	defer updater.Close()
 
 	var roots []types.Hash256
-	var releases []func() error
 	for i := 0; i < 5; i++ {
 		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 		root := rhp2.SectorRoot(&sector)
-		release, err := host.Volumes.Write(root, &sector)
+		err := host.Volumes.Write(root, &sector)
 		if err != nil {
 			t.Fatal(err)
 		}
-		releases = append(releases, release)
 		roots = append(roots, root)
 		updater.AppendSector(root)
 	}
@@ -124,12 +122,6 @@ func TestCheckIntegrity(t *testing.T) {
 
 	if err := updater.Commit(contract.SignedRevision, contracts.Usage{}); err != nil {
 		t.Fatal(err)
-	}
-
-	for _, release := range releases {
-		if err := release(); err != nil {
-			t.Fatal(err)
-		}
 	}
 
 	// helper func to serialize integrity check
