@@ -1,6 +1,10 @@
 package storage
 
-import "go.uber.org/zap"
+import (
+	"time"
+
+	"go.uber.org/zap"
+)
 
 // A VolumeManagerOption configures a VolumeManager.
 type VolumeManagerOption func(*VolumeManager)
@@ -23,5 +27,13 @@ func WithAlerter(a Alerts) VolumeManagerOption {
 func WithCacheSize(cacheSize int) VolumeManagerOption {
 	return func(s *VolumeManager) {
 		s.cacheSize = cacheSize
+	}
+}
+
+// WithPruneInterval sets the time between cleaning up dereferenced
+// sectors.
+func WithPruneInterval(d time.Duration) VolumeManagerOption {
+	return func(vm *VolumeManager) {
+		vm.pruneInterval = d
 	}
 }

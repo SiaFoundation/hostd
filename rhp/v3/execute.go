@@ -45,12 +45,11 @@ type (
 		updater           *contracts.ContractUpdater
 		tempSectors       []storage.TempSector
 
-		finalize     bool
-		releaseFuncs []func() error
+		finalize bool
 
 		log       *zap.Logger
 		contracts ContractManager
-		storage   StorageManager
+		sectors   Sectors
 		registry  RegistryManager
 
 		committed bool
@@ -103,13 +102,12 @@ func (pe *programExecutor) executeAppendSector(instr *rhp3.InstrAppendSector, lo
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
-	release, err := pe.storage.Write(root, sector)
+	err = pe.sectors.Write(root, sector)
 	if errors.Is(err, storage.ErrNotEnoughStorage) {
 		return nil, nil, err
 	} else if err != nil {
 		return nil, nil, ErrHostInternalError
 	}
-	pe.releaseFuncs = append(pe.releaseFuncs, release)
 	pe.updater.AppendSector(root)
 
 	if !instr.ProofRequired {
@@ -135,11 +133,12 @@ func (pe *programExecutor) executeAppendSectorRoot(instr *rhp3.InstrAppendSector
 	}
 
 	// lock the sector to prevent it from being garbage collected
-	release, err := pe.storage.LockSector(root)
+	exists, err := pe.sectors.HasSector(root)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
+	} else if !exists {
+		return nil, nil, storage.ErrSectorNotFound
 	}
-	pe.releaseFuncs = append(pe.releaseFuncs, release)
 	pe.updater.AppendSector(root)
 	if !instr.ProofRequired {
 		return nil, nil, nil
@@ -188,17 +187,13 @@ func (pe *programExecutor) executeHasSector(instr *rhp3.InstrHasSector) ([]byte,
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
-	var has bool
-	release, err := pe.storage.LockSector(root)
-	if err != nil && !errors.Is(err, storage.ErrSectorNotFound) {
+	exists, err := pe.sectors.HasSector(root)
+	if err != nil {
 		return nil, nil, fmt.Errorf("failed to locate sector %q: %w", root, err)
-	} else if err == nil {
-		has = true
-		pe.releaseFuncs = append(pe.releaseFuncs, release)
 	}
 
 	output := make([]byte, 1)
-	if has {
+	if exists {
 		output[0] = 1
 	}
 	return output, nil, nil
@@ -227,7 +222,7 @@ func (pe *programExecutor) executeReadOffset(instr *rhp3.InstrReadOffset, log *z
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.storage.Read(root)
+	sector, err := pe.sectors.Read(root)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
@@ -276,7 +271,7 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 	}
 
 	// read the sector
-	sector, err := pe.storage.Read(root)
+	sector, err := pe.sectors.Read(root)
 	if errors.Is(err, storage.ErrSectorNotFound) {
 		log.Debug("failed to read sector", zap.String("root", root.String()), zap.Error(err))
 		return nil, nil, storage.ErrSectorNotFound
@@ -365,7 +360,7 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.storage.Read(oldRoot)
+	sector, err := pe.sectors.Read(oldRoot)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
@@ -378,11 +373,9 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 
 	// store the new sector
 	newRoot := rhp2.SectorRoot((*[rhp2.SectorSize]byte)(sector))
-	release, err := pe.storage.Write(newRoot, sector)
-	if err != nil {
+	if err := pe.sectors.Write(newRoot, sector); err != nil {
 		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
 	}
-	pe.releaseFuncs = append(pe.releaseFuncs, release)
 	if err := pe.updater.UpdateSector(newRoot, sectorIndex); err != nil {
 		return nil, nil, fmt.Errorf("failed to update sector: %w", err)
 	}
@@ -411,11 +404,9 @@ func (pe *programExecutor) executeStoreSector(instr *rhp3.InstrStoreSector, log 
 	}
 
 	// store the sector
-	release, err := pe.storage.Write(root, sector)
-	if err != nil {
+	if err := pe.sectors.Write(root, sector); err != nil {
 		return nil, fmt.Errorf("failed to write sector: %w", err)
 	}
-	pe.releaseFuncs = append(pe.releaseFuncs, release)
 
 	// add the sector to the program state
 	pe.tempSectors = append(pe.tempSectors, storage.TempSector{
@@ -631,30 +622,11 @@ func (pe *programExecutor) executeProgram(ctx context.Context) <-chan rhp3.RPCEx
 	return outputs
 }
 
-func (pe *programExecutor) release() error {
-	for len(pe.releaseFuncs) > 0 {
-		release := pe.releaseFuncs[0]
-		if err := release(); err != nil {
-			return err
-		}
-		pe.releaseFuncs = pe.releaseFuncs[1:]
-	}
-	return nil
-}
-
 func (pe *programExecutor) rollback() error {
 	if pe.committed {
 		return nil
 	}
 	pe.committed = true
-
-	defer func() {
-		// release all of the locked sectors. Any sectors not referenced by a
-		// contract or temporary storage will eventually be garbage collected.
-		if err := pe.release(); err != nil {
-			pe.log.Error("failed to release sectors", zap.Error(err))
-		}
-	}()
 
 	if pe.updater != nil {
 		pe.updater.Close()
@@ -677,15 +649,7 @@ func (pe *programExecutor) commit(s *rhp3.Stream) error {
 	}
 	pe.committed = true
 
-	defer func() {
-		// release all of the locked sectors. Any sectors not referenced by a
-		// contract or temporary storage will eventually be garbage collected.
-		if err := pe.release(); err != nil {
-			pe.log.Error("failed to release sectors", zap.Error(err))
-		}
-	}()
-
-	if err := pe.storage.Sync(); err != nil {
+	if err := pe.sectors.Sync(); err != nil {
 		s.WriteResponseErr(fmt.Errorf("failed to commit storage: %w", ErrHostInternalError))
 		return fmt.Errorf("failed to sync storage: %w", err)
 	}
@@ -767,7 +731,7 @@ func (pe *programExecutor) commit(s *rhp3.Stream) error {
 
 	// commit the temporary sectors
 	if len(pe.tempSectors) > 0 {
-		if err := pe.storage.AddTemporarySectors(pe.tempSectors); err != nil {
+		if err := pe.sectors.AddTemporarySectors(pe.tempSectors); err != nil {
 			return fmt.Errorf("failed to commit temporary sectors: %w", err)
 		}
 	}
@@ -878,7 +842,7 @@ func (sh *SessionHandler) newExecutor(instructions []rhp3.Instruction, data []by
 
 		log:       log,
 		contracts: sh.contracts,
-		storage:   sh.storage,
+		sectors:   sh.sectors,
 		registry:  sh.registry,
 	}
 
