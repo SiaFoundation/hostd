@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/core/consensus"
 	proto2 "go.sia.tech/core/rhp/v2"
 	proto3 "go.sia.tech/core/rhp/v3"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/build"
@@ -386,6 +387,39 @@ func (m *ConfigManager) RHP3PriceTable() (proto3.HostPriceTable, error) {
 		TxnFeeMinRecommended: fee.Div64(3),
 		TxnFeeMaxRecommended: fee,
 	}, nil
+}
+
+// RHP4Settings returns the host's settings in the RHP4 format. The settings
+// are not signed.
+func (m *ConfigManager) RHP4Settings() proto4.HostSettings {
+	m.mu.Lock()
+	settings := m.settings
+	m.mu.Unlock()
+
+	used, total, err := m.storage.Usage()
+	if err != nil {
+		m.log.Error("failed to get storage usage", zap.Error(err))
+		return proto4.HostSettings{}
+	}
+
+	hs := proto4.HostSettings{
+		Release:             "hostd " + build.Version(),
+		WalletAddress:       m.wallet.Address(),
+		AcceptingContracts:  settings.AcceptingContracts,
+		MaxCollateral:       settings.MaxCollateral,
+		MaxContractDuration: settings.MaxContractDuration,
+		RemainingStorage:    total - used,
+		TotalStorage:        total,
+		Prices: proto4.HostPrices{
+			ContractPrice:   settings.ContractPrice,
+			StoragePrice:    settings.StoragePrice,
+			Collateral:      settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
+			IngressPrice:    settings.IngressPrice,
+			EgressPrice:     settings.EgressPrice,
+			FreeSectorPrice: types.Siacoins(1).Div64((1 << 40) / proto4.SectorSize), // 1 SC / TB
+		},
+	}
+	return hs
 }
 
 // NewConfigManager initializes a new config manager
