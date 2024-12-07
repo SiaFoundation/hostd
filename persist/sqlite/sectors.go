@@ -114,7 +114,7 @@ WHERE ss.sector_root=$1`, encode(root)).Scan(&sectorID)
 		} else if err := incrementNumericStat(tx, metricTempSectors, 1, time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-		_, err = tx.Exec(`INSERT INTO temp_storage_sector_roots (sector_id, expiration) VALUES ($1, $2)`, sectorID, expiration)
+		_, err = tx.Exec(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) VALUES ($1, $2)`, sectorID, expiration)
 		return err
 	})
 }

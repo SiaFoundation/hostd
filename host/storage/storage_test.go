@@ -1138,6 +1138,91 @@ func TestSectorCache(t *testing.T) {
 	}
 }
 
+func TestStoragePrune(t *testing.T) {
+	const sectors = 10
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(0), storage.WithPruneInterval(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	result := make(chan error, 1)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	vol, err := vm.AddVolume(context.Background(), volumeFilePath, sectors, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	assertUsedSectors := func(t *testing.T, used uint64) {
+		t.Helper()
+
+		time.Sleep(time.Second) // prune interval
+		volume, err := vm.Volume(vol.ID)
+		if err != nil {
+			t.Fatal(err)
+		} else if volume.UsedSectors != used {
+			t.Fatalf("expected %v used sectors, got %v", used, volume.UsedSectors)
+		}
+
+		m, err := db.Metrics(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		} else if m.Storage.PhysicalSectors != used {
+			t.Fatalf("expected %v used sectors, got %v", used, m.Storage.PhysicalSectors)
+		}
+	}
+
+	assertUsedSectors(t, 0)
+
+	storeRandomSector := func(t *testing.T, expiration uint64) types.Hash256 {
+		t.Helper()
+
+		var sector [rhp2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal("failed to generate random sector:", err)
+		}
+		root := rhp2.SectorRoot(&sector)
+		if err = vm.StoreSector(root, &sector, expiration); err != nil {
+			t.Fatal("failed to store sector:", err)
+		}
+		return root
+	}
+
+	roots := make([]types.Hash256, 0, sectors)
+	// fill the volume
+	for i := 0; i < cap(roots); i++ {
+		storeRandomSector(t, uint64(i+1))
+	}
+
+	// ensure the sectors are not pruned immediately
+	assertUsedSectors(t, sectors)
+
+	// expire half the sectors
+	if err := db.ExpireTempSectors(5); err != nil {
+		t.Fatal(err)
+	}
+	assertUsedSectors(t, 5)
+
+	// expire the remaining sectors
+	if err := db.ExpireTempSectors(10); err != nil {
+		t.Fatal(err)
+	}
+	assertUsedSectors(t, 0)
+}
+
 func BenchmarkVolumeManagerWrite(b *testing.B) {
 	dir := b.TempDir()
 
