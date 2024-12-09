@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -11,9 +10,7 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/storage"
 	"go.uber.org/zap/zaptest"
-	"lukechampine.com/frand"
 )
 
 func TestTransactionRetry(t *testing.T) {
@@ -117,86 +114,6 @@ func TestTransactionRetry(t *testing.T) {
 
 		<-ch // wait for the transaction to finish
 	})
-}
-
-func TestClearLockedSectors(t *testing.T) {
-	const sectors = 100
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), zaptest.NewLogger(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	id, err := db.AddVolume("foo", false)
-	if err != nil {
-		t.Fatal(err)
-	} else if err = db.GrowVolume(id, sectors); err != nil {
-		t.Fatal(err)
-	} else if err = db.SetAvailable(id, true); err != nil {
-		t.Fatal(err)
-	}
-
-	assertSectors := func(locked, temp int) {
-		t.Helper()
-		// check that the sectors are locked
-		var dbLocked, dbTemp int
-		err := db.transaction(func(tx *txn) error {
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM locked_volume_sectors`).Scan(&dbLocked); err != nil {
-				return fmt.Errorf("query locked sectors: %w", err)
-			} else if err := tx.QueryRow(`SELECT COUNT(*) FROM temp_storage_sector_roots`).Scan(&dbTemp); err != nil {
-				return fmt.Errorf("query temp sectors: %w", err)
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		} else if dbLocked != locked {
-			t.Fatalf("expected %v locked sectors, got %v", locked, dbLocked)
-		} else if dbTemp != temp {
-			t.Fatalf("expected %v temp sectors, got %v", temp, dbTemp)
-		}
-
-		m, err := db.Metrics(time.Now())
-		if err != nil {
-			t.Fatal(err)
-		} else if m.Storage.TempSectors != uint64(temp) {
-			t.Fatalf("expected %v temp sectors, got %v", temp, m.Storage.TempSectors)
-		}
-	}
-
-	// write temp sectors to the database
-	for i := 1; i <= sectors; i++ {
-		sectorRoot := frand.Entropy256()
-		_, err := db.StoreSector(sectorRoot, func(storage.SectorLocation, bool) error {
-			return nil
-		})
-		if err != nil {
-			t.Fatal("add sector", i, err)
-		}
-
-		// only store the first half of the sectors as temp sectors
-		if i > sectors/2 {
-			continue
-		}
-
-		err = db.AddTemporarySectors([]storage.TempSector{
-			{Root: sectorRoot, Expiration: uint64(i + 1)},
-		})
-		if err != nil {
-			t.Fatal("add temp sector", i, err)
-		}
-	}
-
-	// check that the sectors have been stored and locked
-	assertSectors(sectors, sectors/2)
-
-	// clear the locked sectors
-	if err = db.clearLocks(); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that all the locks were removed and half the sectors deleted
-	assertSectors(0, sectors/2)
 }
 
 func TestBackup(t *testing.T) {

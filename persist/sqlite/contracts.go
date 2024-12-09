@@ -25,7 +25,7 @@ type (
 
 var _ contracts.ContractStore = (*Store)(nil)
 
-func (s *Store) batchExpireContractSectors(height uint64) (expired int, removed []types.Hash256, err error) {
+func (s *Store) batchExpireContractSectors(height uint64) (expired int, err error) {
 	err = s.transaction(func(tx *txn) (err error) {
 		sectorIDs, err := deleteExpiredContractSectors(tx, height)
 		if err != nil {
@@ -37,14 +37,12 @@ func (s *Store) batchExpireContractSectors(height uint64) (expired int, removed 
 		if err := incrementNumericStat(tx, metricContractSectors, -len(sectorIDs), time.Now()); err != nil {
 			return fmt.Errorf("failed to decrement contract sectors: %w", err)
 		}
-
-		removed, err = pruneSectors(tx, sectorIDs)
-		return err
+		return nil
 	})
 	return
 }
 
-func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int, removed []types.Hash256, err error) {
+func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int, err error) {
 	err = s.transaction(func(tx *txn) (err error) {
 		sectorIDs, err := deleteExpiredV2ContractSectors(tx, height)
 		if err != nil {
@@ -56,9 +54,7 @@ func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int, remove
 		if err := incrementNumericStat(tx, metricContractSectors, -len(sectorIDs), time.Now()); err != nil {
 			return fmt.Errorf("failed to decrement contract sectors: %w", err)
 		}
-
-		removed, err = pruneSectors(tx, sectorIDs)
-		return err
+		return nil
 	})
 	return
 }
@@ -492,13 +488,13 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 	log := s.log.Named("ExpireContractSectors").With(zap.Uint64("height", height))
 	// delete in batches to avoid holding a lock on the database for too long
 	for i := 0; ; i++ {
-		expired, removed, err := s.batchExpireContractSectors(height)
+		expired, err := s.batchExpireContractSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		} else if expired == 0 {
 			return nil
 		}
-		log.Debug("removed sectors", zap.Int("expired", expired), zap.Stringers("removed", removed), zap.Int("batch", i))
+		log.Debug("removed sectors", zap.Int("expired", expired), zap.Int("batch", i))
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
@@ -509,13 +505,13 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 	log := s.log.Named("ExpireV2ContractSectors").With(zap.Uint64("height", height))
 	// delete in batches to avoid holding a lock on the database for too long
 	for i := 0; ; i++ {
-		expired, removed, err := s.batchExpireV2ContractSectors(height)
+		expired, err := s.batchExpireV2ContractSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		} else if expired == 0 {
 			return nil
 		}
-		log.Debug("removed sectors", zap.Int("expired", expired), zap.Stringers("removed", removed), zap.Int("batch", i))
+		log.Debug("removed sectors", zap.Int("expired", expired), zap.Int("batch", i))
 		jitterSleep(time.Millisecond) // allow other transactions to run
 	}
 }
@@ -572,10 +568,6 @@ WHERE contract_id=$1 AND root_index=$2`, contractID, index)
 	RETURNING sector_id;`, newSectorID, ref.dbID).Scan(&newSectorID)
 	if err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to update sector ID: %w", err)
-	}
-	// prune the old sector ID
-	if _, err := pruneSectors(tx, []int64{ref.sectorID}); err != nil {
-		return types.Hash256{}, fmt.Errorf("failed to prune old sector: %w", err)
 	}
 	return ref.root, nil
 }
@@ -653,7 +645,6 @@ LIMIT 1`)
 		return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
 	}
 
-	sectorIDs := make([]int64, 0, n)
 	roots := make([]types.Hash256, n)
 	for i := 0; i < int(n); i++ {
 		var contractSectorID int64
@@ -670,7 +661,6 @@ LIMIT 1`)
 			return nil, fmt.Errorf("expected 1 row affected, got %v", n)
 		}
 
-		sectorIDs = append(sectorIDs, sectorID)
 		roots[len(roots)-i-1] = root // reverse order
 	}
 
@@ -678,12 +668,7 @@ LIMIT 1`)
 		return nil, fmt.Errorf("failed to decrement contract sectors: %w", err)
 	}
 
-	removed, err := pruneSectors(tx, sectorIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prune sectors: %w", err)
-	}
-
-	log.Debug("trimmed sectors", zap.Stringers("trimmed", roots), zap.Stringers("removed", removed))
+	log.Debug("trimmed sectors", zap.Stringers("trimmed", roots))
 	return roots, nil
 }
 

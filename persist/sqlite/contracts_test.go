@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -113,6 +114,11 @@ func TestReviseContract(t *testing.T) {
 	// checkConsistency is a helper function that verifies the expected sector
 	// roots are consistent with the database
 	checkConsistency := func(roots []types.Hash256, expected int) error {
+		// prune all possible sectors
+		if err := db.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
+			return fmt.Errorf("failed to prune sectors: %w", err)
+		}
+
 		dbRoot, err := db.dbRoots(contract.Revision.ParentID)
 		if err != nil {
 			return fmt.Errorf("failed to get sector roots: %w", err)
@@ -133,11 +139,9 @@ func TestReviseContract(t *testing.T) {
 				return fmt.Errorf("sector root mismatch: expected %v, got %v", roots[i], root)
 			}
 
-			_, release, err := db.SectorLocation(root)
+			_, err = db.SectorLocation(root)
 			if err != nil {
 				return fmt.Errorf("failed to get sector location: %w", err)
-			} else if err := release(); err != nil {
-				return fmt.Errorf("failed to release sector location: %w", err)
 			}
 		}
 
@@ -279,35 +283,25 @@ func TestReviseContract(t *testing.T) {
 		func() {
 			t.Log("revising contract:", test.name)
 			oldRoots := append([]types.Hash256(nil), roots...)
-			// update the expected roots
-			var releaseFuncs []func() error
-			defer func() {
-				for _, release := range releaseFuncs {
-					if err := release(); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}()
+
 			for i, change := range test.changes {
 				switch change.Action {
 				case contracts.SectorActionAppend:
 					// add a random sector root
 					root := frand.Entropy256()
-					release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+					err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 					if err != nil {
 						t.Fatal(err)
 					}
-					releaseFuncs = append(releaseFuncs, release)
 					test.changes[i].Root = root
 					roots = append(roots, root)
 				case contracts.SectorActionUpdate:
 					// replace with a random sector root
 					root := frand.Entropy256()
-					release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+					err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 					if err != nil {
 						t.Fatal(err)
 					}
-					releaseFuncs = append(releaseFuncs, release)
 					test.changes[i].Root = root
 
 					if test.errors && change.A >= uint64(len(roots)) { // test failure
@@ -335,12 +329,6 @@ func TestReviseContract(t *testing.T) {
 				t.Fatal(err)
 			} else if test.errors {
 				t.Fatal("expected error")
-			}
-
-			for _, release := range releaseFuncs {
-				if err := release(); err != nil {
-					t.Fatal(err)
-				}
 			}
 
 			if err := checkConsistency(roots, test.sectors); err != nil {
@@ -580,26 +568,18 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 	appendSectors := func(t *testing.T, n int) {
 		t.Helper()
 
-		var releaseFn []func() error
 		var appended []types.Hash256
 		for i := 0; i < n; i++ {
 			root := frand.Entropy256()
-			release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+			err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 			if err != nil {
 				t.Fatal("failed to store sector:", err)
 			}
 			appended = append(appended, root)
-			releaseFn = append(releaseFn, release)
 		}
 		newRoots := append(append([]types.Hash256(nil), roots...), appended...)
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
-		}
-
-		for _, fn := range releaseFn {
-			if err := fn(); err != nil {
-				t.Fatal("failed to release sector:", err)
-			}
 		}
 
 		checkRootConsistency(t, newRoots)
@@ -720,27 +700,20 @@ func BenchmarkTrimSectors(b *testing.B) {
 
 	roots := make([]types.Hash256, 0, b.N)
 	appendActions := make([]contracts.SectorChange, 0, b.N)
-	releaseFuncs := make([]func() error, 0, b.N)
 
 	for i := 0; i < b.N; i++ {
 		root := frand.Entropy256()
 		roots = append(roots, root)
 		appendActions = append(appendActions, contracts.SectorChange{Action: contracts.SectorActionAppend, Root: root})
 
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
 			b.Fatal(err)
 		}
-		releaseFuncs = append(releaseFuncs, release)
 	}
 
 	if err := db.ReviseContract(contract, nil, contracts.Usage{}, appendActions); err != nil {
 		b.Fatal(err)
-	}
-	for _, fn := range releaseFuncs {
-		if err := fn(); err != nil {
-			b.Fatal(err)
-		}
 	}
 
 	b.ResetTimer()
@@ -787,12 +760,10 @@ func BenchmarkV2AppendSectors(b *testing.B) {
 		root := types.Hash256(frand.Entropy256())
 		roots = append(roots, root)
 
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
 			b.Fatal(err)
 		} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
-			b.Fatal(err)
-		} else if err := release(); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -841,12 +812,10 @@ func BenchmarkV2TrimSectors(b *testing.B) {
 		root := types.Hash256(frand.Entropy256())
 		roots = append(roots, root)
 
-		release, err := db.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+		err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
 			b.Fatal(err)
 		} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
-			b.Fatal(err)
-		} else if err := release(); err != nil {
 			b.Fatal(err)
 		}
 	}
