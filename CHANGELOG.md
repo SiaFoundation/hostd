@@ -1,3 +1,23 @@
+## 2.0.0 (2024-12-09)
+
+### Breaking Changes
+
+- Remove RHP Session endpoints
+
+### Features
+
+- Add support for RHP4 settings
+- Add support for RHP4 accounts
+
+### Fixes
+
+- potentially panic on double unlock
+- panic in wallet resp
+- fix column spelling
+- fix ordering on query
+- Automate changelog generation
+- Move RHP2 and RHP3 settings into the config manager to be consistent with RHP4
+
 ## 1.1.2
 
 ### Breaking changes
