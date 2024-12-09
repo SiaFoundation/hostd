@@ -125,14 +125,9 @@ func TestAddSector(t *testing.T) {
 		t.Fatalf("expected 1 used sector, got %v", volumes[0].UsedSectors)
 	}
 
-	// store the sector again, exists should be true
+	// store the sector again, should be a no-op
 	err = db.StoreSector(root, func(loc storage.SectorLocation) error {
-		switch {
-		case loc.Volume != volumeID:
-			t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
-		case loc.Index != 0:
-			t.Fatalf("expected sector index 0, got %v", loc.Index)
-		}
+		t.Fatal("store function called twice")
 		return nil
 	})
 	if err != nil {
@@ -154,6 +149,72 @@ func TestAddSector(t *testing.T) {
 	err = db.StoreSector(frand.Entropy256(), func(storage.SectorLocation) error { return nil })
 	if !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
+	}
+}
+
+func TestHasSector(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	volumeID, err := db.AddVolume("test", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		t.Fatal(err)
+	} else if err := db.GrowVolume(volumeID, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	root := frand.Entropy256()
+	// store the sector
+	err = db.StoreSector(root, func(loc storage.SectorLocation) error {
+		// check that the sector was stored in the expected location
+		if loc.Volume != volumeID {
+			t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
+		} else if loc.Index != 0 {
+			t.Fatalf("expected sector index 0, got %v", loc.Index)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check the location was added
+	loc, err := db.SectorLocation(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if loc.Volume != volumeID {
+		t.Fatalf("expected volume ID %v, got %v", volumeID, loc.Volume)
+	} else if loc.Index != 0 {
+		t.Fatalf("expected sector index 0, got %v", loc.Index)
+	}
+
+	// the sector should not exist since it is not referenced
+	exists, err := db.HasSector(root)
+	if err != nil {
+		t.Fatal(err)
+	} else if exists {
+		t.Fatal("expected sector to not exist")
+	}
+
+	// add a temporary sector
+	if err = db.AddTempSector(root, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	// the sector should now exist since it is referenced by a temp sector
+	exists, err = db.HasSector(root)
+	if err != nil {
+		t.Fatal(err)
+	} else if !exists {
+		t.Fatal("expected sector to exist")
 	}
 }
 
