@@ -190,15 +190,16 @@ func (s *Store) HasSector(root types.Hash256) (exists bool, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT ss.id
 FROM stored_sectors ss
-INNER JOIN contract_sector_roots csr ON ss.id=csr.sector_id
-INNER JOIN contract_sector_roots csr2 ON ss.id=csr2.sector_id
-INNER JOIN temp_storage_sector_roots tsr ON ss.id=tsr.sector_id
-WHERE ss.sector_root=$1`
+WHERE ss.sector_root=$1 AND (EXISTS (SELECT 1 FROM contract_sector_roots csr WHERE ss.id = csr.sector_id)
+       OR EXISTS (SELECT 1 FROM contract_v2_sector_roots csr2 WHERE ss.id = csr2.sector_id)
+       OR EXISTS (SELECT 1 FROM temp_storage_sector_roots tsr WHERE ss.id = tsr.sector_id));`
 
 		var sectorID int64
 		err := tx.QueryRow(query, encode(root)).Scan(&sectorID)
-		if errors.Is(err, sql.ErrNoRows) {
+		if err == nil {
 			exists = true
+			return nil
+		} else if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		return err
