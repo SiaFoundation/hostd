@@ -6,18 +6,18 @@ toolchain go1.23.2
 
 require (
 	github.com/aws/aws-sdk-go v1.55.5
-	github.com/cloudflare/cloudflare-go v0.110.0
+	github.com/cloudflare/cloudflare-go v0.111.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.7.1-0.20241203090808-c6a988d759d6
+	go.sia.tech/core v0.7.1
 	go.sia.tech/coreutils v0.7.1-0.20241203172514-7bf95dd18f31
 	go.sia.tech/jape v0.12.1
-	go.sia.tech/web/hostd v0.51.0
+	go.sia.tech/web/hostd v0.52.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.27.0
-	golang.org/x/term v0.26.0
+	golang.org/x/sys v0.28.0
+	golang.org/x/term v0.27.0
 	golang.org/x/time v0.8.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
