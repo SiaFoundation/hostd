@@ -132,7 +132,6 @@ func (pe *programExecutor) executeAppendSectorRoot(instr *rhp3.InstrAppendSector
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
-	// lock the sector to prevent it from being garbage collected
 	exists, err := pe.sectors.HasSector(root)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
