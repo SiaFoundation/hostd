@@ -21,20 +21,31 @@ type (
 		IndexBatchSize int    `yaml:"indexBatchSize,omitempty"`
 	}
 
-	// RHP2 contains the configuration for the RHP2 server.
-	RHP2 struct {
-		Address string `yaml:"address,omitempty"`
-	}
-
 	// ExplorerData contains the configuration for using an external explorer.
 	ExplorerData struct {
 		Disable bool   `yaml:"disable,omitempty"`
 		URL     string `yaml:"url,omitempty"`
 	}
 
+	// RHP2 contains the configuration for the RHP2 server.
+	RHP2 struct {
+		Address string `yaml:"address,omitempty"`
+	}
+
 	// RHP3 contains the configuration for the RHP3 server.
 	RHP3 struct {
 		TCPAddress string `yaml:"tcp,omitempty"`
+	}
+
+	// RHP4ListenAddress contains the configuration for an RHP4 listen address.
+	RHP4ListenAddress struct {
+		Protocol string `yaml:"protocol,omitempty"`
+		Address  string `yaml:"address,omitempty"`
+	}
+
+	// RHP4 contains the configuration for the RHP4 server.
+	RHP4 struct {
+		ListenAddresses []RHP4ListenAddress `yaml:"listenAddresses,omitempty"`
 	}
 
 	// LogFile configures the file output of the logger.
@@ -77,6 +88,7 @@ type (
 		Explorer  ExplorerData `yaml:"explorer,omitempty"`
 		RHP2      RHP2         `yaml:"rhp2,omitempty"`
 		RHP3      RHP3         `yaml:"rhp3,omitempty"`
+		RHP4      RHP4         `yaml:"rhp4,omitempty"`
 		Log       Log          `yaml:"log,omitempty"`
 	}
 )

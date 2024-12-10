@@ -16,6 +16,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/alerts"
@@ -332,6 +333,30 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	rhp3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, sm, log.Named("rhp3"))
 	go rhp3.Serve()
 	defer rhp3.Close()
+
+	rhp4 := rhp4.NewServer(hostKey, cm, s, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute), rhp4.WithContractProofWindowBuffer(72))
+
+	var stopListenerFuncs []func() error
+	defer func() {
+		for _, f := range stopListenerFuncs {
+			if err := f(); err != nil {
+				log.Error("failed to stop listener", zap.Error(err))
+			}
+		}
+	}()
+	for _, addr := range cfg.RHP4.ListenAddresses {
+		switch addr.Protocol {
+		case "tcp", "tcp4", "tcp6":
+			l, err := rhp.Listen(addr.Protocol, addr.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+			if err != nil {
+				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
+			}
+			stopListenerFuncs = append(stopListenerFuncs, l.Close)
+			go rhp.ServeRHP4SiaMux(l, rhp4, log.Named("rhp4"))
+		default:
+			return fmt.Errorf("unsupported protocol: %s", addr.Protocol)
+		}
+	}
 
 	apiOpts := []api.ServerOption{
 		api.WithAlerts(am),

@@ -849,8 +849,8 @@ func (vm *VolumeManager) readLocation(loc SectorLocation) (*[proto2.SectorSize]b
 	return sector, nil
 }
 
-// Read reads the sector with the given root
-func (vm *VolumeManager) Read(root types.Hash256) (*[proto2.SectorSize]byte, error) {
+// ReadSector reads the sector with the given root from disk
+func (vm *VolumeManager) ReadSector(root types.Hash256) (*[proto2.SectorSize]byte, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
