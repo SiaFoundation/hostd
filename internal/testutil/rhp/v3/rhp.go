@@ -597,7 +597,7 @@ func hashFinalRevision(clearing types.FileContractRevision, renewal types.FileCo
 	return h.Sum()
 }
 
-// HashRevision returns the hash of rev.
+// hashRevision returns the hash of rev.
 func hashRevision(rev types.FileContractRevision) types.Hash256 {
 	h := types.NewHasher()
 	rev.EncodeTo(h.E)
@@ -640,7 +640,7 @@ func validateHostRevisionSignature(sig types.TransactionSignature, fcID types.Fi
 	return nil
 }
 
-// InitialRevision returns the first revision of a file contract formation
+// initialRevision returns the first revision of a file contract formation
 // transaction.
 func initialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey types.UnlockKey) types.FileContractRevision {
 	fc := formationTxn.FileContracts[0]
