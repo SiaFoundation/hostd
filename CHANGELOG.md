@@ -1,3 +1,27 @@
+## 2.0.0 (2024-12-10)
+
+### Breaking Changes
+
+- Remove RHP Session endpoints
+
+### Features
+
+- Add support for RHP4 settings
+- Add support for RHP4 accounts
+
+#### Refactor Sector Management
+
+Improves sector lookups by 50% on average by removing the sector lock tables and moving reference pruning out of the hot path.
+
+### Fixes
+
+- potentially panic on double unlock
+- panic in wallet resp
+- fix column spelling
+- fix ordering on query
+- Automate changelog generation
+- Move RHP2 and RHP3 settings into the config manager to be consistent with RHP4
+
 ## 1.1.2
 
 ### Breaking changes
