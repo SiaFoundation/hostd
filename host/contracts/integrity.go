@@ -116,7 +116,7 @@ func (cm *Manager) CheckIntegrity(ctx context.Context, contractID types.FileCont
 			default:
 			}
 			// read each sector from disk and verify its Merkle root
-			sector, err := cm.storage.Read(root)
+			sector, err := cm.storage.ReadSector(root)
 			if err != nil { // sector read failed
 				log.Error("missing sector", zap.String("root", root.String()), zap.Error(err))
 				missing++

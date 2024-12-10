@@ -85,7 +85,7 @@ type (
 		SetReadOnly(id int64, readOnly bool) error
 		RemoveSector(root types.Hash256) error
 		ResizeCache(size uint32)
-		Read(types.Hash256) (*[rhp2.SectorSize]byte, error)
+		ReadSector(types.Hash256) (*[rhp2.SectorSize]byte, error)
 
 		// SectorReferences returns the references to a sector
 		SectorReferences(root types.Hash256) (storage.SectorReference, error)

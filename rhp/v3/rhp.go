@@ -55,8 +55,8 @@ type (
 		HasSector(root types.Hash256) (bool, error)
 		// Write writes a sector to persistent storage.
 		Write(root types.Hash256, data *[rhp2.SectorSize]byte) error
-		// Read reads the sector with the given root from the manager.
-		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
+		// ReadSector reads the sector with the given root from the manager.
+		ReadSector(root types.Hash256) (*[rhp2.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 

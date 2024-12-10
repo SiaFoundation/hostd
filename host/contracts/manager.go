@@ -51,7 +51,7 @@ type (
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
 		// Read reads a sector from the store
-		Read(root types.Hash256) (*[rhp2.SectorSize]byte, error)
+		ReadSector(root types.Hash256) (*[rhp2.SectorSize]byte, error)
 	}
 
 	// Alerts registers and dismisses global alerts.

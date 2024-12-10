@@ -115,7 +115,7 @@ func (cm *Manager) buildStorageProof(revision types.FileContractRevision, index 
 	}
 
 	sectorRoot := roots[sectorIndex]
-	sector, err := cm.storage.Read(sectorRoot)
+	sector, err := cm.storage.ReadSector(sectorRoot)
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.StorageProof{}, fmt.Errorf("failed to read sector data")
@@ -158,7 +158,7 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	}
 
 	sectorRoot := roots[sectorIndex]
-	sector, err := cm.storage.Read(sectorRoot)
+	sector, err := cm.storage.ReadSector(sectorRoot)
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.V2StorageProof{}, fmt.Errorf("failed to read sector data")

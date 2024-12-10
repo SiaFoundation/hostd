@@ -652,7 +652,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 				return contracts.Usage{}, err
 			}
 
-			sector, err := sh.sectors.Read(root)
+			sector, err := sh.sectors.ReadSector(root)
 			if err != nil {
 				s.t.WriteResponseErr(ErrHostInternalError)
 				return contracts.Usage{}, fmt.Errorf("failed to read sector %v: %w", root, err)
@@ -849,7 +849,7 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 
 	// enter response loop
 	for i, sec := range req.Sections {
-		sector, err := sh.sectors.Read(sec.MerkleRoot)
+		sector, err := sh.sectors.ReadSector(sec.MerkleRoot)
 		if err != nil {
 			err := fmt.Errorf("failed to get sector: %w", err)
 			s.t.WriteResponseErr(err)

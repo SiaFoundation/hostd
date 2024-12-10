@@ -221,7 +221,7 @@ func (pe *programExecutor) executeReadOffset(instr *rhp3.InstrReadOffset, log *z
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.sectors.Read(root)
+	sector, err := pe.sectors.ReadSector(root)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
@@ -270,7 +270,7 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 	}
 
 	// read the sector
-	sector, err := pe.sectors.Read(root)
+	sector, err := pe.sectors.ReadSector(root)
 	if errors.Is(err, storage.ErrSectorNotFound) {
 		log.Debug("failed to read sector", zap.String("root", root.String()), zap.Error(err))
 		return nil, nil, storage.ErrSectorNotFound
@@ -359,7 +359,7 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 		return nil, nil, fmt.Errorf("failed to get root: %w", err)
 	}
 
-	sector, err := pe.sectors.Read(oldRoot)
+	sector, err := pe.sectors.ReadSector(oldRoot)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
