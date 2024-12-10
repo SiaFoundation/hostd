@@ -57,12 +57,9 @@ func TestVolumeLoad(t *testing.T) {
 	var sector [rhp2.SectorSize]byte
 	frand.Read(sector[:])
 	root := rhp2.SectorRoot(&sector)
-	release, err := vm.Write(root, &sector)
-	if err != nil {
+	if err = vm.Write(root, &sector); err != nil {
 		t.Fatal(err)
 	} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
-		t.Fatal(err)
-	} else if err := release(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,10 +100,7 @@ func TestVolumeLoad(t *testing.T) {
 	// write a new sector
 	frand.Read(sector[:])
 	root = rhp2.SectorRoot(&sector)
-	release, err = vm.Write(root, &sector)
-	if err != nil {
-		t.Fatal(err)
-	} else if err := release(); err != nil {
+	if err = vm.Write(root, &sector); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -193,12 +187,10 @@ func TestRemoveVolume(t *testing.T) {
 		roots[i] = rhp2.SectorRoot(&sector)
 
 		// write the sector
-		release, err := vm.Write(roots[i], &sector)
-		if err != nil {
+
+		if err := vm.Write(roots[i], &sector); err != nil {
 			t.Fatal(err)
 		} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: roots[i], Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -232,8 +224,7 @@ func TestRemoveVolume(t *testing.T) {
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
 		// blocking error should be nil
 		t.Fatal(err)
-	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
-		// async error should be ErrMigrationFailed
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
@@ -260,7 +251,7 @@ func TestRemoveVolume(t *testing.T) {
 	// but some sectors should be migrated to the second volume.
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
 		t.Fatal(err)
-	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatal(err)
 	}
 
@@ -309,12 +300,28 @@ func TestRemoveCorrupt(t *testing.T) {
 	}
 	defer db.Close()
 
+	assertMetrics := func(t *testing.T, physical, lost, total uint64) {
+		t.Helper()
+
+		if m, err := db.Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Storage.TotalSectors != total {
+			t.Fatalf("expected %v total sectors, got %v", total, m.Storage.TotalSectors)
+		} else if m.Storage.PhysicalSectors != physical {
+			t.Fatalf("expected %v used sectors, got %v", physical, m.Storage.PhysicalSectors)
+		} else if m.Storage.LostSectors != lost {
+			t.Fatalf("expected %v lost sectors, got %v", lost, m.Storage.LostSectors)
+		}
+	}
+
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
+
+	assertMetrics(t, 0, 0, 0)
 
 	result := make(chan error, 1)
 	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
@@ -325,59 +332,44 @@ func TestRemoveCorrupt(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	assertVolume := func(t *testing.T, volumeID int64, used, total uint64) {
+		t.Helper()
+
+		if vol, err := vm.Volume(volumeID); err != nil {
+			t.Fatal(err)
+		} else if vol.Status != storage.VolumeStatusReady {
+			t.Fatal("volume should be ready")
+		} else if vol.UsedSectors != used {
+			t.Fatalf("expected %v used sectors, got %v", used, vol.UsedSectors)
+		} else if vol.TotalSectors != total {
+			t.Fatalf("expected %v total sectors, got %v", total, vol.TotalSectors)
+		}
+	}
+
+	assertVolume(t, volume.ID, 0, expectedSectors)
+	assertMetrics(t, 0, 0, expectedSectors)
+
 	for i := 0; i < 10; i++ {
 		if _, err := storeRandomSector(vm, 1); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// check that the volume metrics did not change
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
-	}
+	assertMetrics(t, 10, 0, expectedSectors)
+	assertVolume(t, volume.ID, 10, expectedSectors)
 
-	if vol, err := vm.Volume(volume.ID); err != nil {
-		t.Fatal(err)
-	} else if vol.Status != storage.VolumeStatusReady {
-		t.Fatal("volume should be ready")
-	} else if vol.UsedSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", vol.UsedSectors)
-	} else if vol.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, vol.TotalSectors)
-	}
-
-	// attempt to remove the volume. Should return ErrMigrationFailed since
+	// attempt to remove the volume. Should return ErrNotEnoughStorage since
 	// there is only one volume.
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
 		// blocking error should be nil
 		t.Fatal(err)
-	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
-		// async error should be ErrMigrationFailed
-		t.Fatalf("expected ErrMigrationFailed, got %v", err)
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
-	// check that the volume metrics did not change
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
-	}
-
-	if vol, err := vm.Volume(volume.ID); err != nil {
-		t.Fatal(err)
-	} else if vol.Status != storage.VolumeStatusReady {
-		t.Fatal("volume should be ready")
-	} else if vol.UsedSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", vol.UsedSectors)
-	} else if vol.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, vol.TotalSectors)
-	}
+	// check that the metrics did not change
+	assertMetrics(t, 10, 0, expectedSectors)
+	assertVolume(t, volume.ID, 10, expectedSectors)
 
 	f, err := os.OpenFile(volumePath, os.O_RDWR, 0)
 	if err != nil {
@@ -394,6 +386,19 @@ func TestRemoveCorrupt(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// add a second volume to accept the data
+	volume2, err := vm.AddVolume(context.Background(), filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the total metrics doubled, but the volume metrics are unchanged
+	assertMetrics(t, 10, 0, expectedSectors*2)
+	assertVolume(t, volume.ID, 10, expectedSectors)
+	assertVolume(t, volume2.ID, 0, expectedSectors)
+
 	// remove the volume
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
 		t.Fatal(err) // blocking error should be nil
@@ -403,41 +408,10 @@ func TestRemoveCorrupt(t *testing.T) {
 		t.Fatalf("expected ErrMigrationFailed, got %v", err)
 	}
 
-	// check that the volume metrics did not change
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
-	}
-
-	if vol, err := vm.Volume(volume.ID); err != nil {
-		t.Fatal(err)
-	} else if vol.Status != storage.VolumeStatusReady {
-		t.Fatal("volume should be ready")
-	} else if vol.UsedSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", vol.UsedSectors)
-	} else if vol.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, vol.TotalSectors)
-	}
-
-	// add a second volume to accept the data
-	volume2, err := vm.AddVolume(context.Background(), filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors, result)
-	if err != nil {
-		t.Fatal(err)
-	} else if err := <-result; err != nil {
-		t.Fatal(err)
-	}
-
-	// check that the volume metrics doubled
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors*2 {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors*2, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
-	}
+	// check that only the one failed sector is left in the original volume
+	assertMetrics(t, 10, 0, expectedSectors*2)
+	assertVolume(t, volume.ID, 1, expectedSectors)
+	assertVolume(t, volume2.ID, 9, expectedSectors)
 
 	// force remove the volume
 	if err := vm.RemoveVolume(context.Background(), volume.ID, true, result); err != nil {
@@ -449,24 +423,11 @@ func TestRemoveCorrupt(t *testing.T) {
 	}
 
 	// check that the corrupt sector was removed from the volume metrics
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors-1, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 9 {
-		t.Fatalf("expected 9 used sectors, got %v", m.Storage.PhysicalSectors)
-	} else if m.Storage.LostSectors != 1 {
-		t.Fatalf("expected 1 lost sectors, got %v", m.Storage.LostSectors)
-	}
+	assertMetrics(t, 9, 1, expectedSectors)
+	assertVolume(t, volume2.ID, 9, expectedSectors)
 
-	if vol, err := vm.Volume(volume2.ID); err != nil {
-		t.Fatal(err)
-	} else if vol.Status != storage.VolumeStatusReady {
-		t.Fatal("volume should be ready")
-	} else if vol.UsedSectors != 9 {
-		t.Fatalf("expected 9 used sectors, got %v", vol.UsedSectors)
-	} else if vol.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, vol.TotalSectors)
+	if _, err := vm.Volume(volume.ID); !errors.Is(err, storage.ErrVolumeNotFound) {
+		t.Fatalf("expected ErrVolumeNotFound, got %v", err)
 	}
 }
 
@@ -482,12 +443,28 @@ func TestRemoveMissing(t *testing.T) {
 	}
 	defer db.Close()
 
+	assertMetrics := func(t *testing.T, physical, lost, total uint64) {
+		t.Helper()
+
+		if m, err := db.Metrics(time.Now()); err != nil {
+			t.Fatal(err)
+		} else if m.Storage.TotalSectors != total {
+			t.Fatalf("expected %v total sectors, got %v", total, m.Storage.TotalSectors)
+		} else if m.Storage.PhysicalSectors != physical {
+			t.Fatalf("expected %v used sectors, got %v", physical, m.Storage.PhysicalSectors)
+		} else if m.Storage.LostSectors != lost {
+			t.Fatalf("expected %v lost sectors, got %v", lost, m.Storage.LostSectors)
+		}
+	}
+
 	// initialize the storage manager
 	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer vm.Close()
+
+	assertMetrics(t, 0, 0, 0)
 
 	result := make(chan error, 1)
 	volumePath := filepath.Join(t.TempDir(), "hostdata.dat")
@@ -498,38 +475,44 @@ func TestRemoveMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	assertVolume := func(t *testing.T, volumeID int64, used, total uint64) {
+		t.Helper()
+
+		if vol, err := vm.Volume(volumeID); err != nil {
+			t.Fatal(err)
+		} else if vol.UsedSectors != used {
+			t.Fatalf("expected %v used sectors, got %v", used, vol.UsedSectors)
+		} else if vol.TotalSectors != total {
+			t.Fatalf("expected %v total sectors, got %v", total, vol.TotalSectors)
+		}
+	}
+
+	assertMetrics(t, 0, 0, expectedSectors)
+	assertVolume(t, volume.ID, 0, expectedSectors)
+
+	assertVolume(t, volume.ID, 0, expectedSectors)
+	assertMetrics(t, 0, 0, expectedSectors)
+
 	for i := 0; i < 10; i++ {
 		if _, err := storeRandomSector(vm, 1); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// attempt to remove the volume. Should return ErrMigrationFailed since
+	assertMetrics(t, 10, 0, expectedSectors)
+	assertVolume(t, volume.ID, 10, expectedSectors)
+
+	// attempt to remove the volume. Should return ErrNotEnoughStorage since
 	// there is only one volume.
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
 		t.Fatal(err)
-	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
-		t.Fatalf("expected ErrMigrationFailed, got %v", err)
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
 	// check that the volume metrics did not change
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
-	}
-
-	if vol, err := vm.Volume(volume.ID); err != nil {
-		t.Fatal(err)
-	} else if vol.Status != storage.VolumeStatusReady {
-		t.Fatal("volume should be ready")
-	} else if vol.UsedSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", vol.UsedSectors)
-	} else if vol.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, vol.TotalSectors)
-	}
+	assertMetrics(t, 10, 0, expectedSectors)
+	assertVolume(t, volume.ID, 10, expectedSectors)
 
 	// close the volume manager
 	if err := vm.Close(); err != nil {
@@ -549,23 +532,21 @@ func TestRemoveMissing(t *testing.T) {
 	defer vm.Close()
 
 	// check that the volume metrics did not change
-	if m, err := db.Metrics(time.Now()); err != nil {
+	assertMetrics(t, 10, 0, expectedSectors)
+	assertVolume(t, volume.ID, 10, expectedSectors)
+
+	// add a volume to accept the data
+	volume2, err := vm.AddVolume(context.Background(), filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors, result)
+	if err != nil {
 		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
 	}
 
-	if vol, err := vm.Volume(volume.ID); err != nil {
-		t.Fatal(err)
-	} else if vol.Status != storage.VolumeStatusUnavailable {
-		t.Fatal("volume should be unavailable")
-	} else if vol.UsedSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", vol.UsedSectors)
-	} else if vol.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, vol.TotalSectors)
-	}
+	// check that the total metrics doubled and the volume metrics did not change
+	assertMetrics(t, 10, 0, expectedSectors*2)
+	assertVolume(t, volume.ID, 10, expectedSectors)
+	assertVolume(t, volume2.ID, 0, expectedSectors)
 
 	// remove the volume
 	if err := vm.RemoveVolume(context.Background(), volume.ID, false, result); err != nil {
@@ -575,40 +556,20 @@ func TestRemoveMissing(t *testing.T) {
 	}
 
 	// check that the volume metrics did not change
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", m.Storage.PhysicalSectors)
-	}
+	assertMetrics(t, 10, 0, expectedSectors*2)
+	assertVolume(t, volume.ID, 10, expectedSectors)
+	assertVolume(t, volume2.ID, 0, expectedSectors)
 
-	if vol, err := vm.Volume(volume.ID); err != nil {
-		t.Fatal(err)
-	} else if vol.Status != storage.VolumeStatusUnavailable {
-		t.Fatal("volume should be unavailable")
-	} else if vol.UsedSectors != 10 {
-		t.Fatalf("expected 10 used sectors, got %v", vol.UsedSectors)
-	} else if vol.TotalSectors != expectedSectors {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, vol.TotalSectors)
-	}
-
+	// force remve the volume
 	if err := vm.RemoveVolume(context.Background(), volume.ID, true, result); err != nil {
 		t.Fatal(err)
 	} else if err := <-result; err != nil {
 		t.Fatal(err)
 	}
 
-	// check that the volume metrics did not change
-	if m, err := db.Metrics(time.Now()); err != nil {
-		t.Fatal(err)
-	} else if m.Storage.TotalSectors != 0 {
-		t.Fatalf("expected %v total sectors, got %v", expectedSectors, m.Storage.TotalSectors)
-	} else if m.Storage.PhysicalSectors != 0 {
-		t.Fatalf("expected 0 used sectors, got %v", m.Storage.PhysicalSectors)
-	} else if m.Storage.LostSectors != 10 {
-		t.Fatalf("expected 10 lost sectors, got %v", m.Storage.LostSectors)
-	}
+	// check that the sectors were marked as lost
+	assertMetrics(t, 0, 10, expectedSectors)
+	assertVolume(t, volume2.ID, 0, expectedSectors)
 
 	if _, err := vm.Volume(volume.ID); !errors.Is(err, storage.ErrVolumeNotFound) {
 		t.Fatalf("expected ErrVolumeNotFound, got %v", err)
@@ -722,7 +683,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 
 	// try to write a sector to the volume, which should fail
-	if _, err := vm.Write(root, &sector); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.Write(root, &sector); !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected %v, got %v", storage.ErrNotEnoughStorage, err)
 	}
 
@@ -748,7 +709,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 
 	// write the sector again, which should succeed
-	if _, err := vm.Write(root, &sector); err != nil {
+	if err := vm.Write(root, &sector); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -907,10 +868,8 @@ func TestVolumeShrink(t *testing.T) {
 	}
 
 	sectorLocation := func(root types.Hash256) (storage.SectorLocation, error) {
-		loc, release, err := db.SectorLocation(root)
+		loc, err := db.SectorLocation(root)
 		if err != nil {
-			return loc, err
-		} else if err := release(); err != nil {
 			return loc, err
 		}
 		return loc, nil
@@ -934,8 +893,8 @@ func TestVolumeShrink(t *testing.T) {
 	remainingSectors := uint64(sectors - toRemove)
 	if err := vm.ResizeVolume(context.Background(), volume.ID, remainingSectors, result); err != nil {
 		t.Fatal(err)
-	} else if err := <-result; !errors.Is(err, storage.ErrMigrationFailed) {
-		t.Fatalf("expected ErrMigrationFailed, got %v", err)
+	} else if err := <-result; !errors.Is(err, storage.ErrNotEnoughStorage) {
+		t.Fatalf("expected ErrNotEnoughStorage, got %v", err)
 	}
 
 	// remove some sectors from the beginning of the volume
@@ -1061,17 +1020,16 @@ func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash
 		return types.Hash256{}, fmt.Errorf("failed to generate random sector: %w", err)
 	}
 	root := rhp2.SectorRoot(&sector)
-	release, err := vm.Write(root, &sector)
+	err := vm.Write(root, &sector)
 	if err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to write sector: %w", err)
 	}
-	defer release()
 
 	err = vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: expiration}})
 	if err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to add temporary sector: %w", err)
 	}
-	return root, release()
+	return root, nil
 }
 
 func TestSectorCache(t *testing.T) {
@@ -1180,6 +1138,91 @@ func TestSectorCache(t *testing.T) {
 	}
 }
 
+func TestStoragePrune(t *testing.T) {
+	const sectors = 10
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(0), storage.WithPruneInterval(500*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	result := make(chan error, 1)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	vol, err := vm.AddVolume(context.Background(), volumeFilePath, sectors, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	assertUsedSectors := func(t *testing.T, used uint64) {
+		t.Helper()
+
+		time.Sleep(2 * time.Second) // note: longer than prune interval for timing issues
+		volume, err := vm.Volume(vol.ID)
+		if err != nil {
+			t.Fatal(err)
+		} else if volume.UsedSectors != used {
+			t.Fatalf("expected %v used sectors, got %v", used, volume.UsedSectors)
+		}
+
+		m, err := db.Metrics(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		} else if m.Storage.PhysicalSectors != used {
+			t.Fatalf("expected %v used sectors, got %v", used, m.Storage.PhysicalSectors)
+		}
+	}
+
+	assertUsedSectors(t, 0)
+
+	storeRandomSector := func(t *testing.T, expiration uint64) types.Hash256 {
+		t.Helper()
+
+		var sector [rhp2.SectorSize]byte
+		if _, err := frand.Read(sector[:256]); err != nil {
+			t.Fatal("failed to generate random sector:", err)
+		}
+		root := rhp2.SectorRoot(&sector)
+		if err = vm.StoreSector(root, &sector, expiration); err != nil {
+			t.Fatal("failed to store sector:", err)
+		}
+		return root
+	}
+
+	roots := make([]types.Hash256, 0, sectors)
+	// fill the volume
+	for i := 0; i < cap(roots); i++ {
+		storeRandomSector(t, uint64(i+1))
+	}
+
+	// ensure the sectors are not pruned immediately
+	assertUsedSectors(t, sectors)
+
+	// expire half the sectors
+	if err := db.ExpireTempSectors(5); err != nil {
+		t.Fatal(err)
+	}
+	assertUsedSectors(t, 5)
+
+	// expire the remaining sectors
+	if err := db.ExpireTempSectors(10); err != nil {
+		t.Fatal(err)
+	}
+	assertUsedSectors(t, 0)
+}
+
 func BenchmarkVolumeManagerWrite(b *testing.B) {
 	dir := b.TempDir()
 
@@ -1221,10 +1264,8 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	// fill the volume
 	for i := 0; i < b.N; i++ {
 		root, sector := roots[i], sectors[i]
-		release, err := vm.Write(root, &sector)
+		err := vm.Write(root, &sector)
 		if err != nil {
-			b.Fatal(i, err)
-		} else if err := release(); err != nil {
 			b.Fatal(i, err)
 		}
 	}
@@ -1298,10 +1339,8 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 		root := rhp2.SectorRoot(&sector)
-		release, err := vm.Write(root, &sector)
+		err := vm.Write(root, &sector)
 		if err != nil {
-			b.Fatal(i, err)
-		} else if err := release(); err != nil {
 			b.Fatal(i, err)
 		}
 		written = append(written, root)
@@ -1350,10 +1389,8 @@ func BenchmarkVolumeRemove(b *testing.B) {
 		var sector [rhp2.SectorSize]byte
 		frand.Read(sector[:256])
 		root := rhp2.SectorRoot(&sector)
-		release, err := vm.Write(root, &sector)
+		err := vm.Write(root, &sector)
 		if err != nil {
-			b.Fatal(i, err)
-		} else if err := release(); err != nil {
 			b.Fatal(i, err)
 		}
 	}

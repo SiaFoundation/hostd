@@ -23,7 +23,6 @@ func TestUsageTotal(t *testing.T) {
 	for i := 0; i < uv.NumField(); i++ {
 		v := types.NewCurrency(frand.Uint64n(math.MaxUint64), 0)
 		total = total.Add(v)
-		t.Log("setting field", uv.Type().Field(i).Name, "to", v.ExactString())
 		uv.Field(i).Set(reflect.ValueOf(v))
 	}
 

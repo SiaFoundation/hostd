@@ -82,6 +82,58 @@ func recalcContractAccountFunding(tx *txn, _ *zap.Logger) error {
 	return nil
 }
 
+func recalcVolumeMetrics(tx *txn, log *zap.Logger) error {
+	const query = `SELECT volume_id, COUNT(*) AS total_sectors, COUNT(CASE WHEN sector_id IS NOT NULL THEN 1 END) AS used_sectors
+FROM volume_sectors
+GROUP BY volume_id`
+
+	type volCount struct {
+		ID           int64
+		UsedSectors  uint64
+		TotalSectors uint64
+	}
+	rows, err := tx.Query(query)
+	if err != nil {
+		return fmt.Errorf("failed to query volume metrics: %w", err)
+	}
+	defer rows.Close()
+
+	var totalSectors, physicalSectors uint64
+	var volumes []volCount
+	for rows.Next() {
+		var vol volCount
+		if err := rows.Scan(&vol.ID, &vol.TotalSectors, &vol.UsedSectors); err != nil {
+			return fmt.Errorf("failed to scan volume: %w", err)
+		}
+		volumes = append(volumes, vol)
+		totalSectors += vol.TotalSectors
+		physicalSectors += vol.UsedSectors
+		log.Debug("calculated volume metrics", zap.Int64("id", vol.ID), zap.Uint64("used", vol.UsedSectors), zap.Uint64("total", vol.TotalSectors))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to get rows: %w", err)
+	}
+
+	stmt, err := tx.Prepare(`UPDATE storage_volumes SET used_sectors=$1, total_sectors=$2 WHERE id=$3`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, vol := range volumes {
+		if _, err := stmt.Exec(vol.UsedSectors, vol.TotalSectors, vol.ID); err != nil {
+			return fmt.Errorf("failed to update volume: %w", err)
+		}
+	}
+
+	if err := setNumericStat(tx, metricTotalSectors, totalSectors, time.Now()); err != nil {
+		return fmt.Errorf("failed to set total sectors: %w", err)
+	} else if err := setNumericStat(tx, metricPhysicalSectors, physicalSectors, time.Now()); err != nil {
+		return fmt.Errorf("failed to set physical sectors: %w", err)
+	}
+	return nil
+}
+
 func recalcContractMetrics(tx *txn, log *zap.Logger) error {
 	rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write FROM contracts WHERE contract_status IN (?, ?);`, contracts.ContractStatusActive, contracts.ContractStatusSuccessful)
 	if err != nil {

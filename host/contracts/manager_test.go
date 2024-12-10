@@ -350,25 +350,15 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
-		var releaseFuncs []func() error
-		defer func() {
-			for _, release := range releaseFuncs {
-				if err := release(); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}()
-
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
 			var sector [rhp2.SectorSize]byte
 			frand.Read(sector[:256])
 			root := rhp2.SectorRoot(&sector)
-			release, err := node.Volumes.Write(root, &sector)
-			if err != nil {
+
+			if err := node.Volumes.Write(root, &sector); err != nil {
 				t.Fatal(err)
 			}
-			releaseFuncs = append(releaseFuncs, release)
 			roots = append(roots, root)
 		}
 
@@ -403,11 +393,6 @@ func TestContractLifecycle(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-		for _, release := range releaseFuncs {
-			if err := release(); err != nil {
-				t.Fatal(err)
-			}
 		}
 
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, collateral)
@@ -637,17 +622,15 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
 
 		// add sectors to the volume manager
-		var releaseFuncs []func() error
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
 			var sector [rhp2.SectorSize]byte
 			frand.Read(sector[:])
 			root := rhp2.SectorRoot(&sector)
-			release, err := node.Volumes.Write(root, &sector)
+			err := node.Volumes.Write(root, &sector)
 			if err != nil {
 				t.Fatal(err)
 			}
-			releaseFuncs = append(releaseFuncs, release)
 			roots = append(roots, root)
 		}
 
@@ -682,13 +665,6 @@ func TestContractLifecycle(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-
-		// release the sectors
-		for _, release := range releaseFuncs {
-			if err := release(); err != nil {
-				t.Fatal(err)
-			}
 		}
 
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
@@ -751,6 +727,11 @@ func TestV2ContractLifecycle(t *testing.T) {
 	expectedStatuses := make(map[contracts.V2ContractStatus]uint64)
 	assertContractMetrics := func(t *testing.T, locked, risked types.Currency) {
 		t.Helper()
+
+		// ensure any dereferenced sectors have been pruned
+		if err := node.Store.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
 
 		m, err := node.Store.Metrics(time.Now())
 		if err != nil {
@@ -854,11 +835,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		root := rhp2.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
-		release, err := node.Volumes.Write(root, &sector)
-		if err != nil {
+		if err := node.Volumes.Write(root, &sector); err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 
 		fc.Filesize = proto4.SectorSize
 		fc.Capacity = proto4.SectorSize
@@ -873,13 +852,11 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc.HostSignature = hostKey.SignHash(sigHash)
 		fc.RenterSignature = renterKey.SignHash(sigHash)
 
-		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+		err := node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
 			Storage:          cost,
 			RiskedCollateral: collateral,
 		})
 		if err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 		// metrics should not have been updated, contract is still pending
@@ -914,11 +891,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		root := frand.Entropy256() // random root
 		roots := []types.Hash256{root}
 
-		release, err := node.Volumes.Write(root, &sector)
-		if err != nil {
+		if err := node.Volumes.Write(root, &sector); err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 
 		fc.Filesize = proto4.SectorSize
 		fc.Capacity = proto4.SectorSize
@@ -933,13 +908,11 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc.HostSignature = hostKey.SignHash(sigHash)
 		fc.RenterSignature = renterKey.SignHash(sigHash)
 
-		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+		err := node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
 			Storage:          cost,
 			RiskedCollateral: collateral,
 		})
 		if err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 		// metrics should not have been updated, contract is still pending
@@ -974,11 +947,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		root := rhp2.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
-		release, err := node.Volumes.Write(root, &sector)
-		if err != nil {
+		if err := node.Volumes.Write(root, &sector); err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 
 		fc.Filesize = proto4.SectorSize
 		fc.Capacity = proto4.SectorSize
@@ -993,13 +964,11 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc.HostSignature = hostKey.SignHash(sigHash)
 		fc.RenterSignature = renterKey.SignHash(sigHash)
 
-		err = node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
+		err := node.Contracts.ReviseV2Contract(contractID, fc, roots, proto4.Usage{
 			Storage:          cost,
 			RiskedCollateral: collateral,
 		})
 		if err != nil {
-			t.Fatal(err)
-		} else if err := release(); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1264,11 +1233,10 @@ func TestSectorRoots(t *testing.T) {
 	for i := 0; i < sectors; i++ {
 		root, err := func() (types.Hash256, error) {
 			root := frand.Entropy256()
-			release, err := node.Store.StoreSector(root, func(loc storage.SectorLocation, exists bool) error { return nil })
+			err := node.Store.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 			if err != nil {
 				return types.Hash256{}, fmt.Errorf("failed to store sector: %w", err)
 			}
-			defer release()
 
 			updater, err := node.Contracts.ReviseContract(rev.Revision.ParentID)
 			if err != nil {
