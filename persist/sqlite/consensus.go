@@ -306,7 +306,7 @@ func (ux *updateTx) RevertContractChainIndexElement(index types.ChainIndex) erro
 	return err
 }
 
-// ApplyContractChainIndexElements adds or updates the merkle proof of
+// AddContractChainIndexElement adds or updates the merkle proof of
 // chain index state elements
 func (ux *updateTx) AddContractChainIndexElement(ci types.ChainIndexElement) error {
 	_, err := ux.tx.Exec(`INSERT INTO contracts_v2_chain_index_elements (id, height, merkle_proof, leaf_index) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET merkle_proof=EXCLUDED.merkle_proof, leaf_index=EXCLUDED.leaf_index, height=EXCLUDED.height`, encode(ci.ChainIndex.ID), ci.ChainIndex.Height, encode(ci.StateElement.MerkleProof), encode(ci.StateElement.LeafIndex))
