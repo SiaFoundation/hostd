@@ -12,8 +12,8 @@ func (cm *Manager) AccountBalance(account proto4.Account) (types.Currency, error
 
 // CreditAccountsWithContract atomically revises a contract and credits the accounts
 // returning the new balance of each account.
-func (cm *Manager) CreditAccountsWithContract(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract) ([]types.Currency, error) {
-	return cm.store.RHP4CreditAccounts(deposits, contractID, revision)
+func (cm *Manager) CreditAccountsWithContract(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract, usage proto4.Usage) ([]types.Currency, error) {
+	return cm.store.RHP4CreditAccounts(deposits, contractID, revision, usage)
 }
 
 // DebitAccount debits an account.

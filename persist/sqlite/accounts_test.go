@@ -87,7 +87,7 @@ func TestRHP4Accounts(t *testing.T) {
 	// deposit funds
 	balances, err := db.RHP4CreditAccounts([]proto4.AccountDeposit{
 		{Account: account, Amount: types.Siacoins(10)},
-	}, contract.ID, contract.V2FileContract)
+	}, contract.ID, contract.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(10)})
 	if err != nil {
 		t.Fatal(err)
 	} else if len(balances) != 1 {
@@ -303,7 +303,7 @@ func TestRHP4AccountsDistribution(t *testing.T) {
 
 	balances, err := db.RHP4CreditAccounts([]proto4.AccountDeposit{
 		{Account: account, Amount: types.Siacoins(3)},
-	}, c1.ID, c1.V2FileContract)
+	}, c1.ID, c1.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(3)})
 	if err != nil {
 		t.Fatal(err)
 	} else if len(balances) != 1 {
@@ -318,7 +318,7 @@ func TestRHP4AccountsDistribution(t *testing.T) {
 
 	balances, err = db.RHP4CreditAccounts([]proto4.AccountDeposit{
 		{Account: account, Amount: types.Siacoins(3)},
-	}, c2.ID, c2.V2FileContract)
+	}, c2.ID, c2.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(3)})
 	if err != nil {
 		t.Fatal(err)
 	} else if len(balances) != 1 {

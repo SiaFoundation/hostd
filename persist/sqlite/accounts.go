@@ -60,7 +60,7 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 
 // RHP4CreditAccounts credits the accounts with the given deposits and revises
 // the contract.
-func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract) (balances []types.Currency, err error) {
+func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract, usage proto4.Usage) (balances []types.Currency, err error) {
 	err = s.transaction(func(tx *txn) error {
 		getBalanceStmt, err := tx.Prepare(`SELECT balance FROM accounts WHERE account_id=$1`)
 		if err != nil {
@@ -92,7 +92,6 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 			return fmt.Errorf("failed to get contract ID: %w", err)
 		}
 
-		var usage proto4.Usage
 		var createdAccounts int
 		for _, deposit := range deposits {
 			var balance types.Currency
@@ -120,7 +119,6 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 			if _, err := updateFundingAmountStmt.Exec(contractDBID, accountDBID, encode(fundAmount)); err != nil {
 				return fmt.Errorf("failed to update funding amount: %w", err)
 			}
-			usage.AccountFunding = usage.AccountFunding.Add(deposit.Amount)
 		}
 
 		_, err = reviseV2Contract(tx, contractID, revision, usage)
