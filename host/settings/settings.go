@@ -295,7 +295,7 @@ func (m *ConfigManager) RHP2Settings() (proto2.HostSettings, error) {
 		// host info
 		Address:          m.wallet.Address(),
 		SiaMuxPort:       strconv.FormatUint(uint64(m.rhp3Port), 10),
-		NetAddress:       settings.NetAddress,
+		NetAddress:       m.rhp2NetAddress(),
 		TotalStorage:     totalSectors * proto2.SectorSize,
 		RemainingStorage: (totalSectors - usedSectors) * proto2.SectorSize,
 
