@@ -249,7 +249,7 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhp3.Stream, log *zap.Logge
 func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	cs := sh.chain.TipState()
 	// prevent renewing v1 contracts after the allow height
-	if cs.Index.Height >= cs.Network.HardforkV2.AllowHeight {
+	if cs.Index.Height >= cs.Network.HardforkV2.RequireHeight {
 		s.WriteResponseErr(ErrV2Hardfork)
 		return contracts.Usage{}, ErrV2Hardfork
 	}
