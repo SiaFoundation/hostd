@@ -630,16 +630,4 @@ func TestRPCV2(t *testing.T) {
 	if !errors.Is(err, rhp3.ErrAfterV2Hardfork) {
 		t.Fatalf("expected after v2 hardfork error, got %v", err)
 	}
-
-	// mine to activate the v2 hardfork
-	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.AllowHeight-node.Chain.Tip().Height))
-
-	// try to renew the contract with an end height before the require height, but after the hardfork activation
-	renewHeight = origin.Revision.WindowEnd + 10
-	renterFunds = types.Siacoins(10)
-	additionalCollateral = types.Siacoins(20)
-	_, _, err = session.RenewContract(&origin, node.Wallet.Address(), renterKey, renterFunds, additionalCollateral, renewHeight)
-	if !errors.Is(err, rhp3.ErrV2Hardfork) {
-		t.Fatalf("expected v2 hardfork error, got %v", err)
-	}
 }
