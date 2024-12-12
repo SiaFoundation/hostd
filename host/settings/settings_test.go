@@ -59,7 +59,7 @@ func TestSettings(t *testing.T) {
 
 	updated := sm.Settings()
 	updated.WindowSize = 100
-	updated.NetAddress = "localhost:10082"
+	updated.NetAddress = "localhost"
 	updated.BaseRPCPrice = types.Siacoins(1)
 
 	if err := sm.UpdateSettings(updated); err != nil {

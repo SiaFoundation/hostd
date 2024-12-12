@@ -144,18 +144,19 @@ func getRandomOpenPort() (uint16, error) {
 	return uint16(port), nil
 }
 
-func normalizeAddress(addr string) (string, error) {
-	host, port, err := net.SplitHostPort(addr)
+func normalizeAddress(addr string) (string, uint16, error) {
+	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
-		return "", err
-	} else if port == "" || port == "0" {
+		return "", 0, err
+	} else if portStr == "" || portStr == "0" {
 		randPort, err := getRandomOpenPort()
 		if err != nil {
-			return "", fmt.Errorf("failed to get open port: %w", err)
+			return "", 0, fmt.Errorf("failed to get open port: %w", err)
 		}
-		return net.JoinHostPort(host, strconv.FormatUint(uint64(randPort), 10)), nil
+		return net.JoinHostPort(host, strconv.FormatUint(uint64(randPort), 10)), randPort, nil
 	}
-	return addr, nil
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	return addr, uint16(port), err
 }
 
 func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
@@ -272,18 +273,14 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
 
-	rhp3Addr, err := normalizeAddress(cfg.RHP3.TCPAddress)
+	rhp2Addr, rhp2Port, err := normalizeAddress(cfg.RHP2.Address)
 	if err != nil {
-		return fmt.Errorf("failed to normalize RHP3 address: %w", err)
+		return fmt.Errorf("failed to normalize RHP2 address: %w", err)
 	}
 
-	_, rhp3PortStr, err := net.SplitHostPort(rhp3Addr)
+	rhp3Addr, rhp3Port, err := normalizeAddress(cfg.RHP3.TCPAddress)
 	if err != nil {
-		return fmt.Errorf("failed to parse rhp3 port: %w", err)
-	}
-	rhp3Port, err := strconv.ParseUint(rhp3PortStr, 10, 16)
-	if err != nil {
-		return fmt.Errorf("failed to parse rhp3 port: %w", err)
+		return fmt.Errorf("failed to normalize RHP3 address: %w", err)
 	}
 
 	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
@@ -292,7 +289,33 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer vm.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, store, cm, s, vm, wm, settings.WithAlertManager(am), settings.WithRHP3Port(uint16(rhp3Port)), settings.WithLog(log.Named("settings")))
+	var rhp4PortStr string
+	for _, addr := range cfg.RHP4.ListenAddresses {
+		_, portStr, err := net.SplitHostPort(addr.Address)
+		if err != nil {
+			return fmt.Errorf("failed to parse RHP4 address: %w", err)
+		} else if rhp4PortStr == "" {
+			rhp4PortStr = portStr
+		} else if rhp4PortStr != portStr {
+			return errors.New("RHP4 listen addresses must all have the same port")
+		}
+	}
+	_, rhp4Port, err := normalizeAddress(net.JoinHostPort("", rhp4PortStr))
+	if err != nil {
+		return fmt.Errorf("failed to normalize RHP4 address: %w", err)
+	}
+	// update the listen addresses with the normalized port
+	for i := range cfg.RHP4.ListenAddresses {
+		host, _, _ := net.SplitHostPort(cfg.RHP4.ListenAddresses[i].Address)
+		cfg.RHP4.ListenAddresses[i].Address = net.JoinHostPort(host, strconv.FormatUint(uint64(rhp4Port), 10))
+	}
+
+	sm, err := settings.NewConfigManager(hostKey, store, cm, s, vm, wm,
+		settings.WithAlertManager(am),
+		settings.WithRHP2Port(uint16(rhp2Port)),
+		settings.WithRHP3Port(uint16(rhp3Port)),
+		settings.WithRHP4Port(uint16(rhp4Port)),
+		settings.WithLog(log.Named("settings")))
 	if err != nil {
 		return fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -312,7 +335,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
 	rl, wl := sm.RHPBandwidthLimiters()
-	rhp2Listener, err := rhp.Listen("tcp", cfg.RHP2.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+	rhp2Listener, err := rhp.Listen("tcp", rhp2Addr, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
 	if err != nil {
 		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
 	}
@@ -351,6 +374,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			if err != nil {
 				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
 			}
+			log.Debug("started RHP4 listener", zap.String("address", l.Addr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
 			go rhp.ServeRHP4SiaMux(l, rhp4, log.Named("rhp4"))
 		default:

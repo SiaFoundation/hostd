@@ -162,7 +162,9 @@ type (
 		lastIPv4        net.IP
 		lastIPv6        net.IP
 
+		rhp2Port uint16
 		rhp3Port uint16
+		rhp4Port uint16
 
 		tg *threadgroup.ThreadGroup
 	}
@@ -245,7 +247,7 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 
 	// if a netaddress is set, validate it
 	if strings.TrimSpace(s.NetAddress) != "" && m.validateNetAddress {
-		if err := validateNetAddress(s.NetAddress); err != nil {
+		if err := validateHostname(s.NetAddress); err != nil {
 			return fmt.Errorf("failed to validate net address: %w", err)
 		}
 	}
@@ -444,7 +446,9 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
 		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
 
+		rhp2Port: 9982,
 		rhp3Port: 9983,
+		rhp4Port: 9984,
 	}
 
 	for _, opt := range opts {
