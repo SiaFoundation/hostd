@@ -141,7 +141,7 @@ func TestBackup(t *testing.T) {
 
 	newSettings := settings.Settings{
 		MaxContractDuration: 100,
-		NetAddress:          "foo.bar.baz:9981",
+		NetAddress:          "foo.bar.baz",
 		AcceptingContracts:  true,
 	}
 	if err := db.UpdateSettings(newSettings); err != nil {

@@ -134,12 +134,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 		}
 
 		nextHeight := announcement.Index.Height + m.announceInterval
-		netaddress := m.Settings().NetAddress
-		if err := validateNetAddress(netaddress); err != nil && m.validateNetAddress {
-			m.log.Debug("failed to validate net address", zap.Error(err))
-			return nil
-		}
-		shouldAnnounce = index.Height >= nextHeight || announcement.Address != netaddress
+		shouldAnnounce = index.Height >= nextHeight || announcement.Address != m.rhp2NetAddress()
 	} else {
 		announceHash, announceIndex, err := m.store.LastV2AnnouncementHash()
 		if err != nil {
@@ -148,7 +143,12 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 
 		nextHeight := announceIndex.Height + m.announceInterval
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: rhp4.ProtocolTCPSiaMux, Address: m.Settings().NetAddress}})
+		types.EncodeSlice(h.E, chain.V2HostAnnouncement{
+			{
+				Protocol: rhp4.ProtocolTCPSiaMux,
+				Address:  m.rhp4NetAddress(),
+			},
+		})
 		if err := h.E.Flush(); err != nil {
 			return fmt.Errorf("failed to hash v2 announcement: %w", err)
 		}

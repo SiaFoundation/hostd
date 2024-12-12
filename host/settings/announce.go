@@ -20,13 +20,21 @@ type (
 	}
 )
 
+func (m *ConfigManager) rhp2NetAddress() string {
+	return net.JoinHostPort(m.Settings().NetAddress, strconv.Itoa(int(m.rhp2Port)))
+}
+
+func (m *ConfigManager) rhp4NetAddress() string {
+	return net.JoinHostPort(m.Settings().NetAddress, strconv.Itoa(int(m.rhp4Port)))
+}
+
 // Announce announces the host to the network
 func (m *ConfigManager) Announce() error {
 	// get the current settings
 	settings := m.Settings()
 
 	if m.validateNetAddress {
-		if err := validateNetAddress(settings.NetAddress); err != nil {
+		if err := validateHostname(settings.NetAddress); err != nil {
 			return fmt.Errorf("failed to validate net address %q: %w", settings.NetAddress, err)
 		}
 	}
@@ -40,7 +48,7 @@ func (m *ConfigManager) Announce() error {
 			ArbitraryData: [][]byte{
 				chain.HostAnnouncement{
 					PublicKey:  m.hostKey.PublicKey(),
-					NetAddress: settings.NetAddress,
+					NetAddress: m.rhp2NetAddress(),
 				}.ToArbitraryData(m.hostKey),
 			},
 			MinerFees: []types.Currency{minerFee},
@@ -64,7 +72,10 @@ func (m *ConfigManager) Announce() error {
 		txn := types.V2Transaction{
 			Attestations: []types.Attestation{
 				chain.V2HostAnnouncement{
-					{Protocol: rhp4.ProtocolTCPSiaMux, Address: settings.NetAddress}, // TODO: this isn't correct
+					{
+						Protocol: rhp4.ProtocolTCPSiaMux,
+						Address:  m.rhp4NetAddress(),
+					},
 				}.ToAttestation(cs, m.hostKey),
 			},
 			MinerFee: minerFee,
@@ -88,25 +99,12 @@ func (m *ConfigManager) Announce() error {
 	return nil
 }
 
-func validateNetAddress(netaddress string) error {
-	host, port, err := net.SplitHostPort(netaddress)
-	if err != nil {
-		return fmt.Errorf("failed to split net address: %w", err)
-	}
-
+func validateHostname(host string) error {
 	// Check that the host is not empty or localhost.
 	if host == "" {
 		return errors.New("empty net address")
 	} else if host == "localhost" {
 		return errors.New("net address cannot be localhost")
-	}
-
-	// Check that the port is a valid number.
-	n, err := strconv.Atoi(port)
-	if err != nil {
-		return fmt.Errorf("failed to parse port: %w", err)
-	} else if n < 1 || n > 65535 {
-		return errors.New("port must be between 1 and 65535")
 	}
 
 	// If the host is an IP address, check that it is a public IP address.

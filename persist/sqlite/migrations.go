@@ -2,13 +2,34 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.uber.org/zap"
 )
+
+// migrateVersion35 trims the port from the net_address in the host settings
+// table.
+func migrateVersion35(tx *txn, _ *zap.Logger) error {
+	var netaddress string
+	err := tx.QueryRow(`SELECT net_address FROM host_settings`).Scan(&netaddress)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to query host settings: %w", err)
+	}
+	// if parsing fails, return nil
+	host, _, err := net.SplitHostPort(netaddress)
+	if err != nil {
+		return nil
+	}
+	_, err = tx.Exec(`UPDATE host_settings SET net_address = ?`, host)
+	return err
+}
 
 // migrateVersion34 removes the lock tables
 func migrateVersion34(tx *txn, log *zap.Logger) error {
@@ -987,4 +1008,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion32,
 	migrateVersion33,
 	migrateVersion34,
+	migrateVersion35,
 }
