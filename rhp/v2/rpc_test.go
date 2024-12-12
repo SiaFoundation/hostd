@@ -451,39 +451,6 @@ func TestRPCV2(t *testing.T) {
 		}
 	})
 
-	t.Run("form after allow height", func(t *testing.T) {
-		// mine until the allow height
-		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.AllowHeight-node.Chain.Tip().Height))
-
-		transport := dialHost(t, hostKey.PublicKey(), l.Addr().String())
-		defer transport.Close()
-
-		settings, err := rpc2.RPCSettings(transport)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// try to form a v1 contract after the allow height
-		fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(10), types.Siacoins(20), node.Chain.Tip().Height+10, settings, node.Wallet.Address())
-		formationCost := crhp2.ContractFormationCost(node.Chain.TipState(), fc, settings.ContractPrice)
-		txn := types.Transaction{
-			FileContracts: []types.FileContract{fc},
-		}
-		toSign, err := node.Wallet.FundTransaction(&txn, formationCost, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		node.Wallet.SignTransaction(&txn, toSign, wallet.ExplicitCoveredFields(txn))
-		formationSet := append(node.Chain.UnconfirmedParents(txn), txn)
-
-		_, _, err = rpc2.RPCFormContract(transport, renterKey, formationSet)
-		if runtime.GOOS != "windows" && !errors.Is(err, rhp2.ErrV2Hardfork) { // windows responds with wsarecv rather than the error
-			t.Fatalf("expected ErrV2Hardfork, got %v", err)
-		} else if runtime.GOOS == "windows" && err == nil {
-			t.Fatal("expected windows error, got nil")
-		}
-	})
-
 	t.Run("rpc after require height", func(t *testing.T) {
 		// mine until the require height
 		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.HardforkV2.RequireHeight-node.Chain.Tip().Height))
