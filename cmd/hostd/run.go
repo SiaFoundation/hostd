@@ -357,7 +357,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	go rhp3.Serve()
 	defer rhp3.Close()
 
-	rhp4 := rhp4.NewServer(hostKey, cm, s, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute), rhp4.WithContractProofWindowBuffer(72))
+	rhp4 := rhp4.NewServer(hostKey, cm, s, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
 
 	var stopListenerFuncs []func() error
 	defer func() {
