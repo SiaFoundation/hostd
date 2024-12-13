@@ -62,7 +62,7 @@ func V2Network() (*consensus.Network, types.Block) {
 }
 
 // WaitForSync is a helper to wait for the chain and indexer to sync
-func WaitForSync(t *testing.T, cm *chain.Manager, idx *index.Manager) {
+func WaitForSync(t testing.TB, cm *chain.Manager, idx *index.Manager) {
 	t.Helper()
 
 	for {
@@ -74,7 +74,7 @@ func WaitForSync(t *testing.T, cm *chain.Manager, idx *index.Manager) {
 }
 
 // MineBlocks is a helper to mine blocks and broadcast the headers
-func MineBlocks(t *testing.T, cn *ConsensusNode, addr types.Address, n int) {
+func MineBlocks(t testing.TB, cn *ConsensusNode, addr types.Address, n int) {
 	t.Helper()
 
 	for i := 0; i < n; i++ {
@@ -95,7 +95,7 @@ func MineBlocks(t *testing.T, cn *ConsensusNode, addr types.Address, n int) {
 
 // MineAndSync is a helper to mine blocks and wait for the index to catch up
 // between each block
-func MineAndSync(t *testing.T, hn *HostNode, addr types.Address, n int) {
+func MineAndSync(t testing.TB, hn *HostNode, addr types.Address, n int) {
 	t.Helper()
 
 	for i := 0; i < n; i++ {
@@ -106,7 +106,7 @@ func MineAndSync(t *testing.T, hn *HostNode, addr types.Address, n int) {
 
 // NewConsensusNode initializes all of the consensus components and returns them.
 // The function will clean up all resources when the test is done.
-func NewConsensusNode(t *testing.T, network *consensus.Network, genesis types.Block, log *zap.Logger) *ConsensusNode {
+func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Block, log *zap.Logger) *ConsensusNode {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -156,7 +156,7 @@ func NewConsensusNode(t *testing.T, network *consensus.Network, genesis types.Bl
 
 // NewHostNode initializes all of the hostd components and returns them. The function
 // will clean up all resources when the test is done.
-func NewHostNode(t *testing.T, pk types.PrivateKey, network *consensus.Network, genesis types.Block, log *zap.Logger) *HostNode {
+func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, genesis types.Block, log *zap.Logger) *HostNode {
 	t.Helper()
 
 	cn := NewConsensusNode(t, network, genesis, log)
@@ -181,7 +181,7 @@ func NewHostNode(t *testing.T, pk types.PrivateKey, network *consensus.Network, 
 
 	initialSettings := settings.DefaultSettings
 	initialSettings.AcceptingContracts = true
-	initialSettings.NetAddress = "127.0.0.1:9981"
+	initialSettings.NetAddress = "127.0.0.1"
 	initialSettings.WindowSize = 10
 	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings))
 	if err != nil {
