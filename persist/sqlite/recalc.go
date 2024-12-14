@@ -135,33 +135,68 @@ GROUP BY volume_id`
 }
 
 func recalcContractMetrics(tx *txn, log *zap.Logger) error {
-	rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write FROM contracts WHERE contract_status IN (?, ?);`, contracts.ContractStatusActive, contracts.ContractStatusSuccessful)
-	if err != nil {
-		return fmt.Errorf("failed to query contracts: %w", err)
-	}
-	defer rows.Close()
-
 	var totalLocked types.Currency
 	var totalPending, totalEarned contracts.Usage
-	for rows.Next() {
-		var status contracts.ContractStatus
-		var lockedCollateral types.Currency
-		var usage contracts.Usage
 
-		if err := rows.Scan(&status, decode(&lockedCollateral), decode(&usage.RiskedCollateral), decode(&usage.RPCRevenue), decode(&usage.StorageRevenue), decode(&usage.IngressRevenue), decode(&usage.EgressRevenue), decode(&usage.AccountFunding), decode(&usage.RegistryRead), decode(&usage.RegistryWrite)); err != nil {
-			return fmt.Errorf("failed to scan contract: %w", err)
+	err := func() error {
+		rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, registry_read, registry_write FROM contracts WHERE contract_status IN (?, ?);`, contracts.ContractStatusActive, contracts.ContractStatusSuccessful)
+		if err != nil {
+			return fmt.Errorf("failed to query contracts: %w", err)
 		}
+		defer rows.Close()
+		for rows.Next() {
+			var status contracts.ContractStatus
+			var lockedCollateral types.Currency
+			var usage contracts.Usage
 
-		switch status {
-		case contracts.ContractStatusActive:
-			totalLocked = totalLocked.Add(lockedCollateral)
-			totalPending = totalPending.Add(usage)
-		case contracts.ContractStatusSuccessful:
-			totalEarned = totalEarned.Add(usage)
+			if err := rows.Scan(&status, decode(&lockedCollateral), decode(&usage.RiskedCollateral), decode(&usage.RPCRevenue), decode(&usage.StorageRevenue), decode(&usage.IngressRevenue), decode(&usage.EgressRevenue), decode(&usage.AccountFunding), decode(&usage.RegistryRead), decode(&usage.RegistryWrite)); err != nil {
+				return fmt.Errorf("failed to scan contract: %w", err)
+			}
+
+			switch status {
+			case contracts.ContractStatusActive:
+				totalLocked = totalLocked.Add(lockedCollateral)
+				totalPending = totalPending.Add(usage)
+			case contracts.ContractStatusSuccessful:
+				totalEarned = totalEarned.Add(usage)
+			}
 		}
+		return rows.Err()
+	}()
+	if err != nil {
+		return fmt.Errorf("failed to calculate v1 metrics: %w", err)
 	}
 
-	log.Debug("resetting metrics", zap.Stringer("lockedCollateral", totalLocked), zap.Stringer("riskedCollateral", totalPending.RiskedCollateral))
+	err = func() error {
+		rows, err := tx.Query(`SELECT contract_status, locked_collateral, risked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding FROM contracts_v2 WHERE contract_status IN (?, ?, ?);`, contracts.V2ContractStatusActive, contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusRenewed)
+		if err != nil {
+			return fmt.Errorf("failed to query contracts: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var status contracts.V2ContractStatus
+			var lockedCollateral types.Currency
+			var usage contracts.Usage
+
+			if err := rows.Scan(&status, decode(&lockedCollateral), decode(&usage.RiskedCollateral), decode(&usage.RPCRevenue), decode(&usage.StorageRevenue), decode(&usage.IngressRevenue), decode(&usage.EgressRevenue), decode(&usage.AccountFunding), decode(&usage.RegistryRead), decode(&usage.RegistryWrite)); err != nil {
+				return fmt.Errorf("failed to scan contract: %w", err)
+			}
+
+			switch status {
+			case contracts.V2ContractStatusActive:
+				totalLocked = totalLocked.Add(lockedCollateral)
+				totalPending = totalPending.Add(usage)
+			case contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusRenewed:
+				totalEarned = totalEarned.Add(usage)
+			}
+		}
+		return rows.Err()
+	}()
+	if err != nil {
+		return fmt.Errorf("failed to calculate v2 metrics: %w", err)
+	}
+
+	log.Debug("resetting contract metrics", zap.Stringer("lockedCollateral", totalLocked), zap.Stringer("riskedCollateral", totalPending.RiskedCollateral))
 
 	if err := setCurrencyStat(tx, metricLockedCollateral, totalLocked, time.Now()); err != nil {
 		return fmt.Errorf("failed to increment locked collateral: %w", err)
