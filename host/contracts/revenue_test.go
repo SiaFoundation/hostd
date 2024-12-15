@@ -23,6 +23,22 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
+func assertUsage(t *testing.T, a, b contracts.Usage) {
+	t.Helper()
+
+	av := reflect.ValueOf(a)
+	bv := reflect.ValueOf(b)
+	for i := 0; i < av.NumField(); i++ {
+		name := av.Type().Field(i).Name
+		fa, fe := av.Field(i), bv.Field(i)
+		av, ev := fa.Interface().(types.Currency), fe.Interface().(types.Currency)
+
+		if !av.Equals(ev) {
+			t.Fatalf("usage field %q does not match. expected %d, got %d", name, ev, av)
+		}
+	}
+}
+
 func assertRevenue(t *testing.T, s *sqlite.Store, potential, earned metrics.Revenue) {
 	t.Helper()
 
@@ -58,6 +74,16 @@ func assertRevenue(t *testing.T, s *sqlite.Store, potential, earned metrics.Reve
 	}
 }
 
+func assertContractUsage(t *testing.T, cm *contracts.Manager, fcid types.FileContractID, usage contracts.Usage) {
+	t.Helper()
+
+	rev, err := cm.Contract(fcid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertUsage(t, usage, rev.Usage)
+}
+
 func TestRevenueMetrics(t *testing.T) {
 	t.Run("successful", func(t *testing.T) {
 		log := zaptest.NewLogger(t)
@@ -76,7 +102,12 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		expectedUsage := contracts.Usage{
+			RPCRevenue: settings.ContractPrice,
+		}
 		revision := formContract(t, host.Chain, host.Contracts, host.Wallet, host.Syncer, host.Settings, renterKey, hostKey, types.Siacoins(100), types.Siacoins(200), 10, true)
+
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		// contract revenue is not expected until the contract is active
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
@@ -117,13 +148,16 @@ func TestRevenueMetrics(t *testing.T) {
 
 		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
 		expectedPotential.Storage = expectedPotential.Storage.Add(types.Siacoins(1))
+		expectedUsage.StorageRevenue = expectedUsage.StorageRevenue.Add(types.Siacoins(1))
 		// check that the revenue metrics were updated
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		reviseContract(t, contracts.Usage{
 			IngressRevenue: types.NewCurrency64(1000),
 		})
 		expectedPotential.Ingress = expectedPotential.Ingress.Add(types.NewCurrency64(1000))
+		expectedUsage.IngressRevenue = expectedUsage.IngressRevenue.Add(types.NewCurrency64(1000))
 
 		// fund an account
 		accountID := proto3.Account(renterKey.PublicKey())
@@ -138,6 +172,29 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(types.NewCurrency64(1))
+		expectedUsage.RPCRevenue = expectedUsage.RPCRevenue.Add(types.NewCurrency64(1))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Add(types.Siacoins(1))
+
+		// spend from the account
+		b, err := host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = b.Spend(accounts.Usage{
+			StorageRevenue: types.Siacoins(1).Div64(10),
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := b.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		expectedUsage.StorageRevenue = expectedUsage.StorageRevenue.Add(types.Siacoins(1).Div64(10))
+		expectedPotential.Storage = expectedPotential.Storage.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Sub(types.Siacoins(1).Div64(10))
+
+		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		// mine until the contract is successful
 		testutil.MineAndSync(t, host, types.VoidAddress, int(revision.Revision.WindowEnd-host.Chain.Tip().Height+1))
@@ -146,9 +203,10 @@ func TestRevenueMetrics(t *testing.T) {
 		expectedEarned = expectedPotential
 		expectedPotential = metrics.Revenue{}
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		// spend from the account
-		b, err := host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
+		b, err = host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,7 +223,11 @@ func TestRevenueMetrics(t *testing.T) {
 
 		expectedEarned.Ingress = expectedEarned.Ingress.Add(types.Siacoins(1).Div64(10))
 		expectedEarned.Egress = expectedEarned.Egress.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Sub(types.Siacoins(1).Div64(10)).Sub(types.Siacoins(1).Div64(10))
+		expectedUsage.IngressRevenue = expectedUsage.IngressRevenue.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.EgressRevenue = expectedUsage.EgressRevenue.Add(types.Siacoins(1).Div64(10))
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 	})
 
 	t.Run("failed", func(t *testing.T) {
@@ -185,10 +247,14 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		expectedUsage := contracts.Usage{
+			RPCRevenue: settings.ContractPrice,
+		}
 		revision := formContract(t, host.Chain, host.Contracts, host.Wallet, host.Syncer, host.Settings, renterKey, hostKey, types.Siacoins(100), types.Siacoins(200), 10, true)
 
 		// contract revenue is not expected until the contract is active
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		reviseContract := func(t *testing.T, usage contracts.Usage) {
 			t.Helper()
@@ -229,8 +295,10 @@ func TestRevenueMetrics(t *testing.T) {
 
 		expectedPotential.RPC = expectedPotential.RPC.Add(settings.ContractPrice)
 		expectedPotential.Storage = expectedPotential.Storage.Add(types.Siacoins(1))
+		expectedUsage.StorageRevenue = expectedUsage.StorageRevenue.Add(types.Siacoins(1))
 		// check that the revenue metrics were updated
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		// fund an account
 		accountID := proto3.Account(renterKey.PublicKey())
@@ -245,7 +313,32 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 		expectedPotential.RPC = expectedPotential.RPC.Add(types.NewCurrency64(1))
+		expectedUsage.RPCRevenue = expectedUsage.RPCRevenue.Add(types.NewCurrency64(1))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Add(types.Siacoins(1))
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
+
+		// spend from the account
+		b, err := host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = b.Spend(accounts.Usage{
+			StorageRevenue: types.Siacoins(1).Div64(10),
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := b.Commit(); err != nil {
+			t.Fatal(err)
+		}
+
+		expectedUsage.StorageRevenue = expectedUsage.StorageRevenue.Add(types.Siacoins(1).Div64(10))
+		expectedPotential.Storage = expectedPotential.Storage.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Sub(types.Siacoins(1).Div64(10))
+
+		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		// mine until the contract has expired
 		testutil.MineAndSync(t, host, types.VoidAddress, int(revision.Revision.WindowEnd-host.Chain.Tip().Height+1))
@@ -255,7 +348,7 @@ func TestRevenueMetrics(t *testing.T) {
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
 
 		// spend from the account
-		b, err := host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
+		b, err = host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,8 +363,12 @@ func TestRevenueMetrics(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// check that the revenue metrics are still empty
+		// earned usage will not change
+		expectedUsage.IngressRevenue = expectedUsage.IngressRevenue.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.EgressRevenue = expectedUsage.EgressRevenue.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Sub(types.Siacoins(1).Div64(10)).Sub(types.Siacoins(1).Div64(10))
 		assertRevenue(t, host.Store, expectedPotential, expectedEarned)
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 	})
 
 	t.Run("rejected", func(t *testing.T) {
@@ -287,9 +384,14 @@ func TestRevenueMetrics(t *testing.T) {
 		renterFunds := types.Siacoins(100)
 		hostFunds := types.Siacoins(200)
 
+		settings, err := host.Settings.RHP2Settings()
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterFunds, hostFunds, host.Chain.Tip().Height+10, rhp2.HostSettings{WindowSize: 10}, host.Wallet.Address())
 		state := host.Chain.TipState()
-		formationCost := rhp2.ContractFormationCost(state, contract, types.ZeroCurrency)
+		formationCost := rhp2.ContractFormationCost(state, contract, settings.ContractPrice)
 		contractUnlockConditions := types.UnlockConditions{
 			PublicKeys: []types.UnlockKey{
 				renterKey.PublicKey().UnlockKey(),
@@ -320,12 +422,19 @@ func TestRevenueMetrics(t *testing.T) {
 			HostSignature:   hostKey.SignHash(sigHash),
 			RenterSignature: renterKey.SignHash(sigHash),
 		}
-		if err := host.Contracts.AddContract(revision, formationSet, hostFunds, contracts.Usage{}); err != nil {
+		err = host.Contracts.AddContract(revision, formationSet, hostFunds, contracts.Usage{
+			RPCRevenue: settings.ContractPrice,
+		})
+		if err != nil {
 			t.Fatal(err)
+		}
+		expectedUsage := contracts.Usage{
+			RPCRevenue: settings.ContractPrice,
 		}
 
 		// contract revenue is not expected until the contract is active
 		assertRevenue(t, host.Store, metrics.Revenue{}, metrics.Revenue{})
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		reviseContract := func(t *testing.T, usage contracts.Usage) {
 			t.Helper()
@@ -357,12 +466,14 @@ func TestRevenueMetrics(t *testing.T) {
 		reviseContract(t, contracts.Usage{
 			StorageRevenue: types.Siacoins(1),
 		})
+		expectedUsage.StorageRevenue = expectedUsage.StorageRevenue.Add(types.Siacoins(1))
 
 		// mine a block, the contract should not be active
 		testutil.MineAndSync(t, host, host.Wallet.Address(), 1)
 
 		// contract revenue is not expected until the contract is active
 		assertRevenue(t, host.Store, metrics.Revenue{}, metrics.Revenue{})
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		// fund an account
 		accountID := proto3.Account(renterKey.PublicKey())
@@ -376,18 +487,42 @@ func TestRevenueMetrics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		expectedUsage.RPCRevenue = expectedUsage.RPCRevenue.Add(types.NewCurrency64(1))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Add(types.Siacoins(1))
 
 		// contract revenue is not expected until the contract is active
 		assertRevenue(t, host.Store, metrics.Revenue{}, metrics.Revenue{})
-
-		// mine until the contract is successful
-		testutil.MineAndSync(t, host, types.VoidAddress, int(revision.Revision.WindowEnd-host.Chain.Tip().Height+1))
-
-		// contract revenue is not expected until the contract is active
-		assertRevenue(t, host.Store, metrics.Revenue{}, metrics.Revenue{})
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 
 		// spend from the account
 		b, err := host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = b.Spend(accounts.Usage{
+			StorageRevenue: types.Siacoins(1).Div64(5),
+		})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := b.Commit(); err != nil {
+			t.Fatal(err)
+		}
+
+		expectedUsage.StorageRevenue = expectedUsage.StorageRevenue.Add(types.Siacoins(1).Div64(5))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Sub(types.Siacoins(1).Div64(5))
+		assertRevenue(t, host.Store, metrics.Revenue{}, metrics.Revenue{})
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
+
+		// mine until the contract is expired
+		testutil.MineAndSync(t, host, types.VoidAddress, int(revision.Revision.WindowEnd-host.Chain.Tip().Height+1))
+
+		// contract revenue is not expected unless the contract is active
+		assertRevenue(t, host.Store, metrics.Revenue{}, metrics.Revenue{})
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
+
+		// spend from the account
+		b, err = host.Accounts.Budget(accountID, types.Siacoins(1).Div64(5))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -401,8 +536,10 @@ func TestRevenueMetrics(t *testing.T) {
 		} else if err := b.Commit(); err != nil {
 			t.Fatal(err)
 		}
-
-		// contract revenue is not expected until the contract is active
+		expectedUsage.IngressRevenue = expectedUsage.IngressRevenue.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.EgressRevenue = expectedUsage.EgressRevenue.Add(types.Siacoins(1).Div64(10))
+		expectedUsage.AccountFunding = expectedUsage.AccountFunding.Sub(types.Siacoins(1).Div64(10)).Sub(types.Siacoins(1).Div64(10))
 		assertRevenue(t, host.Store, metrics.Revenue{}, metrics.Revenue{})
+		assertContractUsage(t, cm, revision.Revision.ParentID, expectedUsage)
 	})
 }

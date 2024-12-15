@@ -440,10 +440,6 @@ func distributeRHP3AccountUsage(tx *txn, accountID int64, usage accounts.Usage, 
 		distributeFunds(&usage.RegistryWrite, &additionalUsage.RegistryWrite, &remainder)
 		distributeFunds(&usage.RPCRevenue, &additionalUsage.RPCRevenue, &remainder)
 
-		// add the additional usage to the contract
-		if err := incrementContractUsage(tx, f.ContractID, additionalUsage); err != nil {
-			return fmt.Errorf("failed to increment contract usage: %w", err)
-		}
 		// update the remaining value for the funding source
 		if err := setContractAccountFunding(tx, f.ID, remainder); err != nil {
 			return fmt.Errorf("failed to set account funding: %w", err)
