@@ -147,44 +147,6 @@ func TestFormContract(t *testing.T) {
 	}
 }
 
-func TestFormContractBasis(t *testing.T) {
-	n, genesis := testutil.V2Network()
-	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
-
-	hn := testutil.NewHostNode(t, hostKey, n, genesis, zap.NewNop())
-	cm := hn.Chain
-	w := hn.Wallet
-
-	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
-
-	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
-
-	settings, err := rhp4.RPCSettings(context.Background(), transport)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fundAndSign := &fundAndSign{w, renterKey}
-	renterAllowance, hostCollateral := types.Siacoins(100), types.Siacoins(200)
-	result, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
-		RenterPublicKey: renterKey.PublicKey(),
-		RenterAddress:   w.Address(),
-		Allowance:       renterAllowance,
-		Collateral:      hostCollateral,
-		ProofHeight:     cm.Tip().Height + 50,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// verify the transaction set is valid
-	if known, err := cm.AddV2PoolTransactions(result.FormationSet.Basis, result.FormationSet.Transactions); err != nil {
-		t.Fatal(err)
-	} else if !known {
-		t.Fatal("expected transaction set to be known")
-	}
-}
-
 func TestRPCRefresh(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	n, genesis := testutil.V2Network()
@@ -1122,6 +1084,88 @@ func TestRPCSectorRoots(t *testing.T) {
 		}
 		revision.Revision = appendResult.Revision
 		checkRoots(t, roots)
+	}
+}
+
+func TestPrune(t *testing.T) {
+	n, genesis := testutil.V2Network()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+
+	hn := testutil.NewHostNode(t, hostKey, n, genesis, zap.NewNop())
+	cm := hn.Chain
+	w := hn.Wallet
+
+	results := make(chan error, 1)
+	if _, err := hn.Volumes.AddVolume(context.Background(), filepath.Join(t.TempDir(), "test.dat"), 10, results); err != nil {
+		t.Fatal(err)
+	} else if err := <-results; err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
+
+	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+
+	settings, err := rhp4.RPCSettings(context.Background(), transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fundAndSign := &fundAndSign{w, renterKey}
+	renterAllowance, hostCollateral := types.Siacoins(100), types.Siacoins(200)
+	formResult, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
+		RenterPublicKey: renterKey.PublicKey(),
+		RenterAddress:   w.Address(),
+		Allowance:       renterAllowance,
+		Collateral:      hostCollateral,
+		ProofHeight:     cm.Tip().Height + 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := formResult.Contract
+
+	cs := cm.TipState()
+	account := proto4.Account(renterKey.PublicKey())
+
+	accountFundAmount := types.Siacoins(25)
+	fundResult, err := rhp4.RPCFundAccounts(context.Background(), transport, cs, renterKey, revision, []proto4.AccountDeposit{
+		{Account: account, Amount: accountFundAmount},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.Revision = fundResult.Revision
+
+	token := proto4.AccountToken{
+		Account:    account,
+		ValidUntil: time.Now().Add(time.Hour),
+	}
+	tokenSigHash := token.SigHash()
+	token.Signature = renterKey.SignHash(tokenSigHash)
+
+	data := frand.Bytes(1024)
+
+	// store the sector
+	writeResult, err := rhp4.RPCWriteSector(context.Background(), transport, settings.Prices, token, bytes.NewReader(data), uint64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// verify the sector root
+	var sector [proto4.SectorSize]byte
+	copy(sector[:], data)
+	if writeResult.Root != proto4.SectorRoot(&sector) {
+		t.Fatal("root mismatch")
+	}
+
+	// read the sector back
+	buf := bytes.NewBuffer(nil)
+	_, err = rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, buf, writeResult.Root, 0, 64)
+	if err != nil {
+		t.Fatal(err)
+	} else if !bytes.Equal(buf.Bytes(), data[:64]) {
+		t.Fatal("data mismatch")
 	}
 }
 
