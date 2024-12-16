@@ -12,6 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion37 recalculates the contract metrics to remove the pending contract
+// values from the metrics.
+func migrateVersion37(tx *txn, log *zap.Logger) error {
+	return recalcContractMetrics(tx, log)
+}
+
 // migrateVersion36 recalculates the contract metrics to remove the pending contract
 // values from the metrics.
 func migrateVersion36(tx *txn, log *zap.Logger) error {
@@ -1016,4 +1022,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion34,
 	migrateVersion35,
 	migrateVersion36,
+	migrateVersion37,
 }
