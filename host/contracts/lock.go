@@ -137,7 +137,7 @@ func (cm *Manager) LockV2Contract(id types.FileContractID) (rev rhp4.RevisionSta
 	revisable := !renewed && cm.chain.Tip().Height < maxRevisionHeight
 	return rhp4.RevisionState{
 			Revision:  contract.V2FileContract,
-			Renewed:   contract.RenewedTo != (types.FileContractID{}),
+			Renewed:   renewed,
 			Revisable: revisable,
 			Roots:     cm.getSectorRoots(id),
 		}, func() {
