@@ -178,7 +178,7 @@ func recalcContractMetrics(tx *txn, log *zap.Logger) error {
 			var lockedCollateral types.Currency
 			var usage contracts.Usage
 
-			if err := rows.Scan(&status, decode(&lockedCollateral), decode(&usage.RiskedCollateral), decode(&usage.RPCRevenue), decode(&usage.StorageRevenue), decode(&usage.IngressRevenue), decode(&usage.EgressRevenue), decode(&usage.AccountFunding), decode(&usage.RegistryRead), decode(&usage.RegistryWrite)); err != nil {
+			if err := rows.Scan(&status, decode(&lockedCollateral), decode(&usage.RiskedCollateral), decode(&usage.RPCRevenue), decode(&usage.StorageRevenue), decode(&usage.IngressRevenue), decode(&usage.EgressRevenue), decode(&usage.AccountFunding)); err != nil {
 				return fmt.Errorf("failed to scan contract: %w", err)
 			}
 
