@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -339,7 +338,7 @@ func main() {
 
 		runConfigCmd()
 	case recalculateCmd:
-		if len(flag.Args()) != 1 {
+		if len(cmd.Args()) != 1 {
 			cmd.Usage()
 			return
 		}
@@ -380,7 +379,7 @@ func main() {
 		// check that the wallet seed is set
 		if cfg.RecoveryPhrase == "" {
 			if disableStdin {
-				checkFatalError("wallet seed not set", errors.New("Wallet seed must be set via environment variable or config file when --env flag is set"))
+				checkFatalError("wallet seed not set", errors.New("wallet seed must be set via environment variable or config file when --env flag is set"))
 			}
 			setSeedPhrase()
 		}
