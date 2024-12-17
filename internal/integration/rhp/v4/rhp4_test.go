@@ -6,6 +6,7 @@ import (
 	"net"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1118,7 +1119,7 @@ func TestPrune(t *testing.T) {
 		RenterAddress:   w.Address(),
 		Allowance:       renterAllowance,
 		Collateral:      hostCollateral,
-		ProofHeight:     cm.Tip().Height + 50,
+		ProofHeight:     cm.Tip().Height + proto4.TempSectorDuration + 10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1144,29 +1145,64 @@ func TestPrune(t *testing.T) {
 	tokenSigHash := token.SigHash()
 	token.Signature = renterKey.SignHash(tokenSigHash)
 
-	data := frand.Bytes(1024)
+	tempExpirationHeight := cm.Tip().Height + proto4.TempSectorDuration
+	roots := make([]types.Hash256, 10)
+	for i := 0; i < len(roots); i++ {
+		data := frand.Bytes(1024)
 
-	// store the sector
-	writeResult, err := rhp4.RPCWriteSector(context.Background(), transport, settings.Prices, token, bytes.NewReader(data), uint64(len(data)))
+		// store the sector
+		writeResult, err := rhp4.RPCWriteSector(context.Background(), transport, settings.Prices, token, bytes.NewReader(data), uint64(len(data)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots[i] = writeResult.Root
+	}
+
+	assertSectors := func(t *testing.T, available, deleted []types.Hash256) {
+		t.Helper()
+
+		buf := bytes.NewBuffer(nil)
+		for _, root := range available {
+			buf.Reset()
+
+			_, err := rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, buf, root, 0, proto4.SectorSize)
+			if err != nil {
+				t.Fatal(err)
+			} else if r2 := proto4.SectorRoot((*[4194304]byte)(buf.Bytes())); root != r2 {
+				t.Fatalf("expected root %q, got %q", root, r2)
+			}
+		}
+
+		for _, root := range deleted {
+			buf.Reset()
+
+			_, err := rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, buf, root, 0, proto4.SectorSize)
+			if err == nil || !strings.Contains(err.Error(), "sector not found") {
+				t.Fatalf("expected err %q, got %q", proto4.ErrSectorNotFound, err)
+			}
+		}
+	}
+
+	tempSectors, contractSectors := roots[:len(roots)/2], roots[len(roots)/2:]
+
+	appendResult, err := rhp4.RPCAppendSectors(context.Background(), transport, cm.TipState(), settings.Prices, renterKey, revision, contractSectors)
 	if err != nil {
 		t.Fatal(err)
+	} else if !slices.Equal(appendResult.Sectors, contractSectors) {
+		t.Fatal("expect contract sectors")
 	}
 
-	// verify the sector root
-	var sector [proto4.SectorSize]byte
-	copy(sector[:], data)
-	if writeResult.Root != proto4.SectorRoot(&sector) {
-		t.Fatal("root mismatch")
-	}
+	assertSectors(t, roots, nil)
 
-	// read the sector back
-	buf := bytes.NewBuffer(nil)
-	_, err = rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, buf, writeResult.Root, 0, 64)
-	if err != nil {
-		t.Fatal(err)
-	} else if !bytes.Equal(buf.Bytes(), data[:64]) {
-		t.Fatal("data mismatch")
-	}
+	// mine until the temp sector expire
+	testutil.MineAndSync(t, hn, types.VoidAddress, int(tempExpirationHeight-cm.Tip().Height)+1)
+	time.Sleep(time.Second) // wait for the sectors to be pruned
+	assertSectors(t, contractSectors, tempSectors)
+
+	// mine until the contract sector expires
+	testutil.MineAndSync(t, hn, types.VoidAddress, int(revision.Revision.ExpirationHeight-cm.Tip().Height)+1)
+	time.Sleep(time.Second)
+	assertSectors(t, nil, roots)
 }
 
 func BenchmarkWrite(b *testing.B) {
