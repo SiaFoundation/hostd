@@ -87,11 +87,7 @@ func (m *ConfigManager) resetDDNS() {
 // UpdateDDNS triggers an update of the host's dynamic DNS records.
 func (m *ConfigManager) UpdateDDNS(force bool) error {
 	m.mu.Lock()
-	hostname, _, err := net.SplitHostPort(m.settings.NetAddress)
-	if err != nil {
-		m.mu.Unlock()
-		return fmt.Errorf("failed to split netaddress host and port: %w", err)
-	}
+	hostname := m.settings.NetAddress
 	settings := m.settings.DDNS
 	lastIPv4, lastIPv6 := m.lastIPv4, m.lastIPv6
 	m.mu.Unlock()
@@ -100,6 +96,7 @@ func (m *ConfigManager) UpdateDDNS(force bool) error {
 		lastIPv4, lastIPv6 = nil, nil
 	}
 
+	var err error
 	var ipv4 net.IP
 	if settings.IPv4 {
 		// get the IPv4 address

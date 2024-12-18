@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -102,9 +103,13 @@ func (m *ConfigManager) Announce() error {
 func validateHostname(host string) error {
 	// Check that the host is not empty or localhost.
 	if host == "" {
-		return errors.New("empty net address")
+		return errors.New("empty hostname")
 	} else if host == "localhost" {
-		return errors.New("net address cannot be localhost")
+		return errors.New("hostname cannot be localhost")
+	} else if _, _, err := net.SplitHostPort(host); err == nil {
+		return errors.New("hostname should not contain a port")
+	} else if strings.HasPrefix(host, "[") || strings.HasSuffix(host, "]") {
+		return errors.New(`hostname must not start with "[" or end with "]"`)
 	}
 
 	// If the host is an IP address, check that it is a public IP address.
