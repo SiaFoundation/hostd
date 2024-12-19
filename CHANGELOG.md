@@ -1,3 +1,35 @@
+## 2.0.0 (2024-12-19)
+
+### Breaking Changes
+
+- Remove RHP Session endpoints
+
+### Features
+
+- Add support for RHP4 settings
+- Add RHP4 listener
+- Add support for RHP4 announcements
+- Add support for RHP4 accounts
+- Support announcing RHP4 addresses
+
+#### Refactor Sector Management
+
+Improves sector lookups by 50% on average by removing the sector lock tables and moving reference pruning out of the hot path.
+
+### Fixes
+
+- potentially panic on double unlock
+- panic in wallet resp
+- fix column spelling
+- fix ordering on query
+- Add missing netaddress port in RHP2 settings
+- Recalculate contract metrics
+- Fix contract account usage calculation
+- Fix contract metric calculation during rescan
+- Fix DDNS using invalid net address
+- Automate changelog generation
+- Move RHP2 and RHP3 settings into the config manager to be consistent with RHP4
+
 ## 1.1.2
 
 ### Breaking changes
