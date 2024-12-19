@@ -106,7 +106,7 @@ func updateConfigV112(fp string, r io.Reader, cfg *Config) error {
 				Level      string `yaml:"level,omitempty"`
 				Enabled    bool   `yaml:"enabled,omitempty"`
 				Format     string `yaml:"format,omitempty"`
-				EnableANSI bool   `yaml:"enableANSI,omitempty"`
+				EnableANSI bool   `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
 			}{
 				Level:   "info",
 				Enabled: true,
