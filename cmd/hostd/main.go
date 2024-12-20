@@ -103,8 +103,7 @@ func tryLoadConfig() {
 	}
 
 	if err := config.LoadFile(configPath, &cfg); err != nil && !errors.Is(err, os.ErrNotExist) {
-		fmt.Println("failed to load config file:", err)
-		os.Exit(1)
+		checkFatalError("failed to load config file", err)
 	}
 }
 
