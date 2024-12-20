@@ -205,7 +205,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	if err != nil {
 		return fmt.Errorf("failed to create chain store: %w", err)
 	}
-	cm := chain.NewManager(dbstore, tipState)
+	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {
