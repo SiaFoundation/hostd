@@ -2,6 +2,7 @@ package rhp
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"net"
 
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
@@ -29,7 +30,9 @@ func ServeRHP4SiaMux(l net.Listener, s *rhp4.Server, log *zap.Logger) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Error("failed to accept connection", zap.Error(err))
+			if !errors.Is(err, net.ErrClosed) {
+				log.Error("failed to accept connection", zap.Error(err))
+			}
 			return
 		}
 		log := log.With(zap.String("peerAddress", conn.RemoteAddr().String()))
