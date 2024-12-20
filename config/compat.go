@@ -143,7 +143,7 @@ func updateConfigV112(fp string, r io.Reader, cfg *Config) error {
 	cfg.RHP2.Address = old.RHP2.Address
 	cfg.RHP3.TCPAddress = old.RHP3.TCPAddress
 	cfg.Log.Level = old.Log.Level
-	if cfg.Log.File.Path != "" {
+	if old.Log.File.Path != "" {
 		cfg.Log.File.Path = old.Log.File.Path
 	} else {
 		cfg.Log.File.Path = old.Log.Path
@@ -155,9 +155,9 @@ func updateConfigV112(fp string, r io.Reader, cfg *Config) error {
 	cfg.Log.File.Enabled = old.Log.File.Enabled
 	cfg.Log.File.Level = old.Log.File.Level
 	cfg.Log.File.Format = old.Log.File.Format
-	cfg.Log.File.Path = old.Log.File.Path
 
-	f, err := os.Create(fp)
+	tmpFilePath := fp + ".tmp"
+	f, err := os.Create(tmpFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
@@ -167,6 +167,12 @@ func updateConfigV112(fp string, r io.Reader, cfg *Config) error {
 	enc.SetIndent(2)
 	if err := enc.Encode(cfg); err != nil {
 		return fmt.Errorf("failed to encode config file: %w", err)
+	} else if err := f.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
+	} else if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close file: %w", err)
+	} else if err := os.Rename(tmpFilePath, fp); err != nil {
+		return fmt.Errorf("failed to rename file: %w", err)
 	}
 	return nil
 }
