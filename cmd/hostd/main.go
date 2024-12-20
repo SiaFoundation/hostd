@@ -18,7 +18,6 @@ import (
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"gopkg.in/yaml.v3"
 	"lukechampine.com/flagg"
 )
 
@@ -65,7 +64,6 @@ var (
 			},
 		},
 		Log: config.Log{
-			Path:  os.Getenv(logFileEnvVar), // deprecated. included for compatibility.
 			Level: "info",
 			File: config.LogFile{
 				Enabled: true,
@@ -104,21 +102,8 @@ func tryLoadConfig() {
 		configPath = str
 	}
 
-	// If the config file doesn't exist, don't try to load it.
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return
-	}
-
-	f, err := os.Open(configPath)
-	checkFatalError("failed to open config file", err)
-	defer f.Close()
-
-	dec := yaml.NewDecoder(f)
-	dec.KnownFields(true)
-
-	if err := dec.Decode(&cfg); err != nil {
-		fmt.Println("failed to decode config file:", err)
-		os.Exit(1)
+	if err := config.LoadFile(configPath, &cfg); err != nil && !errors.Is(err, os.ErrNotExist) {
+		checkFatalError("failed to load config file", err)
 	}
 }
 
@@ -427,13 +412,7 @@ func main() {
 
 			// normalize log path
 			if cfg.Log.File.Path == "" {
-				// If the log path is not set, try the deprecated log path. If that
-				// is also not set, default to hostd.log in the data directory.
-				if cfg.Log.Path != "" {
-					cfg.Log.File.Path = filepath.Join(cfg.Log.Path, "hostd.log")
-				} else {
-					cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
-				}
+				cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
 			}
 
 			// configure file logging
