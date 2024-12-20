@@ -61,6 +61,7 @@ type configV112 struct {
 // It returns an error if the config file cannot be updated.
 func updateConfigV112(fp string, r io.Reader, cfg *Config) error {
 	dec := yaml.NewDecoder(r)
+	dec.KnownFields(true)
 
 	old := configV112{
 		Consensus: struct {
