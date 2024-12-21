@@ -29,20 +29,59 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 + `9981` - Sia consensus
 + `9982` - RHP2
 + `9983` - RHP3
++ `9984` - RHP4
 
 ### Environment Variables
 + `HOSTD_API_PASSWORD` - The password for the UI and API
-+ `HOSTD_SEED` - The recovery phrase for the wallet
++ `HOSTD_WALLET_SEED` - The recovery phrase for the wallet
 + `HOSTD_LOG_FILE` - changes the location of the log file. If unset, the
   log file will be created in the data directory
 + `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
   `hostd` will check for a config file in the current directory
 
+### YAML
+The YAML config file is the preferred way to configure a `hostd` node. It defaults to `hostd.yml`
+in the current directory, but can be changed with the `HOSTD_CONFIG_FILE` environment variable.
+All fields are optional except `recoveryPhrase`.
+
+```yaml
+directory: /etc/hostd
+recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect potato weapon bid
+http:
+  address: :9980
+  password: sia is cool
+syncer:
+  address: :9981
+  bootstrap: true
+consensus:
+  network: mainnet
+  indexBatchSize: 100
+rhp2:
+  address: :9982
+rhp3:
+  tcp: :9983
+rhp4:
+  listenAddresses:
+    - protocol: tcp # tcp, tcp4, or tcp6
+      address: :9984
+log:
+  level: info # global log level
+  stdout:
+    enabled: true # enable logging to stdout
+    level: info # log level for console logger
+    format: human # log format (human, json)
+    enableANSI: true # enable ANSI color codes (disabled on Windows)
+  file:
+    enabled: true # enable logging to file
+    level: info # log level for file logger
+    path: /var/log/hostd/hostd.log # the path of the log file
+    format: json # log format (human, json)
+```
 
 ### CLI Flags
 ```sh
 -dir string
-	directory to store hostd metadata (default "/Users/n8maninger/Downloads/hostd-core-tmp")
+	directory to store hostd metadata defaults to the current directory
 -http string
 	address to serve API on (default "localhost:9980")
 -log.level string
@@ -63,42 +102,6 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 	address to listen on for TCP RHP3 connections (default ":9983")
 -env
 	disable stdin prompts for environment variables (default false)
-```
-
-### YAML
-All environment variables and CLI flags can be set via a YAML config file. The
-config file defaults to `hostd.yml` in the current directory, but can be changed
-with the `HOSTD_CONFIG_FILE` environment variable. All fields are optional and
-default to the same values as the CLI flags.
-
-```yaml
-directory: /etc/hostd
-recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect potato weapon bid
-http:
-  address: :9980
-  password: sia is cool
-syncer:
-  address: :9981
-  bootstrap: true
-consensus:
-  network: mainnet
-  indexBatchSize: 100
-rhp2:
-  address: :9982
-rhp3:
-  tcp: :9983
-log:
-  level: info # global log level
-  stdout:
-    enabled: true # enable logging to stdout
-    level: info # log level for console logger
-    format: human # log format (human, json)
-    enableANSI: true # enable ANSI color codes (disabled on Windows)
-  file:
-    enabled: true # enable logging to file
-    level: info # log level for file logger
-    path: /var/log/hostd/hostd.log # the path of the log file
-    format: json # log format (human, json)
 ```
 
 # Building
