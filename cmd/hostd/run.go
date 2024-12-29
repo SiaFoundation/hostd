@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -40,6 +41,32 @@ import (
 	"go.uber.org/zap"
 	"lukechampine.com/upnp"
 )
+
+func defaultDatabasePath(fp string) string {
+	// use the provided path if it's not empty
+	if fp != "" {
+		return fp
+	}
+
+	// check for databases in the current directory
+	if _, err := os.Stat("hostd.db"); err == nil {
+		return "."
+	} else if _, err := os.Stat("hostd.sqlite3"); err == nil {
+		return "."
+	}
+
+	// default to the operating system's application directory
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(os.Getenv("APPDATA"), "hostd")
+	case "darwin":
+		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "hostd")
+	case "linux", "freebsd", "openbsd":
+		return filepath.Join("/var", "lib", "hostd")
+	default:
+		return "."
+	}
+}
 
 func setupUPNP(ctx context.Context, port uint16, log *zap.Logger) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
