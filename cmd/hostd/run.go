@@ -62,7 +62,7 @@ func defaultDatabasePath(fp string) string {
 	case "darwin":
 		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "hostd")
 	case "linux", "freebsd", "openbsd":
-		return filepath.Join("/var", "lib", "hostd")
+		return filepath.Join(string(filepath.Separator), "var", "lib", "hostd")
 	default:
 		return "."
 	}

@@ -261,7 +261,7 @@ func configPath() string {
 	case "darwin":
 		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "hostd", "hostd.yml")
 	case "linux", "freebsd", "openbsd":
-		return filepath.Join("/etc", "hostd", "hostd.yml")
+		return filepath.Join(string(filepath.Separator), "etc", "hostd", "hostd.yml")
 	default:
 		return "hostd.yml"
 	}

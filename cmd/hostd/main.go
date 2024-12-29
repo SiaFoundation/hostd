@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -26,11 +25,13 @@ const (
 	walletSeedEnvVar  = "HOSTD_WALLET_SEED"
 	apiPasswordEnvVar = "HOSTD_API_PASSWORD"
 	configFileEnvVar  = "HOSTD_CONFIG_FILE"
+	dataDirEnvVar     = "HOSTD_DATA_DIR"
 	logFileEnvVar     = "HOSTD_LOG_FILE_PATH"
 )
 
 var (
 	cfg = config.Config{
+		Directory:      os.Getenv(dataDirEnvVar),    // default to env variable
 		RecoveryPhrase: os.Getenv(walletSeedEnvVar), // default to env variable
 		AutoOpenWebUI:  true,
 
@@ -109,8 +110,8 @@ func tryConfigPaths() []string {
 		paths = append(paths, filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "hostd", "hostd.yml"))
 	case "linux", "freebsd", "openbsd":
 		paths = append(paths,
-			filepath.Join("/etc", "hostd", "hostd.yml"), // prefer /etc over /var
-			filepath.Join("/var", "lib", "hostd", "hostd.yml"),
+			filepath.Join(string(filepath.Separator), "etc", "hostd", "hostd.yml"),
+			filepath.Join(string(filepath.Separator), "var", "lib", "hostd", "hostd.yml"), // old default for the Linux service
 			filepath.Join(os.Getenv("HOME"), ".hostd", "hostd.yml"),
 		)
 	}
@@ -277,7 +278,6 @@ func main() {
 	configPath := tryLoadConfig()
 	// set the data directory to the default if it is not set
 	cfg.Directory = defaultDatabasePath(cfg.Directory)
-	log.Println(cfg.Directory)
 
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
