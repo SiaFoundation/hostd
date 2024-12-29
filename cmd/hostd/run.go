@@ -50,9 +50,9 @@ func defaultDataDirectory(fp string) string {
 
 	// check for databases in the current directory
 	if _, err := os.Stat("hostd.db"); err == nil {
-		return "."
+		return ""
 	} else if _, err := os.Stat("hostd.sqlite3"); err == nil {
-		return "."
+		return ""
 	}
 
 	// default to the operating system's application directory
