@@ -42,7 +42,7 @@ import (
 	"lukechampine.com/upnp"
 )
 
-func defaultDatabasePath(fp string) string {
+func defaultDataDirectory(fp string) string {
 	// use the provided path if it's not empty
 	if fp != "" {
 		return fp

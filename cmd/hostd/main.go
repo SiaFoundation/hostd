@@ -277,7 +277,7 @@ func main() {
 	// values set in the config file
 	configPath := tryLoadConfig()
 	// set the data directory to the default if it is not set
-	cfg.Directory = defaultDatabasePath(cfg.Directory)
+	cfg.Directory = defaultDataDirectory(cfg.Directory)
 
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
