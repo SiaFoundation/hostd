@@ -103,6 +103,10 @@ func tryConfigPaths() []string {
 	paths := []string{
 		"hostd.yml",
 	}
+	if str := os.Getenv(dataDirEnvVar); str != "" {
+		paths = append(paths, filepath.Join(str, "hostd.yml"))
+	}
+
 	switch runtime.GOOS {
 	case "windows":
 		paths = append(paths, filepath.Join(os.Getenv("APPDATA"), "hostd", "hostd.yml"))
@@ -112,7 +116,6 @@ func tryConfigPaths() []string {
 		paths = append(paths,
 			filepath.Join(string(filepath.Separator), "etc", "hostd", "hostd.yml"),
 			filepath.Join(string(filepath.Separator), "var", "lib", "hostd", "hostd.yml"), // old default for the Linux service
-			filepath.Join(os.Getenv("HOME"), ".hostd", "hostd.yml"),
 		)
 	}
 	return paths
