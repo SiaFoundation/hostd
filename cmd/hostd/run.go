@@ -64,7 +64,7 @@ func defaultDataDirectory(fp string) string {
 	case "linux", "freebsd", "openbsd":
 		return filepath.Join(string(filepath.Separator), "var", "lib", "hostd")
 	default:
-		return "."
+		return ""
 	}
 }
 

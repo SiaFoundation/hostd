@@ -276,9 +276,15 @@ func runRecalcCommand(srcPath string, log *zap.Logger) error {
 }
 
 func main() {
+	log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
+	defer log.Sync()
+
 	// attempt to load the config file, command line flags will override any
 	// values set in the config file
 	configPath := tryLoadConfig()
+	if configPath != "" {
+		log.Info("loaded config file", zap.String("path", configPath))
+	}
 	// set the data directory to the default if it is not set
 	cfg.Directory = defaultDataDirectory(cfg.Directory)
 
@@ -334,7 +340,6 @@ func main() {
 		fmt.Println("hostd", build.Version())
 		fmt.Println("Commit:", build.Commit())
 		fmt.Println("Build Date:", build.Time())
-
 	case seedCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
@@ -359,9 +364,6 @@ func main() {
 			cmd.Usage()
 			return
 		}
-
-		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
-		defer log.Sync()
 
 		checkFatalError("command failed", runRecalcCommand(cmd.Arg(0), log))
 	case sqlite3Cmd:
