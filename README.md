@@ -19,10 +19,31 @@ ensuring a smooth user experience across a diverse range of devices.
 
 ## Configuration
 
-`hostd` can be configured in multiple ways. Some settings, like the wallet key,
-can be configured via environment variables or stdin. Others, like the RHP
-ports, can be configured via CLI flags. To simplify more complex configurations,
-`hostd` also supports the use of a YAML configuration file for all settings.
+The YAML config file is the recommended way to configure `hostd`. `hostd` includes a command to interactively generate a config file: `hostd config`. Some settings can be overridden using CLI flags or environment variables. 
+
+### Default Paths
+
+#### Data Directory
+
+The host's consensus database, host database, and log files are stored in the data directory.
+
+Operating System | Path
+---|---
+Windows | `%APPDATA%/hostd`
+macOS | `~/Library/Application Support/hostd`
+Linux | `/var/lib/hostd`
+Docker | `/data`
+
+#### Config File
+
+Operating System | Path
+---|---
+Windows | `%APPDATA%/hostd/hostd.yml`
+macOS | `~/Library/Application Support/hostd/hostd.yml`
+Linux | `/etc/hostd/hostd.yml`
+Docker | `/data/hostd.yml`
+
+The default config path can be changed using the `HOSTD_CONFIG_FILE` environment variable. For backwards compatibility with earlier versions, `hostd` will also check for `hostd.yml` in the current directory.
 
 ### Default Ports
 + `9980` - UI and API
@@ -31,9 +52,7 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 + `9983` - RHP3
 + `9984` - RHP4
 
-### YAML
-The YAML config file is the recommended way to configure `hostd`. It defaults to `hostd.yml` in the current directory, but can be changed
-with the `HOSTD_CONFIG_FILE` environment variable. In Docker, the config file defaults to `/data/hostd.yml`.
+### Example Config File
 
 ```yaml
 directory: /etc/hostd
@@ -69,8 +88,7 @@ log:
 + `HOSTD_API_PASSWORD` - The password for the UI and API
 + `HOSTD_WALLET_SEED` - The recovery phrase for the wallet
 + `HOSTD_LOG_FILE` - changes the location of the log file. If unset, the log file will be created in the data directory
-+ `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
-  `hostd` will check for a config file in the current directory
++ `HOSTD_CONFIG_FILE` - changes the path of the `hostd` config file.
 
 ### CLI Flags
 ```sh

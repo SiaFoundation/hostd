@@ -16,16 +16,17 @@ RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflag
 FROM scratch
 
 LABEL maintainer="The Sia Foundation <info@sia.tech>" \
-      org.opencontainers.image.description.vendor="The Sia Foundation" \
-      org.opencontainers.image.description="A hostd container - provide storage on the Sia network and earn Siacoin" \
-      org.opencontainers.image.source="https://github.com/SiaFoundation/hostd" \
-      org.opencontainers.image.licenses=MIT
+    org.opencontainers.image.description.vendor="The Sia Foundation" \
+    org.opencontainers.image.description="A hostd container - provide storage on the Sia network and earn Siacoin" \
+    org.opencontainers.image.source="https://github.com/SiaFoundation/hostd" \
+    org.opencontainers.image.licenses=MIT
 
 ENV PUID=0
 ENV PGID=0
 
 ENV HOSTD_API_PASSWORD=
 ENV HOSTD_WALLET_SEED=
+ENV HOSTD_DATA_DIR=/data
 ENV HOSTD_CONFIG_FILE=/data/hostd.yml
 
 # copy binary and prepare data dir.
@@ -44,4 +45,4 @@ EXPOSE 9983/tcp
 
 USER ${PUID}:${PGID}
 
-ENTRYPOINT [ "hostd", "--env", "--dir", "/data", "--http", ":9980" ]
+ENTRYPOINT [ "hostd", "--env", "--http", ":9980" ]
