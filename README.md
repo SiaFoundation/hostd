@@ -31,18 +31,9 @@ ports, can be configured via CLI flags. To simplify more complex configurations,
 + `9983` - RHP3
 + `9984` - RHP4
 
-### Environment Variables
-+ `HOSTD_API_PASSWORD` - The password for the UI and API
-+ `HOSTD_WALLET_SEED` - The recovery phrase for the wallet
-+ `HOSTD_LOG_FILE` - changes the location of the log file. If unset, the
-  log file will be created in the data directory
-+ `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
-  `hostd` will check for a config file in the current directory
-
 ### YAML
-The YAML config file is the preferred way to configure a `hostd` node. It defaults to `hostd.yml`
-in the current directory, but can be changed with the `HOSTD_CONFIG_FILE` environment variable.
-All fields are optional except `recoveryPhrase`.
+The YAML config file is the recommended way to configure `hostd`. It defaults to `hostd.yml` in the current directory, but can be changed
+with the `HOSTD_CONFIG_FILE` environment variable. In Docker, the config file defaults to `/data/hostd.yml`.
 
 ```yaml
 directory: /etc/hostd
@@ -60,10 +51,6 @@ rhp2:
   address: :9982
 rhp3:
   tcp: :9983
-rhp4:
-  listenAddresses:
-    - protocol: tcp # tcp, tcp4, or tcp6
-      address: :9984
 log:
   level: info # global log level
   stdout:
@@ -77,6 +64,13 @@ log:
     path: /var/log/hostd/hostd.log # the path of the log file
     format: json # log format (human, json)
 ```
+
+### Environment Variables
++ `HOSTD_API_PASSWORD` - The password for the UI and API
++ `HOSTD_WALLET_SEED` - The recovery phrase for the wallet
++ `HOSTD_LOG_FILE` - changes the location of the log file. If unset, the log file will be created in the data directory
++ `HOSTD_CONFIG_FILE` - changes the path of the optional config file. If unset,
+  `hostd` will check for a config file in the current directory
 
 ### CLI Flags
 ```sh
@@ -116,15 +110,18 @@ CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-
 # Docker
 
 `hostd` includes a `Dockerfile` which can be used for building and running
-hostd within a docker container. The image can also be pulled from `ghcr.io/siafoundation/hostd`.
+hostd within a docker container. The image can also be pulled from `ghcr.io/siafoundation/hostd:latest`.
 
 Be careful with port `9980` as Docker will expose it publicly by default. It is
 recommended to bind it to `127.0.0.1` to prevent unauthorized access.
 
-## Docker Compose
+## Creating the container
+
+### 1. Create the compose file 
+
+Create a new file named `docker-compose.yml`. You can use the following as a template. The `/data` mount is where consensus data is stored and is required. Change the `/storage` volume to the path of your storage drive. If you have additional mount points, add them.
 
 ```yml
-version: "3.9"
 services:
   host:
     image: ghcr.io/siafoundation/hostd:latest
@@ -132,21 +129,26 @@ services:
       - 127.0.0.1:9980:9980/tcp
       - 9981-9983:9981-9983/tcp
     volumes:
-      - /data:/data
+      - hostd-data:/data
       - /storage:/storage
     restart: unless-stopped
+
+volumes:
+  hostd-data:
 ```
 
-## Docker Engine
+### 2. Configure `hostd`
 
-```sh
-docker run -d \
-  --name hostd \
-  -p 127.0.0.1:9980:9980 \
-  -p 9981-9983:9981-9983 \
-  -v ./data:/data \
-  -v ./storage:/storage \
-    ghcr.io/siafoundation/hostd:latest
+Run the following command to generate a config file for your host. **Do not change the data directory from `/data`.**
+```
+docker compose run -it host config
+```
+
+### 3. Start `hostd`
+
+After creating a config file, it's time to start your host:
+```
+docker compose up -d
 ```
 
 ## Building Image
