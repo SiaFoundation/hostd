@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -285,6 +286,11 @@ func runConfigCmd(fp string) {
 		if !promptYesNo(fmt.Sprintf("%q already exists. Would you like to overwrite it?", fp)) {
 			return
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		checkFatalError("failed to check if config file exists", err)
+	} else {
+		// ensure the config directory exists
+		checkFatalError("failed to create config directory", os.MkdirAll(filepath.Dir(fp), 0700))
 	}
 
 	fmt.Println("")
