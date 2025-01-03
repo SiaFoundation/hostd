@@ -45,4 +45,4 @@ EXPOSE 9983/tcp
 
 USER ${PUID}:${PGID}
 
-ENTRYPOINT [ "hostd", "--env", "--dir", "/data", "--http", ":9980" ]
+ENTRYPOINT [ "hostd", "--env", "--http", ":9980" ]
