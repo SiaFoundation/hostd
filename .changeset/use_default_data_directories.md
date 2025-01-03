@@ -1,5 +1,5 @@
 ---
-default: patch
+default: major
 ---
 
 # Use standard locations for application data
