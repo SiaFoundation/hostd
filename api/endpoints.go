@@ -102,7 +102,7 @@ func (a *api) handleGETConsensusTip(jc jape.Context) {
 	a.writeResponse(jc, ConsensusIndexResp(a.chain.Tip()))
 }
 func (a *api) handleGETConsensusTipState(jc jape.Context) {
-	jc.Encode(a.chain.TipState())
+	a.writeResponse(jc, ConsensusStateResp(a.chain.TipState()))
 }
 func (a *api) handleGETConsensusNetwork(jc jape.Context) {
 	jc.Encode(a.chain.TipState().Network)
