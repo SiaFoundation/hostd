@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -249,17 +251,46 @@ func setDataDirectory() {
 	cfg.Directory = readInput("Enter data directory")
 }
 
-func runConfigCmd() {
-	// write the config file
-	configPath := "hostd.yml"
+func configPath() string {
 	if str := os.Getenv(configFileEnvVar); str != "" {
-		configPath = str
+		return str
 	}
 
-	if _, err := os.Stat(configPath); err == nil {
-		if !promptYesNo("hostd.yml already exists. Would you like to overwrite it?") {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(os.Getenv("APPDATA"), "hostd", "hostd.yml")
+	case "darwin":
+		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "hostd", "hostd.yml")
+	case "linux", "freebsd", "openbsd":
+		return filepath.Join(string(filepath.Separator), "etc", "hostd", "hostd.yml")
+	default:
+		return "hostd.yml"
+	}
+}
+
+func runConfigCmd(fp string) {
+	fmt.Println("hostd Configuration Wizard")
+	fmt.Println("This wizard will help you configure hostd for the first time.")
+	fmt.Println("You can always change these settings with the config command or by editing the config file.")
+
+	if fp == "" {
+		fp = configPath()
+	}
+	fp, err := filepath.Abs(fp)
+	checkFatalError("failed to get absolute path of config file", err)
+
+	fmt.Println("")
+	fmt.Printf("Config Location %q\n", fp)
+
+	if _, err := os.Stat(fp); err == nil {
+		if !promptYesNo(fmt.Sprintf("%q already exists. Would you like to overwrite it?", fp)) {
 			return
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		checkFatalError("failed to check if config file exists", err)
+	} else {
+		// ensure the config directory exists
+		checkFatalError("failed to create config directory", os.MkdirAll(filepath.Dir(fp), 0700))
 	}
 
 	fmt.Println("")
@@ -291,10 +322,13 @@ func runConfigCmd() {
 	setAdvancedConfig()
 
 	// write the config file
-	f, err := os.Create(configPath)
+	f, err := os.Create(fp)
 	checkFatalError("failed to create config file", err)
 	defer f.Close()
 
 	enc := yaml.NewEncoder(f)
+	defer enc.Close()
+
 	checkFatalError("failed to encode config file", enc.Encode(cfg))
+	checkFatalError("failed to sync config file", f.Sync())
 }

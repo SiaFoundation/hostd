@@ -25,12 +25,13 @@ const (
 	walletSeedEnvVar  = "HOSTD_WALLET_SEED"
 	apiPasswordEnvVar = "HOSTD_API_PASSWORD"
 	configFileEnvVar  = "HOSTD_CONFIG_FILE"
+	dataDirEnvVar     = "HOSTD_DATA_DIR"
 	logFileEnvVar     = "HOSTD_LOG_FILE_PATH"
 )
 
 var (
 	cfg = config.Config{
-		Directory:      ".",                         // default to current directory
+		Directory:      os.Getenv(dataDirEnvVar),    // default to env variable
 		RecoveryPhrase: os.Getenv(walletSeedEnvVar), // default to env variable
 		AutoOpenWebUI:  true,
 
@@ -94,17 +95,46 @@ func openBrowser(url string) error {
 	}
 }
 
-// tryLoadConfig loads the config file specified by the HOSTD_CONFIG_FILE. If
-// the config file does not exist, it will not be loaded.
-func tryLoadConfig() {
-	configPath := "hostd.yml"
+func tryConfigPaths() []string {
 	if str := os.Getenv(configFileEnvVar); str != "" {
-		configPath = str
+		return []string{str}
 	}
 
-	if err := config.LoadFile(configPath, &cfg); err != nil && !errors.Is(err, os.ErrNotExist) {
-		checkFatalError("failed to load config file", err)
+	paths := []string{
+		"hostd.yml",
 	}
+	if str := os.Getenv(dataDirEnvVar); str != "" {
+		paths = append(paths, filepath.Join(str, "hostd.yml"))
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		paths = append(paths, filepath.Join(os.Getenv("APPDATA"), "hostd", "hostd.yml"))
+	case "darwin":
+		paths = append(paths, filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "hostd", "hostd.yml"))
+	case "linux", "freebsd", "openbsd":
+		paths = append(paths,
+			filepath.Join(string(filepath.Separator), "etc", "hostd", "hostd.yml"),
+			filepath.Join(string(filepath.Separator), "var", "lib", "hostd", "hostd.yml"), // old default for the Linux service
+		)
+	}
+	return paths
+}
+
+// tryLoadConfig tries to load the config file. It will try multiple locations
+// based on GOOS starting with PWD/hostd.yml. If the file does not exist, it will
+// try the next location. If an error occurs while loading the file, it will
+// print the error and exit. If the config is successfully loaded, the path to
+// the config file is returned.
+func tryLoadConfig() string {
+	for _, fp := range tryConfigPaths() {
+		if err := config.LoadFile(fp, &cfg); err == nil {
+			return fp
+		} else if !errors.Is(err, os.ErrNotExist) {
+			checkFatalError("failed to load config file", err)
+		}
+	}
+	return ""
 }
 
 // jsonEncoder returns a zapcore.Encoder that encodes logs as JSON intended for
@@ -246,9 +276,17 @@ func runRecalcCommand(srcPath string, log *zap.Logger) error {
 }
 
 func main() {
+	log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
+	defer log.Sync()
+
 	// attempt to load the config file, command line flags will override any
 	// values set in the config file
-	tryLoadConfig()
+	configPath := tryLoadConfig()
+	if configPath != "" {
+		log.Info("loaded config file", zap.String("path", configPath))
+	}
+	// set the data directory to the default if it is not set
+	cfg.Directory = defaultDataDirectory(cfg.Directory)
 
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
@@ -302,7 +340,6 @@ func main() {
 		fmt.Println("hostd", build.Version())
 		fmt.Println("Commit:", build.Commit())
 		fmt.Println("Build Date:", build.Time())
-
 	case seedCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
@@ -321,15 +358,12 @@ func main() {
 			return
 		}
 
-		runConfigCmd()
+		runConfigCmd(configPath)
 	case recalculateCmd:
 		if len(cmd.Args()) != 1 {
 			cmd.Usage()
 			return
 		}
-
-		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
-		defer log.Sync()
 
 		checkFatalError("command failed", runRecalcCommand(cmd.Arg(0), log))
 	case sqlite3Cmd:
