@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/alerts"
@@ -183,6 +184,12 @@ type (
 
 	// PeerResp is the response body for the [GET] /syncer/address endpoint
 	PeerResp []Peer
+
+	// ConsensusIndexResp is the response body for the [GET] /consensus/tip and [GET] /index/tip endpoints
+	ConsensusIndexResp types.ChainIndex
+
+	// ConsensusStateResp is the response body for the [GET] /consensus/state endpoint
+	ConsensusStateResp consensus.State
 
 	// SyncerAddrResp is the response body for the [GET] /syncer/peers endpoint
 	SyncerAddrResp string
