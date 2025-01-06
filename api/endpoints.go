@@ -99,7 +99,7 @@ func (a *api) handleGETState(jc jape.Context) {
 }
 
 func (a *api) handleGETConsensusTip(jc jape.Context) {
-	jc.Encode(a.chain.Tip())
+	a.writeResponse(jc, ConsensusIndexResp(a.chain.Tip()))
 }
 func (a *api) handleGETConsensusTipState(jc jape.Context) {
 	jc.Encode(a.chain.TipState())
@@ -148,7 +148,7 @@ func (a *api) handlePUTSyncerPeer(jc jape.Context) {
 }
 
 func (a *api) handleGETIndexTip(jc jape.Context) {
-	jc.Encode(a.index.Tip())
+	a.writeResponse(jc, ConsensusIndexResp(a.index.Tip()))
 }
 
 func (a *api) handleGETAlerts(jc jape.Context) {
@@ -172,8 +172,7 @@ func (a *api) handlePOSTAnnounce(jc jape.Context) {
 }
 
 func (a *api) handleGETSettings(jc jape.Context) {
-	hs := HostSettings(a.settings.Settings())
-	a.writeResponse(jc, hs)
+	a.writeResponse(jc, HostSettings(a.settings.Settings()))
 }
 
 func (a *api) handlePATCHSettings(jc jape.Context) {

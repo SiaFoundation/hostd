@@ -184,6 +184,9 @@ type (
 	// PeerResp is the response body for the [GET] /syncer/address endpoint
 	PeerResp []Peer
 
+	// ConsensusIndexResp is the response body for the [GET] /consensus/tip and [GET] /index/tip endpoints
+	ConsensusIndexResp types.ChainIndex
+
 	// SyncerAddrResp is the response body for the [GET] /syncer/peers endpoint
 	SyncerAddrResp string
 
