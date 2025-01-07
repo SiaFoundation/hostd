@@ -421,6 +421,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		if err != nil {
 			return fmt.Errorf("failed to create pin manager: %w", err)
 		}
+		defer pm.Close()
 
 		apiOpts = append(apiOpts, api.WithPinnedSettings(pm), api.WithExplorer(ex))
 	}
