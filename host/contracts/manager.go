@@ -385,6 +385,9 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		syncer:  syncer,
 		wallet:  wallet,
 
+		rejectBuffer:             18,
+		revisionSubmissionBuffer: 144,
+
 		alerts: alerts.NewNop(),
 		tg:     threadgroup.New(),
 		log:    zap.NewNop(),

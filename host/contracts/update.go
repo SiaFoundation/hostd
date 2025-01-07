@@ -194,8 +194,17 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
 			continue
 		}
+		if len(formationSet) == 0 {
+			log.Debug("formation set does not contain any transactions")
+			continue
+		}
+		formationTxn := formationSet[len(formationSet)-1]
+		if len(formationTxn.FileContracts) == 0 {
+			log.Debug("formation set does not contain file contract")
+			continue
+		}
 		cm.syncer.BroadcastTransactionSet(formationSet)
-		log.Debug("rebroadcast formation transaction", zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
+		log.Debug("rebroadcast formation transaction", zap.Stringer("contractID", formationTxn.FileContractID(0)), zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
 	}
 
 	for _, revision := range actions.BroadcastRevision {
@@ -572,10 +581,10 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 			}
 
 			if len(rejectedV1) > 0 {
-				log.Debug("rejected contracts", zap.Int("count", len(rejectedV1)))
+				log.Debug("rejected contracts", zap.Int("count", len(rejectedV1)), zap.Stringers("contracts", rejectedV1))
 			}
 			if len(rejectedV2) > 0 {
-				log.Debug("rejected v2 contracts", zap.Int("count", len(rejectedV2)))
+				log.Debug("rejected v2 contracts", zap.Int("count", len(rejectedV2)), zap.Stringers("contracts", rejectedV2))
 			}
 		}
 
