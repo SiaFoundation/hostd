@@ -194,7 +194,7 @@ var (
 		MaxAccountBalance: types.Siacoins(10),  // 10SC
 		WindowSize:        144,                 // 144 blocks
 
-		MaxRegistryEntries: 100000,
+		MaxRegistryEntries: 0,
 	}
 	// ErrNoSettings must be returned by the store if the host has no settings yet
 	ErrNoSettings = errors.New("no settings found")
