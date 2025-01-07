@@ -54,6 +54,20 @@ func (cs ConsensusIndexResp) PrometheusMetric() []prometheus.Metric {
 	}
 }
 
+// PrometheusMetric returns Prometheus samples for the host's index height.
+func (cs IndexTipResp) PrometheusMetric() []prometheus.Metric {
+	return []prometheus.Metric{
+		{
+			Name: "hostd_index_height",
+			Labels: map[string]any{
+				"block_id": cs.ID,
+			},
+			Value:     float64(cs.Height),
+			Timestamp: time.Now(),
+		},
+	}
+}
+
 // PrometheusMetric returns Prometheus samples for the host's consensus state.
 func (cs ConsensusStateResp) PrometheusMetric() []prometheus.Metric {
 	return []prometheus.Metric{

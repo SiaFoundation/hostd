@@ -148,7 +148,7 @@ func (a *api) handlePUTSyncerPeer(jc jape.Context) {
 }
 
 func (a *api) handleGETIndexTip(jc jape.Context) {
-	a.writeResponse(jc, ConsensusIndexResp(a.index.Tip()))
+	a.writeResponse(jc, IndexTipResp(a.index.Tip()))
 }
 
 func (a *api) handleGETAlerts(jc jape.Context) {
