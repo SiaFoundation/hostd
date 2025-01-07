@@ -131,6 +131,7 @@ func TestPinnedFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer pm.Close()
 
 	initialSettings := sm.Settings()
 	pin := pin.PinnedSettings{
