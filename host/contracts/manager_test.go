@@ -286,8 +286,15 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 
-		// mine until the contract is rejected
-		testutil.MineAndSync(t, node, types.VoidAddress, 20)
+		for i := 0; i < 10; i++ {
+			// mine until the contract is rejected
+			testutil.MineAndSync(t, node, types.VoidAddress, 1)
+			assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+			assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+		}
+
+		// contract should now be rejected
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusRejected)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 	})
