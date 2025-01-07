@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/alerts"
 	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/internal/threadgroup"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -80,6 +81,7 @@ type (
 		alerts Alerts
 		forex  Forex
 		sm     SettingsManager
+		tg     *threadgroup.ThreadGroup
 
 		frequency  time.Duration
 		rateWindow time.Duration
@@ -252,8 +254,20 @@ func (m *Manager) Update(ctx context.Context, p PinnedSettings) error {
 	return nil
 }
 
-// Run starts the PinManager's update loop.
-func (m *Manager) Run(ctx context.Context) error {
+// Close closes the PinManager.
+func (m *Manager) Close() error {
+	m.tg.Stop()
+	return nil
+}
+
+// run starts the PinManager's update loop.
+func (m *Manager) run() error {
+	ctx, cancel, err := m.tg.AddContext(context.Background())
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
 	t := time.NewTicker(m.frequency)
 
 	// update prices immediately
@@ -300,6 +314,7 @@ func NewManager(store Store, settings SettingsManager, f Forex, opts ...Option) 
 		sm:    settings,
 		forex: f,
 
+		tg:     threadgroup.New(),
 		alerts: alerts.NewNop(),
 		log:    zap.NewNop(),
 
@@ -325,5 +340,7 @@ func NewManager(store Store, settings SettingsManager, f Forex, opts ...Option) 
 		return nil, fmt.Errorf("failed to get pinned settings: %w", err)
 	}
 	m.settings = pinned
+
+	go m.run() // run the update loop in the background
 	return m, nil
 }

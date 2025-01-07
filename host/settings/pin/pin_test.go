@@ -131,6 +131,7 @@ func TestPinnedFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer pm.Close()
 
 	initialSettings := sm.Settings()
 	pin := pin.PinnedSettings{
@@ -230,19 +231,7 @@ func TestAutomaticUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		if err := pm.Run(ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return
-			}
-			panic(err)
-		}
-	}()
+	defer pm.Close()
 
 	time.Sleep(time.Second)
 
