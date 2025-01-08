@@ -403,9 +403,11 @@ func main() {
 			setSeedPhrase()
 		}
 
-		// create the data directory if it does not already exist
-		if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
-			checkFatalError("failed to create config directory", err)
+		if cfg.Directory != "" {
+			// create the data directory if it does not already exist
+			if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
+				checkFatalError("failed to create data directory", err)
+			}
 		}
 
 		// configure the logger
