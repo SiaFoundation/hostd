@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -139,6 +140,22 @@ func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wall
 		t.Fatal(err)
 	}
 	return rev
+}
+
+func mineEmptyBlock(state consensus.State, minerAddr types.Address) types.Block {
+	b := types.Block{
+		ParentID:     state.Index.ID,
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: minerAddr, Value: state.BlockReward()}},
+	}
+	if state.Index.Height >= state.Network.HardforkV2.AllowHeight {
+		b.V2 = &types.V2BlockData{Height: state.Index.Height + 1}
+		b.V2.Commitment = state.Commitment(state.TransactionsCommitment(b.Transactions, b.V2Transactions()), minerAddr)
+	}
+	for b.ID().CmpWork(state.ChildTarget) < 0 {
+		b.Nonce += state.NonceFactor()
+	}
+	return b
 }
 
 func TestContractLockUnlock(t *testing.T) {
@@ -698,6 +715,93 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusFailed)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 	})
+
+	t.Run("revert", func(t *testing.T) {
+		hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+
+		dir := t.TempDir()
+		log := zaptest.NewLogger(t)
+
+		network, genesis := testutil.V1Network()
+		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
+
+		result := make(chan error, 1)
+		if _, err := node.Volumes.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
+			t.Fatal(err)
+		} else if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
+
+		renterFunds := types.Siacoins(500)
+		hostCollateral := types.Siacoins(1000)
+
+		contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterFunds, hostCollateral, node.Chain.Tip().Height+10, rhp2.HostSettings{WindowSize: 10}, node.Wallet.Address())
+		state := node.Chain.TipState()
+		formationCost := rhp2.ContractFormationCost(state, contract, types.ZeroCurrency)
+		contractUnlockConditions := types.UnlockConditions{
+			PublicKeys: []types.UnlockKey{
+				renterKey.PublicKey().UnlockKey(),
+				hostKey.PublicKey().UnlockKey(),
+			},
+			SignaturesRequired: 2,
+		}
+		txn := types.Transaction{
+			FileContracts: []types.FileContract{contract},
+		}
+		toSign, err := node.Wallet.FundTransaction(&txn, formationCost.Add(hostCollateral), true) // we're funding both sides of the payout
+		if err != nil {
+			t.Fatal("failed to fund transaction:", err)
+		}
+		node.Wallet.SignTransaction(&txn, toSign, types.CoveredFields{WholeTransaction: true})
+		formationSet := append(node.Chain.UnconfirmedParents(txn), txn)
+		revision := types.FileContractRevision{
+			ParentID:         txn.FileContractID(0),
+			UnlockConditions: contractUnlockConditions,
+			FileContract:     txn.FileContracts[0],
+		}
+
+		// broadcast the formation set
+		if _, err := node.Chain.AddPoolTransactions(formationSet); err != nil {
+			t.Fatal(err)
+		}
+
+		revision.RevisionNumber = 1
+		sigHash := hashRevision(revision)
+		rev := contracts.SignedRevision{
+			Revision:        revision,
+			HostSignature:   hostKey.SignHash(sigHash),
+			RenterSignature: renterKey.SignHash(sigHash),
+		}
+		if err := node.Contracts.AddContract(rev, nil, hostCollateral, contracts.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		// pending contracts do not contribute to metrics
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+
+		// prepare blocks to revert the contract formation
+		revertState := node.Chain.TipState()
+		var blocks []types.Block
+		for i := 0; i < 5; i++ {
+			blocks = append(blocks, mineEmptyBlock(revertState, types.VoidAddress))
+			revertState.Index.ID = blocks[len(blocks)-1].ID()
+			revertState.Index.Height++
+		}
+
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
+
+		if err := node.Chain.AddBlocks(blocks); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WaitForSync(t, node.Chain, node.Indexer)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+	})
 }
 
 func TestV2ContractLifecycle(t *testing.T) {
@@ -1179,6 +1283,102 @@ func TestV2ContractLifecycle(t *testing.T) {
 		expectedStatuses[contracts.V2ContractStatusRejected]++
 		assertContractStatus(t, contractID, contracts.V2ContractStatusRejected)
 		// metrics should not have changed
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+	})
+
+	t.Run("revert", func(t *testing.T) {
+		cm := node.Chain
+		c := node.Contracts
+		w := node.Wallet
+
+		renterFunds, hostFunds := types.Siacoins(10), types.Siacoins(20)
+		duration := uint64(10)
+		cs := cm.TipState()
+		fc := types.V2FileContract{
+			RevisionNumber:   0,
+			Filesize:         0,
+			Capacity:         0,
+			FileMerkleRoot:   types.Hash256{},
+			ProofHeight:      cs.Index.Height + duration,
+			ExpirationHeight: cs.Index.Height + duration + 10,
+			RenterOutput: types.SiacoinOutput{
+				Value:   renterFunds,
+				Address: w.Address(),
+			},
+			HostOutput: types.SiacoinOutput{
+				Value:   hostFunds,
+				Address: w.Address(),
+			},
+			MissedHostValue: hostFunds,
+			TotalCollateral: hostFunds,
+			RenterPublicKey: renterKey.PublicKey(),
+			HostPublicKey:   hostKey.PublicKey(),
+		}
+		fundAmount := cs.V2FileContractTax(fc).Add(hostFunds).Add(renterFunds)
+		sigHash := cs.ContractSigHash(fc)
+		fc.HostSignature = hostKey.SignHash(sigHash)
+		fc.RenterSignature = renterKey.SignHash(sigHash)
+
+		txn := types.V2Transaction{
+			FileContracts: []types.V2FileContract{fc},
+		}
+
+		basis, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
+		if err != nil {
+			t.Fatal("failed to fund transaction:", err)
+		}
+		w.SignV2Inputs(&txn, toSign)
+		formationSet := rhp4.TransactionSet{
+			Transactions: []types.V2Transaction{txn},
+			Basis:        basis,
+		}
+
+		// broadcast the formation
+		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
+			t.Fatal(err)
+		}
+
+		contractID := txn.V2FileContractID(txn.ID(), 0)
+		// corrupt the formation set so the manager cannot rebroadcast it
+		corruptTxn := txn.DeepCopy()
+		corruptTxn.SiacoinInputs[0].Parent.StateElement.MerkleProof = nil
+		corruptedSet := rhp4.TransactionSet{
+			Basis:        basis,
+			Transactions: []types.V2Transaction{corruptTxn},
+		}
+		if err := c.AddV2Contract(corruptedSet, proto4.Usage{}); err != nil {
+			t.Fatal("failed to add contract:", err)
+		}
+
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+		// metrics should not have changed
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+
+		// prepare blocks to revert the contract formation
+		revertState := node.Chain.TipState()
+		var blocks []types.Block
+		for i := 0; i < 5; i++ {
+			blocks = append(blocks, mineEmptyBlock(revertState, types.VoidAddress))
+			revertState, _ = consensus.ApplyBlock(revertState, blocks[len(blocks)-1], consensus.V1BlockSupplement{}, time.Time{})
+		}
+
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		expectedStatuses[contracts.V2ContractStatusActive]++
+		expectedStatuses[contracts.V2ContractStatusPending]--
+		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
+		assertContractMetrics(t, hostFunds, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+
+		if err := node.Chain.AddBlocks(blocks); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WaitForSync(t, node.Chain, node.Indexer)
+		expectedStatuses[contracts.V2ContractStatusActive]--
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		assertStorageMetrics(t, 0, 0)
 	})

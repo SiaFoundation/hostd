@@ -859,8 +859,10 @@ func updateStatusMetrics(oldStatus, newStatus contracts.ContractStatus, fn func(
 		}
 	}
 
-	if err := fn(contractStatusMetric(newStatus), 1, time.Now()); err != nil {
-		return fmt.Errorf("failed to update metric %q: %w", contractStatusMetric(newStatus), err)
+	if newStatus != contracts.ContractStatusPending {
+		if err := fn(contractStatusMetric(newStatus), 1, time.Now()); err != nil {
+			return fmt.Errorf("failed to update metric %q: %w", contractStatusMetric(newStatus), err)
+		}
 	}
 	return nil
 }
@@ -895,8 +897,10 @@ func updateV2StatusMetrics(oldStatus, newStatus contracts.V2ContractStatus, fn f
 		}
 	}
 
-	if err := fn(v2ContractStatusMetric(newStatus), 1, time.Now()); err != nil {
-		return fmt.Errorf("failed to update metric %q: %w", v2ContractStatusMetric(newStatus), err)
+	if newStatus != contracts.V2ContractStatusPending {
+		if err := fn(v2ContractStatusMetric(newStatus), 1, time.Now()); err != nil {
+			return fmt.Errorf("failed to update metric %q: %w", v2ContractStatusMetric(newStatus), err)
+		}
 	}
 	return nil
 }
