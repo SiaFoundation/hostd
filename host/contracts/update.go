@@ -188,23 +188,21 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	}
 
 	for _, formationSet := range actions.RebroadcastFormation {
-		if len(formationSet) == 0 {
+		switch {
+		case len(formationSet) == 0:
+			log.Debug("skipping empty formation set")
 			continue
-		} else if _, err := cm.chain.AddPoolTransactions(formationSet); err != nil {
+		case len(formationSet[len(formationSet)-1].FileContracts) == 0:
+			log.Debug("skipping formation set missing file contract")
+			continue
+		}
+		if _, err := cm.chain.AddPoolTransactions(formationSet); err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
 			continue
 		}
-		if len(formationSet) == 0 {
-			log.Debug("formation set does not contain any transactions")
-			continue
-		}
-		formationTxn := formationSet[len(formationSet)-1]
-		if len(formationTxn.FileContracts) == 0 {
-			log.Debug("formation set does not contain file contract")
-			continue
-		}
 		cm.syncer.BroadcastTransactionSet(formationSet)
-		log.Debug("rebroadcast formation transaction", zap.Stringer("contractID", formationTxn.FileContractID(0)), zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
+		contractID := formationSet[len(formationSet)-1].FileContractID(0)
+		log.Debug("rebroadcast formation transaction", zap.Stringer("contractID", contractID), zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
 	}
 
 	for _, revision := range actions.BroadcastRevision {
@@ -304,14 +302,15 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	}
 
 	for _, formationSet := range actions.RebroadcastV2Formation {
-		if len(formationSet.Transactions) == 0 {
+		switch {
+		case len(formationSet.Transactions) == 0:
+			log.Debug("skipping empty formation set")
+			continue
+		case len(formationSet.Transactions[len(formationSet.Transactions)-1].FileContracts) == 0:
+			log.Debug("skipping formation set missing file contract")
 			continue
 		}
 		formationTxn := formationSet.Transactions[len(formationSet.Transactions)-1]
-		if len(formationTxn.FileContracts) == 0 {
-			continue
-		}
-
 		contractID := formationTxn.V2FileContractID(formationTxn.ID(), 0)
 		log := log.Named("v2 formation").With(zap.Stringer("basis", formationSet.Basis), zap.Stringer("contractID", contractID))
 
