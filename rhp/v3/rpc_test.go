@@ -259,8 +259,6 @@ func TestAppendSector(t *testing.T) {
 	_, _, err = session.ReadSector(types.Hash256{}, 0, crhp2.SectorSize, payment, cost)
 	if err == nil {
 		t.Fatal("expected error when reading nil sector")
-	} else if strings.Contains(err.Error(), rhp3.ErrHostInternalError.Error()) {
-		t.Fatal("unexpected internal error", err)
 	} else if !strings.Contains(err.Error(), storage.ErrSectorNotFound.Error()) {
 		t.Fatal("expected storage.ErrSectorNotFound", err)
 	}

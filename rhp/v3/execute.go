@@ -103,10 +103,8 @@ func (pe *programExecutor) executeAppendSector(instr *rhp3.InstrAppendSector, lo
 	}
 
 	err = pe.sectors.Write(root, sector)
-	if errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err != nil {
 		return nil, nil, err
-	} else if err != nil {
-		return nil, nil, ErrHostInternalError
 	}
 	pe.updater.AppendSector(root)
 
@@ -271,12 +269,9 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 
 	// read the sector
 	sector, err := pe.sectors.ReadSector(root)
-	if errors.Is(err, storage.ErrSectorNotFound) {
-		log.Debug("failed to read sector", zap.String("root", root.String()), zap.Error(err))
-		return nil, nil, storage.ErrSectorNotFound
-	} else if err != nil {
+	if err != nil {
 		log.Error("failed to read sector", zap.String("root", root.String()), zap.Error(err))
-		return nil, nil, ErrHostInternalError
+		return nil, nil, err
 	}
 
 	// if no proof was requested, return the data
@@ -649,7 +644,7 @@ func (pe *programExecutor) commit(s *rhp3.Stream) error {
 	pe.committed = true
 
 	if err := pe.sectors.Sync(); err != nil {
-		s.WriteResponseErr(fmt.Errorf("failed to commit storage: %w", ErrHostInternalError))
+		s.WriteResponseErr(fmt.Errorf("failed to commit storage: %w", err))
 		return fmt.Errorf("failed to sync storage: %w", err)
 	}
 
@@ -709,7 +704,7 @@ func (pe *programExecutor) commit(s *rhp3.Stream) error {
 		}
 
 		if err := pe.updater.Commit(signedRevision, usage); err != nil {
-			s.WriteResponseErr(ErrHostInternalError)
+			s.WriteResponseErr(err)
 			return fmt.Errorf("failed to commit revision: %w", err)
 		}
 

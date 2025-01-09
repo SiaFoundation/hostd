@@ -12,7 +12,6 @@ import (
 
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
-	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/accounts"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/rhp"
@@ -30,10 +29,6 @@ var (
 	// any transactions or if the transaction does not contain exactly one
 	// contract.
 	ErrTxnMissingContract = errors.New("transaction set does not contain a file contract")
-	// ErrHostInternalError is returned if the host encountered an error during
-	// an RPC that doesn't need to be broadcast to the renter (e.g. insufficient
-	// funds).
-	ErrHostInternalError = errors.New("internal error")
 	// ErrInvalidRenterSignature is returned when a contract's renter signature
 	// is invalid.
 	ErrInvalidRenterSignature = errors.New("invalid renter signature")
@@ -54,12 +49,12 @@ var (
 func (sh *SessionHandler) handleRPCPriceTable(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	pt, err := sh.settings.RHP3PriceTable()
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return contracts.Usage{}, fmt.Errorf("failed to get price table: %w", err)
 	}
 	buf, err := json.Marshal(pt)
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return contracts.Usage{}, fmt.Errorf("failed to marshal price table: %w", err)
 	}
 
@@ -87,7 +82,7 @@ func (sh *SessionHandler) handleRPCPriceTable(s *rhp3.Stream, log *zap.Logger) (
 		s.WriteResponseErr(err)
 		return contracts.Usage{}, err
 	} else if err := budget.Commit(); err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return contracts.Usage{}, fmt.Errorf("failed to commit payment: %w", err)
 	}
 	// register the price table for future use
@@ -177,7 +172,7 @@ func (sh *SessionHandler) handleRPCAccountBalance(s *rhp3.Stream, log *zap.Logge
 	// get the account balance
 	balance, err := sh.accounts.Balance(req.Account)
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return contracts.Usage{}, fmt.Errorf("failed to get account balance: %w", err)
 	}
 
@@ -259,12 +254,12 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 		// no price table, send the renter a default one
 		pt, err = sh.settings.RHP3PriceTable()
 		if err != nil {
-			s.WriteResponseErr(ErrHostInternalError)
+			s.WriteResponseErr(err)
 			return contracts.Usage{}, fmt.Errorf("failed to get price table: %w", err)
 		}
 		buf, err := json.Marshal(pt)
 		if err != nil {
-			s.WriteResponseErr(ErrHostInternalError)
+			s.WriteResponseErr(err)
 			return contracts.Usage{}, fmt.Errorf("failed to marshal price table: %w", err)
 		}
 		ptResp := &rhp3.RPCUpdatePriceTableResponse{
@@ -355,11 +350,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	renterInputs, renterOutputs := len(renewalTxn.SiacoinInputs), len(renewalTxn.SiacoinOutputs)
 	toSign, err := sh.wallet.FundTransaction(&renewalTxn, lockedCollateral, false)
 	if err != nil {
-		remoteErr := ErrHostInternalError
-		if errors.Is(err, wallet.ErrNotEnoughFunds) {
-			remoteErr = wallet.ErrNotEnoughFunds
-		}
-		s.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", remoteErr))
+		s.WriteResponseErr(fmt.Errorf("failed to fund renewal transaction: %w", err))
 		return contracts.Usage{}, fmt.Errorf("failed to fund renewal transaction: %w", err)
 	}
 
@@ -438,7 +429,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	// renew the contract in the manager
 	err = sh.contracts.RenewContract(signedRenewal, signedClearingRevision, renewalTxnSet, lockedCollateral, finalRevisionUsage, renewalUsage)
 	if err != nil {
-		s.WriteResponseErr(fmt.Errorf("failed to renew contract: %w", ErrHostInternalError))
+		s.WriteResponseErr(fmt.Errorf("failed to renew contract: %w", err))
 		return contracts.Usage{}, fmt.Errorf("failed to renew contract: %w", err)
 	}
 
@@ -541,7 +532,7 @@ func (sh *SessionHandler) handleRPCExecute(s *rhp3.Stream, log *zap.Logger) (con
 	// note: the budget is committed by the executor, no need to commit it in the handler.
 	executor, err := sh.newExecutor(instructions, executeReq.ProgramData, pt, budget, revision, requiresFinalization, log)
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return contracts.Usage{}, fmt.Errorf("failed to create program executor: %w", err)
 	}
 	err = executor.Execute(ctx, s)

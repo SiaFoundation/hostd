@@ -25,7 +25,7 @@ func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, _ uint64) (rhp3
 
 	contract, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
 	defer sh.contracts.Unlock(req.ContractID)
@@ -60,6 +60,10 @@ func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, _ uint64) (rhp3
 	}
 
 	settings, err := sh.settings.RHP2Settings()
+	if err != nil {
+		s.WriteResponseErr(err)
+		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
+	}
 	hostSig := sh.privateKey.SignHash(sigHash)
 	fundReq := accounts.FundAccountWithContract{
 		Account: req.RefundAccount,
@@ -77,7 +81,7 @@ func (sh *SessionHandler) processContractPayment(s *rhp3.Stream, _ uint64) (rhp3
 		if errors.Is(err, accounts.ErrBalanceExceeded) {
 			s.WriteResponseErr(accounts.ErrBalanceExceeded)
 		} else {
-			s.WriteResponseErr(ErrHostInternalError)
+			s.WriteResponseErr(err)
 		}
 		return rhp3.ZeroAccount, types.ZeroCurrency, fmt.Errorf("failed to credit refund account: %w", err)
 	}
@@ -165,7 +169,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhp3.HostPriceTable, s *r
 
 	contract, err := sh.contracts.Lock(ctx, req.ContractID)
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to lock contract %v: %w", req.ContractID, err)
 	}
 	defer sh.contracts.Unlock(req.ContractID)
@@ -201,7 +205,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhp3.HostPriceTable, s *r
 
 	settings, err := sh.settings.RHP2Settings()
 	if err != nil {
-		s.WriteResponseErr(ErrHostInternalError)
+		s.WriteResponseErr(err)
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to get host settings: %w", err)
 	}
 	// credit the account with the deposit
@@ -223,7 +227,7 @@ func (sh *SessionHandler) processFundAccountPayment(pt rhp3.HostPriceTable, s *r
 		if errors.Is(err, accounts.ErrBalanceExceeded) {
 			s.WriteResponseErr(accounts.ErrBalanceExceeded)
 		} else {
-			s.WriteResponseErr(ErrHostInternalError)
+			s.WriteResponseErr(err)
 		}
 		return types.ZeroCurrency, types.ZeroCurrency, fmt.Errorf("failed to credit account: %w", err)
 	}
