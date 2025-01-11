@@ -509,7 +509,7 @@ WHERE v.sector_id=$1`
 // space available, ErrNotEnoughStorage is returned.
 func emptyLocation(tx *txn) (loc storage.SectorLocation, err error) {
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
-	FROM volume_sectors vs
+	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
 	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
 	WHERE vs.sector_id IS NULL AND sv.available=true AND sv.read_only=false
 	ORDER BY vs.sector_writes ASC
@@ -529,7 +529,7 @@ func emptyLocation(tx *txn) (loc storage.SectorLocation, err error) {
 // space available, ErrNotEnoughStorage is returned.
 func emptyLocationForMigration(tx *txn, volumeID int64, maxIndex uint64) (loc storage.SectorLocation, err error) {
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
-	FROM volume_sectors vs
+	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
 	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
 	WHERE vs.sector_id IS NULL AND sv.available=true AND (vs.volume_id <> $1 AND sv.read_only=false OR (vs.volume_id=$1 AND vs.volume_index < $2))
 	ORDER BY vs.sector_writes ASC

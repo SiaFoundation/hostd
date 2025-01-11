@@ -875,6 +875,16 @@ func BenchmarkVolumeMigrate(b *testing.B) {
 }
 
 func BenchmarkStoreSector(b *testing.B) {
+	const (
+		sectorsPerTiB uint64 = (1 << 40) / (1 << 22)
+		minSectors           = 20 * sectorsPerTiB
+	)
+
+	sectors := minSectors
+	if sectors < uint64(b.N) {
+		sectors = uint64(b.N)
+	}
+
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
 	if err != nil {
@@ -882,7 +892,7 @@ func BenchmarkStoreSector(b *testing.B) {
 	}
 	defer db.Close()
 
-	_, err = addTestVolume(db, "test", uint64(b.N*2))
+	_, err = addTestVolume(db, "test", sectors)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -900,6 +910,16 @@ func BenchmarkStoreSector(b *testing.B) {
 }
 
 func BenchmarkReadSector(b *testing.B) {
+	const (
+		sectorsPerTiB uint64 = (1 << 40) / (1 << 22)
+		minSectors           = 20 * sectorsPerTiB
+	)
+
+	sectors := minSectors
+	if sectors < uint64(b.N) {
+		sectors = uint64(b.N)
+	}
+
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
 	if err != nil {
@@ -907,7 +927,7 @@ func BenchmarkReadSector(b *testing.B) {
 	}
 	defer db.Close()
 
-	_, err = addTestVolume(db, "test", uint64(b.N*2))
+	_, err = addTestVolume(db, "test", sectors)
 	if err != nil {
 		b.Fatal(err)
 	}
