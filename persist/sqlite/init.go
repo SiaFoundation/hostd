@@ -1,9 +1,7 @@
 package sqlite
 
 import (
-	"database/sql"
 	_ "embed" // for init.sql
-	"errors"
 	"time"
 
 	"fmt"
@@ -32,31 +30,28 @@ func (s *Store) initNewDatabase(target int64) error {
 }
 
 func (s *Store) upgradeDatabase(current, target int64) error {
-	log := s.log.Named("migrations")
-	log.Info("migrating database", zap.Int64("current", current), zap.Int64("target", target))
-
-	return s.transaction(func(tx *txn) error {
-		if _, err := tx.Exec("PRAGMA defer_foreign_keys=ON"); err != nil {
-			return fmt.Errorf("failed to enable foreign key deferral: %w", err)
-		}
-		for _, fn := range migrations[current-1:] {
-			current++
-			start := time.Now()
-			if err := fn(tx, log.With(zap.Int64("version", current))); err != nil {
-				return fmt.Errorf("failed to migrate database to version %v: %w", current, err)
+	log := s.log.Named("migrations").With(zap.Int64("target", target))
+	for ; current < target; current++ {
+		version := current + 1 // initial schema is version 1, migration 0 is version 2, etc.
+		log := log.With(zap.Int64("version", version))
+		start := time.Now()
+		fn := migrations[current-1]
+		err := s.transaction(func(tx *txn) error {
+			if _, err := tx.Exec("PRAGMA defer_foreign_keys=ON"); err != nil {
+				return fmt.Errorf("failed to enable foreign key deferral: %w", err)
+			} else if err := fn(tx, log); err != nil {
+				return err
+			} else if err := foreignKeyCheck(tx, log); err != nil {
+				return fmt.Errorf("failed foreign key check: %w", err)
 			}
-			// check that no foreign key constraints were violated
-			if err := tx.QueryRow("PRAGMA foreign_key_check").Scan(); err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("failed to check foreign key constraints after migration to version %v: %w", current, err)
-			} else if err == nil {
-				return fmt.Errorf("foreign key constraint violated after migration to version %v: %w", current, err)
-			}
-			log.Debug("migration complete", zap.Int64("current", current), zap.Int64("target", target), zap.Duration("elapsed", time.Since(start)))
+			return setDBVersion(tx, version)
+		})
+		if err != nil {
+			return fmt.Errorf("migration %d failed: %w", version, err)
 		}
-
-		// set the final database version
-		return setDBVersion(tx, target)
-	})
+		log.Info("migration complete", zap.Duration("elapsed", time.Since(start)))
+	}
+	return nil
 }
 
 func (s *Store) init() error {
@@ -69,6 +64,7 @@ func (s *Store) init() error {
 			return fmt.Errorf("failed to initialize database: %w", err)
 		}
 	case version < target:
+		s.log.Info("database version is out of date;", zap.Int64("version", version), zap.Int64("target", target))
 		if err := s.upgradeDatabase(version, target); err != nil {
 			return fmt.Errorf("failed to upgrade database: %w", err)
 		}
