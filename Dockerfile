@@ -11,7 +11,7 @@ COPY . .
 # codegen
 RUN go generate ./...
 # build
-RUN CGO_ENABLED=1 go build -o bin/ -tags='timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/hostd
+RUN CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/hostd
 
 FROM debian:bookworm-slim
 
