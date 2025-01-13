@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+// nolint:misspell
 const initialSchema = `/*
 	When changing the schema, the version must be incremented at the bottom of
 	this file and a migration added to migrations.go
