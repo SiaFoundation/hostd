@@ -14,7 +14,7 @@ require (
 	go.sia.tech/coreutils v0.9.0
 	go.sia.tech/jape v0.12.1
 	go.sia.tech/mux v1.3.0
-	go.sia.tech/web/hostd v0.55.0
+	go.sia.tech/web/hostd v0.56.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.29.0
