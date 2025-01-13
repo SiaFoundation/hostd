@@ -12,6 +12,11 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion39(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS contracts_v2_chain_index_elements_height ON contracts_v2_chain_index_elements(height);`)
+	return err
+}
+
 // migrateVersion38 recalculates the contract metrics to fix an issue where metrics
 // were being mishandled during rescan
 func migrateVersion38(tx *txn, log *zap.Logger) error {
@@ -1030,4 +1035,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion36,
 	migrateVersion37,
 	migrateVersion38,
+	migrateVersion39,
 }
