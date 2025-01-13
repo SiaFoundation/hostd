@@ -1,3 +1,9 @@
+## 2.0.1 (2025-01-13)
+
+### Fixes
+
+- Fixed an issue with alert content not showing in the UI
+
 ## 2.0.0 (2025-01-13)
 
 ### Breaking Changes
