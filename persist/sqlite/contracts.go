@@ -179,10 +179,7 @@ func (s *Store) RebroadcastFormationSets(minNegotiationheight uint64) (rebroadca
 			}
 			rebroadcast = append(rebroadcast, formationSet)
 		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		return nil
+		return rows.Err()
 	})
 	return
 }
