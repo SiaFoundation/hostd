@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"errors"
 	"fmt"
 
 	"go.sia.tech/core/consensus"
@@ -198,17 +199,10 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 		formationTxn := formationSet[len(formationSet)-1]
 		contractID := formationSet[len(formationSet)-1].FileContractID(0)
-		log := log.Named("rebroadcast").With(zap.Stringer("contractID", contractID))
-		// add all the transactions back to the pool in case one of them was confirmed.
-		// note: this is not necessary for v2 since the basis is explicitly set and updates the transaction set
-		for _, txn := range formationSet {
-			cm.chain.AddPoolTransactions(append(cm.chain.UnconfirmedParents(txn), txn)) // error is ignored because it will be caught below
-		}
-		// update the formation set and broadcast it as a whole. Technically not necessary, but logs the error if it still fails
-		formationSet = append(cm.chain.UnconfirmedParents(formationTxn), formationTxn)
-		if _, err := cm.chain.AddPoolTransactions(formationSet); err != nil {
+		log := log.With(zap.Stringer("contractID", contractID), zap.Stringer("transactionID", formationTxn.ID()))
+		formationSet, err := tryFormationBroadcast(cm.chain, formationSet)
+		if err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
-			continue
 		}
 		cm.syncer.BroadcastTransactionSet(formationSet)
 		log.Debug("rebroadcast formation transaction", zap.String("transactionID", formationTxn.ID().String()))
@@ -605,4 +599,30 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		}
 	}
 	return nil
+}
+
+// tryFormationBroadcast is a helper function that attempts to broadcast a formation
+// transaction set. Due to the nature of the transaction pool, it is possible
+// a transaction will not be accepted if one of the parent transactions has
+// already been confirmed. This function will retry all of the transactions in the set
+// sequentially to attempt to remove any transactions that may have already been confirmed.
+func tryFormationBroadcast(cm ChainManager, txnset []types.Transaction) ([]types.Transaction, error) {
+	if len(txnset) == 0 {
+		return nil, nil
+	} else if len(txnset[len(txnset)-1].FileContracts) == 0 {
+		return nil, errors.New("missing file contract")
+	}
+	formationTxn := txnset[len(txnset)-1]
+	_, err := cm.AddPoolTransactions(txnset)
+	if err == nil {
+		return txnset, nil
+	}
+
+	for _, txn := range txnset {
+		cm.AddPoolTransactions(append(cm.UnconfirmedParents(txn), txn)) // error is ignored because it will be caught below
+	}
+
+	txnset = append(cm.UnconfirmedParents(formationTxn), formationTxn)
+	_, err = cm.AddPoolTransactions(txnset)
+	return txnset, err
 }
