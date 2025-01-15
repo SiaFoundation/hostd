@@ -286,6 +286,38 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	go s.Run(ctx)
 	defer s.Close()
 
+	var minRebroadcastHeight uint64
+	if height := cm.Tip().Height; height > 4380 {
+		minRebroadcastHeight = height - 4380
+	}
+	rebroadcast, err := store.RebroadcastFormationSets(minRebroadcastHeight)
+	if err != nil {
+		return fmt.Errorf("failed to load rebroadcast formation sets: %w", err)
+	}
+	for _, formationSet := range rebroadcast {
+		if len(formationSet) == 0 {
+			continue
+		}
+
+		formationTxn := formationSet[len(formationSet)-1]
+		if len(formationTxn.FileContracts) == 0 {
+			continue
+		}
+		log := log.Named("rebroadcast").With(zap.Stringer("transactionID", formationTxn.ID()), zap.Stringer("contractID", formationTxn.FileContractID(0)))
+
+		// add all transactions back to the pool progressively in case some of them were confirmed.
+		for _, txn := range formationSet {
+			cm.AddPoolTransactions(append(cm.UnconfirmedParents(txn), txn)) // error is ignored because it will be caught below
+		}
+		// update the formation set and broadcast it as a whole. Technically not necessary, but logs the error if it still fails
+		formationSet = append(cm.UnconfirmedParents(formationTxn), formationTxn)
+		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
+			log.Debug("failed to add formation set to pool", zap.Error(err))
+			continue
+		}
+		s.BroadcastTransactionSet(formationSet)
+	}
+
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to create wallet: %w", err)

@@ -159,6 +159,34 @@ WHERE c.contract_id=$1;`
 	return
 }
 
+// RebroadcastFormationSets returns formation sets that should be rebroadcast
+func (s *Store) RebroadcastFormationSets(minNegotiationheight uint64) (rebroadcast [][]types.Transaction, err error) {
+	err = s.transaction(func(tx *txn) error {
+		rows, err := tx.Query(`SELECT formation_txn_set FROM contracts WHERE formation_confirmed=false AND negotiation_height > $1`, minNegotiationheight)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var buf []byte
+			if err := rows.Scan(&buf); err != nil {
+				return fmt.Errorf("failed to scan formation set: %w", err)
+			}
+			var formationSet []types.Transaction
+			if err := decodeTxnSet(buf, &formationSet); err != nil {
+				return fmt.Errorf("failed to decode formation txn set: %w", err)
+			}
+			rebroadcast = append(rebroadcast, formationSet)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return nil
+	})
+	return
+}
+
 // V2Contracts returns a paginated list of v2 contracts.
 func (s *Store) V2Contracts(filter contracts.V2ContractFilter) (contracts []contracts.V2Contract, count int, err error) {
 	if filter.Limit <= 0 || filter.Limit > 100 {
