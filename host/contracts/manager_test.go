@@ -802,6 +802,117 @@ func TestContractLifecycle(t *testing.T) {
 		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
 		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
 	})
+
+	t.Run("partially confirmed formation set", func(t *testing.T) {
+		hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+
+		dir := t.TempDir()
+		log := zaptest.NewLogger(t)
+
+		network, genesis := testutil.V1Network()
+		node := testutil.NewHostNode(t, hostKey, network, genesis, log)
+
+		result := make(chan error, 1)
+		if _, err := node.Volumes.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
+			t.Fatal(err)
+		} else if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+
+		testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
+
+		renterFunds := types.Siacoins(500)
+		hostCollateral := types.Siacoins(1000)
+
+		contract := rhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), renterFunds, hostCollateral, node.Chain.Tip().Height+10, rhp2.HostSettings{WindowSize: 10}, node.Wallet.Address())
+		state := node.Chain.TipState()
+		formationCost := rhp2.ContractFormationCost(state, contract, types.ZeroCurrency)
+		// create a thread of multiple ephemeral outputs
+
+		contractUnlockConditions := types.UnlockConditions{
+			PublicKeys: []types.UnlockKey{
+				renterKey.PublicKey().UnlockKey(),
+				hostKey.PublicKey().UnlockKey(),
+			},
+			SignaturesRequired: 2,
+		}
+		formationSet := []types.Transaction{
+			{
+				ArbitraryData: [][]byte{[]byte("setup txn 1")},
+				SiacoinOutputs: []types.SiacoinOutput{
+					{Address: node.Wallet.Address(), Value: formationCost.Add(hostCollateral)},
+				},
+			},
+			{
+				ArbitraryData: [][]byte{[]byte("setup txn 2")},
+				SiacoinOutputs: []types.SiacoinOutput{
+					{Address: node.Wallet.Address(), Value: formationCost.Add(hostCollateral)},
+				},
+			},
+			{
+				FileContracts: []types.FileContract{contract},
+			},
+		}
+		// fund the formation transaction
+		toSign, err := node.Wallet.FundTransaction(&formationSet[0], formationCost.Add(hostCollateral), true)
+		if err != nil {
+			t.Fatal("failed to fund transaction:", err)
+		}
+		node.Wallet.SignTransaction(&formationSet[0], toSign, types.CoveredFields{WholeTransaction: true})
+
+		// add and sign the ephemeral inputs
+		formationSet[1].SiacoinInputs = []types.SiacoinInput{
+			{
+				ParentID:         formationSet[0].SiacoinOutputID(0),
+				UnlockConditions: types.StandardUnlockConditions(hostKey.PublicKey()),
+			},
+		}
+		node.Wallet.SignTransaction(&formationSet[1], []types.Hash256{types.Hash256(formationSet[0].SiacoinOutputID(0))}, types.CoveredFields{WholeTransaction: true})
+
+		formationSet[2].SiacoinInputs = []types.SiacoinInput{
+			{
+				ParentID:         formationSet[1].SiacoinOutputID(0),
+				UnlockConditions: types.StandardUnlockConditions(hostKey.PublicKey()),
+			},
+		}
+		node.Wallet.SignTransaction(&formationSet[2], []types.Hash256{types.Hash256(formationSet[1].SiacoinOutputID(0))}, types.CoveredFields{WholeTransaction: true})
+
+		revision := types.FileContractRevision{
+			ParentID:         formationSet[2].FileContractID(0),
+			UnlockConditions: contractUnlockConditions,
+			FileContract:     formationSet[2].FileContracts[0],
+		}
+
+		// broadcast the first transaction only
+		if _, err := node.Chain.AddPoolTransactions([]types.Transaction{formationSet[0]}); err != nil {
+			t.Fatal(err)
+		}
+
+		revision.RevisionNumber = 1
+		sigHash := hashRevision(revision)
+		rev := contracts.SignedRevision{
+			Revision:        revision,
+			HostSignature:   hostKey.SignHash(sigHash),
+			RenterSignature: renterKey.SignHash(sigHash),
+		}
+		if err := node.Contracts.AddContract(rev, formationSet, hostCollateral, contracts.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		// pending contracts do not contribute to metrics
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+
+		// mine to rebroadcast the formation set
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusPending)
+		assertContractMetrics(t, node.Store, 0, 0, types.ZeroCurrency, types.ZeroCurrency)
+
+		// mine to confirm the contract
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		assertContractStatus(t, node.Contracts, rev.Revision.ParentID, contracts.ContractStatusActive)
+		assertContractMetrics(t, node.Store, 1, 0, hostCollateral, types.ZeroCurrency)
+	})
 }
 
 func TestV2ContractLifecycle(t *testing.T) {

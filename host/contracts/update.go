@@ -196,13 +196,22 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			log.Debug("skipping formation set missing file contract")
 			continue
 		}
+		formationTxn := formationSet[len(formationSet)-1]
+		contractID := formationSet[len(formationSet)-1].FileContractID(0)
+		log := log.Named("rebroadcast").With(zap.Stringer("contractID", contractID))
+		// add all the transactions back to the pool in case one of them was confirmed.
+		// note: this is not necessary for v2 since the basis is explicitly set and updates the transaction set
+		for _, txn := range formationSet {
+			cm.chain.AddPoolTransactions(append(cm.chain.UnconfirmedParents(txn), txn)) // error is ignored because it will be caught below
+		}
+		// update the formation set and broadcast it as a whole. Technically not necessary, but logs the error if it still fails
+		formationSet = append(cm.chain.UnconfirmedParents(formationTxn), formationTxn)
 		if _, err := cm.chain.AddPoolTransactions(formationSet); err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
 			continue
 		}
 		cm.syncer.BroadcastTransactionSet(formationSet)
-		contractID := formationSet[len(formationSet)-1].FileContractID(0)
-		log.Debug("rebroadcast formation transaction", zap.Stringer("contractID", contractID), zap.String("transactionID", formationSet[len(formationSet)-1].ID().String()))
+		log.Debug("rebroadcast formation transaction", zap.String("transactionID", formationTxn.ID().String()))
 	}
 
 	for _, revision := range actions.BroadcastRevision {
