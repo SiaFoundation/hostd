@@ -234,14 +234,28 @@ func Backup(ctx context.Context, srcPath, destPath string) (err error) {
 	return backupDB(ctx, src, destPath)
 }
 
-func integrityCheck(db *sql.DB, log *zap.Logger) error {
-	rows, err := db.Query("PRAGMA integrity_check")
+// IntegrityCheck runs a PRAGMA integrity_check on the database and logs any
+// integrity errors. If any errors are found, an error is returned.
+func IntegrityCheck(ctx context.Context, fp string, log *zap.Logger) error {
+	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, "PRAGMA integrity_check")
 	if err != nil {
 		return fmt.Errorf("failed to run integrity check: %w", err)
 	}
 	defer rows.Close()
 	var hasErrors bool
 	for rows.Next() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		var result string
 		if err := rows.Scan(&result); err != nil {
 			return fmt.Errorf("failed to scan integrity check result: %w", err)
@@ -258,41 +272,29 @@ func integrityCheck(db *sql.DB, log *zap.Logger) error {
 	return nil
 }
 
-func dbForeignKeyCheck(db *sql.DB, log *zap.Logger) error {
-	rows, err := db.Query("PRAGMA foreign_key_check")
+// ForeignKeyCheck runs a PRAGMA foreign_key_check on the database and logs any
+// foreign key constraint violations. If any violations are found, an error is
+// returned.
+func ForeignKeyCheck(ctx context.Context, fp string, log *zap.Logger) error {
+	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
 	if err != nil {
 		return fmt.Errorf("failed to run foreign key check: %w", err)
 	}
 	defer rows.Close()
 	var hasErrors bool
 	for rows.Next() {
-		var table string
-		var rowid sql.NullInt64
-		var fkTable string
-		var fkRowid sql.NullInt64
-
-		if err := rows.Scan(&table, &rowid, &fkTable, &fkRowid); err != nil {
-			return fmt.Errorf("failed to scan foreign key check result: %w", err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
-		hasErrors = true
-		log.Error("foreign key constraint violated", zap.String("table", table), zap.Int64("rowid", rowid.Int64), zap.String("fkTable", fkTable), zap.Int64("fkRowid", fkRowid.Int64))
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate foreign key check results: %w", err)
-	} else if hasErrors {
-		return errors.New("foreign key constraint violated")
-	}
-	return nil
-}
 
-func foreignKeyCheck(txn *txn, log *zap.Logger) error {
-	rows, err := txn.Query("PRAGMA foreign_key_check")
-	if err != nil {
-		return fmt.Errorf("failed to run foreign key check: %w", err)
-	}
-	defer rows.Close()
-	var hasErrors bool
-	for rows.Next() {
 		var table string
 		var rowid sql.NullInt64
 		var fkTable string
@@ -325,10 +327,6 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	}
 	if err := store.init(); err != nil {
 		return nil, err
-	} else if err := dbForeignKeyCheck(db, log.Named("foreignkeys")); err != nil {
-		return nil, fmt.Errorf("foreign key check failed: %w", err)
-	} else if err := integrityCheck(db, log.Named("integrity")); err != nil {
-		return nil, fmt.Errorf("integrity check failed: %w", err)
 	}
 	sqliteVersion, _, _ := sqlite3.Version()
 	log.Debug("database initialized", zap.String("sqliteVersion", sqliteVersion), zap.Int("schemaVersion", len(migrations)+1), zap.String("path", fp))

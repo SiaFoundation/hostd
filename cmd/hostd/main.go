@@ -225,6 +225,13 @@ Perform various operations on the SQLite3 database.
 
 Commands:
 	backup	Create a backup of the SQLite3 database
+	integrity	Check the integrity of the SQLite3 database
+`
+
+	sqlite3IntegrityUsage = `Usage:
+hostd sqlite3 integrity <srcPath>
+
+Check the integrity of the SQLite3 database at the specified path. This is not safe to run while the host is running.
 `
 
 	sqlite3BackupUsage = `Usage:
@@ -254,6 +261,10 @@ func runBackupCommand(srcPath, destPath string) error {
 		return fmt.Errorf("failed to backup database: %w", err)
 	}
 	return nil
+}
+
+func runIntegrityCommand(ctx context.Context, srcPath string, log *zap.Logger) error {
+	return sqlite.IntegrityCheck(ctx, srcPath, log)
 }
 
 func runRecalcCommand(srcPath string, log *zap.Logger) error {
@@ -313,6 +324,7 @@ func main() {
 	recalculateCmd := flagg.New("recalculate", recalculateUsage)
 	sqlite3Cmd := flagg.New("sqlite3", sqlite3Usage)
 	sqlite3BackupCmd := flagg.New("backup", sqlite3BackupUsage)
+	sqlite3IntegrityCmd := flagg.New("integrity", sqlite3IntegrityUsage)
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -324,6 +336,7 @@ func main() {
 			{
 				Cmd: sqlite3Cmd,
 				Sub: []flagg.Tree{
+					{Cmd: sqlite3IntegrityCmd},
 					{Cmd: sqlite3BackupCmd},
 				},
 			},
@@ -368,6 +381,25 @@ func main() {
 		checkFatalError("command failed", runRecalcCommand(cmd.Arg(0), log))
 	case sqlite3Cmd:
 		cmd.Usage()
+	case sqlite3IntegrityCmd:
+		if len(cmd.Args()) != 1 {
+			cmd.Usage()
+			return
+		}
+
+		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, "info")
+		defer log.Sync()
+
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+
+		log.Info("running integrity check")
+		checkFatalError("integrity check failed", runIntegrityCommand(ctx, cmd.Arg(0), log))
+		log.Info("integrity check passed")
+
+		log.Info("running foreign key check")
+		checkFatalError("foreign key check failed", sqlite.ForeignKeyCheck(ctx, cmd.Arg(0), log))
+		log.Info("foreign key check passed")
 	case sqlite3BackupCmd:
 		if len(cmd.Args()) != 2 {
 			cmd.Usage()
