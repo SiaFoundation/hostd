@@ -234,33 +234,6 @@ func Backup(ctx context.Context, srcPath, destPath string) (err error) {
 	return backupDB(ctx, src, destPath)
 }
 
-func foreignKeyCheck(txn *txn, log *zap.Logger) error {
-	rows, err := txn.Query("PRAGMA foreign_key_check")
-	if err != nil {
-		return fmt.Errorf("failed to run foreign key check: %w", err)
-	}
-	defer rows.Close()
-	var hasErrors bool
-	for rows.Next() {
-		var table string
-		var rowid sql.NullInt64
-		var fkTable string
-		var fkRowid sql.NullInt64
-
-		if err := rows.Scan(&table, &rowid, &fkTable, &fkRowid); err != nil {
-			return fmt.Errorf("failed to scan foreign key check result: %w", err)
-		}
-		hasErrors = true
-		log.Error("foreign key constraint violated", zap.String("table", table), zap.Int64("rowid", rowid.Int64), zap.String("fkTable", fkTable), zap.Int64("fkRowid", fkRowid.Int64))
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate foreign key check results: %w", err)
-	} else if hasErrors {
-		return errors.New("foreign key constraint violated")
-	}
-	return nil
-}
-
 // IntegrityCheck runs a PRAGMA integrity_check on the database and logs any
 // integrity errors. If any errors are found, an error is returned.
 func IntegrityCheck(ctx context.Context, fp string, log *zap.Logger) error {
