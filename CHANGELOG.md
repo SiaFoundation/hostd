@@ -1,3 +1,11 @@
+## 2.0.2 (2025-01-16)
+
+### Fixes
+
+- Add missing database index for migrated nodes
+- Added "sqlite integrity" command
+- Fixed an issue with contracts sometimes being rejected if one of their parent transactions was confirmed in an earlier block
+
 ## 2.0.1 (2025-01-13)
 
 ### Fixes
