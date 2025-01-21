@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -146,8 +147,8 @@ func updateConfigV112(fp string, r io.Reader, cfg *Config) error {
 	cfg.Log.Level = old.Log.Level
 	if old.Log.File.Path != "" {
 		cfg.Log.File.Path = old.Log.File.Path
-	} else {
-		cfg.Log.File.Path = old.Log.Path
+	} else if old.Log.Path != "" {
+		cfg.Log.File.Path = filepath.Join(old.Log.Path, "hostd.log")
 	}
 	cfg.Log.StdOut.Level = old.Log.StdOut.Level
 	cfg.Log.StdOut.Enabled = old.Log.StdOut.Enabled
