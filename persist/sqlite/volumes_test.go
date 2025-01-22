@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/storage"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -411,6 +413,86 @@ func TestShrinkVolume(t *testing.T) {
 		t.Fatal(err)
 	} else if m.Storage.TotalSectors != 5 {
 		t.Fatalf("expected %v total sectors, got %v", 5, m.Storage.TotalSectors)
+	}
+}
+
+func TestMigrateConcurrency(t *testing.T) {
+	const initialSectors = 256 * 100 // 100GiB
+	log := zap.NewNop()
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	v1, err := addTestVolume(db, "test", initialSectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fill the volume
+	for i := 0; i < initialSectors; i++ {
+		root := frand.Entropy256()
+		if err := db.StoreSector(root, func(_ storage.SectorLocation) error { return nil }); err != nil {
+			t.Fatal(err)
+		} else if err := db.AddTempSector(root, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	v1, err = db.Volume(v1.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if v1.TotalSectors != v1.UsedSectors {
+		t.Fatalf("expected v1 to be full")
+	}
+
+	// add a secondary volume to accept the sectors
+	_, err = addTestVolume(db, "test2", initialSectors*2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.SetReadOnly(v1.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// prevent database close panic by waiting until migration has stopped or completed
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _, err := db.MigrateSectors(ctx, v1.ID, 0, func(from, to storage.SectorLocation) error {
+			time.Sleep(100 * time.Millisecond)
+			return nil
+		}) // simulate disk i/o
+		if err != nil && !errors.Is(err, context.Canceled) {
+			panic(err)
+		}
+	}()
+
+	// fill the second volume
+	for i := 0; i < initialSectors; i++ {
+		root := types.Hash256(frand.Entropy256())
+		if err := db.StoreSector(root, func(_ storage.SectorLocation) error { return nil }); err != nil {
+			t.Fatal(err)
+		} else if err := db.AddTempSector(root, 100); err != nil {
+			t.Fatal(err)
+		}
+		log.Debug("stored sector", zap.Stringer("root", root))
+	}
+
+	cancel()
+	wg.Wait()
+
+	v1, err = db.Volume(v1.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if v1.TotalSectors == v1.UsedSectors {
+		t.Fatalf("expected v1 to have migrated sectors")
 	}
 }
 

@@ -157,7 +157,7 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 			return nil
 		}
 		log.Debug("expired temp sectors", zap.Int("expired", expired), zap.Stringers("removed", removed), zap.Int("batch", i))
-		jitterSleep(time.Millisecond) // allow other transactions to run
+		jitterSleep(50 * time.Millisecond) // allow other transactions to run
 	}
 }
 
