@@ -417,7 +417,7 @@ func TestShrinkVolume(t *testing.T) {
 }
 
 func TestMigrateConcurrency(t *testing.T) {
-	const initialSectors = 256 * 100 // 100GiB
+	const initialSectors = 256
 	log := zap.NewNop()
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
 	if err != nil {
@@ -466,9 +466,10 @@ func TestMigrateConcurrency(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_, _, err := db.MigrateSectors(ctx, v1.ID, 0, func(from, to storage.SectorLocation) error {
-			time.Sleep(100 * time.Millisecond)
+			// simulate disk i/o
+			time.Sleep(50 * time.Millisecond)
 			return nil
-		}) // simulate disk i/o
+		})
 		if err != nil && !errors.Is(err, context.Canceled) {
 			panic(err)
 		}
@@ -477,7 +478,12 @@ func TestMigrateConcurrency(t *testing.T) {
 	// fill the second volume
 	for i := 0; i < initialSectors; i++ {
 		root := types.Hash256(frand.Entropy256())
-		if err := db.StoreSector(root, func(_ storage.SectorLocation) error { return nil }); err != nil {
+		err := db.StoreSector(root, func(_ storage.SectorLocation) error {
+			// simulate disk i/o
+			time.Sleep(10 * time.Millisecond)
+			return nil
+		})
+		if err != nil {
 			t.Fatal(err)
 		} else if err := db.AddTempSector(root, 100); err != nil {
 			t.Fatal(err)
