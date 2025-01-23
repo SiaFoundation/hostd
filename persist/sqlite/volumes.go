@@ -300,15 +300,13 @@ LIMIT 1;`
 			return nil
 		})
 		if err != nil {
-			err = fmt.Errorf("failed to migrated sector: %w", err)
+			err = fmt.Errorf("failed to migrate sector: %w", err)
 			return
 		} else if done {
 			return
 		}
-
-		if index%256 == 0 {
-			jitterSleep(time.Millisecond) // allow other transactions to run
-		}
+		// allow other transactions to run
+		jitterSleep(50 * time.Millisecond) // maximum of 48000 sectors per hour
 	}
 }
 
@@ -338,7 +336,7 @@ func (s *Store) RemoveVolume(id int64, force bool) error {
 		} else if removed == 0 {
 			break
 		}
-		jitterSleep(time.Millisecond)
+		jitterSleep(50 * time.Millisecond)
 	}
 
 	return s.transaction(func(tx *txn) error {
