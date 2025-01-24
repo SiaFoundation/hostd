@@ -90,7 +90,7 @@ func setupUPNP(ctx context.Context, port uint16, log *zap.Logger) (string, error
 func openSQLite3Database(dir string, log *zap.Logger) (*sqlite.Store, error) {
 	oldPath := filepath.Join(dir, "hostd.db")
 	if _, err := os.Stat(oldPath); err == nil {
-		log.Warn("using deprecated hostd.db", zap.String("path", oldPath))
+		log.Debug("using deprecated hostd.db", zap.String("path", oldPath))
 		return sqlite.OpenDatabase(oldPath, log)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("failed to stat database: %w", err)
