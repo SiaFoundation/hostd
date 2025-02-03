@@ -6,7 +6,7 @@ toolchain go1.23.2
 
 require (
 	github.com/aws/aws-sdk-go v1.55.6
-	github.com/cloudflare/cloudflare-go v0.114.0
+	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/shopspring/decimal v1.4.0
@@ -27,7 +27,7 @@ require (
 )
 
 require (
-	github.com/goccy/go-json v0.10.4 // indirect
+	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
