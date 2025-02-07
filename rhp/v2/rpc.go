@@ -88,7 +88,6 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) (contracts.Usage,
 		return contracts.Usage{}, err
 	}
 
-	// set the contract
 	s.contract = contract
 	lockResp := &rhp2.RPCLockResponse{
 		Acquired:     true,
@@ -96,9 +95,9 @@ func (sh *SessionHandler) rpcLock(s *session, log *zap.Logger) (contracts.Usage,
 		Revision:     contract.Revision,
 		Signatures:   contract.Signatures(),
 	}
-	// avoid holding lock during network round trip
 	if err := s.writeResponse(lockResp, 30*time.Second); err != nil {
 		sh.contracts.Unlock(contract.Revision.ParentID)
+		s.contract = contracts.SignedRevision{}
 		return contracts.Usage{}, fmt.Errorf("failed to write lock response: %w", err)
 	}
 	return contracts.Usage{}, nil
