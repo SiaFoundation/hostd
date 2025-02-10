@@ -449,6 +449,9 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		api.WithSQLite3Store(store),
 	}
 	if !cfg.Explorer.Disable {
+		if len(cfg.Explorer.URL) == 0 {
+			cfg.Explorer.URL = "https://api.siascan.com"
+		}
 		ex := explorer.New(cfg.Explorer.URL)
 		pm, err := pin.NewManager(store, sm, ex, pin.WithLogger(log.Named("pin")))
 		if err != nil {
