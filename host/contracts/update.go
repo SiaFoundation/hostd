@@ -450,8 +450,9 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 }
 
 // buildContractState helper to build state changes from a state update
-func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.Logger) (state StateChanges) {
-	u.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
+func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDiff, v2Fces []consensus.V2FileContractElementDiff, revert bool, log *zap.Logger) (state StateChanges) {
+	for _, diff := range fces {
+		fce, rev, created, resolved, valid := diff.FileContractElement, diff.Revision, diff.Created, diff.Resolved, diff.Valid
 		log := log.With(zap.Stringer("contractID", fce.ID))
 		if relevant, err := tx.ContractRelevant(types.FileContractID(fce.ID)); err != nil {
 			log.Fatal("failed to check contract relevance", zap.Error(err))
@@ -466,10 +467,14 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 		case rev != nil:
 			if revert {
 				state.Revised = append(state.Revised, fce)
-				log.Debug("revised contract", zap.Uint64("current", rev.FileContract.RevisionNumber), zap.Uint64("revised", fce.FileContract.RevisionNumber))
+				log.Debug("revised contract", zap.Uint64("current", rev.RevisionNumber), zap.Uint64("revised", fce.FileContract.RevisionNumber))
 			} else {
-				state.Revised = append(state.Revised, *rev)
-				log.Debug("revised contract", zap.Uint64("current", fce.FileContract.RevisionNumber), zap.Uint64("revised", rev.FileContract.RevisionNumber))
+				state.Revised = append(state.Revised, types.FileContractElement{
+					ID:           fce.ID,
+					FileContract: *rev,
+					StateElement: fce.StateElement,
+				})
+				log.Debug("revised contract", zap.Uint64("current", fce.FileContract.RevisionNumber), zap.Uint64("revised", rev.RevisionNumber))
 			}
 		case resolved && valid:
 			state.Successful = append(state.Successful, types.FileContractID(fce.ID))
@@ -485,11 +490,11 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 		default:
 			log.Fatal("unexpected contract state", zap.Bool("resolved", resolved), zap.Bool("valid", valid), zap.Bool("created", created), zap.Bool("revised", rev != nil), zap.Stringer("contractID", fce.ID))
 		}
-	})
+	}
 
-	u.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+	for _, diff := range v2Fces {
+		fce, rev, res, created := diff.V2FileContractElement, diff.Revision, diff.Resolution, diff.Created
 		log := log.With(zap.Stringer("contractID", fce.ID))
-
 		if relevant, err := tx.V2ContractRelevant(types.FileContractID(fce.ID)); err != nil {
 			log.Fatal("failed to check contract relevance", zap.Error(err))
 		} else if !relevant {
@@ -503,10 +508,14 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 		case rev != nil:
 			if revert {
 				state.RevisedV2 = append(state.RevisedV2, fce)
-				log.Debug("revised contract", zap.Uint64("current", rev.V2FileContract.RevisionNumber), zap.Uint64("revised", fce.V2FileContract.RevisionNumber))
+				log.Debug("revised contract", zap.Uint64("current", rev.RevisionNumber), zap.Uint64("revised", fce.V2FileContract.RevisionNumber))
 			} else {
-				state.RevisedV2 = append(state.RevisedV2, *rev)
-				log.Debug("revised contract", zap.Uint64("current", fce.V2FileContract.RevisionNumber), zap.Uint64("revised", rev.V2FileContract.RevisionNumber))
+				log.Debug("revised contract", zap.Uint64("current", fce.V2FileContract.RevisionNumber), zap.Uint64("revised", rev.RevisionNumber))
+				state.RevisedV2 = append(state.RevisedV2, types.V2FileContractElement{
+					ID:             fce.ID,
+					V2FileContract: *rev,
+					StateElement:   fce.StateElement,
+				})
 			}
 		case res != nil:
 			switch res := res.(type) {
@@ -531,7 +540,7 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 		default:
 			log.Fatal("unexpected v2 contract state", zap.Bool("resolved", res != nil), zap.Bool("created", created), zap.Bool("revised", rev != nil), zap.Stringer("contractID", fce.ID))
 		}
-	})
+	}
 	return
 }
 
@@ -546,7 +555,7 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		}
 
 		// revert contract state changes
-		state := buildContractState(tx, cru, true, log.Named("revert").With(zap.Stringer("index", revertedIndex)))
+		state := buildContractState(tx, cru.FileContractElementDiffs(), cru.V2FileContractElementDiffs(), true, log.Named("revert").With(zap.Stringer("index", revertedIndex)))
 		if err := tx.RevertContracts(revertedIndex, state); err != nil {
 			return fmt.Errorf("failed to revert contracts: %w", err)
 		} else if err := tx.RevertContractChainIndexElement(revertedIndex); err != nil {
@@ -559,7 +568,7 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 	}
 
 	for _, cau := range applied {
-		state := buildContractState(tx, cau, false, log.Named("apply").With(zap.Stringer("index", cau.State.Index)))
+		state := buildContractState(tx, cau.FileContractElementDiffs(), cau.V2FileContractElementDiffs(), false, log.Named("apply").With(zap.Stringer("index", cau.State.Index)))
 		// apply state changes
 		if err := tx.ApplyContracts(cau.State.Index, state); err != nil {
 			return fmt.Errorf("failed to revert contracts: %w", err)
