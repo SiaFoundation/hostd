@@ -457,7 +457,7 @@ func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDi
 		if relevant, err := tx.ContractRelevant(types.FileContractID(fce.ID)); err != nil {
 			log.Fatal("failed to check contract relevance", zap.Error(err))
 		} else if !relevant {
-			return
+			continue
 		}
 
 		switch {
@@ -498,7 +498,7 @@ func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDi
 		if relevant, err := tx.V2ContractRelevant(types.FileContractID(fce.ID)); err != nil {
 			log.Fatal("failed to check contract relevance", zap.Error(err))
 		} else if !relevant {
-			return
+			continue
 		}
 
 		switch {
