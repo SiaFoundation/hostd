@@ -41,17 +41,31 @@ type (
 		BroadcastV2Expiration  []types.V2FileContractElement
 	}
 
+	// RevisedContract contains information about a contract that has been
+	// revised on chain.
+	RevisedContract struct {
+		ID types.FileContractID
+		types.FileContract
+	}
+
+	// RevisedContract contains information about a v2 contract that has been
+	// revised on chain.
+	RevisedV2Contract struct {
+		ID types.FileContractID
+		types.V2FileContract
+	}
+
 	// StateChanges contains the changes to the state of contracts on the
 	// blockchain
 	StateChanges struct {
 		Confirmed  []types.FileContractElement
-		Revised    []types.FileContractElement
+		Revised    []RevisedContract
 		Successful []types.FileContractID
 		Failed     []types.FileContractID
 
 		// V2 changes
 		ConfirmedV2  []types.V2FileContractElement
-		RevisedV2    []types.V2FileContractElement
+		RevisedV2    []RevisedV2Contract
 		SuccessfulV2 []types.FileContractID
 		RenewedV2    []types.FileContractID
 		FailedV2     []types.FileContractID
@@ -466,13 +480,15 @@ func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDi
 			log.Debug("confirmed contract")
 		case rev != nil:
 			if revert {
-				state.Revised = append(state.Revised, fce)
+				state.Revised = append(state.Revised, RevisedContract{
+					ID:           fce.ID,
+					FileContract: fce.FileContract,
+				})
 				log.Debug("revised contract", zap.Uint64("current", rev.RevisionNumber), zap.Uint64("revised", fce.FileContract.RevisionNumber))
 			} else {
-				state.Revised = append(state.Revised, types.FileContractElement{
+				state.Revised = append(state.Revised, RevisedContract{
 					ID:           fce.ID,
 					FileContract: *rev,
-					StateElement: fce.StateElement,
 				})
 				log.Debug("revised contract", zap.Uint64("current", fce.FileContract.RevisionNumber), zap.Uint64("revised", rev.RevisionNumber))
 			}
@@ -507,14 +523,16 @@ func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDi
 			log.Debug("confirmed v2 contract", zap.Stringer("contractID", fce.ID))
 		case rev != nil:
 			if revert {
-				state.RevisedV2 = append(state.RevisedV2, fce)
+				state.RevisedV2 = append(state.RevisedV2, RevisedV2Contract{
+					ID:             fce.ID,
+					V2FileContract: fce.V2FileContract,
+				})
 				log.Debug("revised contract", zap.Uint64("current", rev.RevisionNumber), zap.Uint64("revised", fce.V2FileContract.RevisionNumber))
 			} else {
 				log.Debug("revised contract", zap.Uint64("current", fce.V2FileContract.RevisionNumber), zap.Uint64("revised", rev.RevisionNumber))
-				state.RevisedV2 = append(state.RevisedV2, types.V2FileContractElement{
+				state.RevisedV2 = append(state.RevisedV2, RevisedV2Contract{
 					ID:             fce.ID,
 					V2FileContract: *rev,
-					StateElement:   fce.StateElement,
 				})
 			}
 		case res != nil:
