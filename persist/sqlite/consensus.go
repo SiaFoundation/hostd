@@ -380,13 +380,13 @@ func (ux *updateTx) RevertContracts(index types.ChainIndex, state contracts.Stat
 
 // RejectContracts returns any contracts with a negotiation height
 // before the provided height that have not been confirmed.
-func (ux *updateTx) RejectContracts(height uint64) ([]types.FileContractID, []types.FileContractID, error) {
-	rejected, err := rejectContracts(ux.tx, height)
+func (ux *updateTx) RejectContracts(height uint64) (rejected []types.FileContractID, rejectedV2 []types.FileContractID, err error) {
+	rejected, err = rejectContracts(ux.tx, height)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get rejected contracts: %w", err)
 	}
 
-	rejectedV2, err := rejectV2Contracts(ux.tx, height)
+	rejectedV2, err = rejectV2Contracts(ux.tx, height)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get rejected v2 contracts: %w", err)
 	}
@@ -906,7 +906,7 @@ func updateV2StatusMetrics(oldStatus, newStatus contracts.V2ContractStatus, fn f
 }
 
 // applyContractRevision updates the confirmed revision number of a contract.
-func applyContractRevision(tx *txn, revisions []types.FileContractElement) error {
+func applyContractRevision(tx *txn, revisions []contracts.RevisedContract) error {
 	if len(revisions) == 0 {
 		return nil
 	}
@@ -1511,14 +1511,14 @@ func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) 
 }
 
 // applyV2ContractRevision updates the confirmed revision number of a contract.
-func applyV2ContractRevision(tx *txn, revised []types.V2FileContractElement) error {
+func applyV2ContractRevision(tx *txn, revised []contracts.RevisedV2Contract) error {
 	selectIDStmt, err := tx.Prepare(`SELECT id FROM contracts_v2 WHERE contract_id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare select statement: %w", err)
 	}
 	defer selectIDStmt.Close()
 
-	updateElementStmt, err := tx.Prepare(`UPDATE contract_v2_state_elements SET leaf_index=?, merkle_proof=?, raw_contract=?, revision_number=? WHERE contract_id=?`)
+	updateElementStmt, err := tx.Prepare(`UPDATE contract_v2_state_elements SET raw_contract=?, revision_number=? WHERE contract_id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update element statement: %w", err)
 	}
@@ -1528,7 +1528,7 @@ func applyV2ContractRevision(tx *txn, revised []types.V2FileContractElement) err
 		var contractID int64
 		if err := selectIDStmt.QueryRow(encode(fce.ID)).Scan(&contractID); err != nil {
 			return fmt.Errorf("failed to update contract revision %q: %w", fce.ID, err)
-		} else if _, err := updateElementStmt.Exec(fce.StateElement.LeafIndex, encode(fce.StateElement.MerkleProof), encode(fce.V2FileContract), encode(fce.V2FileContract.RevisionNumber), contractID); err != nil {
+		} else if _, err := updateElementStmt.Exec(encode(fce.V2FileContract), encode(fce.V2FileContract.RevisionNumber), contractID); err != nil {
 			return fmt.Errorf("failed to update contract state element %q: %w", fce.ID, err)
 		}
 	}

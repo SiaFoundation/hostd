@@ -1,7 +1,6 @@
 package testutil
 
 import (
-	"context"
 	"net"
 	"path/filepath"
 	"testing"
@@ -144,7 +143,7 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerListener.Addr().String(),
 	})
-	go syncer.Run(context.Background())
+	go syncer.Run()
 	t.Cleanup(func() { syncer.Close() })
 
 	return &ConsensusNode{

@@ -661,7 +661,7 @@ func initialRevision(formationTxn *types.Transaction, hostPubKey, renterPubKey t
 }
 
 // calculateRenewalPayouts calculates the contract payouts for the host.
-func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency, pt rhp3.HostPriceTable, endHeight uint64) (types.Currency, types.Currency, types.Currency, types.Currency) {
+func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency, pt rhp3.HostPriceTable, endHeight uint64) (hostValidPayout types.Currency, hostMissedPayout types.Currency, voidMissedPayout types.Currency, basePrice types.Currency) {
 	// The host gets their contract fee, plus the cost of the data already in the
 	// contract, plus their collateral. In the event of a missed payout, the cost
 	// and collateral of the data already in the contract is subtracted from the
@@ -678,7 +678,7 @@ func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency
 
 	// calculate base price and collateral
 	// if the contract height did not increase both prices are zero
-	basePrice := pt.RenewContractCost
+	basePrice = pt.RenewContractCost
 	var baseCollateral types.Currency
 	if contractEnd := uint64(endHeight + pt.WindowSize); contractEnd > fc.WindowEnd {
 		timeExtension := uint64(contractEnd - fc.WindowEnd)
@@ -687,13 +687,13 @@ func calculateRenewalPayouts(fc types.FileContract, newCollateral types.Currency
 	}
 
 	// calculate payouts
-	hostValidPayout := pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
-	voidMissedPayout := basePrice.Add(baseCollateral)
+	hostValidPayout = pt.ContractPrice.Add(basePrice).Add(baseCollateral).Add(newCollateral)
+	voidMissedPayout = basePrice.Add(baseCollateral)
 	if hostValidPayout.Cmp(voidMissedPayout) < 0 {
 		// TODO: detect this elsewhere
 		panic("host's settings are unsatisfiable")
 	}
-	hostMissedPayout := hostValidPayout.Sub(voidMissedPayout)
+	hostMissedPayout = hostValidPayout.Sub(voidMissedPayout)
 	return hostValidPayout, hostMissedPayout, voidMissedPayout, basePrice
 }
 

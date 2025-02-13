@@ -41,17 +41,31 @@ type (
 		BroadcastV2Expiration  []types.V2FileContractElement
 	}
 
+	// RevisedContract contains information about a contract that has been
+	// revised on chain.
+	RevisedContract struct {
+		ID types.FileContractID
+		types.FileContract
+	}
+
+	// RevisedV2Contract contains information about a v2 contract that has been
+	// revised on chain.
+	RevisedV2Contract struct {
+		ID types.FileContractID
+		types.V2FileContract
+	}
+
 	// StateChanges contains the changes to the state of contracts on the
 	// blockchain
 	StateChanges struct {
 		Confirmed  []types.FileContractElement
-		Revised    []types.FileContractElement
+		Revised    []RevisedContract
 		Successful []types.FileContractID
 		Failed     []types.FileContractID
 
 		// V2 changes
 		ConfirmedV2  []types.V2FileContractElement
-		RevisedV2    []types.V2FileContractElement
+		RevisedV2    []RevisedV2Contract
 		SuccessfulV2 []types.FileContractID
 		RenewedV2    []types.FileContractID
 		FailedV2     []types.FileContractID
@@ -450,13 +464,14 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 }
 
 // buildContractState helper to build state changes from a state update
-func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.Logger) (state StateChanges) {
-	u.ForEachFileContractElement(func(fce types.FileContractElement, created bool, rev *types.FileContractElement, resolved, valid bool) {
+func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDiff, v2Fces []consensus.V2FileContractElementDiff, revert bool, log *zap.Logger) (state StateChanges, _ error) {
+	for _, diff := range fces {
+		fce, rev, created, resolved, valid := diff.FileContractElement, diff.Revision, diff.Created, diff.Resolved, diff.Valid
 		log := log.With(zap.Stringer("contractID", fce.ID))
 		if relevant, err := tx.ContractRelevant(types.FileContractID(fce.ID)); err != nil {
-			log.Fatal("failed to check contract relevance", zap.Error(err))
+			return StateChanges{}, fmt.Errorf("failed to check contract relevance: %w", err)
 		} else if !relevant {
-			return
+			continue
 		}
 
 		switch {
@@ -465,11 +480,17 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 			log.Debug("confirmed contract")
 		case rev != nil:
 			if revert {
-				state.Revised = append(state.Revised, fce)
-				log.Debug("revised contract", zap.Uint64("current", rev.FileContract.RevisionNumber), zap.Uint64("revised", fce.FileContract.RevisionNumber))
+				state.Revised = append(state.Revised, RevisedContract{
+					ID:           fce.ID,
+					FileContract: fce.FileContract,
+				})
+				log.Debug("revised contract", zap.Uint64("current", rev.RevisionNumber), zap.Uint64("revised", fce.FileContract.RevisionNumber))
 			} else {
-				state.Revised = append(state.Revised, *rev)
-				log.Debug("revised contract", zap.Uint64("current", fce.FileContract.RevisionNumber), zap.Uint64("revised", rev.FileContract.RevisionNumber))
+				state.Revised = append(state.Revised, RevisedContract{
+					ID:           fce.ID,
+					FileContract: *rev,
+				})
+				log.Debug("revised contract", zap.Uint64("current", fce.FileContract.RevisionNumber), zap.Uint64("revised", rev.RevisionNumber))
 			}
 		case resolved && valid:
 			state.Successful = append(state.Successful, types.FileContractID(fce.ID))
@@ -483,17 +504,17 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 			}
 			log.Debug("expired contract", zap.Bool("successful", successful))
 		default:
-			log.Fatal("unexpected contract state", zap.Bool("resolved", resolved), zap.Bool("valid", valid), zap.Bool("created", created), zap.Bool("revised", rev != nil), zap.Stringer("contractID", fce.ID))
+			return StateChanges{}, fmt.Errorf("unexpected contract state (resolved: %v) (valid: %v) (created: %v) (revised: %v) (contractID: %v)", resolved, valid, created, rev != nil, fce.ID)
 		}
-	})
+	}
 
-	u.ForEachV2FileContractElement(func(fce types.V2FileContractElement, created bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
+	for _, diff := range v2Fces {
+		fce, rev, res, created := diff.V2FileContractElement, diff.Revision, diff.Resolution, diff.Created
 		log := log.With(zap.Stringer("contractID", fce.ID))
-
 		if relevant, err := tx.V2ContractRelevant(types.FileContractID(fce.ID)); err != nil {
-			log.Fatal("failed to check contract relevance", zap.Error(err))
+			return StateChanges{}, fmt.Errorf("failed to check contract relevance: %w", err)
 		} else if !relevant {
-			return
+			continue
 		}
 
 		switch {
@@ -502,11 +523,17 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 			log.Debug("confirmed v2 contract", zap.Stringer("contractID", fce.ID))
 		case rev != nil:
 			if revert {
-				state.RevisedV2 = append(state.RevisedV2, fce)
-				log.Debug("revised contract", zap.Uint64("current", rev.V2FileContract.RevisionNumber), zap.Uint64("revised", fce.V2FileContract.RevisionNumber))
+				state.RevisedV2 = append(state.RevisedV2, RevisedV2Contract{
+					ID:             fce.ID,
+					V2FileContract: fce.V2FileContract,
+				})
+				log.Debug("revised contract", zap.Uint64("current", rev.RevisionNumber), zap.Uint64("revised", fce.V2FileContract.RevisionNumber))
 			} else {
-				state.RevisedV2 = append(state.RevisedV2, *rev)
-				log.Debug("revised contract", zap.Uint64("current", fce.V2FileContract.RevisionNumber), zap.Uint64("revised", rev.V2FileContract.RevisionNumber))
+				log.Debug("revised contract", zap.Uint64("current", fce.V2FileContract.RevisionNumber), zap.Uint64("revised", rev.RevisionNumber))
+				state.RevisedV2 = append(state.RevisedV2, RevisedV2Contract{
+					ID:             fce.ID,
+					V2FileContract: *rev,
+				})
 			}
 		case res != nil:
 			switch res := res.(type) {
@@ -526,12 +553,12 @@ func buildContractState(tx UpdateStateTx, u stateUpdater, revert bool, log *zap.
 				state.SuccessfulV2 = append(state.SuccessfulV2, types.FileContractID(fce.ID))
 				log.Debug("successful v2 contract", zap.Stringer("contractID", fce.ID))
 			default:
-				panic(fmt.Sprintf("unexpected contract resolution type: %T", res))
+				return StateChanges{}, fmt.Errorf("unexpected contract resolution type: %T", res)
 			}
 		default:
-			log.Fatal("unexpected v2 contract state", zap.Bool("resolved", res != nil), zap.Bool("created", created), zap.Bool("revised", rev != nil), zap.Stringer("contractID", fce.ID))
+			return StateChanges{}, fmt.Errorf("unexpected v2 contract state (resolved: %v) (created: %v) (revised: %v) (contractID: %v)", res != nil, created, rev != nil, fce.ID)
 		}
-	})
+	}
 	return
 }
 
@@ -546,8 +573,10 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		}
 
 		// revert contract state changes
-		state := buildContractState(tx, cru, true, log.Named("revert").With(zap.Stringer("index", revertedIndex)))
-		if err := tx.RevertContracts(revertedIndex, state); err != nil {
+		state, err := buildContractState(tx, cru.FileContractElementDiffs(), cru.V2FileContractElementDiffs(), true, log.Named("revert").With(zap.Stringer("index", revertedIndex)))
+		if err != nil {
+			return fmt.Errorf("failed to build contract state: %w", err)
+		} else if err := tx.RevertContracts(revertedIndex, state); err != nil {
 			return fmt.Errorf("failed to revert contracts: %w", err)
 		} else if err := tx.RevertContractChainIndexElement(revertedIndex); err != nil {
 			return fmt.Errorf("failed to revert chain index state element: %w", err)
@@ -559,7 +588,10 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 	}
 
 	for _, cau := range applied {
-		state := buildContractState(tx, cau, false, log.Named("apply").With(zap.Stringer("index", cau.State.Index)))
+		state, err := buildContractState(tx, cau.FileContractElementDiffs(), cau.V2FileContractElementDiffs(), false, log.Named("apply").With(zap.Stringer("index", cau.State.Index)))
+		if err != nil {
+			return fmt.Errorf("failed to build contract state: %w", err)
+		}
 		// apply state changes
 		if err := tx.ApplyContracts(cau.State.Index, state); err != nil {
 			return fmt.Errorf("failed to revert contracts: %w", err)

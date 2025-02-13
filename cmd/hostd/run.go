@@ -283,7 +283,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}, syncer.WithLogger(log.Named("syncer")))
-	go s.Run(ctx)
+	go s.Run()
 	defer s.Close()
 
 	var minRebroadcastHeight uint64
