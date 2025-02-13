@@ -48,7 +48,7 @@ type (
 		types.FileContract
 	}
 
-	// RevisedContract contains information about a v2 contract that has been
+	// RevisedV2Contract contains information about a v2 contract that has been
 	// revised on chain.
 	RevisedV2Contract struct {
 		ID types.FileContractID
