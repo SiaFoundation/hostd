@@ -380,13 +380,13 @@ func (ux *updateTx) RevertContracts(index types.ChainIndex, state contracts.Stat
 
 // RejectContracts returns any contracts with a negotiation height
 // before the provided height that have not been confirmed.
-func (ux *updateTx) RejectContracts(height uint64) ([]types.FileContractID, []types.FileContractID, error) {
-	rejected, err := rejectContracts(ux.tx, height)
+func (ux *updateTx) RejectContracts(height uint64) (rejected []types.FileContractID, rejectedV2 []types.FileContractID, err error) {
+	rejected, err = rejectContracts(ux.tx, height)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get rejected contracts: %w", err)
 	}
 
-	rejectedV2, err := rejectV2Contracts(ux.tx, height)
+	rejectedV2, err = rejectV2Contracts(ux.tx, height)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get rejected v2 contracts: %w", err)
 	}
