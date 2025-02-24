@@ -100,6 +100,12 @@ func (d *decodable) Scan(src any) error {
 			}
 			v.Lo = binary.LittleEndian.Uint64(src[:8])
 			v.Hi = binary.LittleEndian.Uint64(src[8:])
+		case *rhp3.Account:
+			// rhp3 accounts are encoded as [32]byte
+			if len(src) != len(rhp3.ZeroAccount) {
+				return fmt.Errorf("cannot scan %d bytes into rhp3.Account", len(src))
+			}
+			copy(v[:], src)
 		case types.DecoderFrom:
 			dec := types.NewBufDecoder(src)
 			v.DecodeFrom(dec)
