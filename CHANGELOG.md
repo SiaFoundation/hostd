@@ -1,3 +1,10 @@
+## 2.0.4 (2025-02-24)
+
+### Fixes
+
+- Fix decoding error on RHP3 account id type
+- Update core and coreutils dependencies to v0.10.1 and v0.11.1 respectively
+
 ## 2.0.3 (2025-02-07)
 
 ### Fixes
