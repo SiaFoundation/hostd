@@ -6,7 +6,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
-	rhp4 "go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/host/settings"
@@ -99,7 +99,7 @@ func TestAutoAnnounce(t *testing.T) {
 
 		netaddress := net.JoinHostPort(expectedHost, "9984")
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: rhp4.ProtocolTCPSiaMux, Address: netaddress}})
+		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: siamux.Protocol, Address: netaddress}})
 		if err := h.E.Flush(); err != nil {
 			t.Fatal(err)
 		}
@@ -229,7 +229,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 		}
 
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: rhp4.ProtocolTCPSiaMux, Address: net.JoinHostPort(expectedHost, "9984")}})
+		types.EncodeSlice(h.E, chain.V2HostAnnouncement{{Protocol: siamux.Protocol, Address: net.JoinHostPort(expectedHost, "9984")}})
 		if err := h.E.Flush(); err != nil {
 			t.Fatal(err)
 		}

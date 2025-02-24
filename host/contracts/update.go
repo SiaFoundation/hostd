@@ -22,11 +22,6 @@ import (
 const chainIndexBuffer = 144
 
 type (
-	stateUpdater interface {
-		ForEachFileContractElement(func(types.FileContractElement, bool, *types.FileContractElement, bool, bool))
-		ForEachV2FileContractElement(func(types.V2FileContractElement, bool, *types.V2FileContractElement, types.V2FileContractResolutionType))
-	}
-
 	// LifecycleActions contains the actions that need to be taken to maintain
 	// the lifecycle of active contracts.
 	LifecycleActions struct {
