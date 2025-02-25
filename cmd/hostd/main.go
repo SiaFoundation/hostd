@@ -62,6 +62,10 @@ var (
 					Protocol: "tcp",
 					Address:  ":9984",
 				},
+				{
+					Protocol: "quic",
+					Address:  ":9984",
+				},
 			},
 		},
 		Log: config.Log{

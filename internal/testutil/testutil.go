@@ -20,6 +20,7 @@ import (
 	"go.sia.tech/hostd/host/settings"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/index"
+	"go.sia.tech/hostd/internal/certificates"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.uber.org/zap"
 )
@@ -37,6 +38,7 @@ type (
 	HostNode struct {
 		ConsensusNode
 
+		Certs     *certificates.Manager
 		Settings  *settings.ConfigManager
 		Wallet    *wallet.SingleAddressWallet
 		Contracts *contracts.Manager
@@ -197,9 +199,16 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	rm := registry.NewManager(pk, cn.Store, log.Named("registry"))
 	t.Cleanup(func() { rm.Close() })
 
+	certs, err := certificates.NewManager("", pk, certificates.WithLog(log.Named("certificates")))
+	if err != nil {
+		t.Fatal("failed to create certificates manager:", err)
+	}
+	t.Cleanup(func() { certs.Close() })
+
 	return &HostNode{
 		ConsensusNode: *cn,
 
+		Certs:     certs,
 		Settings:  sm,
 		Wallet:    wm,
 		Contracts: contracts,

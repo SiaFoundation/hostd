@@ -3,6 +3,7 @@ package rhp_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"math"
 	"net"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/internal/testutil"
@@ -68,6 +70,54 @@ func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.Ho
 	return transport
 }
 
+func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
+	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Syncer, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
+
+	udpAddr, err := net.ResolveUDPAddr("udp", "localhost:0")
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	l, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { l.Close() })
+
+	ql, err := quic.Listen(l, hn.Certs)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { ql.Close() })
+
+	go quic.Serve(ql, rs, log.Named("quic"))
+
+	transport, err := quic.Dial(context.Background(), l.LocalAddr().String(), hostKey.PublicKey(), quic.WithTLSConfig(func(c *tls.Config) {
+		c.InsecureSkipVerify = true
+	}))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { transport.Close() })
+
+	return transport
+}
+
+func withTransports(t *testing.T, pk types.PrivateKey, hn *testutil.HostNode, fn func(*testing.T, rhp4.TransportClient)) {
+	t.Helper()
+
+	t.Run("siamux", func(t *testing.T) {
+		t.Helper()
+		transport := testRenterHostPair(t, pk, hn, zap.NewNop())
+		fn(t, transport)
+	})
+	t.Run("quic", func(t *testing.T) {
+		t.Helper()
+		transport := testRenterHostPairQUIC(t, pk, hn, zap.NewNop())
+		fn(t, transport)
+	})
+}
+
 func TestSettings(t *testing.T) {
 	n, genesis := testutil.V2Network()
 	hostKey := types.GeneratePrivateKey()
@@ -75,33 +125,33 @@ func TestSettings(t *testing.T) {
 	hn := testutil.NewHostNode(t, hostKey, n, genesis, zap.NewNop())
 	testutil.MineAndSync(t, hn, hn.Wallet.Address(), int(n.MaturityDelay+20))
 
-	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+	withTransports(t, hostKey, hn, func(t *testing.T, transport rhp4.TransportClient) {
+		settings, err := rhp4.RPCSettings(context.Background(), transport)
+		if err != nil {
+			t.Fatal(err)
+		} else if settings.Prices.ValidUntil.Before(time.Now()) {
+			t.Fatal("settings expired")
+		}
 
-	settings, err := rhp4.RPCSettings(context.Background(), transport)
-	if err != nil {
-		t.Fatal(err)
-	} else if settings.Prices.ValidUntil.Before(time.Now()) {
-		t.Fatal("settings expired")
-	}
+		// verify the signature
+		sigHash := settings.Prices.SigHash()
+		if !hostKey.PublicKey().VerifyHash(sigHash, settings.Prices.Signature) {
+			t.Fatal("signature verification failed")
+		}
 
-	// verify the signature
-	sigHash := settings.Prices.SigHash()
-	if !hostKey.PublicKey().VerifyHash(sigHash, settings.Prices.Signature) {
-		t.Fatal("signature verification failed")
-	}
+		// adjust the calculated fields to match the expected values
+		expected := hn.Settings.RHP4Settings()
+		expected.ProtocolVersion = settings.ProtocolVersion
+		expected.Prices.Signature = settings.Prices.Signature
+		expected.Prices.ValidUntil = settings.Prices.ValidUntil
+		expected.Prices.TipHeight = settings.Prices.TipHeight
 
-	// adjust the calculated fields to match the expected values
-	expected := hn.Settings.RHP4Settings()
-	expected.ProtocolVersion = settings.ProtocolVersion
-	expected.Prices.Signature = settings.Prices.Signature
-	expected.Prices.ValidUntil = settings.Prices.ValidUntil
-	expected.Prices.TipHeight = settings.Prices.TipHeight
-
-	if !reflect.DeepEqual(settings, expected) {
-		t.Error("retrieved", settings)
-		t.Error("expected", expected)
-		t.Fatal("settings mismatch")
-	}
+		if !reflect.DeepEqual(settings, expected) {
+			t.Error("retrieved", settings)
+			t.Error("expected", expected)
+			t.Fatal("settings mismatch")
+		}
+	})
 }
 
 func TestFormContract(t *testing.T) {
@@ -114,39 +164,39 @@ func TestFormContract(t *testing.T) {
 
 	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
 
-	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+	withTransports(t, hostKey, hn, func(t *testing.T, transport rhp4.TransportClient) {
+		settings, err := rhp4.RPCSettings(context.Background(), transport)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	settings, err := rhp4.RPCSettings(context.Background(), transport)
-	if err != nil {
-		t.Fatal(err)
-	}
+		fundAndSign := &fundAndSign{w, renterKey}
+		renterAllowance, hostCollateral := types.Siacoins(100), types.Siacoins(200)
+		result, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
+			RenterPublicKey: renterKey.PublicKey(),
+			RenterAddress:   w.Address(),
+			Allowance:       renterAllowance,
+			Collateral:      hostCollateral,
+			ProofHeight:     cm.Tip().Height + 50,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	fundAndSign := &fundAndSign{w, renterKey}
-	renterAllowance, hostCollateral := types.Siacoins(100), types.Siacoins(200)
-	result, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
-		RenterPublicKey: renterKey.PublicKey(),
-		RenterAddress:   w.Address(),
-		Allowance:       renterAllowance,
-		Collateral:      hostCollateral,
-		ProofHeight:     cm.Tip().Height + 50,
+		// verify the transaction set is valid
+		if known, err := hn.Chain.AddV2PoolTransactions(result.FormationSet.Basis, result.FormationSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if !known {
+			t.Fatal("expected transaction set to be known")
+		}
+
+		sigHash := cm.TipState().ContractSigHash(result.Contract.Revision)
+		if !renterKey.PublicKey().VerifyHash(sigHash, result.Contract.Revision.RenterSignature) {
+			t.Fatal("renter signature verification failed")
+		} else if !hostKey.PublicKey().VerifyHash(sigHash, result.Contract.Revision.HostSignature) {
+			t.Fatal("host signature verification failed")
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// verify the transaction set is valid
-	if known, err := hn.Chain.AddV2PoolTransactions(result.FormationSet.Basis, result.FormationSet.Transactions); err != nil {
-		t.Fatal(err)
-	} else if !known {
-		t.Fatal("expected transaction set to be known")
-	}
-
-	sigHash := cm.TipState().ContractSigHash(result.Contract.Revision)
-	if !renterKey.PublicKey().VerifyHash(sigHash, result.Contract.Revision.RenterSignature) {
-		t.Fatal("renter signature verification failed")
-	} else if !hostKey.PublicKey().VerifyHash(sigHash, result.Contract.Revision.HostSignature) {
-		t.Fatal("host signature verification failed")
-	}
 }
 
 func TestRPCRefresh(t *testing.T) {

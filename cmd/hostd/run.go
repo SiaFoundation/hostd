@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
@@ -32,6 +33,7 @@ import (
 	"go.sia.tech/hostd/host/settings/pin"
 	"go.sia.tech/hostd/host/storage"
 	"go.sia.tech/hostd/index"
+	"go.sia.tech/hostd/internal/certificates"
 	"go.sia.tech/hostd/persist/sqlite"
 	"go.sia.tech/hostd/rhp"
 	rhp2 "go.sia.tech/hostd/rhp/v2"
@@ -394,6 +396,12 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer index.Close()
 
+	certs, err := certificates.NewManager(cfg.Directory, hostKey, certificates.WithLocalCert(cfg.RHP4.QUIC.CertPath, cfg.RHP4.QUIC.KeyPath), certificates.WithLog(log.Named("certificates")))
+	if err != nil {
+		return fmt.Errorf("failed to create certificates manager: %w", err)
+	}
+	defer certs.Close()
+
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
 	rl, wl := sm.RHPBandwidthLimiters()
 	rhp2Listener, err := rhp.Listen("tcp", rhp2Addr, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
@@ -437,7 +445,33 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			}
 			log.Debug("started RHP4 listener", zap.String("address", l.Addr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			go siamux.Serve(l, rhp4, log.Named("rhp4"))
+			go siamux.Serve(l, rhp4, log.Named("rhp4.siamux"))
+		case "quic", "quic4", "quic6":
+			var proto string
+			switch addr.Protocol {
+			case "quic":
+				proto = "udp"
+			case "quic4":
+				proto = "udp4"
+			case "quic6":
+				proto = "udp6"
+			}
+			udpAddr, err := net.ResolveUDPAddr(proto, addr.Address)
+			if err != nil {
+				return fmt.Errorf("failed to resolve UDP address: %w", err)
+			}
+			l, err := net.ListenUDP(proto, udpAddr)
+			if err != nil {
+				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
+			}
+			stopListenerFuncs = append(stopListenerFuncs, l.Close)
+			ql, err := quic.Listen(l, certs)
+			if err != nil {
+				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
+			}
+			log.Debug("started RHP4 QUIC listener", zap.String("address", l.LocalAddr().String()))
+			stopListenerFuncs = append(stopListenerFuncs, ql.Close)
+			go quic.Serve(ql, rhp4, log.Named("rhp4.quic"))
 		default:
 			return fmt.Errorf("unsupported protocol: %s", addr.Protocol)
 		}

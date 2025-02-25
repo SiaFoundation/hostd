@@ -51,8 +51,14 @@ type (
 		Address  string `yaml:"address,omitempty"`
 	}
 
+	RHP4QUIC struct {
+		CertPath string `yaml:"certPath,omitempty"`
+		KeyPath  string `yaml:"keyPath,omitempty"`
+	}
+
 	// RHP4 contains the configuration for the RHP4 server.
 	RHP4 struct {
+		QUIC            RHP4QUIC            `yaml:"quic,omitempty"`
 		ListenAddresses []RHP4ListenAddress `yaml:"listenAddresses,omitempty"`
 	}
 
