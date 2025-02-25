@@ -58,6 +58,10 @@ type (
 
 		// RHP4AccountBalance returns the balance of an account.
 		RHP4AccountBalance(proto4.Account) (types.Currency, error)
+		// RHP4AccountBalances returns the balances of multiple accounts. Balances is returned
+		// in the same order as the input accounts. If an account does not exist, the balance
+		// at that index will be types.ZeroCurrency.
+		RHP4AccountBalances([]proto4.Account) ([]types.Currency, error)
 		// RHP4CreditAccounts atomically revises a contract and credits the accounts
 		RHP4CreditAccounts([]proto4.AccountDeposit, types.FileContractID, types.V2FileContract, proto4.Usage) (balances []types.Currency, err error)
 		// RHP4DebitAccount debits an account.

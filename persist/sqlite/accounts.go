@@ -137,6 +137,30 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 	return
 }
 
+// RHP4AccountBalances returns the balances of the accounts with the given IDs. The
+// balances are returned in the same order as the input accounts. If an account does
+// not exist, the balance at that index will be types.ZeroCurrency.
+func (s *Store) RHP4AccountBalances(accounts []proto4.Account) (balances []types.Currency, err error) {
+	err = s.transaction(func(tx *txn) error {
+		stmt, err := tx.Prepare(`SELECT balance FROM accounts WHERE account_id=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare get balance statement: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, account := range accounts {
+			var balance types.Currency
+			err := stmt.QueryRow(encode(account)).Scan(decode(&balance))
+			if err != nil && !errors.Is(err, sql.ErrNoRows) { // missing accounts have a balance of 0
+				return fmt.Errorf("failed to get balance: %w", err)
+			}
+			balances = append(balances, balance)
+		}
+		return nil
+	})
+	return
+}
+
 // AccountBalance returns the balance of the account with the given ID.
 func (s *Store) AccountBalance(accountID rhp3.Account) (balance types.Currency, err error) {
 	err = s.transaction(func(tx *txn) error {

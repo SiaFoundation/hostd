@@ -5,7 +5,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
-	rhp4 "go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.uber.org/zap"
 )
 
@@ -145,7 +145,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 		h := types.NewHasher()
 		types.EncodeSlice(h.E, chain.V2HostAnnouncement{
 			{
-				Protocol: rhp4.ProtocolTCPSiaMux,
+				Protocol: siamux.Protocol,
 				Address:  m.rhp4NetAddress(),
 			},
 		})

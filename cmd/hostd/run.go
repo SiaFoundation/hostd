@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
+	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/alerts"
@@ -436,7 +437,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			}
 			log.Debug("started RHP4 listener", zap.String("address", l.Addr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			go rhp.ServeRHP4SiaMux(l, rhp4, log.Named("rhp4"))
+			go siamux.Serve(l, rhp4, log.Named("rhp4"))
 		default:
 			return fmt.Errorf("unsupported protocol: %s", addr.Protocol)
 		}

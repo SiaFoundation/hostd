@@ -20,3 +20,10 @@ func (cm *Manager) CreditAccountsWithContract(deposits []proto4.AccountDeposit, 
 func (cm *Manager) DebitAccount(account proto4.Account, usage proto4.Usage) error {
 	return cm.store.RHP4DebitAccount(account, usage)
 }
+
+// AccountBalances returns the balances of multiple accounts. Balances is returned
+// in the same order as the input accounts. If an account does not exist, the balance
+// at that index will be types.ZeroCurrency.
+func (cm *Manager) AccountBalances(accounts []proto4.Account) ([]types.Currency, error) {
+	return cm.store.RHP4AccountBalances(accounts)
+}
