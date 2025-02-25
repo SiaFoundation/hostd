@@ -17,6 +17,7 @@ import (
 	"lukechampine.com/frand"
 )
 
+// A ManagerOpt sets options for a certificate Manager.
 type ManagerOpt func(*Manager)
 
 // WithLocalCert sets the certificate and key files for the Manager.
@@ -27,12 +28,14 @@ func WithLocalCert(certFile, keyFile string) ManagerOpt {
 	}
 }
 
+// WithLog sets the logger for the Manager.
 func WithLog(log *zap.Logger) ManagerOpt {
 	return func(m *Manager) {
 		m.log = log
 	}
 }
 
+// A Manager manages TLS certificates.
 type Manager struct {
 	tg  *threadgroup.ThreadGroup
 	log *zap.Logger

@@ -51,6 +51,7 @@ type (
 		Address  string `yaml:"address,omitempty"`
 	}
 
+	// RHP4QUIC contains the configuration for the RHP4 QUIC server.
 	RHP4QUIC struct {
 		CertPath string `yaml:"certPath,omitempty"`
 		KeyPath  string `yaml:"keyPath,omitempty"`
