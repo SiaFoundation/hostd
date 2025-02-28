@@ -119,6 +119,12 @@ func (cm *Manager) V2Contract(id types.FileContractID) (V2Contract, error) {
 	return cm.store.V2Contract(id)
 }
 
+// V2Contracts returns a paginated list of v2 contracts matching the filter and
+// the total number of contracts matching the filter.
+func (cm *Manager) V2Contracts(filter V2ContractFilter) ([]V2Contract, int, error) {
+	return cm.store.V2Contracts(filter)
+}
+
 // V2FileContractElement returns the chain index and file contract element for the
 // given contract ID.
 func (cm *Manager) V2FileContractElement(id types.FileContractID) (types.ChainIndex, types.V2FileContractElement, error) {
@@ -404,6 +410,16 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sector roots: %w", err)
 	}
+
+	v2Roots, err := store.V2SectorRoots()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get v2 sector roots: %w", err)
+	}
+
+	for id, contractRoots := range v2Roots {
+		roots[id] = contractRoots
+	}
+
 	cm.sectorRoots = roots
 	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))
 	return cm, nil

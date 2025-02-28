@@ -1576,32 +1576,166 @@ func TestSectorRoots(t *testing.T) {
 		roots = append(roots, root)
 	}
 
-	// check that the cached sector roots are correct
-	check := node.Contracts.SectorRoots(rev.Revision.ParentID)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(check) != len(roots) {
-		t.Fatalf("expected %v sector roots, got %v", len(roots), len(check))
-	}
-	for i := range check {
-		if check[i] != roots[i] {
-			t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+	assertRoots := func(t *testing.T, roots []types.Hash256) {
+		t.Helper()
+
+		// check that the cached sector roots are correct
+		check := node.Contracts.SectorRoots(rev.Revision.ParentID)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(check) != len(roots) {
+			t.Fatalf("expected %v sector roots, got %v", len(roots), len(check))
+		}
+		for i := range check {
+			if check[i] != roots[i] {
+				t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+			}
+		}
+
+		dbRoots, err := node.Store.SectorRoots()
+		if err != nil {
+			t.Fatal(err)
+		}
+		check = dbRoots[rev.Revision.ParentID]
+		if len(check) != len(roots) {
+			t.Fatalf("expected %v sector roots, got %v", len(roots), len(check))
+		}
+		for i := range check {
+			if check[i] != roots[i] {
+				t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+			}
 		}
 	}
 
-	dbRoots, err := node.Store.SectorRoots()
+	assertRoots(t, roots)
+
+	// reload the contract manager to ensure the roots are persisted
+	node.Contracts.Close()
+	node.Contracts, err = contracts.NewManager(node.Store, node.Volumes, node.Chain, node.Syncer, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	check = dbRoots[rev.Revision.ParentID]
-	if len(check) != len(roots) {
-		t.Fatalf("expected %v sector roots, got %v", len(roots), len(check))
+
+	assertRoots(t, roots)
+}
+
+func TestV2SectorRoots(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	const sectors = 256
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+	dir := t.TempDir()
+
+	network, genesis := testutil.V2Network()
+	node := testutil.NewHostNode(t, hostKey, network, genesis, log)
+
+	result := make(chan error, 1)
+	if _, err := node.Volumes.AddVolume(context.Background(), filepath.Join(dir, "data.dat"), 10, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
 	}
-	for i := range check {
-		if check[i] != roots[i] {
-			t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+
+	testutil.MineAndSync(t, node, node.Wallet.Address(), int(network.MaturityDelay+5))
+
+	// create a fake volume so disk space is not used
+	id, err := node.Store.AddVolume("test", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := node.Store.GrowVolume(id, sectors); err != nil {
+		t.Fatal(err)
+	} else if err := node.Store.SetAvailable(id, true); err != nil {
+		t.Fatal(err)
+	}
+
+	cs := node.Chain.TipState()
+	txn := types.V2Transaction{
+		FileContracts: []types.V2FileContract{
+			{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				ProofHeight:      100,
+				ExpirationHeight: 200,
+			},
+		},
+	}
+	sigHash := cs.ContractSigHash(txn.FileContracts[0])
+	txn.FileContracts[0].RenterSignature = renterKey.SignHash(sigHash)
+	txn.FileContracts[0].HostSignature = hostKey.SignHash(sigHash)
+
+	err = node.Contracts.AddV2Contract(rhp4.TransactionSet{
+		Transactions: []types.V2Transaction{txn},
+		Basis:        node.Chain.Tip(),
+	}, proto4.Usage{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractID := txn.V2FileContractID(txn.ID(), 0)
+
+	var roots []types.Hash256
+	rev := txn.FileContracts[0]
+	for range sectors {
+		root := frand.Entropy256()
+		err := node.Store.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots = append(roots, root)
+
+		rev.FileMerkleRoot = proto4.MetaRoot(roots)
+		rev.Filesize += proto4.SectorSize
+		rev.Capacity += proto4.SectorSize
+		sigHash := cs.ContractSigHash(rev)
+		rev.RenterSignature = renterKey.SignHash(sigHash)
+		rev.HostSignature = hostKey.SignHash(sigHash)
+
+		err = node.Contracts.ReviseV2Contract(contractID, rev, roots, proto4.Usage{})
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
+
+	assertRoots := func(t *testing.T, roots []types.Hash256) {
+		t.Helper()
+
+		// check that the cached sector roots are correct
+		check := node.Contracts.SectorRoots(contractID)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(check) != len(roots) {
+			t.Fatalf("expected %v cached sector roots, got %v", len(roots), len(check))
+		}
+		for i := range check {
+			if check[i] != roots[i] {
+				t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+			}
+		}
+
+		dbRoots, err := node.Store.V2SectorRoots()
+		if err != nil {
+			t.Fatal(err)
+		}
+		check = dbRoots[contractID]
+		if len(check) != len(roots) {
+			t.Fatalf("expected %v database sector roots, got %v", len(roots), len(check))
+		}
+		for i := range check {
+			if check[i] != roots[i] {
+				t.Fatalf("expected sector root %v to be %v, got %v", i, roots[i], check[i])
+			}
+		}
+	}
+
+	assertRoots(t, roots)
+
+	// reload the contract manager to ensure the roots are persisted
+	node.Contracts.Close()
+	node.Contracts, err = contracts.NewManager(node.Store, node.Volumes, node.Chain, node.Syncer, node.Wallet)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertRoots(t, roots)
 }
 
 func TestChainIndexElementsDeepReorg(t *testing.T) {

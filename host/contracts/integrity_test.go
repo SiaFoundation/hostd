@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/host/contracts"
 	"go.sia.tech/hostd/internal/testutil"
@@ -127,6 +128,137 @@ func TestCheckIntegrity(t *testing.T) {
 	// helper func to serialize integrity check
 	checkIntegrity := func() (issues, checked, sectors uint64, err error) {
 		results, sectors, err := host.Contracts.CheckIntegrity(context.Background(), rev.Revision.ParentID)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("failed to check integrity: %w", err)
+		}
+
+		for result := range results {
+			if result.Error != nil {
+				issues++
+			}
+			checked++
+		}
+		return issues, checked, sectors, nil
+	}
+
+	// check for issues, should be none
+	issues, checked, sectors, err := checkIntegrity()
+	if err != nil {
+		t.Fatal(err)
+	} else if checked != uint64(len(roots)) {
+		t.Fatalf("expected %v checked, got %v", len(roots), checked)
+	} else if sectors != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), sectors)
+	} else if issues != 0 {
+		t.Fatalf("expected %v issues, got %v", 0, issues)
+	}
+
+	// delete a sector
+	if err := host.Volumes.RemoveSector(roots[3]); err != nil {
+		t.Fatal(err)
+	}
+
+	// check for issues, should be one
+	issues, checked, sectors, err = checkIntegrity()
+	if err != nil {
+		t.Fatal(err)
+	} else if checked != uint64(len(roots)) {
+		t.Fatalf("expected %v checked, got %v", len(roots), checked)
+	} else if sectors != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), sectors)
+	} else if issues != 1 {
+		t.Fatalf("expected %v issues, got %v", 1, issues)
+	}
+
+	// open the data file and corrupt the first sector
+	f, err := os.OpenFile(volumePath, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteAt([]byte{255}, 300); err != nil {
+		t.Fatal(err)
+	} else if err := f.Sync(); err != nil {
+		t.Fatal(err)
+	} else if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// check for issues, should be one
+	issues, checked, sectors, err = checkIntegrity()
+	if err != nil {
+		t.Fatal(err)
+	} else if checked != uint64(len(roots)) {
+		t.Fatalf("expected %v checked, got %v", len(roots), checked)
+	} else if sectors != uint64(len(roots)) {
+		t.Fatalf("expected %v sectors, got %v", len(roots), sectors)
+	} else if issues != 2 {
+		t.Fatalf("expected %v issues, got %v", 2, issues)
+	}
+}
+
+func TestV2CheckIntegrity(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	hostKey, renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32)), types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	n, genesis := testutil.V2Network()
+	host := testutil.NewHostNode(t, hostKey, n, genesis, log)
+
+	volumePath := filepath.Join(t.TempDir(), "data.dat")
+	result := make(chan error, 1)
+	if _, err := host.Volumes.AddVolume(context.Background(), volumePath, 10, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	// mine enough for the wallet to have some funds
+	testutil.MineAndSync(t, host, host.Wallet.Address(), int(n.MaturityDelay+5))
+
+	contractID, rev := formV2Contract(t, host.Chain, host.Contracts, host.Wallet, host.Syncer, renterKey, hostKey, types.Siacoins(500), types.Siacoins(1000), 10, true)
+	contract, err := host.Contracts.V2Contract(contractID)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.Status != contracts.V2ContractStatusPending {
+		t.Fatal("expected contract to be pending")
+	}
+	testutil.MineAndSync(t, host, types.VoidAddress, 1)
+
+	contract, err = host.Contracts.V2Contract(contractID)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.Status != contracts.V2ContractStatusActive {
+		t.Fatal("expected contract to be active")
+	}
+
+	cs := host.Chain.TipState()
+
+	var roots []types.Hash256
+	for range 5 {
+		var sector [rhp2.SectorSize]byte
+		frand.Read(sector[:256])
+		root := rhp2.SectorRoot(&sector)
+		err := host.Volumes.Write(root, &sector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots = append(roots, root)
+
+		rev.RevisionNumber++
+		rev.Filesize += proto4.SectorSize
+		rev.Capacity += proto4.SectorSize
+		rev.FileMerkleRoot = proto4.MetaRoot(roots)
+		sigHash := cs.ContractSigHash(rev)
+		rev.RenterSignature = renterKey.SignHash(sigHash)
+		rev.HostSignature = hostKey.SignHash(sigHash)
+
+		if err := host.Contracts.ReviseV2Contract(contractID, rev, roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// helper func to serialize integrity check
+	checkIntegrity := func() (issues, checked, sectors uint64, err error) {
+		results, sectors, err := host.Contracts.V2CheckIntegrity(context.Background(), contractID)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("failed to check integrity: %w", err)
 		}

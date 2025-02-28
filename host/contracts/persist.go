@@ -16,9 +16,10 @@ type (
 		// ContractChainIndexElement returns the chain index element for the given height.
 		ContractChainIndexElement(types.ChainIndex) (types.ChainIndexElement, error)
 
-		// SectorRoots returns the sector roots for a contract. If limit is 0, all roots
-		// are returned.
+		// SectorRoots returns the sector roots for all contracts.
 		SectorRoots() (map[types.FileContractID][]types.Hash256, error)
+		// V2SectorRoots returns the sector roots for all v2 contracts.
+		V2SectorRoots() (map[types.FileContractID][]types.Hash256, error)
 
 		// Contracts returns a paginated list of contracts sorted by expiration
 		// asc.
@@ -43,6 +44,8 @@ type (
 		V2ContractElement(types.FileContractID) (types.ChainIndex, types.V2FileContractElement, error)
 		// V2Contract returns the v2 contract with the given ID.
 		V2Contract(types.FileContractID) (V2Contract, error)
+		V2Contracts(V2ContractFilter) ([]V2Contract, int, error)
+
 		// AddV2Contract stores the provided contract, should error if the contract
 		// already exists in the store.
 		AddV2Contract(V2Contract, rhp4.TransactionSet) error
