@@ -33,33 +33,40 @@ func (c *Client) State() (resp State, err error) {
 }
 
 // ConsensusNetwork returns the node's consensus network
-func (c *Client) ConsensusNetwork() (network *consensus.Network, err error) {
-	err = c.c.GET("/state/consensus/network", network)
+func (c *Client) ConsensusNetwork() (network consensus.Network, err error) {
+	err = c.c.GET("/consensus/network", &network)
 	return
 }
 
 // ConsensusTip returns the current consensus tip
 func (c *Client) ConsensusTip() (tip types.ChainIndex, err error) {
-	err = c.c.GET("/state/consensus/tip", &tip)
+	err = c.c.GET("/consensus/tip", &tip)
 	return
 }
 
 // ConsensusTipState returns the current consensus tip state
 func (c *Client) ConsensusTipState() (state consensus.State, err error) {
-	err = c.c.GET("/state/consensus/tipstate", &state)
+	err = c.c.GET("/consensus/tipstate", &state)
 	if err != nil {
 		return
 	}
 	c.mu.Lock()
 	if c.n == nil {
-		c.n, err = c.ConsensusNetwork()
+		n, err := c.ConsensusNetwork()
 		if err != nil {
 			c.mu.Unlock()
 			return consensus.State{}, fmt.Errorf("failed to get consensus network: %w", err)
 		}
+		c.n = &n
 	}
 	state.Network = c.n
 	c.mu.Unlock()
+	return
+}
+
+// IndexTip returns the last chain index processed by the host.
+func (c *Client) IndexTip() (tip types.ChainIndex, err error) {
+	err = c.c.GET("/index/tip", &tip)
 	return
 }
 
@@ -78,11 +85,6 @@ func (c *Client) SyncerPeers() (peers []Peer, err error) {
 // SyncerConnect connects to a peer.
 func (c *Client) SyncerConnect(address string) error {
 	return c.c.PUT("/syncer/peers", SyncerConnectRequest{address})
-}
-
-// SyncerDisconnect disconnects from a peer.
-func (c *Client) SyncerDisconnect(address string) error {
-	return c.c.DELETE(fmt.Sprintf("/syncer/peers/%s", address))
 }
 
 // Announce announces the host to the network. The announced address is
