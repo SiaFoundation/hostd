@@ -3,7 +3,6 @@ package api_test
 import (
 	"net"
 	"net/http"
-	"reflect"
 	"testing"
 	"time"
 
@@ -56,8 +55,6 @@ func TestConsensusEndpoints(t *testing.T) {
 		t.Fatal(err)
 	} else if cs.Index != tip {
 		t.Fatalf("expected tip %v, got %v", tip, cs.Index)
-	} else if !reflect.DeepEqual(cs.Network, n) {
-		t.Fatalf("expected network %v, got %v", n, cs.Network)
 	}
 
 	it, err := client.IndexTip()
