@@ -426,13 +426,41 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, roots []types.
 	})
 }
 
-// SectorRoots returns the sector roots for a contract. The contract must be
-// locked before calling.
+// SectorRoots returns the sector roots for all contracts.
 func (s *Store) SectorRoots() (roots map[types.FileContractID][]types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT s.sector_root, c.contract_id FROM contract_sector_roots cr
 INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
 INNER JOIN contracts c ON (cr.contract_id = c.id)
+ORDER BY cr.contract_id, cr.root_index ASC;`
+
+		rows, err := tx.Query(query)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		roots = make(map[types.FileContractID][]types.Hash256)
+		for rows.Next() {
+			var contractID types.FileContractID
+			var root types.Hash256
+
+			if err := rows.Scan(decode(&root), decode(&contractID)); err != nil {
+				return fmt.Errorf("failed to scan sector root: %w", err)
+			}
+			roots[contractID] = append(roots[contractID], root)
+		}
+		return rows.Err()
+	})
+	return
+}
+
+// V2SectorRoots returns the sector roots for all v2 contracts.
+func (s *Store) V2SectorRoots() (roots map[types.FileContractID][]types.Hash256, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT s.sector_root, c.contract_id FROM contract_v2_sector_roots cr
+INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
+INNER JOIN contracts_v2 c ON (cr.contract_id = c.id)
 ORDER BY cr.contract_id, cr.root_index ASC;`
 
 		rows, err := tx.Query(query)
