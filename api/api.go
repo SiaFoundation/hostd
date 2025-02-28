@@ -96,6 +96,9 @@ type (
 		Contracts(filter contracts.ContractFilter) ([]contracts.Contract, int, error)
 		Contract(id types.FileContractID) (contracts.Contract, error)
 
+		V2Contracts(filter contracts.V2ContractFilter) ([]contracts.V2Contract, int, error)
+		V2Contract(id types.FileContractID) (contracts.V2Contract, error)
+
 		// CheckIntegrity checks the integrity of a contract's sector roots on
 		// disk. The result of each sector checked is sent on the returned
 		// channel. Read errors are logged.
@@ -297,5 +300,9 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		"PUT /webhooks/:id":       a.handlePUTWebhooks,
 		"POST /webhooks/:id/test": a.handlePOSTWebhooksTest,
 		"DELETE /webhooks/:id":    a.handleDELETEWebhooks,
+
+		// v2 contracts
+		"POST /v2/contracts":    a.handlePOSTV2Contracts,
+		"GET /v2/contracts/:id": a.handleGETV2Contract,
 	})
 }

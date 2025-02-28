@@ -113,6 +113,12 @@ type (
 		Contracts []contracts.Contract `json:"contracts"`
 	}
 
+	// V2ContractsResponse is the response body for the [POST] /v2/contracts endpoint.
+	V2ContractsResponse struct {
+		Count     int                    `json:"count"`
+		Contracts []contracts.V2Contract `json:"contracts"`
+	}
+
 	// WalletResponse is the response body for the [GET] /wallet endpoint.
 	WalletResponse struct {
 		wallet.Balance

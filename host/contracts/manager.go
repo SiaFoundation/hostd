@@ -114,15 +114,15 @@ func (cm *Manager) Contract(id types.FileContractID) (Contract, error) {
 	return cm.store.Contract(id)
 }
 
+// V2Contracts returns a paginated list of contracts matching the filter and the
+// total number of contracts matching the filter.
+func (cm *Manager) V2Contracts(filter V2ContractFilter) ([]V2Contract, int, error) {
+	return cm.store.V2Contracts(filter)
+}
+
 // V2Contract returns the v2 contract with the given ID.
 func (cm *Manager) V2Contract(id types.FileContractID) (V2Contract, error) {
 	return cm.store.V2Contract(id)
-}
-
-// V2Contracts returns a paginated list of v2 contracts matching the filter and
-// the total number of contracts matching the filter.
-func (cm *Manager) V2Contracts(filter V2ContractFilter) ([]V2Contract, int, error) {
-	return cm.store.V2Contracts(filter)
 }
 
 // V2FileContractElement returns the chain index and file contract element for the

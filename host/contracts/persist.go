@@ -42,9 +42,11 @@ type (
 
 		// V2ContractElement returns the latest v2 state element with the given ID.
 		V2ContractElement(types.FileContractID) (types.ChainIndex, types.V2FileContractElement, error)
+		// V2Contracts returns a paginated list of v2 contracts sorted by expiration
+		// asc.
+		V2Contracts(V2ContractFilter) ([]V2Contract, int, error)
 		// V2Contract returns the v2 contract with the given ID.
 		V2Contract(types.FileContractID) (V2Contract, error)
-		V2Contracts(V2ContractFilter) ([]V2Contract, int, error)
 
 		// AddV2Contract stores the provided contract, should error if the contract
 		// already exists in the store.

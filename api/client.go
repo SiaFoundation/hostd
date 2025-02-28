@@ -146,6 +146,19 @@ func (c *Client) Contract(id types.FileContractID) (contract contracts.Contract,
 	return
 }
 
+// V2Contracts returns the v2 contracts of the host matching the filter.
+func (c *Client) V2Contracts(filter contracts.V2ContractFilter) ([]contracts.V2Contract, int, error) {
+	var resp V2ContractsResponse
+	err := c.c.POST("/v2/contracts", filter, &resp)
+	return resp.Contracts, resp.Count, err
+}
+
+// V2Contract returns the v2 contract with the specified ID.
+func (c *Client) V2Contract(id types.FileContractID) (contract contracts.V2Contract, err error) {
+	err = c.c.GET("/v2/contracts/"+id.String(), &contract)
+	return
+}
+
 // StartIntegrityCheck scans the volume with the specified ID for consistency errors.
 func (c *Client) StartIntegrityCheck(id types.FileContractID) error {
 	return c.c.PUT(fmt.Sprintf("/contracts/%v/integrity", id), nil)

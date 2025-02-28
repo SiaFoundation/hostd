@@ -348,6 +348,41 @@ func (a *api) handleGETContract(jc jape.Context) {
 	jc.Encode(contract)
 }
 
+func (a *api) handlePOSTV2Contracts(jc jape.Context) {
+	var filter contracts.V2ContractFilter
+	if err := jc.Decode(&filter); err != nil {
+		return
+	}
+
+	if filter.Limit <= 0 || filter.Limit > 500 {
+		filter.Limit = 500
+	}
+
+	contracts, count, err := a.contracts.V2Contracts(filter)
+	if !a.checkServerError(jc, "failed to get contracts", err) {
+		return
+	}
+	jc.Encode(V2ContractsResponse{
+		Contracts: contracts,
+		Count:     count,
+	})
+}
+
+func (a *api) handleGETV2Contract(jc jape.Context) {
+	var id types.FileContractID
+	if err := jc.DecodeParam("id", &id); err != nil {
+		return
+	}
+	contract, err := a.contracts.V2Contract(id)
+	if errors.Is(err, contracts.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if !a.checkServerError(jc, "failed to get contract", err) {
+		return
+	}
+	jc.Encode(contract)
+}
+
 func (a *api) handleGETVolume(jc jape.Context) {
 	var id int64
 	if err := jc.DecodeParam("id", &id); err != nil {
