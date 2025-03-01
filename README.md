@@ -141,7 +141,7 @@ Create a new file named `docker-compose.yml`. You can use the following as a tem
 
 ```yml
 services:
-  host:
+  hostd:
     image: ghcr.io/siafoundation/hostd:latest
     ports:
       - 127.0.0.1:9980:9980/tcp
