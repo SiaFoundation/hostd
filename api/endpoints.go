@@ -135,7 +135,7 @@ func (a *api) handleGETSyncerPeers(jc jape.Context) {
 		peer.SyncDuration = info.SyncDuration
 		peers = append(peers, peer)
 	}
-	jc.Encode(peers)
+	a.writeResponse(jc, PeerResp(peers))
 }
 
 func (a *api) handlePUTSyncerPeer(jc jape.Context) {
