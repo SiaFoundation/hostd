@@ -13,9 +13,9 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/build"
-	"go.sia.tech/hostd/config"
-	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/v2/build"
+	"go.sia.tech/hostd/v2/config"
+	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"lukechampine.com/flagg"

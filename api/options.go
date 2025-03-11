@@ -2,9 +2,9 @@ package api
 
 import (
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/alerts"
-	"go.sia.tech/hostd/explorer"
-	"go.sia.tech/hostd/webhooks"
+	"go.sia.tech/hostd/v2/alerts"
+	"go.sia.tech/hostd/v2/explorer"
+	"go.sia.tech/hostd/v2/webhooks"
 	"go.uber.org/zap"
 )
 

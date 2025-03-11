@@ -11,8 +11,8 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/rhp"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/rhp"
 	"go.uber.org/zap"
 )
 

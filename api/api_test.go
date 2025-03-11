@@ -12,9 +12,9 @@ import (
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/api"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/internal/testutil"
+	"go.sia.tech/hostd/v2/api"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/internal/testutil"
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
 )

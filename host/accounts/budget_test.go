@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/accounts"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/internal/testutil"
+	"go.sia.tech/hostd/v2/host/accounts"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/internal/testutil"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )

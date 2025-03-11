@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"go.sia.tech/hostd/host/metrics"
+	"go.sia.tech/hostd/v2/host/metrics"
 )
 
 func getMetrics(tx txn) (m metrics.Metrics, err error) {

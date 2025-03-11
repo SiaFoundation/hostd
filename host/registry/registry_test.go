@@ -7,9 +7,9 @@ import (
 
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/registry"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/persist/sqlite"
+	"go.sia.tech/hostd/v2/host/registry"
+	"go.sia.tech/hostd/v2/host/settings"
+	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )

@@ -12,8 +12,8 @@ import (
 	rhp2 "go.sia.tech/core/rhp/v2"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/internal/testutil"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/internal/testutil"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )

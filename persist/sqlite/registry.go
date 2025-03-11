@@ -7,7 +7,7 @@ import (
 	"time"
 
 	rhp3 "go.sia.tech/core/rhp/v3"
-	"go.sia.tech/hostd/host/registry"
+	"go.sia.tech/hostd/v2/host/registry"
 )
 
 // GetRegistryValue returns the registry value for the given key. If the key is not

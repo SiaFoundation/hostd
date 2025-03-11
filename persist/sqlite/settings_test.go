@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/settings/pin"
+	"go.sia.tech/hostd/v2/host/settings"
+	"go.sia.tech/hostd/v2/host/settings/pin"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )

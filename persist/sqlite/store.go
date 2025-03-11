@@ -13,9 +13,9 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/host/settings"
+	"go.sia.tech/hostd/v2/host/storage"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

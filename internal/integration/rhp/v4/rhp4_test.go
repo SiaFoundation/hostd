@@ -20,7 +20,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/internal/testutil"
+	"go.sia.tech/hostd/v2/internal/testutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"

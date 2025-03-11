@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"go.sia.tech/hostd/build"
-	"go.sia.tech/hostd/internal/ddns"
+	"go.sia.tech/hostd/v2/build"
+	"go.sia.tech/hostd/v2/internal/ddns"
 )
 
 type (

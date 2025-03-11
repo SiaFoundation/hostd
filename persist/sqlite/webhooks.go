@@ -3,7 +3,7 @@ package sqlite
 import (
 	"strings"
 
-	"go.sia.tech/hostd/webhooks"
+	"go.sia.tech/hostd/v2/webhooks"
 )
 
 // RegisterWebhook registers a new webhook.

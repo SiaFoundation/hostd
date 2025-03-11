@@ -9,9 +9,9 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/internal/threadgroup"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/host/settings"
+	"go.sia.tech/hostd/v2/internal/threadgroup"
 	"go.uber.org/zap"
 )
 
