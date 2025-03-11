@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"go.sia.tech/hostd/internal/threadgroup"
+	"go.sia.tech/hostd/v2/internal/threadgroup"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

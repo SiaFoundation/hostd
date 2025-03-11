@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/hostd/persist/sqlite"
-	"go.sia.tech/hostd/webhooks"
+	"go.sia.tech/hostd/v2/persist/sqlite"
+	"go.sia.tech/hostd/v2/webhooks"
 	"go.uber.org/zap/zaptest"
 )
 

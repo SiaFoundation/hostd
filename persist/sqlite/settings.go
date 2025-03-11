@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/settings/pin"
+	"go.sia.tech/hostd/v2/host/settings"
+	"go.sia.tech/hostd/v2/host/settings/pin"
 	"go.uber.org/zap"
 )
 
@@ -36,11 +36,11 @@ FROM host_pinned_settings;`
 
 // UpdatePinnedSettings updates the host's pinned settings.
 func (s *Store) UpdatePinnedSettings(_ context.Context, p pin.PinnedSettings) error {
-	const query = `INSERT INTO host_pinned_settings (id, currency, threshold, storage_pinned, storage_price, ingress_pinned, ingress_price, egress_pinned, egress_price, max_collateral_pinned, max_collateral) 
-VALUES (0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
-ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.threshold, 
-storage_pinned=EXCLUDED.storage_pinned, storage_price=EXCLUDED.storage_price, ingress_pinned=EXCLUDED.ingress_pinned, 
-ingress_price=EXCLUDED.ingress_price, egress_pinned=EXCLUDED.egress_pinned, egress_price=EXCLUDED.egress_price, 
+	const query = `INSERT INTO host_pinned_settings (id, currency, threshold, storage_pinned, storage_price, ingress_pinned, ingress_price, egress_pinned, egress_price, max_collateral_pinned, max_collateral)
+VALUES (0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT (id) DO UPDATE SET currency=EXCLUDED.currency, threshold=EXCLUDED.threshold,
+storage_pinned=EXCLUDED.storage_pinned, storage_price=EXCLUDED.storage_price, ingress_pinned=EXCLUDED.ingress_pinned,
+ingress_price=EXCLUDED.ingress_price, egress_pinned=EXCLUDED.egress_pinned, egress_price=EXCLUDED.egress_price,
 max_collateral_pinned=EXCLUDED.max_collateral_pinned, max_collateral=EXCLUDED.max_collateral;`
 
 	return s.transaction(func(tx *txn) error {
@@ -52,10 +52,10 @@ max_collateral_pinned=EXCLUDED.max_collateral_pinned, max_collateral=EXCLUDED.ma
 // Settings returns the current host settings.
 func (s *Store) Settings() (config settings.Settings, err error) {
 	var dyndnsBuf []byte
-	const query = `SELECT settings_revision, accepting_contracts, net_address, 
-	contract_price, base_rpc_price, sector_access_price, collateral_multiplier, 
-	max_collateral, storage_price, egress_price, ingress_price, 
-	max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size, 
+	const query = `SELECT settings_revision, accepting_contracts, net_address,
+	contract_price, base_rpc_price, sector_access_price, collateral_multiplier,
+	max_collateral, storage_price, egress_price, ingress_price,
+	max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size,
 	ingress_limit, egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size
 FROM host_settings;`
 
@@ -85,25 +85,25 @@ FROM host_settings;`
 
 // UpdateSettings updates the host's stored settings.
 func (s *Store) UpdateSettings(settings settings.Settings) error {
-	const query = `INSERT INTO host_settings (id, settings_revision, 
-		accepting_contracts, net_address, contract_price, base_rpc_price, 
-		sector_access_price, collateral_multiplier, max_collateral, storage_price, 
-		egress_price, ingress_price, max_account_balance, 
-		max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
-		egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size) 
-		VALUES (0, 0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) 
-ON CONFLICT (id) DO UPDATE SET (settings_revision, 
-	accepting_contracts, net_address, contract_price, base_rpc_price, 
-	sector_access_price, collateral_multiplier, max_collateral, storage_price, 
-	egress_price, ingress_price, max_account_balance, 
-	max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit, 
+	const query = `INSERT INTO host_settings (id, settings_revision,
+		accepting_contracts, net_address, contract_price, base_rpc_price,
+		sector_access_price, collateral_multiplier, max_collateral, storage_price,
+		egress_price, ingress_price, max_account_balance,
+		max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit,
+		egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size)
+		VALUES (0, 0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+ON CONFLICT (id) DO UPDATE SET (settings_revision,
+	accepting_contracts, net_address, contract_price, base_rpc_price,
+	sector_access_price, collateral_multiplier, max_collateral, storage_price,
+	egress_price, ingress_price, max_account_balance,
+	max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit,
 	egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size) = (
 	settings_revision + 1, EXCLUDED.accepting_contracts, EXCLUDED.net_address,
 	EXCLUDED.contract_price, EXCLUDED.base_rpc_price, EXCLUDED.sector_access_price,
 	EXCLUDED.collateral_multiplier, EXCLUDED.max_collateral, EXCLUDED.storage_price,
 	EXCLUDED.egress_price, EXCLUDED.ingress_price, EXCLUDED.max_account_balance,
-	EXCLUDED.max_account_age, EXCLUDED.price_table_validity, EXCLUDED.max_contract_duration, EXCLUDED.window_size, 
-	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.ddns_provider, 
+	EXCLUDED.max_account_age, EXCLUDED.price_table_validity, EXCLUDED.max_contract_duration, EXCLUDED.window_size,
+	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.ddns_provider,
 	EXCLUDED.ddns_update_v4, EXCLUDED.ddns_update_v6, EXCLUDED.ddns_opts, EXCLUDED.sector_cache_size);`
 	var dnsOptsBuf []byte
 	if settings.DDNS.Provider != "" {

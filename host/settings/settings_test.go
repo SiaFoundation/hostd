@@ -6,11 +6,11 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/index"
-	"go.sia.tech/hostd/internal/testutil"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/host/settings"
+	"go.sia.tech/hostd/v2/host/storage"
+	"go.sia.tech/hostd/v2/index"
+	"go.sia.tech/hostd/v2/internal/testutil"
 	"go.uber.org/zap/zaptest"
 )
 

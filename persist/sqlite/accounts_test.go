@@ -8,8 +8,8 @@ import (
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/index"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/index"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )

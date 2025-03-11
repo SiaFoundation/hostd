@@ -9,7 +9,7 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/jape"
 )
 

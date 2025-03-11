@@ -5,7 +5,7 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/internal/prometheus"
+	"go.sia.tech/hostd/v2/internal/prometheus"
 )
 
 // PrometheusMetric returns a Prometheus metric for the host state.

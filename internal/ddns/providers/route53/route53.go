@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/route53"
-	"go.sia.tech/hostd/internal/ddns"
+	"go.sia.tech/hostd/v2/internal/ddns"
 )
 
 type (

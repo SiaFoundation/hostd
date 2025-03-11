@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/contracts"
+	"go.sia.tech/hostd/v2/host/contracts"
 	"go.uber.org/zap"
 )
 

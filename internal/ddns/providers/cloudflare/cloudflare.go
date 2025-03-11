@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
-	"go.sia.tech/hostd/internal/ddns"
+	"go.sia.tech/hostd/v2/internal/ddns"
 )
 
 type (

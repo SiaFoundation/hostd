@@ -7,11 +7,11 @@ import (
 	"net"
 	"time"
 
-	"go.sia.tech/hostd/internal/ddns"
-	"go.sia.tech/hostd/internal/ddns/providers/cloudflare"
-	"go.sia.tech/hostd/internal/ddns/providers/duckdns"
-	"go.sia.tech/hostd/internal/ddns/providers/noip"
-	"go.sia.tech/hostd/internal/ddns/providers/route53"
+	"go.sia.tech/hostd/v2/internal/ddns"
+	"go.sia.tech/hostd/v2/internal/ddns/providers/cloudflare"
+	"go.sia.tech/hostd/v2/internal/ddns/providers/duckdns"
+	"go.sia.tech/hostd/v2/internal/ddns/providers/noip"
+	"go.sia.tech/hostd/v2/internal/ddns/providers/route53"
 	"go.uber.org/zap"
 )
 

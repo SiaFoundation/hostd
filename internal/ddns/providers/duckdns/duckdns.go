@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"go.sia.tech/hostd/internal/ddns"
+	"go.sia.tech/hostd/v2/internal/ddns"
 )
 
 type (

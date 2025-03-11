@@ -10,11 +10,11 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
-	"go.sia.tech/hostd/alerts"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/metrics"
-	"go.sia.tech/hostd/host/settings"
-	"go.sia.tech/hostd/host/storage"
+	"go.sia.tech/hostd/v2/alerts"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/host/metrics"
+	"go.sia.tech/hostd/v2/host/settings"
+	"go.sia.tech/hostd/v2/host/storage"
 )
 
 // JSON keys for host setting fields

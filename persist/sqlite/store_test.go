@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-sqlite3"
-	"go.sia.tech/hostd/host/settings"
+	"go.sia.tech/hostd/v2/host/settings"
 	"go.uber.org/zap/zaptest"
 )
 

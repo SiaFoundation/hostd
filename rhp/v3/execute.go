@@ -13,10 +13,10 @@ import (
 	rhp2 "go.sia.tech/core/rhp/v2"
 	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/host/accounts"
-	"go.sia.tech/hostd/host/contracts"
-	"go.sia.tech/hostd/host/storage"
-	"go.sia.tech/hostd/rhp"
+	"go.sia.tech/hostd/v2/host/accounts"
+	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/host/storage"
+	"go.sia.tech/hostd/v2/rhp"
 	"go.uber.org/zap"
 )
 
