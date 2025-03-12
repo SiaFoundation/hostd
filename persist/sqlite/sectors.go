@@ -212,14 +212,19 @@ type volumeSectorRef struct {
 	VolumeSectorID int64
 }
 
-func pruneableVolumeSectors(tx *txn, lastAccess time.Time) (refs []volumeSectorRef, err error) {
-	const query = `SELECT vs.id, vs.volume_id FROM volume_sectors vs
-INNER JOIN stored_sectors ss ON vs.sector_id=ss.id
-LEFT JOIN contract_sector_roots csr ON ss.id=csr.sector_id
-LEFT JOIN contract_v2_sector_roots csr2 ON ss.id=csr2.sector_id
-LEFT JOIN temp_storage_sector_roots tsr ON ss.id=tsr.sector_id
-WHERE ss.last_access_timestamp < $1 AND csr.sector_id IS NULL AND csr2.sector_id IS NULL AND tsr.sector_id IS NULL
-LIMIT $2;`
+func updatePruneableVolumeSectors(tx *txn, lastAccess time.Time) (refs []volumeSectorRef, err error) {
+	const query = `
+UPDATE volume_sectors SET sector_id=null
+WHERE id IN (
+	SELECT vs.id FROM volume_sectors vs
+	INNER JOIN stored_sectors ss ON vs.sector_id=ss.id
+	LEFT JOIN contract_sector_roots csr ON ss.id=csr.sector_id
+	LEFT JOIN contract_v2_sector_roots csr2 ON ss.id=csr2.sector_id
+	LEFT JOIN temp_storage_sector_roots tsr ON ss.id=tsr.sector_id
+	WHERE ss.last_access_timestamp < $1 AND csr.sector_id IS NULL AND csr2.sector_id IS NULL AND tsr.sector_id IS NULL
+	LIMIT $2
+) RETURNING id, volume_id;
+`
 
 	rows, err := tx.Query(query, encode(lastAccess), sqlSectorBatchSize)
 	if err != nil {
@@ -250,7 +255,7 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 
 		var done bool
 		err := s.transaction(func(tx *txn) error {
-			refs, err := pruneableVolumeSectors(tx, lastAccess)
+			refs, err := updatePruneableVolumeSectors(tx, lastAccess)
 			if err != nil {
 				return fmt.Errorf("failed to select volume sectors: %w", err)
 			} else if len(refs) == 0 {
@@ -258,22 +263,8 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 				return nil
 			}
 
-			updateSectorStmt, err := tx.Prepare(`UPDATE volume_sectors SET sector_id=null WHERE id=$1;`)
-			if err != nil {
-				return fmt.Errorf("failed to prepare update: %w", err)
-			}
-			defer updateSectorStmt.Close()
-
 			volumeDeltas := make(map[int64]int)
 			for _, ref := range refs {
-				if res, err := updateSectorStmt.Exec(ref.VolumeSectorID); err != nil {
-					return fmt.Errorf("failed to update sector: %w", err)
-				} else if n, err := res.RowsAffected(); err != nil {
-					return fmt.Errorf("failed to get rows affected: %w", err)
-				} else if n != 1 {
-					return fmt.Errorf("failed to update sector: %w", storage.ErrSectorNotFound)
-				}
-
 				volumeDeltas[ref.VolumeID]--
 			}
 
