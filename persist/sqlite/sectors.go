@@ -280,6 +280,7 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 		} else if done {
 			return nil
 		}
+		jitterSleep(50 * time.Millisecond)
 	}
 }
 
