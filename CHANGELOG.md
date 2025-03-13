@@ -1,3 +1,55 @@
+## 2.1.0 (2025-03-13)
+
+### Features
+
+- Added Prometheus support to `[GET] /syncer/peers`
+
+#### Add endpoints for querying V2 contracts
+
+Adds two new endpoints for querying V2 contracts
+
+#### `[GET] /v2/contracts/:id`
+
+Returns a single V2 contract by its ID
+
+#### `[POST] /v2/contracts`
+
+Queries a list of contracts with optional filtering
+
+**Example request  body**
+```json
+{
+  "statuses": [],
+  "contractIDs": [],
+  "renewedFrom": [],
+  "renewedTo": [],
+  "renterKey": [],
+  "minNegotiationHeight": 0,
+  "maxNegotiationHeight": 0,
+  "minExpirationHeight": 0,
+  "maxExpirationHeight": 0,
+  "limit": 0,
+  "offset": 0,
+  "sortField": "",
+  "sortDesc": false
+}
+```
+
+#### Add QUIC support
+
+Adds QUIC transport support in RHP4, enabling Sia network access through web browsers. This update also simplifies cross-language development by using a standard protocol.
+
+#### Add support for RPCReplenish
+
+Adds support RPCReplenish, simplifying management for renters with a large number of accounts.
+
+### Fixes
+
+- Combine update and select query when pruning sectors to force usage of exclusive database transaction
+- Fixed broken API client consensus methods
+- Fixed an issue with v2 contract sector roots not being reloaded
+- Update module path to go.sia.tech/hostd/v2
+
 ## 2.0.4 (2025-02-24)
 
 ### Fixes
