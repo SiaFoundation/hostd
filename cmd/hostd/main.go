@@ -317,6 +317,8 @@ func main() {
 	// rhp
 	rootCmd.StringVar(&cfg.RHP2.Address, "rhp2", cfg.RHP2.Address, "address to listen on for RHP2 connections")
 	rootCmd.StringVar(&cfg.RHP3.TCPAddress, "rhp3", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
+	var rhp4Override string
+	rootCmd.StringVar(&rhp4Override, "rhp4", "", "address to listen on for RHP4 connections")
 	// http
 	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	// log
@@ -346,6 +348,13 @@ func main() {
 			},
 		},
 	})
+
+	// override the RHP4 address for all listeners if the flag is set
+	if rhp4Override != "" {
+		for i := range cfg.RHP4.ListenAddresses {
+			cfg.RHP4.ListenAddresses[i].Address = rhp4Override
+		}
+	}
 
 	switch cmd {
 	case versionCmd:
