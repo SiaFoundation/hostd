@@ -221,6 +221,11 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		if cfg.Syncer.Bootstrap {
 			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.AnagamiBootstrapPeers...)
 		}
+	case "erravimus":
+		network, genesisBlock = chain.TestnetErravimus()
+		if cfg.Syncer.Bootstrap {
+			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.ErravimusBootstrapPeers...)
+		}
 	default:
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
 	}
