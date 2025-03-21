@@ -526,12 +526,19 @@ func emptyLocation(tx *txn) (loc storage.SectorLocation, err error) {
 // emptyLocationForMigration returns an empty location in a writable volume. If there is no
 // space available, ErrNotEnoughStorage is returned.
 func emptyLocationForMigration(tx *txn, volumeID int64, maxIndex uint64) (loc storage.SectorLocation, err error) {
+	loc, err = emptyLocation(tx)
+	if !errors.Is(err, storage.ErrNotEnoughStorage) {
+		return // either a db error or a valid location
+	} else if maxIndex == 0 {
+		err = storage.ErrNotEnoughStorage
+		return // no space in current volume
+	}
+
+	// if there is no space available, try to find a location in the same volume
 	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
-	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
-	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
-	WHERE vs.sector_id IS NULL AND sv.available=true AND (vs.volume_id <> $1 AND sv.read_only=false OR (vs.volume_id=$1 AND vs.volume_index < $2))
-	ORDER BY vs.sector_writes ASC
-	LIMIT 1;`
+FROM volume_sectors vs
+WHERE vs.sector_id IS NULL AND vs.volume_id=$1 AND vs.volume_index < $2
+LIMIT 1;`
 	err = tx.QueryRow(query, volumeID, maxIndex).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrNotEnoughStorage
