@@ -115,16 +115,17 @@ type (
 
 		// NegotiationHeight is the height the contract was negotiated at.
 		NegotiationHeight uint64 `json:"negotiationHeight"`
-		// RevisionConfirmed is true if the contract revision transaction has
-		// been confirmed on the blockchain.
-		RevisionConfirmed bool `json:"revisionConfirmed"`
-		// FormationConfirmed is true if the contract formation transaction
-		// has been confirmed on the blockchain.
+		// FormationIndex is the height at which the contract has been confirmed
+		// on the blockchain. If the contract has not been confirmed, the field
+		// is the zero value.
 		FormationIndex types.ChainIndex `json:"formationIndex"`
+		// RevisionConfirmed is true if the latest revision has been confirmed
+		// on the blockchain.
+		RevisionConfirmed bool `json:"revisionConfirmed"`
 		// ResolutionIndex is the height the resolution was confirmed
 		// at. If the contract has not been resolved, the field is the zero
 		// value.
-		ResolutionIndex types.ChainIndex `json:"resolutionHeight"`
+		ResolutionIndex types.ChainIndex `json:"resolutionIndex"`
 		// RenewedTo is the ID of the contract that renewed this contract. If
 		// this contract was not renewed, this field is the zero value.
 		RenewedTo types.FileContractID `json:"renewedTo"`
