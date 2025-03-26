@@ -227,7 +227,7 @@ func (s *Store) StoreSector(root types.Hash256, fn storage.StoreFunc) error {
 // error occurs.
 func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex uint64, migrateFn storage.MigrateFunc) (migrated, failed int, err error) {
 	log := s.log.Named("migrate").With(zap.Uint64("startIndex", startIndex))
-	for index := startIndex; ; index++ {
+	for index := startIndex; ; {
 		if ctx.Err() != nil {
 			err = ctx.Err()
 			return
@@ -237,21 +237,20 @@ func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex u
 		err = s.transaction(func(tx *txn) error {
 			const query = `SELECT vs.id, vs.volume_id, vs.volume_index, ss.sector_root, vs.sector_id FROM volume_sectors vs
 LEFT JOIN stored_sectors ss ON vs.sector_id=ss.id
-WHERE vs.volume_id=$1 AND vs.volume_index=$2
+WHERE vs.volume_id=$1 AND vs.volume_index >= $2 AND vs.sector_id IS NOT NULL
+ORDER BY vs.volume_index ASC
 LIMIT 1;`
 
-			var nullSectorID sql.NullInt64
+			var sectorID int64
 			var from storage.SectorLocation
-			err := tx.QueryRow(query, volumeID, index).Scan(&from.ID, &from.Volume, &from.Index, decodeNullable(&from.Root), &nullSectorID)
+			err := tx.QueryRow(query, volumeID, index).Scan(&from.ID, &from.Volume, &from.Index, decodeNullable(&from.Root), &sectorID)
 			if errors.Is(err, sql.ErrNoRows) {
 				done = true
 				return nil
 			} else if err != nil {
 				return fmt.Errorf("failed to get sector: %w", err)
-			} else if !nullSectorID.Valid {
-				return nil // skip empty sectors
 			}
-			sectorID := nullSectorID.Int64
+			index = from.Index + 1 // update the start index for the next iteration
 
 			to, err := emptyLocationForMigration(tx, volumeID, startIndex)
 			if err != nil {
