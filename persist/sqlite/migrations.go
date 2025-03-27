@@ -12,6 +12,13 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion40(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+	DROP INDEX IF EXISTS volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound;
+CREATE INDEX IF NOT EXISTS volume_sectors_volume_id_sector_writes_volume_index_compound ON volume_sectors(volume_id, sector_writes, volume_index) WHERE sector_id IS NULL;`)
+	return err
+}
+
 func migrateVersion39(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS contracts_v2_chain_index_elements_height ON contracts_v2_chain_index_elements(height);`)
 	return err
@@ -1036,4 +1043,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion37,
 	migrateVersion38,
 	migrateVersion39,
+	migrateVersion40,
 }

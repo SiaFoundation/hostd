@@ -505,12 +505,25 @@ WHERE v.sector_id=$1`
 // emptyLocation returns an empty location in a writable volume. If there is no
 // space available, ErrNotEnoughStorage is returned.
 func emptyLocation(tx *txn) (loc storage.SectorLocation, err error) {
-	const query = `SELECT vs.id, vs.volume_id, vs.volume_index
-	FROM volume_sectors vs INDEXED BY volume_sectors_sector_writes_volume_id_sector_id_volume_index_compound
-	INNER JOIN storage_volumes sv ON (sv.id=vs.volume_id)
-	WHERE vs.sector_id IS NULL AND sv.available=true AND sv.read_only=false
-	ORDER BY vs.sector_writes ASC
-	LIMIT 1;`
+	const query = `WITH next_volume AS (
+  SELECT sv.id AS volume_id
+  FROM storage_volumes sv
+  WHERE sv.available = true 
+    AND sv.read_only = false
+    AND EXISTS (
+      SELECT 1 
+      FROM volume_sectors vs 
+      WHERE vs.volume_id = sv.id 
+        AND vs.sector_id IS NULL
+    )
+  ORDER BY sv.used_sectors ASC
+  LIMIT 1
+)
+SELECT vs.id, vs.volume_id, vs.volume_index
+FROM volume_sectors vs
+WHERE vs.sector_id IS NULL AND vs.volume_id=4
+ORDER BY vs.sector_writes ASC
+LIMIT 1;`
 	err = tx.QueryRow(query).Scan(&loc.ID, &loc.Volume, &loc.Index)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = storage.ErrNotEnoughStorage
