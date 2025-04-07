@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go v1.55.6
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mattn/go-sqlite3 v1.14.27
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.10.5
 	go.sia.tech/coreutils v0.12.2-0.20250317235740-9e6e9fe76b2e
@@ -16,8 +16,8 @@ require (
 	go.sia.tech/web/hostd v0.61.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.31.0
-	golang.org/x/term v0.30.0
+	golang.org/x/sys v0.32.0
+	golang.org/x/term v0.31.0
 	golang.org/x/time v0.11.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
