@@ -448,7 +448,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			if err != nil {
 				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
 			}
-			log.Debug("started RHP4 listener", zap.String("address", l.Addr().String()))
+			log.Info("started RHP4 listener", zap.String("address", l.Addr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
 			go siamux.Serve(l, rhp4, log.Named("rhp4.siamux"))
 		case "quic", "quic4", "quic6":
@@ -474,7 +474,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
-			log.Debug("started RHP4 QUIC listener", zap.String("address", l.LocalAddr().String()))
+			log.Info("started RHP4 QUIC listener", zap.String("address", l.LocalAddr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, ql.Close)
 			go quic.Serve(ql, rhp4, log.Named("rhp4.quic"))
 		default:
