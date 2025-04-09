@@ -123,7 +123,7 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 	}
 	t.Cleanup(func() { chainDB.Close() })
 
-	cs, tipState, err := chain.NewDBStore(chainDB, network, genesis)
+	cs, tipState, err := chain.NewDBStore(chainDB, network, genesis, nil)
 	if err != nil {
 		t.Fatal("failed to create chain store:", err)
 	}
@@ -189,7 +189,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 		t.Fatal(err)
 	}
 
-	idx, err := index.NewManager(cn.Store, cn.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(0)) // off-by-one
+	idx, err := index.NewManager(cn.Store, cn.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(1))
 	if err != nil {
 		t.Fatal("failed to create index manager:", err)
 	}
