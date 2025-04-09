@@ -236,7 +236,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer bdb.Close()
 
-	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create chain store: %w", err)
 	}

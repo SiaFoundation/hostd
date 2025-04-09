@@ -55,7 +55,7 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer sm.Close()
 
-	idx, err := index.NewManager(node.Store, node.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(0)) // off-by-one
+	idx, err := index.NewManager(node.Store, node.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(1))
 	if err != nil {
 		t.Fatal("failed to create index manager:", err)
 	}
@@ -195,7 +195,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 	}
 	defer sm.Close()
 
-	idx, err := index.NewManager(node.Store, node.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(0)) // off-by-one
+	idx, err := index.NewManager(node.Store, node.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(1))
 	if err != nil {
 		t.Fatal("failed to create index manager:", err)
 	}
