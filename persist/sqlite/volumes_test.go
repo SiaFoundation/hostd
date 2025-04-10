@@ -904,7 +904,7 @@ func BenchmarkVolumeShrink(b *testing.B) {
 	}
 
 	// grow the volume to b.N sectors
-	if err := db.GrowVolume(volumeID, uint64(b.N)); err != nil {
+	if err := db.GrowVolume(volumeID, uint64(b.N+1)); err != nil {
 		b.Fatal(err)
 	}
 
@@ -913,7 +913,7 @@ func BenchmarkVolumeShrink(b *testing.B) {
 	b.ReportMetric(float64(b.N), "sectors")
 
 	// remove all sectors from the volume
-	if err := db.ShrinkVolume(volumeID, 0); err != nil {
+	if err := db.ShrinkVolume(volumeID, 1); err != nil {
 		b.Fatal(err)
 	}
 }
