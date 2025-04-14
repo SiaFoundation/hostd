@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/storage"
@@ -997,6 +998,56 @@ func BenchmarkStoreSector(b *testing.B) {
 	}
 }
 
+func BenchmarkStoreSectorParallel(b *testing.B) {
+	const (
+		sectorsPerTiB uint64 = (1 << 40) / (1 << 22)
+		minSectors           = 20 * sectorsPerTiB
+	)
+
+	sectors := max(minSectors, uint64(b.N))
+
+	log := zap.NewNop()
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = addTestVolume(db, "test", sectors)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for _, nThreads := range []int{5, 10, 50} {
+		b.Run(fmt.Sprintf("%d", nThreads), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ReportMetric(float64(b.N), "sectors")
+			b.SetBytes(proto4.SectorSize)
+
+			var wg sync.WaitGroup
+			jobs := make(chan struct{})
+			for range nThreads {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for range jobs {
+						err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation) error { return nil })
+						if err != nil {
+							b.Error(err)
+							return
+						}
+					}
+				}()
+			}
+			for i := 0; i < b.N; i++ {
+				jobs <- struct{}{}
+			}
+			close(jobs)
+			wg.Wait()
+		})
+	}
+}
+
 func BenchmarkReadSector(b *testing.B) {
 	const (
 		sectorsPerTiB uint64 = (1 << 40) / (1 << 22)
@@ -1034,5 +1085,63 @@ func BenchmarkReadSector(b *testing.B) {
 		if _, err := db.SectorLocation(root); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func BenchmarkReadSectorParallel(b *testing.B) {
+	const (
+		sectorsPerTiB uint64 = (1 << 40) / (1 << 22)
+		minSectors           = 20 * sectorsPerTiB
+	)
+
+	sectors := max(minSectors, uint64(b.N))
+
+	log := zap.NewNop()
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = addTestVolume(db, "test", sectors)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	roots := make([]types.Hash256, 50)
+	for i := range roots {
+		err = db.StoreSector(roots[i], func(loc storage.SectorLocation) error { return nil })
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	for _, nThreads := range []int{5, 10, 50} {
+		b.Run(fmt.Sprintf("%d", nThreads), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ReportMetric(float64(b.N), "sectors")
+			b.SetBytes(proto4.SectorSize)
+
+			var wg sync.WaitGroup
+			jobs := make(chan int)
+			for i := range nThreads {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for range jobs {
+						_, err := db.SectorLocation(roots[i])
+						if err != nil {
+							b.Error(err)
+							return
+						}
+					}
+				}()
+			}
+			for i := 0; i < b.N; i++ {
+				jobs <- i % len(roots)
+			}
+			close(jobs)
+			wg.Wait()
+		})
 	}
 }
