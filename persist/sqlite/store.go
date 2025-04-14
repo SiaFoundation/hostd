@@ -321,6 +321,11 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// set the number of open connections to 1 to prevent "database is locked"
+	// errors
+	db.SetMaxOpenConns(1)
+
 	store := &Store{
 		db:  db,
 		log: log,

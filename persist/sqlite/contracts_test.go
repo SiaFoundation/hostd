@@ -528,8 +528,8 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 	checkRootConsistency := func(t *testing.T, expected []types.Hash256) {
 		t.Helper()
 
-		err := db.transaction(func(*txn) error {
-			stmt, err := db.db.Prepare(`SELECT ss.sector_root FROM stored_sectors ss
+		err := db.transaction(func(tx *txn) error {
+			stmt, err := tx.Prepare(`SELECT ss.sector_root FROM stored_sectors ss
 INNER JOIN contract_v2_sector_roots csr ON (ss.id = csr.sector_id)
 INNER JOIN contracts_v2 c ON (csr.contract_id = c.id)
 WHERE c.contract_id=$1 AND csr.root_index= $2`)
