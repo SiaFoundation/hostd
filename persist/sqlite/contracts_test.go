@@ -13,6 +13,7 @@ import (
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/storage"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -21,8 +22,8 @@ func (s *Store) rootAtIndex(contractID types.FileContractID, rootIndex int64) (r
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT s.sector_root FROM contract_sector_roots csr
 INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
-INNER JOIN contracts c ON (csr.contract_id = c.id)
-WHERE c.contract_id=$1 AND csr.root_index=$2;`
+INNER JOIN contract_sectors_map csm ON (csr.contract_sectors_map_id = csm.id)
+WHERE csm.contract_contract_id=$1 AND csr.root_index=$2;`
 		return tx.QueryRow(query, encode(contractID), rootIndex).Scan(decode(&root))
 	})
 	return
@@ -30,10 +31,10 @@ WHERE c.contract_id=$1 AND csr.root_index=$2;`
 
 func (s *Store) dbRoots(contractID types.FileContractID) (roots []types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT s.sector_root FROM contract_sector_roots cr
-INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
-INNER JOIN contracts c ON (cr.contract_id = c.id)
-WHERE c.contract_id=$1 ORDER BY cr.root_index ASC;`
+		const query = `SELECT s.sector_root FROM contract_sector_roots csr
+INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
+INNER JOIN contract_sectors_map csm ON (csr.contract_sectors_map_id = csm.id)
+WHERE csm.contract_contract_id=$1 ORDER BY csr.root_index ASC;`
 
 		rows, err := tx.Query(query, encode(contractID))
 		if err != nil {
@@ -531,8 +532,8 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 		err := db.transaction(func(tx *txn) error {
 			stmt, err := tx.Prepare(`SELECT ss.sector_root FROM stored_sectors ss
 INNER JOIN contract_v2_sector_roots csr ON (ss.id = csr.sector_id)
-INNER JOIN contracts_v2 c ON (csr.contract_id = c.id)
-WHERE c.contract_id=$1 AND csr.root_index= $2`)
+INNER JOIN contract_v2_sectors_map csm ON (csr.contract_sectors_map_id = csm.id)
+WHERE csm.contract_contract_id=$1 AND csr.root_index= $2`)
 			if err != nil {
 				t.Fatal("failed to prepare statement:", err)
 			}
@@ -831,4 +832,113 @@ func BenchmarkV2TrimSectors(b *testing.B) {
 	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, nil, proto4.Usage{}); err != nil {
 		b.Fatal(err)
 	}
+}
+
+func BenchmarkRenewContract(b *testing.B) {
+	insertContractSectors := func(b *testing.B, db *Store, sectors uint64) {
+		b.Helper()
+
+		const (
+			storedSectorQuery   = `INSERT INTO stored_sectors (sector_root, last_access_timestamp) VALUES ($1, $2) RETURNING id;`
+			contractSectorQuery = `INSERT INTO contract_sector_roots (contract_sectors_map_id, sector_id, root_index) VALUES ((SELECT id FROM contract_sectors_map), $2, $3);`
+		)
+
+		err := db.transaction(func(tx *txn) error {
+			storedSectorStmt, err := tx.Prepare(storedSectorQuery)
+			if err != nil {
+				return fmt.Errorf("failed to prepare stored sector statement: %w", err)
+			}
+			defer storedSectorStmt.Close()
+
+			contractSectorStmt, err := tx.Prepare(contractSectorQuery)
+			if err != nil {
+				return fmt.Errorf("failed to prepare contract sector statement: %w", err)
+			}
+			defer contractSectorStmt.Close()
+
+			for i := uint64(0); i < sectors; i++ {
+				var sectorID int64
+				err := storedSectorStmt.QueryRow(encode(types.Hash256(frand.Entropy256())), encode(time.Now().Unix())).Scan(&sectorID)
+				if err != nil {
+					return fmt.Errorf("failed to add stored sector: %w", err)
+				}
+				_, err = contractSectorStmt.Exec(sectorID, i)
+				if err != nil {
+					return fmt.Errorf("failed to add contract sector statement: %w", err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	benchRenew := func(sectors uint64) func(b *testing.B) {
+		return func(b *testing.B) {
+			log := zap.NewNop()
+			db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer db.Close()
+
+			contractID := types.FileContractID(frand.Entropy256())
+			contract := contracts.SignedRevision{
+				Revision: types.FileContractRevision{
+					ParentID: contractID,
+					UnlockConditions: types.UnlockConditions{
+						PublicKeys: []types.UnlockKey{
+							types.GeneratePrivateKey().PublicKey().UnlockKey(),
+							types.GeneratePrivateKey().PublicKey().UnlockKey(),
+						},
+						SignaturesRequired: 2,
+					},
+				},
+				RenterSignature: (types.Signature)(frand.Bytes(64)),
+				HostSignature:   (types.Signature)(frand.Bytes(64)),
+			}
+
+			if err := db.AddContract(contract, []types.Transaction{}, types.ZeroCurrency, contracts.Usage{}, 0); err != nil {
+				b.Fatal(err)
+			}
+
+			insertContractSectors(b, db, sectors)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			b.ReportMetric(float64(sectors), "sectors")
+
+			for i := 0; i < b.N; i++ {
+				renewalID := types.FileContractID(frand.Entropy256())
+				renewal := contracts.SignedRevision{
+					Revision: types.FileContractRevision{
+						ParentID: renewalID,
+						UnlockConditions: types.UnlockConditions{
+							PublicKeys: []types.UnlockKey{
+								types.GeneratePrivateKey().PublicKey().UnlockKey(),
+								types.GeneratePrivateKey().PublicKey().UnlockKey(),
+							},
+							SignaturesRequired: 2,
+						},
+					},
+					RenterSignature: (types.Signature)(frand.Bytes(64)),
+					HostSignature:   (types.Signature)(frand.Bytes(64)),
+				}
+
+				err = db.RenewContract(renewal, contract, nil, types.ZeroCurrency, contracts.Usage{}, contracts.Usage{}, 0)
+				if err != nil {
+					b.Fatal(err)
+				}
+				contract = renewal
+			}
+		}
+	}
+
+	b.Run("1000 sectors", benchRenew(1000))
+	b.Run("10000 sectors", benchRenew(10000))
+	b.Run("100000 sectors", benchRenew(100000))
+	b.Run("1000000 sectors", benchRenew(1000000))
+	b.Run("10000000 sectors", benchRenew(10000000))
+	b.Run("100000000 sectors", benchRenew(100000000))
 }

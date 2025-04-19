@@ -235,8 +235,16 @@ LEFT JOIN contracts_v2 rf ON (c.renewed_from=rf.id) %s`, whereClause)
 // AddV2Contract adds a new contract to the database.
 func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.TransactionSet) error {
 	return s.transaction(func(tx *txn) error {
-		_, err := insertV2Contract(tx, contract, formationSet)
-		return err
+		dbID, err := insertV2Contract(tx, contract, formationSet)
+		if err != nil {
+			return fmt.Errorf("failed to add contract: %w", err)
+		}
+
+		_, err = tx.Exec(`INSERT INTO contract_v2_sectors_map (contract_id, contract_contract_id) VALUES ($1, $2);`, dbID, encode(contract.ID))
+		if err != nil {
+			return fmt.Errorf("failed to insert contract v2 sectors map: %w", err)
+		}
+		return nil
 	})
 }
 
@@ -264,9 +272,11 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 		}
 
 		// move the sector roots from the old contract to the new contract
-		_, err = tx.Exec(`UPDATE contract_v2_sector_roots SET contract_id=$1 WHERE contract_id=$2`, renewedDBID, clearedDBID)
+		res, err := tx.Exec(`UPDATE contract_v2_sectors_map SET (contract_id, contract_contract_id)=($1, $2) WHERE contract_id=$3`, renewedDBID, encode(renewal.ID), clearedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to copy sector roots: %w", err)
+		} else if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("no sector roots migrated")
 		}
 		return nil
 	})
@@ -275,9 +285,14 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 // AddContract adds a new contract to the database.
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
 	return s.transaction(func(tx *txn) error {
-		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
+		dbID, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
 		if err != nil {
 			return fmt.Errorf("failed to add contract: %w", err)
+		}
+
+		_, err = tx.Exec(`INSERT INTO contract_sectors_map (contract_id, contract_contract_id) VALUES ($1, $2);`, dbID, encode(revision.Revision.ParentID))
+		if err != nil {
+			return fmt.Errorf("failed to insert contract sectors map: %w", err)
 		}
 		return nil
 	})
@@ -305,9 +320,11 @@ func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contrac
 		}
 
 		// move the sector roots from the old contract to the new contract
-		_, err = tx.Exec(`UPDATE contract_sector_roots SET contract_id=$1 WHERE contract_id=$2`, renewedDBID, clearedDBID)
+		res, err := tx.Exec(`UPDATE contract_sectors_map SET (contract_id, contract_contract_id)=($1, $2) WHERE contract_id=$3`, renewedDBID, encode(renewal.Revision.ParentID), clearedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to copy sector roots: %w", err)
+		} else if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("no sector roots migrated")
 		}
 		return nil
 	})
@@ -429,10 +446,10 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, roots []types.
 // SectorRoots returns the sector roots for all contracts.
 func (s *Store) SectorRoots() (roots map[types.FileContractID][]types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT s.sector_root, c.contract_id FROM contract_sector_roots cr
-INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
-INNER JOIN contracts c ON (cr.contract_id = c.id)
-ORDER BY cr.contract_id, cr.root_index ASC;`
+		const query = `SELECT s.sector_root, csm.contract_contract_id FROM contract_sector_roots csr
+INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
+INNER JOIN contract_sectors_map csm ON (csr.contract_sectors_map_id = csm.id)
+ORDER BY csr.root_index ASC;`
 
 		rows, err := tx.Query(query)
 		if err != nil {
@@ -458,10 +475,10 @@ ORDER BY cr.contract_id, cr.root_index ASC;`
 // V2SectorRoots returns the sector roots for all v2 contracts.
 func (s *Store) V2SectorRoots() (roots map[types.FileContractID][]types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT s.sector_root, c.contract_id FROM contract_v2_sector_roots cr
-INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
-INNER JOIN contracts_v2 c ON (cr.contract_id = c.id)
-ORDER BY cr.contract_id, cr.root_index ASC;`
+		const query = `SELECT s.sector_root, csm.contract_contract_id FROM contract_v2_sector_roots csr
+INNER JOIN stored_sectors s ON (csr.sector_id = s.id)
+INNER JOIN contract_v2_sectors_map csm ON (csr.contract_sectors_map_id = csm.id)
+ORDER BY csr.root_index ASC;`
 
 		rows, err := tx.Query(query)
 		if err != nil {
@@ -587,10 +604,20 @@ func getContract(tx *txn, contractID int64) (contracts.Contract, error) {
 
 // appendSector appends a new sector root to a contract.
 func appendSector(tx *txn, contractID int64, root types.Hash256, index uint64) error {
-	var sectorID int64
-	err := tx.QueryRow(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) SELECT $1, id, $2 FROM stored_sectors WHERE sector_root=$3 RETURNING sector_id`, contractID, index, encode(root)).Scan(&sectorID)
+	var sectorMapID int64
+	err := tx.QueryRow(`SELECT id FROM contract_sectors_map WHERE contract_id=$1`, contractID).Scan(&sectorMapID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get contract sectors map ID: %w", err)
+	}
+	var sectorID int64
+	err = tx.QueryRow(`SELECT id FROM stored_sectors WHERE sector_root=$1`, encode(root)).Scan(&sectorID)
+	if err != nil {
+		return fmt.Errorf("failed to get sector ID: %w", err)
+	}
+
+	_, err = tx.Exec(`INSERT INTO contract_sector_roots (contract_sectors_map_id, sector_id, root_index) VALUES ($1, $2, $3)`, sectorMapID, sectorID, index)
+	if err != nil {
+		return fmt.Errorf("failed to insert contract sector root: %w", err)
 	} else if err := incrementNumericStat(tx, metricContractSectors, 1, time.Now()); err != nil {
 		return fmt.Errorf("failed to track contract sectors: %w", err)
 	}
@@ -602,7 +629,8 @@ func updateSector(tx *txn, contractID int64, root types.Hash256, index uint64) (
 	row := tx.QueryRow(`SELECT csr.id, csr.sector_id, ss.sector_root
 FROM contract_sector_roots csr
 INNER JOIN stored_sectors ss ON (csr.sector_id = ss.id)
-WHERE contract_id=$1 AND root_index=$2`, contractID, index)
+INNER JOIN contract_sectors_map csm ON (csr.contract_sectors_map_id = csm.id)
+WHERE csm.contract_id=$1 AND csr.root_index=$2`, contractID, index)
 	ref, err := scanContractSectorRootRef(row)
 	if err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to get old sector id: %w", err)
@@ -635,8 +663,9 @@ func swapSectors(tx *txn, contractID int64, i, j uint64) (map[types.Hash256]bool
 	rows, err := tx.Query(`SELECT csr.id, csr.sector_id, ss.sector_root
 FROM contract_sector_roots csr
 INNER JOIN stored_sectors ss ON (ss.id = csr.sector_id)
-WHERE contract_id=$1 AND root_index IN ($2, $3)
-ORDER BY root_index ASC;`, contractID, i, j)
+INNER JOIN contract_sectors_map csm ON (csm.id = csr.contract_sectors_map_id)
+WHERE csm.contract_id=$1 AND csr.root_index IN ($2, $3)
+ORDER BY csr.root_index ASC;`, contractID, i, j)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sector IDs: %w", err)
 	}
@@ -685,8 +714,9 @@ ORDER BY root_index ASC;`, contractID, i, j)
 func trimSectors(tx *txn, contractID int64, n uint64, log *zap.Logger) ([]types.Hash256, error) {
 	selectStmt, err := tx.Prepare(`SELECT csr.id, csr.sector_id, ss.sector_root FROM contract_sector_roots csr
 INNER JOIN stored_sectors ss ON (csr.sector_id=ss.id)
-WHERE csr.contract_id=$1
-ORDER BY root_index DESC
+INNER JOIN contract_sectors_map csm ON (csr.contract_sectors_map_id=csm.id)
+WHERE csm.contract_id=$1
+ORDER BY csr.root_index DESC
 LIMIT 1`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare select statement: %w", err)
@@ -728,7 +758,8 @@ LIMIT 1`)
 func deleteExpiredContractSectors(tx *txn, height uint64) (sectorIDs []int64, err error) {
 	const query = `DELETE FROM contract_sector_roots
 WHERE id IN (SELECT csr.id FROM contract_sector_roots csr
-INNER JOIN contracts c ON (csr.contract_id=c.id)
+INNER JOIN contract_sectors_map csm ON (csr.contract_sectors_map_id=csm.id)
+INNER JOIN contracts c ON (csm.contract_id=c.id)
 -- past proof window or not confirmed and past the rebroadcast height
 WHERE c.window_end < $1 OR c.contract_status=$2 LIMIT $3)
 RETURNING sector_id;`
@@ -750,7 +781,8 @@ RETURNING sector_id;`
 func deleteExpiredV2ContractSectors(tx *txn, height uint64) (sectorIDs []int64, err error) {
 	const query = `DELETE FROM contract_v2_sector_roots
 WHERE id IN (SELECT csr.id FROM contract_v2_sector_roots csr
-INNER JOIN contracts_v2 c ON (csr.contract_id=c.id)
+INNER JOIN contract_v2_sectors_map csm ON (csr.contract_sectors_map_id=csm.id)
+INNER JOIN contracts_v2 c ON (csm.contract_id=c.id)
 -- past expiration or not confirmed and past the rebroadcast height
 WHERE c.expiration_height < $1 OR c.contract_status=$2 LIMIT $3)
 RETURNING sector_id;`
@@ -1146,7 +1178,7 @@ formation_txn_set_basis, raw_revision, contract_status) VALUES
 		contracts.V2ContractStatusPending,
 	).Scan(&dbID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to insert contract: %w", err)
+		return 0, fmt.Errorf("failed to insert v2 contract: %w", err)
 	}
 	return
 }
@@ -1202,13 +1234,19 @@ func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileCon
 }
 
 func updateV2ContractSectors(tx *txn, contractDBID int64, oldRoots, newRoots []types.Hash256) error {
+	var sectorMapID int64
+	err := tx.QueryRow(`SELECT id FROM contract_v2_sectors_map WHERE contract_id=$1`, contractDBID).Scan(&sectorMapID)
+	if err != nil {
+		return fmt.Errorf("failed to get contract sectors map ID: %w", err)
+	}
+
 	selectRootIDStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare select root ID statement: %w", err)
 	}
 	defer selectRootIDStmt.Close()
 
-	updateRootStmt, err := tx.Prepare(`INSERT INTO contract_v2_sector_roots (contract_id, sector_id, root_index) VALUES (?, ?, ?) ON CONFLICT (contract_id, root_index) DO UPDATE SET sector_id=excluded.sector_id`)
+	updateRootStmt, err := tx.Prepare(`INSERT INTO contract_v2_sector_roots (contract_sectors_map_id, sector_id, root_index) VALUES (?, ?, ?) ON CONFLICT (contract_sectors_map_id, root_index) DO UPDATE SET sector_id=excluded.sector_id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update root statement: %w", err)
 	}
@@ -1222,13 +1260,13 @@ func updateV2ContractSectors(tx *txn, contractDBID int64, oldRoots, newRoots []t
 		var newSectorID int64
 		if err := selectRootIDStmt.QueryRow(encode(root)).Scan(&newSectorID); err != nil {
 			return fmt.Errorf("failed to get sector ID: %w", err)
-		} else if _, err := updateRootStmt.Exec(contractDBID, newSectorID, i); err != nil {
+		} else if _, err := updateRootStmt.Exec(sectorMapID, newSectorID, i); err != nil {
 			return fmt.Errorf("failed to update sector root: %w", err)
 		}
 	}
 
 	if len(newRoots) < len(oldRoots) {
-		_, err := tx.Exec(`DELETE FROM contract_v2_sector_roots WHERE contract_id=$1 AND root_index >= $2`, contractDBID, len(newRoots))
+		_, err := tx.Exec(`DELETE FROM contract_v2_sector_roots WHERE contract_sectors_map_id=$1 AND root_index >= $2`, sectorMapID, len(newRoots))
 		if err != nil {
 			return fmt.Errorf("failed to remove old roots: %w", err)
 		}
