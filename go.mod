@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go v1.55.6
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/mattn/go-sqlite3 v1.14.27
+	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.10.6-0.20250407154704-81a030aad05d
 	go.sia.tech/coreutils v0.12.2-0.20250409194146-7bb9065821f5
