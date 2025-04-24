@@ -5,13 +5,13 @@ go 1.23.1
 toolchain go1.24.1
 
 require (
-	github.com/aws/aws-sdk-go v1.55.6
+	github.com/aws/aws-sdk-go v1.55.7
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.10.6-0.20250407154704-81a030aad05d
-	go.sia.tech/coreutils v0.12.2-0.20250409194146-7bb9065821f5
+	go.sia.tech/core v0.11.0
+	go.sia.tech/coreutils v0.13.1
 	go.sia.tech/jape v0.12.1
 	go.sia.tech/web/hostd v0.61.0
 	go.uber.org/goleak v1.3.0
@@ -34,7 +34,7 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.12.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.50.1 // indirect
+	github.com/quic-go/quic-go v0.51.0 // indirect
 	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
@@ -43,11 +43,10 @@ require (
 	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
-	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.24.0 // indirect
-	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
-	golang.org/x/tools v0.31.0 // indirect
+	golang.org/x/tools v0.32.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
