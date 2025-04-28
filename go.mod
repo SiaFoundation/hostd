@@ -12,7 +12,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.11.0
 	go.sia.tech/coreutils v0.13.1
-	go.sia.tech/jape v0.13.0
+	go.sia.tech/jape v0.13.1
 	go.sia.tech/web/hostd v0.61.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
