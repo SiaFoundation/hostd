@@ -10,7 +10,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/api"
 	"go.sia.tech/hostd/v2/host/contracts"
@@ -19,7 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
+func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *testutil.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
 	t.Helper()
 
 	cs := cm.TipState()
@@ -66,7 +65,7 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		_ = s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions) // ignore error: no peers in testing
+		_ = s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
 	}
 
 	if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {

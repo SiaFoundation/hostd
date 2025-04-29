@@ -16,7 +16,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/settings"
@@ -33,7 +32,7 @@ func hashRevision(rev types.FileContractRevision) types.Hash256 {
 	return h.Sum()
 }
 
-func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
+func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *testutil.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
 	t.Helper()
 
 	cs := cm.TipState()
@@ -89,7 +88,7 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 	return txn.V2FileContractID(txn.ID(), 0), fc
 }
 
-func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, sm *settings.ConfigManager, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) contracts.SignedRevision {
+func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *testutil.Syncer, sm *settings.ConfigManager, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) contracts.SignedRevision {
 	t.Helper()
 
 	settings, err := sm.RHP2Settings()
@@ -119,7 +118,7 @@ func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wall
 		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		_ = s.BroadcastTransactionSet(formationSet) // ignore error: no peers in testing
+		_ = s.BroadcastTransactionSet(formationSet)
 	}
 
 	revision := types.FileContractRevision{

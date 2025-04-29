@@ -1,6 +1,8 @@
 package testutil
 
 import (
+	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"testing"
@@ -26,11 +28,17 @@ import (
 )
 
 type (
+	// Syncer wraps the syncer.Syncer for testing to forgive broadcast errors
+	// due to missing peers
+	Syncer struct {
+		s *syncer.Syncer
+	}
+
 	// A ConsensusNode is a node with the core consensus components
 	ConsensusNode struct {
 		Store  *sqlite.Store
 		Chain  *chain.Manager
-		Syncer *syncer.Syncer
+		Syncer *Syncer
 	}
 
 	// A HostNode is a node with the core wallet components and the host
@@ -49,6 +57,55 @@ type (
 		Registry *registry.Manager
 	}
 )
+
+// Addr returns the address of the Syncer.
+func (s *Syncer) Addr() string {
+	return s.s.Addr()
+}
+
+// Connect forms an outbound connection to a peer.
+func (s *Syncer) Connect(ctx context.Context, addr string) (*syncer.Peer, error) {
+	return s.s.Connect(ctx, addr)
+}
+
+// BroadcastHeader broadcasts a header to all peers.
+func (s *Syncer) BroadcastHeader(bh types.BlockHeader) error {
+	return s.s.BroadcastHeader(bh)
+}
+
+// BroadcastTransactionSet broadcasts a transaction set to all peers.
+func (s *Syncer) BroadcastTransactionSet(txns []types.Transaction) error {
+	err := s.s.BroadcastTransactionSet(txns)
+	if err != nil && !errors.Is(err, syncer.ErrNoPeers) {
+		return err
+	}
+	return nil
+}
+
+// BroadcastV2TransactionSet broadcasts a v2 transaction set to all peers.
+func (s *Syncer) BroadcastV2TransactionSet(basis types.ChainIndex, txns []types.V2Transaction) error {
+	err := s.s.BroadcastV2TransactionSet(basis, txns) // ignore error: sometimes we have no peers in testing
+	if err != nil && !errors.Is(err, syncer.ErrNoPeers) {
+		return err
+	}
+	return nil
+}
+
+// BroadcastV2BlockOutline broadcasts a v2 block outline to all peers.
+func (s *Syncer) BroadcastV2BlockOutline(bo gateway.V2BlockOutline) error {
+	return s.s.BroadcastV2BlockOutline(bo)
+}
+
+// PeerInfo returns the metadata for the specified peer or ErrPeerNotFound if
+// the peer wasn't found in the store.
+func (s *Syncer) PeerInfo(addr string) (syncer.PeerInfo, error) {
+	return s.s.PeerInfo(addr)
+}
+
+// Peers returns the set of currently-connected peers.
+func (s *Syncer) Peers() []*syncer.Peer {
+	return s.s.Peers()
+}
 
 // V1Network is a test helper that returns a consensus.Network and genesis block
 // suited for testing the v1 network
@@ -151,7 +208,7 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 	return &ConsensusNode{
 		Store:  db,
 		Chain:  cm,
-		Syncer: syncer,
+		Syncer: &Syncer{syncer},
 	}
 }
 
