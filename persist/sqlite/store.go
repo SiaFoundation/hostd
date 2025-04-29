@@ -3,10 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"go.sia.tech/hostd/v2/host/settings"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.uber.org/zap"
-	"lukechampine.com/frand"
 )
 
 type (
@@ -35,36 +32,35 @@ func (s *Store) Close() error {
 
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
-// transaction is committed. If the transaction fails due to a busy error, it is
-// retried up to 10 times before returning.
+// transaction is committed.
 func (s *Store) transaction(fn func(*txn) error) error {
-	var err error
-	txnID := hex.EncodeToString(frand.Bytes(4))
-	log := s.log.Named("transaction").With(zap.String("id", txnID))
-	start := time.Now()
-	attempt := 1
-	for ; attempt < maxRetryAttempts; attempt++ {
-		attemptStart := time.Now()
-		log := log.With(zap.Int("attempt", attempt))
-		err = doTransaction(s.db, log, fn)
-		if err == nil {
-			// no error, break out of the loop
-			return nil
-		}
+	log := s.log.Named("transaction")
 
-		// return immediately if the error is not a busy error
-		if !strings.Contains(err.Error(), "database is locked") {
-			break
-		}
-		// exponential backoff
-		sleep := time.Duration(math.Pow(factor, float64(attempt))) * time.Millisecond
-		if sleep > maxBackoff {
-			sleep = maxBackoff
-		}
-		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"), zap.Duration("retry", sleep))
-		jitterSleep(sleep)
+	start := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	return fmt.Errorf("transaction failed (attempt %d): %w", attempt, err)
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Error("failed to rollback transaction", zap.Error(err))
+		}
+	}()
+	if err := fn(&txn{
+		Tx:  tx,
+		log: log,
+	}); err != nil {
+		return err
+	}
+	// log the transaction if it took longer than txn duration
+	if time.Since(start) > longTxnDuration {
+		log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"), zap.Bool("failed", err != nil))
+	}
+	// commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
 }
 
 // Backup creates a backup of the database at the specified path. The backup is
@@ -87,37 +83,6 @@ func sqliteFilepath(fp string) string {
 		"_cache_size=-65536", // 64MiB
 	}
 	return "file:" + fp + "?" + strings.Join(params, "&")
-}
-
-// doTransaction is a helper function to execute a function within a transaction. If fn returns
-// an error, the transaction is rolled back. Otherwise, the transaction is
-// committed.
-func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
-	dbtx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	start := time.Now()
-	defer func() {
-		if err := dbtx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-			log.Error("failed to rollback transaction", zap.Error(err))
-		}
-		// log the transaction if it took longer than txn duration
-		if time.Since(start) > longTxnDuration {
-			log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"), zap.Bool("failed", err != nil))
-		}
-	}()
-
-	tx := &txn{
-		Tx:  dbtx,
-		log: log,
-	}
-	if err := fn(tx); err != nil {
-		return err
-	} else if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-	return nil
 }
 
 func sqlConn(ctx context.Context, db *sql.DB) (c *sqlite3.SQLiteConn, err error) {
@@ -327,8 +292,8 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	db.SetMaxOpenConns(1)
 
 	store := &Store{
-		db:  db,
 		log: log,
+		db:  db,
 	}
 	if err := store.init(); err != nil {
 		return nil, err
