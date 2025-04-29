@@ -106,11 +106,11 @@ func setupRHP3Host(t *testing.T, node *testutil.HostNode, hostKey types.PrivateK
 		t.Fatal(err)
 	}
 
-	sh2 := rhp2.NewSessionHandler(rhp2Listener, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, log.Named("rhp2"))
+	sh2 := rhp2.NewSessionHandler(rhp2Listener, hostKey, node.Chain, &testutil.MockSyncer{}, node.Wallet, node.Contracts, node.Settings, node.Volumes, log.Named("rhp2"))
 	t.Cleanup(func() { sh2.Close() })
 	go sh2.Serve()
 
-	sh3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, node.Chain, node.Syncer, node.Wallet, node.Accounts, node.Contracts, node.Registry, node.Volumes, node.Settings, log.Named("rhp3"))
+	sh3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, node.Chain, &testutil.MockSyncer{}, node.Wallet, node.Accounts, node.Contracts, node.Registry, node.Volumes, node.Settings, log.Named("rhp3"))
 	t.Cleanup(func() { sh3.Close() })
 	go sh3.Serve()
 

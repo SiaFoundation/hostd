@@ -59,7 +59,7 @@ func TestSettings(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
+	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, &testutil.MockSyncer{}, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
 	defer sh.Close()
 	go sh.Serve()
 
@@ -112,7 +112,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
+	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, &testutil.MockSyncer{}, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
 	defer sh.Close()
 	go sh.Serve()
 
@@ -215,7 +215,7 @@ func TestRenew(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
+	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, &testutil.MockSyncer{}, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
 	defer sh.Close()
 	go sh.Serve()
 
@@ -420,7 +420,7 @@ func TestRPCV2(t *testing.T) {
 	}
 	defer l.Close()
 
-	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, node.Syncer, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
+	sh := rhp2.NewSessionHandler(l, hostKey, node.Chain, &testutil.MockSyncer{}, node.Wallet, node.Contracts, node.Settings, node.Volumes, log)
 	defer sh.Close()
 	go sh.Serve()
 
