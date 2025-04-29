@@ -80,7 +80,7 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
+		_ = s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions) // ignoring error: no peers in testing
 	}
 
 	if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
@@ -119,7 +119,7 @@ func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wall
 		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		s.BroadcastTransactionSet(formationSet)
+		_ = s.BroadcastTransactionSet(formationSet) // ignore error: no peers in testing
 	}
 
 	revision := types.FileContractRevision{
@@ -1274,8 +1274,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		if _, err := cm.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
 			t.Fatal("failed to add renewal to pool:", err)
+		} else if err := node.Syncer.BroadcastV2TransactionSet(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
+			t.Fatal("failed to broadcast renewal:", err)
 		}
-		node.Syncer.BroadcastV2TransactionSet(renewalTxnSet.Basis, renewalTxnSet.Transactions)
 
 		err = com.RenewV2Contract(renewalTxnSet, proto4.Usage{
 			RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),

@@ -32,8 +32,8 @@ type (
 
 	// A Syncer broadcasts transactions to its peers
 	Syncer interface {
-		BroadcastTransactionSet([]types.Transaction)
-		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
+		BroadcastTransactionSet([]types.Transaction) error
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
 	}
 
 	// A Wallet manages Siacoins and funds transactions

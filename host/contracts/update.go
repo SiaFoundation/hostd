@@ -212,9 +212,12 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		formationSet, err := tryFormationBroadcast(cm.chain, formationSet)
 		if err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
+			continue
+		} else if err := cm.syncer.BroadcastTransactionSet(formationSet); err != nil {
+			log.Error("failed to broadcast formation transaction", zap.Stringer("transactionID", formationTxn.ID()), zap.Error(err))
+			continue
 		}
-		cm.syncer.BroadcastTransactionSet(formationSet)
-		log.Debug("rebroadcast formation transaction", zap.String("transactionID", formationTxn.ID().String()))
+		log.Debug("rebroadcast formation transaction", zap.Stringer("transactionID", formationTxn.ID()))
 	}
 
 	for _, revision := range actions.BroadcastRevision {
@@ -249,9 +252,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			cm.wallet.ReleaseInputs(revisionTxnSet, nil)
 			log.Error("failed to add revision transaction to pool", zap.Error(err))
 			continue
+		} else if err := cm.syncer.BroadcastTransactionSet(revisionTxnSet); err != nil {
+			log.Error("failed to broadcast revision transaction", zap.Stringer("transactionID", revisionTxn.ID()), zap.Error(err))
+			continue
 		}
-		cm.syncer.BroadcastTransactionSet(revisionTxnSet)
-		log.Debug("broadcast revision transaction", zap.String("transactionID", revisionTxn.ID().String()))
+		log.Debug("broadcast revision transaction", zap.Stringer("transactionID", revisionTxn.ID()))
 	}
 
 	cs := cm.chain.TipState()
@@ -308,9 +313,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			cm.wallet.ReleaseInputs(resolutionTxnSet, nil)
 			log.Error("failed to add resolution transaction to pool", zap.Error(err))
 			continue
+		} else if err := cm.syncer.BroadcastTransactionSet(resolutionTxnSet); err != nil {
+			log.Error("failed to broadcast resolution transaction", zap.Stringer("transactionID", resolutionTxnSet[1].ID()), zap.Error(err))
+			continue
 		}
-		cm.syncer.BroadcastTransactionSet(resolutionTxnSet)
-		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxnSet[1].ID().String()))
+		log.Debug("broadcast transaction", zap.Stringer("transactionID", resolutionTxnSet[1].ID()))
 	}
 
 	for _, formationSet := range actions.RebroadcastV2Formation {
@@ -329,9 +336,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		if _, err := cm.chain.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
 			continue
+		} else if err := cm.syncer.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions); err != nil {
+			log.Error("failed to broadcast formation transaction", zap.Stringer("transactionID", formationTxn.ID()), zap.Error(err))
+			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
-		log.Debug("broadcast transaction", zap.String("transactionID", formationSet.Transactions[len(formationSet.Transactions)-1].ID().String()))
+		log.Debug("broadcast transaction", zap.Stringer("transactionID", formationSet.Transactions[len(formationSet.Transactions)-1].ID()))
 	}
 
 	for _, fcr := range actions.BroadcastV2Revision {
@@ -353,8 +362,10 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		if _, err := cm.chain.AddV2PoolTransactions(basis, revisionTxnSet); err != nil {
 			log.Error("failed to add transaction set to pool", zap.Error(err))
 			continue
+		} else if err := cm.syncer.BroadcastV2TransactionSet(basis, revisionTxnSet); err != nil {
+			log.Error("failed to broadcast transaction set", zap.Stringer("transactionID", revisionTxn.ID()), zap.Error(err))
+			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(basis, revisionTxnSet)
 		log.Debug("broadcast transaction", zap.Stringer("transactionID", revisionTxn.ID()))
 	}
 
@@ -404,9 +415,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		if _, err := cm.chain.AddV2PoolTransactions(basis, resolutionTxnSet); err != nil {
 			log.Error("failed to add resolution transaction to pool", zap.Error(err))
 			continue
+		} else if err := cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
+			log.Error("failed to broadcast resolution transaction", zap.Stringer("transactionID", resolutionTxn.ID()), zap.Error(err))
+			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet)
-		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
+		log.Debug("broadcast transaction", zap.Stringer("transactionID", resolutionTxn.ID()))
 	}
 
 	for _, fce := range actions.BroadcastV2Expiration {
@@ -445,9 +458,12 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			cm.wallet.ReleaseInputs(nil, resolutionTxnSet)
 			log.Error("failed to add resolution transaction to pool", zap.Error(err))
 			continue
+		} else if err := cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, resolutionTxnSet)
+			log.Error("failed to broadcast resolution transaction", zap.Stringer("transactionID", resolutionTxn.ID()), zap.Error(err))
+			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet)
-		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
+		log.Debug("broadcast transaction", zap.Stringer("transactionID", resolutionTxn.ID()))
 	}
 
 	if err := cm.store.ExpireContractSectors(index.Height); err != nil {

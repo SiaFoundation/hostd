@@ -69,8 +69,8 @@ type (
 
 	// A Syncer broadcasts transactions to the network
 	Syncer interface {
-		BroadcastTransactionSet([]types.Transaction)
-		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
+		BroadcastTransactionSet([]types.Transaction) error
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
 	}
 
 	// A Wallet manages funds and signs transactions

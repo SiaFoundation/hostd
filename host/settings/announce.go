@@ -65,9 +65,11 @@ func (m *ConfigManager) Announce() error {
 		if _, err := m.chain.AddPoolTransactions(txnset); err != nil {
 			m.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
 			return fmt.Errorf("failed to add transaction to pool: %w", err)
+		} else if err := m.syncer.BroadcastTransactionSet(txnset); err != nil {
+			m.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
+			return fmt.Errorf("failed to broadcast transaction: %w", err)
 		}
-		m.syncer.BroadcastTransactionSet(txnset)
-		m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
+		m.log.Debug("broadcast announcement", zap.Stringer("transactionID", txn.ID()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
 	} else {
 		// create a v2 transaction with an announcement
 		txn := types.V2Transaction{
@@ -93,8 +95,10 @@ func (m *ConfigManager) Announce() error {
 		} else if _, err := m.chain.AddV2PoolTransactions(basis, txnset); err != nil {
 			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 			return fmt.Errorf("failed to add transaction to pool: %w", err)
+		} else if err := m.syncer.BroadcastV2TransactionSet(cs.Index, txnset); err != nil {
+			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+			return fmt.Errorf("failed to broadcast transaction set: %w", err)
 		}
-		m.syncer.BroadcastV2TransactionSet(cs.Index, txnset)
 		m.log.Debug("broadcast v2 announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
 	}
 	return nil

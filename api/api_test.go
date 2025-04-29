@@ -66,7 +66,7 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
+		_ = s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions) // ignore error: no peers in testing
 	}
 
 	if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {

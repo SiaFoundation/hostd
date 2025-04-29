@@ -322,8 +322,10 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
 			log.Debug("failed to add formation set to pool", zap.Error(err))
 			continue
+		} else if err := s.BroadcastTransactionSet(formationSet); err != nil {
+			log.Debug("failed to rebroadcast formation set", zap.Error(err))
+			continue
 		}
-		s.BroadcastTransactionSet(formationSet)
 		log.Debug("rebroadcasted formation set")
 	}
 
