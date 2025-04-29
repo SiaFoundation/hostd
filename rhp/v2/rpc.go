@@ -216,8 +216,12 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
+	} else if err := sh.syncer.BroadcastTransactionSet(formationTxnSet); err != nil {
+		sh.wallet.ReleaseInputs(formationTxnSet, nil)
+		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
+		s.t.WriteResponseErr(err)
+		return contracts.Usage{}, err
 	}
-	sh.syncer.BroadcastTransactionSet(formationTxnSet)
 
 	signedRevision := contracts.SignedRevision{
 		Revision:        initialRevision,
@@ -414,8 +418,12 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
+	} else if err := sh.syncer.BroadcastTransactionSet(renewalTxnSet); err != nil {
+		sh.wallet.ReleaseInputs(renewalTxnSet, nil)
+		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
+		s.t.WriteResponseErr(err)
+		return contracts.Usage{}, err
 	}
-	sh.syncer.BroadcastTransactionSet(renewalTxnSet)
 
 	// update the existing contract and add the renewed contract to the store
 	if err := sh.contracts.RenewContract(signedRenewal, signedClearing, renewalTxnSet, lockedCollateral, clearingUsage, renewalUsage); err != nil {

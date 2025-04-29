@@ -26,14 +26,16 @@ type (
 		BestIndex(height uint64) (types.ChainIndex, bool)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddPoolTransactions([]types.Transaction) (known bool, err error)
+
+		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
 		RecommendedFee() types.Currency
 	}
 
 	// A Syncer broadcasts transactions to its peers
 	Syncer interface {
-		BroadcastTransactionSet([]types.Transaction)
-		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction)
+		BroadcastTransactionSet([]types.Transaction) error
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
 	}
 
 	// A Wallet manages Siacoins and funds transactions

@@ -212,9 +212,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		formationSet, err := tryFormationBroadcast(cm.chain, formationSet)
 		if err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
+		} else if err := cm.syncer.BroadcastTransactionSet(formationSet); err != nil {
+			log.Error("failed to broadcast transaction set", zap.Error(err))
+		} else {
+			log.Debug("rebroadcast formation transaction", zap.String("transactionID", formationTxn.ID().String()))
 		}
-		cm.syncer.BroadcastTransactionSet(formationSet)
-		log.Debug("rebroadcast formation transaction", zap.String("transactionID", formationTxn.ID().String()))
 	}
 
 	for _, revision := range actions.BroadcastRevision {
@@ -246,12 +248,14 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		cm.wallet.SignTransaction(&revisionTxn, toSign, types.CoveredFields{WholeTransaction: true})
 		revisionTxnSet := append(cm.chain.UnconfirmedParents(revisionTxn), revisionTxn)
 		if _, err := cm.chain.AddPoolTransactions(revisionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(revisionTxnSet, nil)
+			cm.wallet.ReleaseInputs(revisionTxnSet[len(revisionTxnSet)-1:], nil) // only release the revision transaction
 			log.Error("failed to add revision transaction to pool", zap.Error(err))
-			continue
+		} else if err := cm.syncer.BroadcastTransactionSet(revisionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(revisionTxnSet[len(revisionTxnSet)-1:], nil) // only release the revision transaction
+			log.Warn("failed to broadcast transaction set", zap.Error(err))
+		} else {
+			log.Debug("broadcast revision transaction", zap.String("transactionID", revisionTxn.ID().String()))
 		}
-		cm.syncer.BroadcastTransactionSet(revisionTxnSet)
-		log.Debug("broadcast revision transaction", zap.String("transactionID", revisionTxn.ID().String()))
 	}
 
 	cs := cm.chain.TipState()
@@ -305,12 +309,14 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		cm.wallet.SignTransaction(&resolutionTxnSet[1], proofToSign, types.CoveredFields{WholeTransaction: true})
 		resolutionTxnSet = append(cm.chain.UnconfirmedParents(resolutionTxnSet[0]), resolutionTxnSet...)
 		if _, err := cm.chain.AddPoolTransactions(resolutionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(resolutionTxnSet, nil)
+			cm.wallet.ReleaseInputs(resolutionTxnSet[len(resolutionTxnSet)-2:], nil) // unlock intermediate setup transaction and proof transaction
 			log.Error("failed to add resolution transaction to pool", zap.Error(err))
-			continue
+		} else if err := cm.syncer.BroadcastTransactionSet(resolutionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(resolutionTxnSet[len(resolutionTxnSet)-2:], nil) // unlock intermediate setup transaction and proof transaction
+			log.Warn("failed to add v2 resolution transaction to pool", zap.Error(err))
+		} else {
+			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxnSet[1].ID().String()))
 		}
-		cm.syncer.BroadcastTransactionSet(resolutionTxnSet)
-		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxnSet[1].ID().String()))
 	}
 
 	for _, formationSet := range actions.RebroadcastV2Formation {
@@ -328,10 +334,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 
 		if _, err := cm.chain.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			log.Error("failed to add formation transaction to pool", zap.Error(err))
-			continue
+		} else if err := cm.syncer.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions); err != nil {
+			log.Warn("failed to broadcast transaction set", zap.Error(err))
+		} else {
+			log.Debug("broadcast transaction", zap.String("transactionID", formationSet.Transactions[len(formationSet.Transactions)-1].ID().String()))
 		}
-		cm.syncer.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
-		log.Debug("broadcast transaction", zap.String("transactionID", formationSet.Transactions[len(formationSet.Transactions)-1].ID().String()))
 	}
 
 	for _, fcr := range actions.BroadcastV2Revision {
@@ -342,20 +349,27 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			MinerFee:              fee,
 			FileContractRevisions: []types.V2FileContractRevision{fcr},
 		}
-		basis, toSign, err := cm.wallet.FundV2Transaction(&revisionTxn, fee, false) // TODO: true
+		basis, toSign, err := cm.wallet.FundV2Transaction(&revisionTxn, fee, true) // TODO: true
 		if err != nil {
 			log.Error("failed to fund transaction", zap.Error(err))
 			continue
 		}
 		cm.wallet.SignV2Inputs(&revisionTxn, toSign)
 
-		revisionTxnSet := []types.V2Transaction{revisionTxn}
-		if _, err := cm.chain.AddV2PoolTransactions(basis, revisionTxnSet); err != nil {
-			log.Error("failed to add transaction set to pool", zap.Error(err))
-			continue
+		basis, revisionTxnSet, err := cm.chain.V2TransactionSet(basis, revisionTxn)
+		if err != nil {
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
+			log.Error("failed to create transaction set", zap.Error(err))
 		}
-		cm.syncer.BroadcastV2TransactionSet(basis, revisionTxnSet)
-		log.Debug("broadcast transaction", zap.Stringer("transactionID", revisionTxn.ID()))
+		if _, err := cm.chain.AddV2PoolTransactions(basis, revisionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, revisionTxnSet[len(revisionTxnSet)-1:])
+			log.Error("failed to add transaction set to pool", zap.Error(err))
+		} else if err := cm.syncer.BroadcastV2TransactionSet(basis, revisionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, revisionTxnSet[len(revisionTxnSet)-1:])
+			log.Warn("failed to broadcast transaction set", zap.Error(err))
+		} else {
+			log.Debug("broadcast transaction", zap.Stringer("transactionID", revisionTxn.ID()))
+		}
 	}
 
 	for _, fce := range actions.BroadcastV2Proof {
@@ -383,54 +397,38 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 
 		fee := cm.chain.RecommendedFee().Mul64(2000)
-		setupTxn := types.V2Transaction{
-			SiacoinOutputs: []types.SiacoinOutput{
-				{Address: cm.wallet.Address(), Value: fee},
-			},
+		resolutionTxn := types.V2Transaction{
+			MinerFee:                fee,
+			FileContractResolutions: []types.V2FileContractResolution{resolution},
 		}
-		basis, toSign, err := cm.wallet.FundV2Transaction(&setupTxn, fee, false) // TODO: true
+		basis, toSign, err := cm.wallet.FundV2Transaction(&resolutionTxn, fee, true)
 		if err != nil {
 			log.Error("failed to fund resolution transaction", zap.Error(err))
 			continue
 		}
-		cm.wallet.SignV2Inputs(&setupTxn, toSign)
-		resolutionTxn := types.V2Transaction{
-			MinerFee:                fee,
-			SiacoinInputs:           []types.V2SiacoinInput{{Parent: setupTxn.EphemeralSiacoinOutput(0)}},
-			FileContractResolutions: []types.V2FileContractResolution{resolution},
-		}
-		cm.wallet.SignV2Inputs(&resolutionTxn, []int{0})
-		resolutionTxnSet := []types.V2Transaction{setupTxn, resolutionTxn}
-		if _, err := cm.chain.AddV2PoolTransactions(basis, resolutionTxnSet); err != nil {
+		cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
+
+		basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn)
+		if err != nil {
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+			log.Error("failed to create transaction set", zap.Error(err))
+		} else if _, err := cm.chain.AddV2PoolTransactions(basis, resolutionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, resolutionTxnSet[len(resolutionTxnSet)-1:]) // only release the resolution transaction
 			log.Error("failed to add resolution transaction to pool", zap.Error(err))
-			continue
+		} else if err := cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, resolutionTxnSet[len(resolutionTxnSet)-1:]) // only release the resolution transaction
+			log.Warn("failed to broadcast transaction set", zap.Error(err))
+		} else {
+			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
 		}
-		cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet)
-		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
 	}
 
 	for _, fce := range actions.BroadcastV2Expiration {
 		log := log.Named("v2 expiration").With(zap.Stringer("contractID", fce.ID))
 
 		fee := cm.chain.RecommendedFee().Mul64(1000)
-		setupTxn := types.V2Transaction{
-			SiacoinOutputs: []types.SiacoinOutput{
-				{Address: cm.wallet.Address(), Value: fee},
-			},
-		}
-		basis, toSign, err := cm.wallet.FundV2Transaction(&setupTxn, fee, false) // TODO: true
-		if err != nil {
-			log.Error("failed to fund resolution transaction", zap.Error(err))
-			continue
-		}
-		cm.wallet.SignV2Inputs(&setupTxn, toSign)
 		resolutionTxn := types.V2Transaction{
 			MinerFee: fee,
-			SiacoinInputs: []types.V2SiacoinInput{
-				{
-					Parent: setupTxn.EphemeralSiacoinOutput(0),
-				},
-			},
 			FileContractResolutions: []types.V2FileContractResolution{
 				{
 					Parent:     fce,
@@ -438,16 +436,26 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 				},
 			},
 		}
-		cm.wallet.SignV2Inputs(&resolutionTxn, []int{0})
-
-		resolutionTxnSet := []types.V2Transaction{setupTxn, resolutionTxn}
-		if _, err := cm.chain.AddV2PoolTransactions(basis, resolutionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(nil, resolutionTxnSet)
-			log.Error("failed to add resolution transaction to pool", zap.Error(err))
+		basis, toSign, err := cm.wallet.FundV2Transaction(&resolutionTxn, fee, true)
+		if err != nil {
+			log.Error("failed to fund resolution transaction", zap.Error(err))
 			continue
 		}
-		cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet)
-		log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
+		cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
+
+		basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn)
+		if err != nil {
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+			log.Error("failed to create transaction set", zap.Error(err))
+		} else if _, err := cm.chain.AddV2PoolTransactions(basis, resolutionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, resolutionTxnSet[len(resolutionTxnSet)-1:]) // only release the resolution transaction
+			log.Error("failed to add resolution transaction to pool", zap.Error(err))
+		} else if err := cm.syncer.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, resolutionTxnSet[len(resolutionTxnSet)-1:]) // only release the resolution transaction
+			log.Warn("failed to broadcast transaction set", zap.Error(err))
+		} else {
+			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
+		}
 	}
 
 	if err := cm.store.ExpireContractSectors(index.Height); err != nil {

@@ -80,7 +80,6 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
 	}
 
 	if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
@@ -119,7 +118,6 @@ func formContract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wall
 		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		s.BroadcastTransactionSet(formationSet)
 	}
 
 	revision := types.FileContractRevision{
@@ -1275,7 +1273,6 @@ func TestV2ContractLifecycle(t *testing.T) {
 		if _, err := cm.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
 			t.Fatal("failed to add renewal to pool:", err)
 		}
-		node.Syncer.BroadcastV2TransactionSet(renewalTxnSet.Basis, renewalTxnSet.Transactions)
 
 		err = com.RenewV2Contract(renewalTxnSet, proto4.Usage{
 			RiskedCollateral: renewal.NewContract.TotalCollateral.Sub(renewal.NewContract.MissedHostValue),
@@ -1611,7 +1608,7 @@ func TestSectorRoots(t *testing.T) {
 
 	// reload the contract manager to ensure the roots are persisted
 	node.Contracts.Close()
-	node.Contracts, err = contracts.NewManager(node.Store, node.Volumes, node.Chain, node.Syncer, node.Wallet)
+	node.Contracts, err = contracts.NewManager(node.Store, node.Volumes, node.Chain, &testutil.MockSyncer{}, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1730,7 +1727,7 @@ func TestV2SectorRoots(t *testing.T) {
 
 	// reload the contract manager to ensure the roots are persisted
 	node.Contracts.Close()
-	node.Contracts, err = contracts.NewManager(node.Store, node.Volumes, node.Chain, node.Syncer, node.Wallet)
+	node.Contracts, err = contracts.NewManager(node.Store, node.Volumes, node.Chain, &testutil.MockSyncer{}, node.Wallet)
 	if err != nil {
 		t.Fatal(err)
 	}

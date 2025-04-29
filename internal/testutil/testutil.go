@@ -26,6 +26,10 @@ import (
 )
 
 type (
+	// A MockSyncer is a syncer that does nothing. It is used in tests to avoid
+	// the peer check
+	MockSyncer struct{}
+
 	// A ConsensusNode is a node with the core consensus components
 	ConsensusNode struct {
 		Store  *sqlite.Store
@@ -49,6 +53,16 @@ type (
 		Registry *registry.Manager
 	}
 )
+
+// BroadcastV2TransactionSet implements the syncer.Syncer interface
+func (MockSyncer) BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error {
+	return nil
+}
+
+// BroadcastTransactionSet implements the syncer.Syncer interface
+func (MockSyncer) BroadcastTransactionSet([]types.Transaction) error {
+	return nil
+}
 
 // V1Network is a test helper that returns a consensus.Network and genesis block
 // suited for testing the v1 network
@@ -174,7 +188,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { vm.Close() })
 
-	contracts, err := contracts.NewManager(cn.Store, vm, cn.Chain, cn.Syncer, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
+	contracts, err := contracts.NewManager(cn.Store, vm, cn.Chain, &MockSyncer{}, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
 	if err != nil {
 		t.Fatal("failed to create contracts manager:", err)
 	}
@@ -184,7 +198,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	initialSettings.AcceptingContracts = true
 	initialSettings.NetAddress = "127.0.0.1"
 	initialSettings.WindowSize = 10
-	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, cn.Syncer, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings))
+	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, &MockSyncer{}, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings))
 	if err != nil {
 		t.Fatal(err)
 	}

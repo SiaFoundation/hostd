@@ -10,7 +10,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/api"
 	"go.sia.tech/hostd/v2/host/contracts"
@@ -19,7 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
+func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
 	t.Helper()
 
 	cs := cm.TipState()
@@ -66,7 +65,6 @@ func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wa
 		if _, err := cm.AddV2PoolTransactions(formationSet.Basis, formationSet.Transactions); err != nil {
 			t.Fatal("failed to add formation set to pool:", err)
 		}
-		s.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions)
 	}
 
 	if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
@@ -83,7 +81,7 @@ func startAPI(t testing.TB, sk types.PrivateKey, host *testutil.HostNode, log *z
 	t.Cleanup(func() { l.Close() })
 
 	s := &http.Server{
-		Handler:     jape.BasicAuth("test")(api.NewServer("test", sk.PublicKey(), host.Chain, host.Syncer, host.Accounts, host.Contracts, host.Volumes, host.Wallet, host.Store, host.Settings, host.Indexer)),
+		Handler:     jape.BasicAuth("test")(api.NewServer("test", sk.PublicKey(), host.Chain, host.Syncer, host.Accounts, host.Contracts, host.Volumes, host.Wallet, host.Store, host.Settings, host.Indexer, api.WithLogger(log))),
 		ReadTimeout: 30 * time.Second,
 	}
 	t.Cleanup(func() { s.Close() })
@@ -139,7 +137,7 @@ func TestV2Contracts(t *testing.T) {
 	renterKey := types.GeneratePrivateKey()
 
 	// form a contract
-	contractID, revision := formV2Contract(t, host.Chain, host.Contracts, host.Wallet, host.Syncer, renterKey, hostKey, types.Siacoins(500), types.Siacoins(1000), 10, true)
+	contractID, revision := formV2Contract(t, host.Chain, host.Contracts, host.Wallet, renterKey, hostKey, types.Siacoins(500), types.Siacoins(1000), 10, true)
 
 	assertContract := func(t *testing.T, status contracts.V2ContractStatus) {
 		t.Helper()

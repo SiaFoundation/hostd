@@ -35,13 +35,13 @@ func TestSettings(t *testing.T) {
 	}
 	defer vm.Close()
 
-	contracts, err := contracts.NewManager(node.Store, vm, node.Chain, node.Syncer, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
+	contracts, err := contracts.NewManager(node.Store, vm, node.Chain, &testutil.MockSyncer{}, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
 	if err != nil {
 		t.Fatal("failed to create contracts manager:", err)
 	}
 	defer contracts.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithValidateNetAddress(false))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, &testutil.MockSyncer{}, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithValidateNetAddress(false))
 	if err != nil {
 		t.Fatal(err)
 	}
