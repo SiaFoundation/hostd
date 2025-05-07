@@ -73,7 +73,9 @@ rhp3:
 rhp4:
   listenAddresses:
     - protocol: tcp # tcp,tcp4 or tcp6
-    address: :9984
+      address: :9984
+    - protocol: quic # quic, quic4, quic6
+      address: :9984
 log:
   level: info # global log level
   stdout:
