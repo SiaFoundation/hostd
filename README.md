@@ -70,6 +70,12 @@ rhp2:
   address: :9982
 rhp3:
   tcp: :9983
+rhp4:
+  listenAddresses:
+    - protocol: tcp # tcp,tcp4 or tcp6
+      address: :9984
+    - protocol: quic # quic, quic4, quic6
+      address: :9984
 log:
   level: info # global log level
   stdout:
@@ -112,6 +118,8 @@ log:
 	address to listen on for RHP2 connections (default ":9982")
 -rhp3 string
 	address to listen on for TCP RHP3 connections (default ":9983")
+-rhp4 string
+        address to listen on for RHP4 connections
 -env
 	disable stdin prompts for environment variables (default false)
 ```
@@ -145,7 +153,7 @@ services:
     image: ghcr.io/siafoundation/hostd:latest
     ports:
       - 127.0.0.1:9980:9980/tcp
-      - 9981-9983:9981-9983/tcp
+      - 9981-9984:9981-9984/tcp
     volumes:
       - hostd-data:/data
       - /storage:/storage
