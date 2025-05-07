@@ -245,6 +245,20 @@ func (s *Store) RecalcContractAccountFunding() error {
 	})
 }
 
+// RecalcContractMetrics recalculates the contract metrics.
+func (s *Store) RecalcContractMetrics() error {
+	return s.transaction(func(tx *txn) error {
+		return recalcContractMetrics(tx, s.log)
+	})
+}
+
+// RecalcVolumeMetrics recalculates the volume metrics.
+func (s *Store) RecalcVolumeMetrics() error {
+	return s.transaction(func(tx *txn) error {
+		return recalcVolumeMetrics(tx, s.log)
+	})
+}
+
 // Vacuum runs the VACUUM command on the database.
 func (s *Store) Vacuum() error {
 	_, err := s.db.Exec(`VACUUM`)

@@ -284,6 +284,10 @@ func runRecalcCommand(srcPath string, log *zap.Logger) error {
 		log.Fatal("failed to recalculate contract account funding", zap.Error(err))
 	} else if err := db.CheckContractAccountFunding(); err != nil {
 		log.Fatal("failed to check contract account funding", zap.Error(err))
+	} else if err := db.RecalcContractMetrics(); err != nil {
+		log.Fatal("failed to recalculate contract metrics", zap.Error(err))
+	} else if err := db.RecalcVolumeMetrics(); err != nil {
+		log.Fatal("failed to recalculate volume metrics", zap.Error(err))
 	} else if err := db.Vacuum(); err != nil {
 		log.Fatal("failed to vacuum database", zap.Error(err))
 	}
