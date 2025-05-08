@@ -1,3 +1,9 @@
+## 2.1.1 (2025-05-08)
+
+### Fixes
+
+- Added volume and contract metrics to recalc command
+
 ## 2.1.0 (2025-04-29)
 
 ### Features
