@@ -126,8 +126,10 @@ func (m *Manager) Register(a Alert) {
 		panic("cannot register alert with zero timestamp") // developer error
 	}
 
-	if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a); err != nil {
-		m.log.Error("failed to broadcast alert", zap.Error(err))
+	if m.events != nil {
+		if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a); err != nil {
+			m.log.Error("failed to broadcast alert", zap.Error(err))
+		}
 	}
 
 	m.mu.Lock()
