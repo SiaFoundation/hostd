@@ -72,7 +72,7 @@ type (
 // alert data map is not modified after it is returned by Alerts.
 func (a Alert) DeepCopy() Alert {
 	data := make(map[string]any, len(a.Data))
-	maps.Copy(a.Data, data)
+	maps.Copy(data, a.Data)
 	a.Data = data
 	return a
 }
