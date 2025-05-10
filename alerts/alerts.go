@@ -1,8 +1,10 @@
 package alerts
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -67,17 +69,6 @@ type (
 		alerts map[types.Hash256]Alert
 	}
 )
-
-// DeepCopy creates a deep copy of the alert. It is used to ensure that the
-// alert data map is not modified after it is returned by Alerts.
-func (a Alert) DeepCopy() Alert {
-	if a.Data != nil {
-		data := make(map[string]any, len(a.Data))
-		maps.Copy(data, a.Data)
-		a.Data = data
-	}
-	return a
-}
 
 var _ Alerter = (*Manager)(nil)
 
@@ -152,14 +143,16 @@ func (m *Manager) Dismiss(ids ...types.Hash256) {
 func (m *Manager) Active() []Alert {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	alerts := make([]Alert, 0, len(m.alerts))
-	for _, a := range m.alerts {
-		alerts = append(alerts, a.DeepCopy())
-	}
+	alerts := slices.Collect(maps.Values(m.alerts))
 	sort.Slice(alerts, func(i, j int) bool {
 		return alerts[i].Timestamp.After(alerts[j].Timestamp)
 	})
+	buf, err := json.Marshal(alerts)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal alerts: %v", err)) // developer error
+	} else if err := json.Unmarshal(buf, &alerts); err != nil {
+		panic(fmt.Errorf("failed to unmarshal alerts: %v", err)) // developer error
+	}
 	return alerts
 }
 

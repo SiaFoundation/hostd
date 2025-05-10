@@ -15,7 +15,7 @@ func TestAlerts(t *testing.T) {
 		ID:        frand.Entropy256(),
 		Severity:  SeverityCritical,
 		Message:   "foo",
-		Timestamp: time.Now(),
+		Timestamp: time.Now().Truncate(time.Millisecond), // json rounds to milliseconds
 	}
 	// register the alert
 	m.Register(expectedAlert)
