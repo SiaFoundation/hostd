@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -66,6 +67,15 @@ type (
 		alerts map[types.Hash256]Alert
 	}
 )
+
+// DeepCopy creates a deep copy of the alert. It is used to ensure that the
+// alert data map is not modified after it is returned by Alerts.
+func (a Alert) DeepCopy() Alert {
+	data := make(map[string]any, len(a.Data))
+	maps.Copy(a.Data, data)
+	a.Data = data
+	return a
+}
 
 var _ Alerter = (*Manager)(nil)
 
@@ -141,7 +151,7 @@ func (m *Manager) Active() []Alert {
 
 	alerts := make([]Alert, 0, len(m.alerts))
 	for _, a := range m.alerts {
-		alerts = append(alerts, a)
+		alerts = append(alerts, a.DeepCopy())
 	}
 	sort.Slice(alerts, func(i, j int) bool {
 		return alerts[i].Timestamp.After(alerts[j].Timestamp)
