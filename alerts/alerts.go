@@ -1,7 +1,10 @@
 package alerts
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -116,8 +119,10 @@ func (m *Manager) Register(a Alert) {
 		panic("cannot register alert with zero timestamp") // developer error
 	}
 
-	if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a); err != nil {
-		m.log.Error("failed to broadcast alert", zap.Error(err))
+	if m.events != nil {
+		if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a); err != nil {
+			m.log.Error("failed to broadcast alert", zap.Error(err))
+		}
 	}
 
 	m.mu.Lock()
@@ -138,14 +143,19 @@ func (m *Manager) Dismiss(ids ...types.Hash256) {
 func (m *Manager) Active() []Alert {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	alerts := make([]Alert, 0, len(m.alerts))
-	for _, a := range m.alerts {
-		alerts = append(alerts, a)
-	}
+	alerts := slices.Collect(maps.Values(m.alerts))
 	sort.Slice(alerts, func(i, j int) bool {
 		return alerts[i].Timestamp.After(alerts[j].Timestamp)
 	})
+	// Perform a JSON round-trip to create a deep copy of the Data field.
+	// This avoids concurrent map access issues and ensures nested reference
+	// types are also copied.
+	buf, err := json.Marshal(alerts)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal alerts: %v", err)) // developer error
+	} else if err := json.Unmarshal(buf, &alerts); err != nil {
+		panic(fmt.Errorf("failed to unmarshal alerts: %v", err)) // developer error
+	}
 	return alerts
 }
 
