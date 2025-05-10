@@ -71,9 +71,11 @@ type (
 // DeepCopy creates a deep copy of the alert. It is used to ensure that the
 // alert data map is not modified after it is returned by Alerts.
 func (a Alert) DeepCopy() Alert {
-	data := make(map[string]any, len(a.Data))
-	maps.Copy(data, a.Data)
-	a.Data = data
+	if a.Data != nil {
+		data := make(map[string]any, len(a.Data))
+		maps.Copy(data, a.Data)
+		a.Data = data
+	}
 	return a
 }
 

@@ -12,12 +12,9 @@ func TestAlerts(t *testing.T) {
 	m := NewManager()
 
 	expectedAlert := Alert{
-		ID:       frand.Entropy256(),
-		Severity: SeverityCritical,
-		Message:  "foo",
-		Data: map[string]any{
-			"bar": "baz",
-		},
+		ID:        frand.Entropy256(),
+		Severity:  SeverityCritical,
+		Message:   "foo",
 		Timestamp: time.Now(),
 	}
 	// register the alert
@@ -30,7 +27,21 @@ func TestAlerts(t *testing.T) {
 	}
 
 	// update the alert
-	expectedAlert.Data["bar"] = "qux"
+	expectedAlert.Data = map[string]any{
+		"bar": "baz",
+	}
+	m.Register(expectedAlert)
+	alerts = m.Active()
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	} else if !reflect.DeepEqual(alerts[0], expectedAlert) {
+		t.Fatalf("expected alert %v, got %v", expectedAlert, alerts[0])
+	}
+
+	// update the alert
+	expectedAlert.Data = map[string]any{
+		"baz": "qux",
+	}
 	m.Register(expectedAlert)
 	alerts = m.Active()
 	if len(alerts) != 1 {
