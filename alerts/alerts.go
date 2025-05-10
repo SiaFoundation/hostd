@@ -148,7 +148,8 @@ func (m *Manager) Active() []Alert {
 		return alerts[i].Timestamp.After(alerts[j].Timestamp)
 	})
 	// Perform a JSON round-trip to create a deep copy of the Data field.
-	// This avoids concurrent map access issues.
+	// This avoids concurrent map access issues and ensures nested reference
+	// types are also copied.
 	buf, err := json.Marshal(alerts)
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal alerts: %v", err)) // developer error
