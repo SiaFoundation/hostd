@@ -86,7 +86,8 @@ CREATE TABLE contracts (
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	window_start INTEGER NOT NULL,
 	window_end INTEGER NOT NULL,
-	contract_status INTEGER NOT NULL
+	contract_status INTEGER NOT NULL,
+	UNIQUE (id, contract_id) -- required for the contract_sectors_map foreign key
 );
 CREATE INDEX contracts_contract_id ON contracts(contract_id);
 CREATE INDEX contracts_renter_id ON contracts(renter_id);
@@ -101,15 +102,23 @@ CREATE INDEX contracts_formation_confirmed_resolution_height_window_end ON contr
 CREATE INDEX contracts_formation_confirmed_window_start ON contracts(formation_confirmed, window_start);
 CREATE INDEX contracts_formation_confirmed_negotiation_height ON contracts(formation_confirmed, negotiation_height);
 
+CREATE TABLE contract_sectors_map (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER UNIQUE NOT NULL,
+	contract_contract_id BLOB UNIQUE NOT NULL,
+	FOREIGN KEY (contract_id, contract_contract_id) REFERENCES contracts(id, contract_id)
+);
+CREATE INDEX contract_sectors_map_contract_id_contract_contract_id ON contract_sectors_map(contract_id, contract_contract_id);
+
 CREATE TABLE contract_sector_roots (
 	id INTEGER PRIMARY KEY,
-	contract_id INTEGER NOT NULl REFERENCES contracts(id),
+	contract_sectors_map_id INTEGER NOT NULL REFERENCES contract_sectors_map(id),
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
 	root_index INTEGER NOT NULL,
-	UNIQUE(contract_id, root_index)
+	UNIQUE(contract_sectors_map_id, root_index)
 );
 CREATE INDEX contract_sector_roots_sector_id ON contract_sector_roots(sector_id);
-CREATE INDEX contract_sector_roots_contract_id_root_index ON contract_sector_roots(contract_id, root_index);
+CREATE INDEX contract_sector_roots_contract_id_root_index ON contract_sector_roots(root_index ASC);
 
 CREATE TABLE contract_v2_state_elements (
 	contract_id INTEGER PRIMARY KEY REFERENCES contracts_v2(id),
@@ -149,7 +158,8 @@ CREATE TABLE contracts_v2 (
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	proof_height INTEGER NOT NULL,
 	expiration_height INTEGER NOT NULL,
-	contract_status TEXT NOT NULL
+	contract_status TEXT NOT NULL,
+	UNIQUE (id, contract_id) -- required for the contract_v2_sectors_map foreign key
 );
 CREATE INDEX contracts_v2_contract_id ON contracts_v2(contract_id);
 CREATE INDEX contracts_v2_renter_id ON contracts_v2(renter_id);
@@ -164,15 +174,23 @@ CREATE INDEX contracts_v2_confirmation_index_resolution_index_expiration_height 
 CREATE INDEX contracts_v2_confirmation_index_proof_height ON contracts_v2(confirmation_index, proof_height);
 CREATE INDEX contracts_v2_confirmation_index_negotiation_height ON contracts_v2(confirmation_index, negotiation_height);
 
+CREATE TABLE contract_v2_sectors_map (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER UNIQUE NOT NULL,
+	contract_contract_id BLOB UNIQUE NOT NULL,
+	FOREIGN KEY (contract_id, contract_contract_id) REFERENCES contracts_v2(id, contract_id)
+);
+CREATE INDEX contract_v2_sectors_map_contract_id_contract_contract_id ON contract_v2_sectors_map(contract_id, contract_contract_id);
+
 CREATE TABLE contract_v2_sector_roots (
 	id INTEGER PRIMARY KEY,
-	contract_id INTEGER NOT NULl REFERENCES contracts_v2(id),
+	contract_sectors_map_id INTEGER NOT NULL REFERENCES contract_v2_sectors_map(id),
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
 	root_index INTEGER NOT NULL,
-	UNIQUE(contract_id, root_index)
+	UNIQUE(contract_sectors_map_id, root_index)
 );
 CREATE INDEX contract_v2_sector_roots_sector_id ON contract_v2_sector_roots(sector_id);
-CREATE INDEX contract_v2_sector_roots_contract_id_root_index ON contract_v2_sector_roots(contract_id, root_index);
+CREATE INDEX contract_v2_sector_roots_contract_id_root_index ON contract_v2_sector_roots(contract_sectors_map_id, root_index);
 
 CREATE TABLE temp_storage_sector_roots (
 	id INTEGER PRIMARY KEY,
