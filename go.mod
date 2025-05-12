@@ -11,7 +11,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.12.0
-	go.sia.tech/coreutils v0.13.2
+	go.sia.tech/coreutils v0.13.4-0.20250512154444-5fc127e81fc2
 	go.sia.tech/jape v0.14.0
 	go.sia.tech/web/hostd v0.61.0
 	go.uber.org/goleak v1.3.0
@@ -42,11 +42,11 @@ require (
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sync v0.13.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/sync v0.14.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/tools v0.32.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
