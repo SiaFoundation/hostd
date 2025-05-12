@@ -1,3 +1,10 @@
+## 2.1.1 (2025-05-12)
+
+### Fixes
+
+- Added volume and contract metrics to recalc command
+- Fixed a panic when encoding the alerts array during high frequency updates
+
 ## 2.1.0 (2025-04-29)
 
 ### Features
