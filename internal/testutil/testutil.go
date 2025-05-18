@@ -202,6 +202,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { sm.Close() })
 
 	idx, err := index.NewManager(cn.Store, cn.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(1))
 	if err != nil {

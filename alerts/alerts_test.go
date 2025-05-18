@@ -16,6 +16,7 @@ func TestAlerts(t *testing.T) {
 		ID:        frand.Entropy256(),
 		Severity:  SeverityCritical,
 		Message:   "foo",
+		Data:      map[string]any{},
 		Timestamp: time.Now(),
 	}
 

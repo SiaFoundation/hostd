@@ -72,3 +72,10 @@ func WithRHP4Port(port uint16) Option {
 		c.rhp4Port = port
 	}
 }
+
+// WithExplorer sets the explorer for the settings manager.
+func WithExplorer(explorer Explorer) Option {
+	return func(c *ConfigManager) {
+		c.explorer = explorer
+	}
+}

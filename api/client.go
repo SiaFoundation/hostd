@@ -308,6 +308,14 @@ func (c *Client) WebHooks() (hooks []webhooks.Webhook, err error) {
 	return
 }
 
+// TestConnection starts an external connection test to the host. This is used to
+// test the host's connectivity to the network and its ability to accept
+// connections from renters.
+func (c *Client) TestConnection() (err error) {
+	err = c.c.PUT(context.Background(), "/system/connect/test", nil)
+	return
+}
+
 // NewClient creates a new hostd API client.
 func NewClient(baseURL, password string) *Client {
 	return &Client{

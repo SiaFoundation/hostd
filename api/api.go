@@ -53,6 +53,8 @@ type (
 		LastAnnouncement() (settings.Announcement, error)
 
 		UpdateDDNS(force bool) error
+
+		TestConnection(context.Context) (bool, error)
 	}
 
 	// An Index persists updates from the blockchain to a store
@@ -294,6 +296,7 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		"GET /system/dir":             a.handleGETSystemDir,
 		"PUT /system/dir":             a.handlePUTSystemDir,
 		"POST /system/sqlite3/backup": a.handlePOSTSystemSQLite3Backup,
+		"PUT /system/connect/test":    a.handlePUTSystemConnectTest,
 		// webhook endpoints
 		"GET /webhooks":           a.handleGETWebhooks,
 		"POST /webhooks":          a.handlePOSTWebhooks,

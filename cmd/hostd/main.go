@@ -39,9 +39,7 @@ var (
 			Address:  "127.0.0.1:9980",
 			Password: os.Getenv(apiPasswordEnvVar),
 		},
-		Explorer: config.ExplorerData{
-			URL: "https://api.siascan.com",
-		},
+		Explorer: config.ExplorerData{},
 		Syncer: config.Syncer{
 			Address:   ":9981",
 			Bootstrap: true,
