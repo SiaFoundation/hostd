@@ -50,7 +50,10 @@ The default config path can be changed using the `HOSTD_CONFIG_FILE` environment
 + `9981` - Sia consensus
 + `9982` - RHP2
 + `9983` - RHP3
-+ `9984` - RHP4
++ `9984` - RHP4 (Note: TCP and UDP ports for SiaMux and Quic protocols respectively)
+
+### RHP4 - QUIC HTTP3 over UDP
+RHP4 has two transport methods, SiaMux (using TCP) and QUIC (using UDP). QUIC protocol uses TLS as its security layer. To support QUIC, ensure that you are applying a valid certificate and private key that match the hosts address into the config file below. 
 
 ### Example Config File
 
@@ -76,6 +79,9 @@ rhp4:
       address: :9984
     - protocol: quic # quic, quic4, quic6
       address: :9984
+  quic:
+    certPath: '/path/certs/certchain.crt' # Certificate chain file
+    keyPath: '/path/private/keyfile.key' # Certificate private keyfile 
 log:
   level: info # global log level
   stdout:
