@@ -36,7 +36,7 @@ type (
 		Scanned  bool          `json:"scanned"`
 		ScanTime time.Duration `json:"scanTime"`
 
-		ResolvedAddresses []string `json:"resolvedAddress"`
+		ResolvedAddresses []string `json:"resolvedAddresses"`
 
 		Settings *proto2.HostSettings `json:"settings"`
 
@@ -68,7 +68,7 @@ type (
 	// or warnings that occurred during the test.
 	RHP4Result struct {
 		NetAddress        chain.NetAddress `json:"netAddress"`
-		ResolvedAddresses []string         `json:"resolvedAddress"`
+		ResolvedAddresses []string         `json:"resolvedAddresses"`
 
 		Connected bool          `json:"connected"`
 		DialTime  time.Duration `json:"dialTime"`
