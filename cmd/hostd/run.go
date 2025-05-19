@@ -189,6 +189,18 @@ func normalizeAddress(addr string) (string, uint16, error) {
 	return addr, uint16(port), err
 }
 
+func explorerURL() string {
+	if cfg.Explorer.URL != "" {
+		return cfg.Explorer.URL
+	}
+	switch cfg.Consensus.Network {
+	case "zen":
+		return "https://api.siascan.com/zen"
+	default:
+		return "https://api.siascan.com"
+	}
+}
+
 func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
 	if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
@@ -228,6 +240,11 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	default:
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
+	}
+
+	var exp *explorer.Explorer
+	if !cfg.Explorer.Disable {
+		exp = explorer.New(explorerURL())
 	}
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
@@ -385,6 +402,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		settings.WithRHP2Port(uint16(rhp2Port)),
 		settings.WithRHP3Port(uint16(rhp3Port)),
 		settings.WithRHP4Port(uint16(rhp4Port)),
+		settings.WithExplorer(exp),
 		settings.WithLog(log.Named("settings")))
 	if err != nil {
 		return fmt.Errorf("failed to create settings manager: %w", err)
@@ -489,16 +507,17 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		api.WithLogger(log.Named("api")),
 		api.WithWebhooks(wr),
 		api.WithSQLite3Store(store),
+		api.WithExplorer(exp),
 	}
+
 	if !cfg.Explorer.Disable {
-		ex := explorer.New(cfg.Explorer.URL)
-		pm, err := pin.NewManager(store, sm, ex, pin.WithLogger(log.Named("pin")))
+		pm, err := pin.NewManager(store, sm, exp, pin.WithLogger(log.Named("pin")))
 		if err != nil {
 			return fmt.Errorf("failed to create pin manager: %w", err)
 		}
 		defer pm.Close()
 
-		apiOpts = append(apiOpts, api.WithPinnedSettings(pm), api.WithExplorer(ex))
+		apiOpts = append(apiOpts, api.WithPinnedSettings(pm))
 	}
 
 	web := http.Server{

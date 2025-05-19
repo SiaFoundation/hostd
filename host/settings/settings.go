@@ -1,9 +1,11 @@
 package settings
 
 import (
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/hostd/v2/build"
+	"go.sia.tech/hostd/v2/explorer"
 	"go.sia.tech/hostd/v2/internal/threadgroup"
 	rhp2 "go.sia.tech/hostd/v2/rhp/v2"
 	"go.uber.org/zap"
@@ -73,6 +76,12 @@ type (
 		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
 	}
 
+	// An Explorer provides external information about the
+	// Sia network
+	Explorer interface {
+		TestConnection(context.Context, explorer.Host) (explorer.TestResult, error)
+	}
+
 	// Storage provides information about the host's storage capacity
 	Storage interface {
 		Usage() (used, total uint64, _ error)
@@ -92,6 +101,7 @@ type (
 	// Alerts registers global alerts.
 	Alerts interface {
 		Register(alerts.Alert)
+		DismissCategory(string)
 	}
 
 	// Settings contains configuration options for the host.
@@ -146,10 +156,11 @@ type (
 		a     Alerts
 		log   *zap.Logger
 
-		chain   ChainManager
-		syncer  Syncer
-		storage Storage
-		wallet  Wallet
+		chain    ChainManager
+		syncer   Syncer
+		storage  Storage
+		wallet   Wallet
+		explorer Explorer
 
 		mu         sync.Mutex // guards the following fields
 		settings   Settings   // in-memory cache of the host's settings
@@ -450,7 +461,6 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 		rhp3Port: 9983,
 		rhp4Port: 9984,
 	}
-
 	for _, opt := range opts {
 		opt(m)
 	}
@@ -471,5 +481,43 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 	m.setRateLimit(settings.IngressLimit, settings.EgressLimit)
 	// initialize the DDNS update timer
 	m.resetDDNS()
+
+	ctx, cancel, err := m.tg.AddContext(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to add context to threadgroup: %w", err)
+	}
+	go func() {
+		defer cancel()
+
+		var consecutiveFailures int
+		nextTestTime := 15 * time.Second // short initial delay
+		for {
+			select {
+			case <-time.After(nextTestTime):
+				if !m.AcceptingContracts() {
+					nextTestTime = time.Minute
+					continue
+				}
+
+				ok, err := m.TestConnection(context.Background())
+				if err != nil {
+					m.log.Error("failed to test connection", zap.Error(err))
+				} else {
+					m.log.Debug("connection test result", zap.Bool("ok", ok))
+				}
+
+				if !ok {
+					consecutiveFailures++
+					nextTestTime = min(2*time.Hour, time.Minute*time.Duration(math.Pow(2, float64(consecutiveFailures))))
+				} else {
+					consecutiveFailures = 0
+					nextTestTime = 2 * time.Hour
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	return m, nil
 }

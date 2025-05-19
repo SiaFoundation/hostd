@@ -49,13 +49,16 @@ type (
 	Alert struct {
 		// ID is a unique identifier for the alert.
 		ID types.Hash256 `json:"id"`
+		// Category is the category of the alert. This is used to group
+		// alerts together
+		Category string `json:"category"`
 		// Severity is the severity of the alert.
 		Severity Severity `json:"severity"`
 		// Message is a human-readable message describing the alert.
 		Message string `json:"message"`
 		// Data is a map of arbitrary data that can be used to provide
 		// additional context to the alert.
-		Data      map[string]any `json:"data,omitempty"`
+		Data      map[string]any `json:"data"`
 		Timestamp time.Time      `json:"timestamp"`
 	}
 
@@ -119,6 +122,10 @@ func (m *Manager) Register(a Alert) {
 		panic("cannot register alert with zero timestamp") // developer error
 	}
 
+	if a.Data == nil {
+		a.Data = make(map[string]any)
+	}
+
 	if m.events != nil {
 		if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a); err != nil {
 			m.log.Error("failed to broadcast alert", zap.Error(err))
@@ -135,6 +142,17 @@ func (m *Manager) Dismiss(ids ...types.Hash256) {
 	m.mu.Lock()
 	for _, id := range ids {
 		delete(m.alerts, id)
+	}
+	m.mu.Unlock()
+}
+
+// DismissCategory removes all alerts in the given category.
+func (m *Manager) DismissCategory(category string) {
+	m.mu.Lock()
+	for id, alert := range m.alerts {
+		if alert.Category == category {
+			delete(m.alerts, id)
+		}
 	}
 	m.mu.Unlock()
 }
