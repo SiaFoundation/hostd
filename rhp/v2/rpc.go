@@ -509,7 +509,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 
 	roots := sh.contracts.SectorRoots(s.contract.Revision.ParentID)
 	if uint64(len(roots)) != contractSectors {
-		s.t.WriteResponseErr(err)
+		s.t.WriteResponseErr(fmt.Errorf("inconsistent sector roots: expected %v, got %v", contractSectors, len(roots)))
 		return contracts.Usage{}, fmt.Errorf("inconsistent sector roots: expected %v, got %v", contractSectors, len(roots))
 	}
 
