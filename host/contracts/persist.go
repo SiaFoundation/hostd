@@ -34,7 +34,7 @@ type (
 		RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, initialUsage Usage, negotationHeight uint64) error
 		// ReviseContract atomically updates a contract and its associated
 		// sector roots.
-		ReviseContract(revision SignedRevision, oldRoots []types.Hash256, usage Usage, sectorChanges []SectorChange) error
+		ReviseContract(revision SignedRevision, oldRoots, newRoots []types.Hash256, usage Usage) error
 
 		// ExpireContractSectors removes sector roots for any contracts that are
 		// rejected or past their proof window.

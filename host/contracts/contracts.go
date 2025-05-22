@@ -210,13 +210,6 @@ type (
 		SortDesc  bool   `json:"sortDesc"`
 	}
 
-	// A SectorChange defines an action to be performed on a contract's sectors.
-	SectorChange struct {
-		Action SectorAction
-		Root   types.Hash256
-		A, B   uint64
-	}
-
 	// A ContractUpdater is used to atomically update a contract's sectors
 	// and metadata.
 	ContractUpdater struct {
@@ -227,10 +220,9 @@ type (
 		once sync.Once
 		done func() // done is called when the updater is closed.
 
-		contractID    types.FileContractID
-		sectorActions []SectorChange
-		sectorRoots   []types.Hash256
-		oldRoots      []types.Hash256
+		contractID  types.FileContractID
+		sectorRoots []types.Hash256
+		oldRoots    []types.Hash256
 	}
 )
 
@@ -339,10 +331,6 @@ func (sr SignedRevision) Signatures() []types.TransactionSignature {
 
 // AppendSector appends a sector to the contract.
 func (cu *ContractUpdater) AppendSector(root types.Hash256) {
-	cu.sectorActions = append(cu.sectorActions, SectorChange{
-		Root:   root,
-		Action: SectorActionAppend,
-	})
 	cu.sectorRoots = append(cu.sectorRoots, root)
 }
 
@@ -351,11 +339,6 @@ func (cu *ContractUpdater) SwapSectors(a, b uint64) error {
 	if a >= uint64(len(cu.sectorRoots)) || b >= uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector indices %v, %v", a, b)
 	}
-	cu.sectorActions = append(cu.sectorActions, SectorChange{
-		A:      a,
-		B:      b,
-		Action: SectorActionSwap,
-	})
 	cu.sectorRoots[a], cu.sectorRoots[b] = cu.sectorRoots[b], cu.sectorRoots[a]
 	return nil
 }
@@ -365,10 +348,6 @@ func (cu *ContractUpdater) TrimSectors(n uint64) error {
 	if n > uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector count %v", n)
 	}
-	cu.sectorActions = append(cu.sectorActions, SectorChange{
-		A:      n,
-		Action: SectorActionTrim,
-	})
 	cu.sectorRoots = cu.sectorRoots[:uint64(len(cu.sectorRoots))-n]
 	return nil
 }
@@ -378,11 +357,6 @@ func (cu *ContractUpdater) UpdateSector(root types.Hash256, i uint64) error {
 	if i >= uint64(len(cu.sectorRoots)) {
 		return fmt.Errorf("invalid sector index %v", i)
 	}
-	cu.sectorActions = append(cu.sectorActions, SectorChange{
-		Root:   root,
-		A:      i,
-		Action: SectorActionUpdate,
-	})
 	cu.sectorRoots[i] = root
 	return nil
 }
@@ -424,13 +398,10 @@ func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
 
 	start := time.Now()
 	// revise the contract
-	err := cu.store.ReviseContract(revision, cu.oldRoots, usage, cu.sectorActions)
+	err := cu.store.ReviseContract(revision, cu.oldRoots, cu.sectorRoots, usage)
 	if err != nil {
 		return err
 	}
-
-	// clear the committed sector actions
-	cu.sectorActions = cu.sectorActions[:0]
 	// update the roots cache
 	cu.manager.setSectorRoots(cu.contractID, cu.sectorRoots)
 	cu.log.Debug("contract update committed", zap.String("contractID", revision.Revision.ParentID.String()), zap.Uint64("revision", revision.Revision.RevisionNumber), zap.Duration("elapsed", time.Since(start)))
