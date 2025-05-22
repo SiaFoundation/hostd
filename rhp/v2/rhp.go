@@ -77,7 +77,7 @@ type (
 		Address() types.Address
 		FundTransaction(txn *types.Transaction, amount types.Currency, unconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
-		ReleaseInputs(txn []types.Transaction, v2txn []types.V2Transaction)
+		ReleaseInputs(txn []types.Transaction, v2txn []types.V2Transaction) error
 	}
 
 	// A SettingsReporter reports the host's current configuration.

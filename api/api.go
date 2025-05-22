@@ -33,7 +33,7 @@ type (
 		UnconfirmedEvents() ([]wallet.Event, error)
 		Events(offset, limit int) ([]wallet.Event, error)
 
-		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
+		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 
 		// v1
 		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
