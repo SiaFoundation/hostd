@@ -361,66 +361,14 @@ func (s *Store) ReviseV2Contract(id types.FileContractID, revision types.V2FileC
 }
 
 // ReviseContract atomically updates a contract's revision and sectors
-func (s *Store) ReviseContract(revision contracts.SignedRevision, roots []types.Hash256, usage contracts.Usage, sectorChanges []contracts.SectorChange) error {
+func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots, newRoots []types.Hash256, usage contracts.Usage) error {
 	return s.transaction(func(tx *txn) error {
 		// revise the contract
 		contractID, err := reviseContract(tx, revision, usage)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
-		}
-
-		// update the sector roots
-		sectors := uint64(len(roots))
-		roots := append([]types.Hash256(nil), roots...)
-		for _, change := range sectorChanges {
-			switch change.Action {
-			case contracts.SectorActionAppend:
-				if err := appendSector(tx, contractID, change.Root, sectors); err != nil {
-					return fmt.Errorf("failed to append sector: %w", err)
-				}
-				sectors++
-				roots = append(roots, change.Root)
-			case contracts.SectorActionTrim:
-				if sectors < change.A {
-					return fmt.Errorf("cannot trim %v sectors from contract with %v sectors", change.A, sectors)
-				}
-
-				trimmed, err := trimSectors(tx, contractID, change.A, s.log)
-				if err != nil {
-					return fmt.Errorf("failed to trim sectors: %w", err)
-				}
-				sectors -= change.A
-				for i, root := range roots[len(roots)-int(change.A):] {
-					if trimmed[i] != root {
-						return fmt.Errorf("inconsistent sector trim: expected %s to be trimmed", root)
-					}
-				}
-				roots = roots[:len(roots)-int(change.A)]
-			case contracts.SectorActionUpdate:
-				oldRoot, err := updateSector(tx, contractID, change.Root, change.A)
-				if err != nil {
-					return fmt.Errorf("failed to update sector: %w", err)
-				} else if roots[change.A] != oldRoot {
-					return fmt.Errorf("inconsistent sector update (%d): expected old sector %s, got %s", change.A, roots[change.A], oldRoot)
-				}
-				roots[change.A] = change.Root
-			case contracts.SectorActionSwap:
-				if change.A > change.B {
-					change.A, change.B = change.B, change.A
-				}
-
-				swapped, err := swapSectors(tx, contractID, change.A, change.B)
-				if err != nil {
-					return fmt.Errorf("failed to swap sectors: %w", err)
-				}
-				oldA, oldB := roots[change.A], roots[change.B]
-				for root := range swapped {
-					if root != oldA && root != oldB {
-						return fmt.Errorf("inconsistent sector swap: expected %s or %s, got %s", oldA, oldB, root)
-					}
-				}
-				roots[change.A], roots[change.B] = roots[change.B], roots[change.A]
-			}
+		} else if err := updateContractSectors(tx, contractID, oldRoots, newRoots); err != nil {
+			return fmt.Errorf("failed to update contract sectors: %w", err)
 		}
 		return nil
 	})
@@ -1147,6 +1095,46 @@ formation_txn_set_basis, raw_revision, contract_status) VALUES
 		return 0, fmt.Errorf("failed to insert contract: %w", err)
 	}
 	return
+}
+
+func updateContractSectors(tx *txn, contractDBID int64, oldRoots, newRoots []types.Hash256) error {
+	selectRootIDStmt, err := tx.Prepare(`SELECT id FROM stored_sectors WHERE sector_root=?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare select root ID statement: %w", err)
+	}
+	defer selectRootIDStmt.Close()
+
+	updateRootStmt, err := tx.Prepare(`INSERT INTO contract_sector_roots (contract_id, sector_id, root_index) VALUES (?, ?, ?) ON CONFLICT (contract_id, root_index) DO UPDATE SET sector_id=excluded.sector_id`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update root statement: %w", err)
+	}
+	defer updateRootStmt.Close()
+
+	for i, root := range newRoots {
+		if i < len(oldRoots) && oldRoots[i] == root {
+			continue
+		}
+
+		var newSectorID int64
+		if err := selectRootIDStmt.QueryRow(encode(root)).Scan(&newSectorID); err != nil {
+			return fmt.Errorf("failed to get sector ID: %w", err)
+		} else if _, err := updateRootStmt.Exec(contractDBID, newSectorID, i); err != nil {
+			return fmt.Errorf("failed to update sector root: %w", err)
+		}
+	}
+
+	if len(newRoots) < len(oldRoots) {
+		_, err := tx.Exec(`DELETE FROM contract_sector_roots WHERE contract_id=$1 AND root_index >= $2`, contractDBID, len(newRoots))
+		if err != nil {
+			return fmt.Errorf("failed to remove old roots: %w", err)
+		}
+	}
+
+	delta := len(newRoots) - len(oldRoots)
+	if err := incrementNumericStat(tx, metricContractSectors, delta, time.Now()); err != nil {
+		return fmt.Errorf("failed to update contract sectors: %w", err)
+	}
+	return nil
 }
 
 func updateV2ContractUsage(tx *txn, contractDBID int64, usage proto4.Usage) error {

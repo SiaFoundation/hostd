@@ -765,15 +765,9 @@ func TestPrune(t *testing.T) {
 	}
 
 	addSectorsToContract := func(t *testing.T, c *contracts.SignedRevision, sectors []types.Hash256) {
-		// append the contract sectors to the contract
-		var changes []contracts.SectorChange
-		for _, root := range sectors {
-			changes = append(changes, contracts.SectorChange{
-				Root:   root,
-				Action: contracts.SectorActionAppend,
-			})
-		}
-		err = db.ReviseContract(*c, []types.Hash256{}, contracts.Usage{}, changes)
+		t.Helper()
+
+		err = db.ReviseContract(*c, []types.Hash256{}, sectors, contracts.Usage{})
 		if err != nil {
 			t.Fatal(err)
 		}
