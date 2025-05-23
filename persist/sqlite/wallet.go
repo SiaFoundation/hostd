@@ -41,7 +41,7 @@ func (s *Store) LockUTXOs(ids []types.SiacoinOutputID, unlockTime time.Time) err
 // has an unlock timestamp greater than ts.
 func (s *Store) LockedUTXOs(ts time.Time) (ids []types.SiacoinOutputID, err error) {
 	err = s.transaction(func(tx *txn) error {
-		rows, err := tx.Query(`SELECT id FROM wallet_locked_utxos WHERE unlock_timestamp > ?`, encode(ts))
+		rows, err := tx.Query(`SELECT id FROM wallet_locked_utxos WHERE unlock_timestamp > $1`, encode(ts))
 		if err != nil {
 			return fmt.Errorf("failed to query locked UTXOs: %w", err)
 		}
