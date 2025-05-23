@@ -18,7 +18,7 @@ func cleanupLockedUTXOs(tx *txn) error {
 }
 
 // LockUTXOs locks the given UTXOs until the given unlock time. If the UTXO is
-// already locked, it is ignored. The unlock time must be in the future.
+// already locked, it is updated. The unlock time should be in the future.
 func (s *Store) LockUTXOs(ids []types.SiacoinOutputID, unlockTime time.Time) error {
 	return s.transaction(func(tx *txn) error {
 		stmt, err := tx.Prepare(`INSERT INTO wallet_locked_utxos (id, unlock_timestamp) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET unlock_timestamp=EXCLUDED.unlock_timestamp`)
