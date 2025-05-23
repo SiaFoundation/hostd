@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"go.sia.tech/hostd/v2/internal/testutil"
 	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.uber.org/zap/zaptest"
+	"lukechampine.com/frand"
 )
 
 func TestWalletMetrics(t *testing.T) {
@@ -94,4 +96,56 @@ func TestWalletMetrics(t *testing.T) {
 	}
 	testutil.WaitForSync(t, n2.Chain, h1.Indexer)
 	assertWalletMetrics(t, h1.Store, types.ZeroCurrency, types.ZeroCurrency)
+}
+
+func TestWalletLockUnlock(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "hostd.sqlite3"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	expectedLocked := make(map[types.SiacoinOutputID]bool)
+	lockedIDs := make([]types.SiacoinOutputID, 10)
+	for i := range lockedIDs {
+		lockedIDs[i] = frand.Entropy256()
+		expectedLocked[lockedIDs[i]] = true
+	}
+	if err := db.LockUTXOs(lockedIDs, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := db.LockedUTXOs(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	} else if len(ids) != len(lockedIDs) {
+		t.Fatalf("expected %d locked UTXOs, got %d", len(lockedIDs), len(ids))
+	}
+	for _, id := range ids {
+		if _, ok := expectedLocked[id]; !ok {
+			t.Fatalf("unexpected locked UTXO %s", id)
+		}
+	}
+
+	if err := db.ReleaseUTXOs(lockedIDs); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err = db.LockedUTXOs(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	} else if len(ids) != 0 {
+		t.Fatalf("expected 0 locked UTXOs, got %d", len(ids))
+	}
+
+	// lock the ids, but set the unlock time to the past
+	if err := db.LockUTXOs(lockedIDs, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	ids, err = db.LockedUTXOs(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	} else if len(ids) != 0 {
+		t.Fatalf("expected 0 locked UTXOs, got %d", len(ids))
+	}
 }
