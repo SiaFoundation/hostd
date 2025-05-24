@@ -12,6 +12,16 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion40(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+CREATE TABLE wallet_locked_utxos (
+	id BLOB PRIMARY KEY,
+	unlock_timestamp INTEGER NOT NULL
+);
+CREATE INDEX wallet_locked_utxos_unlock_timestamp ON wallet_locked_utxos(unlock_timestamp);`)
+	return err
+}
+
 func migrateVersion39(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS contracts_v2_chain_index_elements_height ON contracts_v2_chain_index_elements(height);`)
 	return err
@@ -1036,4 +1046,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion37,
 	migrateVersion38,
 	migrateVersion39,
+	migrateVersion40,
 }

@@ -148,7 +148,7 @@ func mineEmptyBlock(state consensus.State, minerAddr types.Address) types.Block 
 	}
 	if state.Index.Height >= state.Network.HardforkV2.AllowHeight {
 		b.V2 = &types.V2BlockData{Height: state.Index.Height + 1}
-		b.V2.Commitment = state.Commitment(state.TransactionsCommitment(b.Transactions, b.V2Transactions()), minerAddr)
+		b.V2.Commitment = state.Commitment(minerAddr, b.Transactions, b.V2Transactions())
 	}
 	for b.ID().CmpWork(state.ChildTarget) < 0 {
 		b.Nonce += state.NonceFactor()

@@ -42,7 +42,7 @@ type (
 	Wallet interface {
 		Address() types.Address
 		UnlockConditions() types.UnlockConditions
-		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
+		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
 

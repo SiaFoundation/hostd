@@ -4,12 +4,82 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
 )
 
 var _ wallet.SingleAddressStore = (*Store)(nil)
+
+func cleanupLockedUTXOs(tx *txn) error {
+	_, err := tx.Exec(`DELETE FROM wallet_locked_utxos WHERE unlock_timestamp < $1`, encode(time.Now()))
+	return err
+}
+
+// LockUTXOs locks the given UTXOs until the given unlock time. If the UTXO is
+// already locked, it is updated. The unlock time should be in the future.
+func (s *Store) LockUTXOs(ids []types.SiacoinOutputID, unlockTime time.Time) error {
+	return s.transaction(func(tx *txn) error {
+		stmt, err := tx.Prepare(`INSERT INTO wallet_locked_utxos (id, unlock_timestamp) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET unlock_timestamp=EXCLUDED.unlock_timestamp`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare lock statement: %w", err)
+		}
+		defer stmt.Close()
+
+		ts := encode(unlockTime)
+		for _, id := range ids {
+			if _, err := stmt.Exec(encode(id), ts); err != nil {
+				return fmt.Errorf("failed to lock UTXO %s: %w", id, err)
+			}
+		}
+		return cleanupLockedUTXOs(tx)
+	})
+}
+
+// LockedUTXOs returns the IDs of all locked UTXOs. A locked UTXO is one that
+// has an unlock timestamp greater than ts.
+func (s *Store) LockedUTXOs(ts time.Time) (ids []types.SiacoinOutputID, err error) {
+	err = s.transaction(func(tx *txn) error {
+		rows, err := tx.Query(`SELECT id FROM wallet_locked_utxos WHERE unlock_timestamp > $1`, encode(ts))
+		if err != nil {
+			return fmt.Errorf("failed to query locked UTXOs: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var id types.SiacoinOutputID
+			if err := rows.Scan(decode(&id)); err != nil {
+				return fmt.Errorf("failed to scan locked UTXO: %w", err)
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to iterate locked UTXOs: %w", err)
+		}
+		return nil
+	})
+	return
+}
+
+// ReleaseUTXOs unlocks the given UTXOs. If the UTXO is not locked, it is
+// ignored.
+func (s *Store) ReleaseUTXOs(ids []types.SiacoinOutputID) error {
+	return s.transaction(func(tx *txn) error {
+		stmt, err := tx.Prepare(`DELETE FROM wallet_locked_utxos WHERE id=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare unlock statement: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, id := range ids {
+			if _, err := stmt.Exec(encode(id)); err != nil {
+				return fmt.Errorf("failed to unlock UTXO %s: %w", id, err)
+			}
+		}
+		return cleanupLockedUTXOs(tx)
+	})
+}
 
 // UnspentSiacoinElements returns the spendable siacoin outputs in the wallet.
 func (s *Store) UnspentSiacoinElements() (utxos []types.SiacoinElement, err error) {
