@@ -18,28 +18,30 @@ const (
 )
 
 // TestConnection checks if the connection to the host is valid.
-// If the host has connection issues, it will register alerts with the
-// alert manager and return (false, nil).
-func (cm *ConfigManager) TestConnection(ctx context.Context) (bool, error) {
+// If any errors are returned, it will register alerts with the
+// alert manager.
+// It returns a TestResult containing the results of the connection test and
+// a boolean indicating whether there were any errors with any of the results.
+func (cm *ConfigManager) TestConnection(ctx context.Context) (explorer.TestResult, bool, error) {
 	ctx, cancel, err := cm.tg.AddContext(ctx)
 	if err != nil {
-		return false, err
+		return explorer.TestResult{}, false, err
 	}
 	defer cancel()
 
 	if cm.explorer == nil {
-		return false, errors.New("connection test requires explorer")
+		return explorer.TestResult{}, false, errors.New("connection test requires explorer")
 	} else if cm.a == nil {
-		return false, errors.New("connection test requires alert manager")
+		return explorer.TestResult{}, false, errors.New("connection test requires alert manager")
 	}
 
 	rhp2NetAddress := cm.rhp2NetAddress()
 	if rhp2NetAddress == "" {
-		return false, errors.New("rhp2 net address is empty")
+		return explorer.TestResult{}, false, errors.New("rhp2 net address is empty")
 	}
 	rhp4NetAddress := cm.rhp4NetAddress()
 	if rhp4NetAddress == "" {
-		return false, errors.New("rhp4 net address is empty")
+		return explorer.TestResult{}, false, errors.New("rhp4 net address is empty")
 	}
 
 	result, err := cm.explorer.TestConnection(ctx, explorer.Host{
@@ -53,13 +55,13 @@ func (cm *ConfigManager) TestConnection(ctx context.Context) (bool, error) {
 		},
 	})
 	if err != nil {
-		return false, fmt.Errorf("failed to test connection: %w", err)
+		return explorer.TestResult{}, false, fmt.Errorf("failed to test connection: %w", err)
 	}
 
 	// helper to register an alert
-	var registered bool
+	successful := true
 	registerAlert := func(severity alerts.Severity, msg string) {
-		registered = true
+		successful = false
 		cm.a.Register(alerts.Alert{
 			ID:        frand.Entropy256(),
 			Category:  troubleshootAlertCategory,
@@ -89,5 +91,5 @@ func (cm *ConfigManager) TestConnection(ctx context.Context) (bool, error) {
 			registerAlert(alerts.SeverityWarning, fmt.Sprintf("Issue testing RHP4 %q connection: %s", protoTest.NetAddress.Protocol, err))
 		}
 	}
-	return !registered, nil
+	return result, successful, nil
 }

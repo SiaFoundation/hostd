@@ -54,7 +54,7 @@ type (
 
 		UpdateDDNS(force bool) error
 
-		TestConnection(context.Context) (bool, error)
+		TestConnection(context.Context) (explorer.TestResult, bool, error)
 	}
 
 	// An Index persists updates from the blockchain to a store
