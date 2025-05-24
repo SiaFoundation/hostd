@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/hostd/v2/explorer"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/metrics"
 	"go.sia.tech/hostd/v2/host/settings"
@@ -311,8 +312,8 @@ func (c *Client) WebHooks() (hooks []webhooks.Webhook, err error) {
 // TestConnection starts an external connection test to the host. This is used to
 // test the host's connectivity to the network and its ability to accept
 // connections from renters.
-func (c *Client) TestConnection() (err error) {
-	err = c.c.PUT(context.Background(), "/system/connect/test", nil)
+func (c *Client) TestConnection() (res explorer.TestResult, err error) {
+	err = c.c.PUT(context.Background(), "/system/connect/test", &res)
 	return
 }
 

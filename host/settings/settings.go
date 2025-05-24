@@ -499,11 +499,11 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 					continue
 				}
 
-				ok, err := m.TestConnection(context.Background())
+				result, ok, err := m.TestConnection(context.Background())
 				if err != nil {
 					m.log.Error("failed to test connection", zap.Error(err))
 				} else {
-					m.log.Debug("connection test result", zap.Bool("ok", ok))
+					m.log.Debug("connection test result", zap.Bool("ok", ok), zap.Any("result", result))
 				}
 
 				if !ok {

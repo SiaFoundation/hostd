@@ -735,15 +735,12 @@ func (a *api) handleDELETEWebhooks(jc jape.Context) {
 }
 
 func (a *api) handlePUTSystemConnectTest(jc jape.Context) {
-	ok, err := a.settings.TestConnection(jc.Request.Context())
+	result, _, err := a.settings.TestConnection(jc.Request.Context())
 	if err != nil {
 		jc.Error(err, http.StatusInternalServerError)
 		return
-	} else if !ok {
-		jc.Error(errors.New("connection test failed"), http.StatusInternalServerError)
-		return
 	}
-	jc.Encode(nil)
+	jc.Encode(result)
 }
 
 func parseLimitParams(jc jape.Context, defaultLimit, maxLimit int) (limit, offset int) {
