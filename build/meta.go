@@ -1,7 +1,7 @@
 package build
 
 const (
-	commit    = "?"
-	version   = "2.0.0"
+	commit    = ""
+	version   = ""
 	buildTime = 0
 )
