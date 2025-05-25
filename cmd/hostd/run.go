@@ -38,6 +38,7 @@ import (
 	"go.sia.tech/hostd/v2/rhp"
 	rhp2 "go.sia.tech/hostd/v2/rhp/v2"
 	rhp3 "go.sia.tech/hostd/v2/rhp/v3"
+	"go.sia.tech/hostd/v2/version"
 	"go.sia.tech/hostd/v2/webhooks"
 	"go.sia.tech/jape"
 	"go.sia.tech/web/hostd"
@@ -519,7 +520,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 		apiOpts = append(apiOpts, api.WithPinnedSettings(pm))
 	}
-
+	go version.RunVersionCheck(ctx, am, log.Named("version"))
 	web := http.Server{
 		Handler: webRouter{
 			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contractManager, vm, wm, store, sm, index, apiOpts...)),

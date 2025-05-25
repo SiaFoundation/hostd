@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/aws/aws-sdk-go v1.55.7
 	github.com/cloudflare/cloudflare-go v0.115.0
+	github.com/google/go-github v17.0.0+incompatible
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/shopspring/decimal v1.4.0
