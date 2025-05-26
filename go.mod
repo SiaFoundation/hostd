@@ -9,8 +9,8 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.12.5-0.20250526013225-8e48f53ca230
-	go.sia.tech/coreutils v0.14.1-0.20250526014037-adeefa95f18f
+	go.sia.tech/core v0.13.0
+	go.sia.tech/coreutils v0.15.0
 	go.sia.tech/jape v0.14.0
 	go.sia.tech/web/hostd v0.61.0
 	go.uber.org/goleak v1.3.0
@@ -33,7 +33,7 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.12.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.51.0 // indirect
+	github.com/quic-go/quic-go v0.52.0 // indirect
 	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
