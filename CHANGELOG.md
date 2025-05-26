@@ -1,3 +1,27 @@
+## 2.2.0 (2025-05-26)
+
+### Features
+
+- Added `[PUT] /api/system/connect/test` to trigger a test of the host's connectivity.
+- Added periodic version checks.
+
+#### Added periodic connection tests
+
+Periodically tests the hosts connection using the SiaScan troubleshooting API. This provides alerts to hosts if for some reason their node is not connectable. This system relies on a central server for the test and may return occasional false positives. The server can be overridden by setting `Config.Explorer.URL`
+
+#### Simplified V1 contract sectors management
+
+Changes sector updates for V1 contracts to match the behavior from V2. The new behavior diffs the old and new sector roots and updates the changed indices in the database rather than relying on replaying the sector changes. This is slightly slower on large contracts due to needing to calculate the diff of each index, but it is significantly simpler and less prone to edge cases.
+
+### Fixes
+
+- Added volume and contract metrics to recalc command
+- Fixed a panic in RHP2 sector roots RPC.
+- Fixed consensus v2 commitment.
+- Fixed a panic when encoding the alerts array during high frequency updates
+- Locked wallet UTXOs will now be stored in the database.
+- Updated core to v0.13.0 and coreutils to v0.15.0
+
 ## 2.1.0 (2025-04-29)
 
 ### Features
