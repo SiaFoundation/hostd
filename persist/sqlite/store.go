@@ -75,7 +75,7 @@ func (s *Store) Backup(ctx context.Context, destPath string) error {
 
 func sqliteFilepath(fp string) string {
 	params := []string{
-		fmt.Sprintf("_busy_timeout=%d", busyTimeout),
+		fmt.Sprintf("_busy_timeout=%d", time.Minute.Milliseconds()),
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",
