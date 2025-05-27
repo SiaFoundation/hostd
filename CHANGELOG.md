@@ -1,3 +1,9 @@
+## 2.2.1 (2025-05-27)
+
+### Fixes
+
+- Fixed version update spam.
+
 ## 2.2.0 (2025-05-26)
 
 ### Features
