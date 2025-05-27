@@ -41,25 +41,26 @@ func latestRelease(ctx context.Context, org, repo string) (string, error) {
 }
 
 func alertVersion(ctx context.Context, a Alerter, log *zap.Logger) error {
-	log = log.With(zap.String("current", build.Version()))
-
 	var version semVer
 	if err := version.UnmarshalText([]byte(build.Version())); err != nil {
 		return fmt.Errorf("failed to parse current version %q: %w", build.Version(), err)
 	}
+	log = log.With(zap.Stringer("version", version))
 
 	latestStr, err := latestRelease(ctx, org, repo)
 	if err != nil {
 		return fmt.Errorf("failed to get latest release: %w", err)
 	}
-	log.Debug("latest release", zap.String("version", latestStr))
 	var latest semVer
 	if err := latest.UnmarshalText([]byte(latestStr)); err != nil {
 		return fmt.Errorf("failed to parse latest version %q: %w", latestStr, err)
-	} else if latest.Cmp(version) > 0 {
+	}
+	log = log.With(zap.Stringer("latest", latest))
+	if version.Cmp(latest) >= 0 {
+		log.Debug("no new version available", zap.Int("cmp", version.Cmp(latest)))
 		return nil
 	}
-
+	log.Info("new version available")
 	a.Register(alerts.Alert{
 		ID:       alertID,
 		Severity: alerts.SeverityInfo,
