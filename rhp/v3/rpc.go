@@ -293,7 +293,7 @@ func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contr
 	renewal := renewalTxn.FileContracts[0]
 
 	// prevent forming v1 contracts with proof windows after the v2 hardfork
-	if renewal.WindowStart >= cs.Network.HardforkV2.RequireHeight-pt.WindowSize {
+	if renewal.WindowEnd >= cs.Network.HardforkV2.RequireHeight {
 		s.WriteResponseErr(ErrAfterV2Hardfork)
 		return contracts.Usage{}, ErrAfterV2Hardfork
 	}
