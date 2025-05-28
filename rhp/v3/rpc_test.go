@@ -621,7 +621,7 @@ func TestRPCV2(t *testing.T) {
 	defer session.Close()
 
 	// try to renew the contract with an ending after the hardfork
-	renewHeight := network.HardforkV2.RequireHeight
+	renewHeight := network.HardforkV2.RequireHeight - s.WindowSize
 	renterFunds := types.Siacoins(10)
 	additionalCollateral := types.Siacoins(20)
 	_, _, err = session.RenewContract(&origin, node.Wallet.Address(), renterKey, renterFunds, additionalCollateral, renewHeight)
