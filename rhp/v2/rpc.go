@@ -154,7 +154,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 	fc := formationTxn.FileContracts[0]
 
 	// prevent forming contracts that end after the v2 hardfork
-	if fc.WindowStart >= cs.Network.HardforkV2.RequireHeight {
+	if fc.WindowEnd >= cs.Network.HardforkV2.RequireHeight {
 		err := ErrAfterV2Hardfork
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
@@ -293,7 +293,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 	renewedContract := renewalTxn.FileContracts[0]
 
 	// prevent forming contracts that end after the v2 hardfork
-	if renewedContract.WindowStart >= cs.Network.HardforkV2.RequireHeight {
+	if renewedContract.WindowEnd >= cs.Network.HardforkV2.RequireHeight {
 		err := ErrAfterV2Hardfork
 		s.t.WriteResponseErr(err)
 		return contracts.Usage{}, err
