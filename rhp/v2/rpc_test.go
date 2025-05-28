@@ -434,7 +434,7 @@ func TestRPCV2(t *testing.T) {
 		}
 
 		// try to form a v1 contract that ends after the require height
-		fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(10), types.Siacoins(20), network.HardforkV2.RequireHeight, settings, node.Wallet.Address())
+		fc := crhp2.PrepareContractFormation(renterKey.PublicKey(), hostKey.PublicKey(), types.Siacoins(10), types.Siacoins(20), network.HardforkV2.RequireHeight-settings.WindowSize, settings, node.Wallet.Address())
 		formationCost := crhp2.ContractFormationCost(node.Chain.TipState(), fc, settings.ContractPrice)
 		txn := types.Transaction{
 			FileContracts: []types.FileContract{fc},
