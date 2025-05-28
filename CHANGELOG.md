@@ -1,3 +1,9 @@
+## 2.2.2 (2025-05-28)
+
+### Fixes
+
+- Use WindowEnd instead of WindowStart when checking if the renter attempts to form a contract too close to the v2 require height.
+
 ## 2.2.1 (2025-05-27)
 
 ### Fixes
