@@ -450,13 +450,20 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		cfg.RHP4.ListenAddresses[i].Address = net.JoinHostPort(host, strconv.FormatUint(uint64(rhp4Port), 10))
 	}
 
+	certs, err := certificates.NewManager(cfg.Directory, hostKey, certificates.WithLocalCert(cfg.RHP4.QUIC.CertPath, cfg.RHP4.QUIC.KeyPath), certificates.WithLog(log.Named("certificates")))
+	if err != nil {
+		return fmt.Errorf("failed to create certificates manager: %w", err)
+	}
+	defer certs.Close()
+
 	sm, err := settings.NewConfigManager(hostKey, store, cm, s, vm, wm,
 		settings.WithAlertManager(am),
 		settings.WithRHP2Port(uint16(rhp2Port)),
 		settings.WithRHP3Port(uint16(rhp3Port)),
 		settings.WithRHP4Port(uint16(rhp4Port)),
 		settings.WithExplorer(exp),
-		settings.WithLog(log.Named("settings")))
+		settings.WithLog(log.Named("settings")),
+		settings.WithCertificates(certs))
 	if err != nil {
 		return fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -473,12 +480,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		return fmt.Errorf("failed to create index manager: %w", err)
 	}
 	defer index.Close()
-
-	certs, err := certificates.NewManager(cfg.Directory, hostKey, certificates.WithLocalCert(cfg.RHP4.QUIC.CertPath, cfg.RHP4.QUIC.KeyPath), certificates.WithLog(log.Named("certificates")))
-	if err != nil {
-		return fmt.Errorf("failed to create certificates manager: %w", err)
-	}
-	defer certs.Close()
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
 	rl, wl := sm.RHPBandwidthLimiters()
