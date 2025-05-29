@@ -43,7 +43,7 @@ func (m *ConfigManager) rhp4NetAddresses() []chain.NetAddress {
 	if err != nil {
 		m.log.Error("failed to get certificate for RHP4 net address", zap.Error(err))
 		return protos
-	} else if cert == nil {
+	} else if cert == nil || len(cert.Certificate) == 0 {
 		m.log.Warn("no certificate found for RHP4 net address, skipping")
 		return protos
 	}
