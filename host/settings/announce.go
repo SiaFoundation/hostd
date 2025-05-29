@@ -59,13 +59,21 @@ func (m *ConfigManager) rhp4NetAddresses() []chain.NetAddress {
 		cert.Leaf = c
 	}
 
-	if cert.Leaf.Subject.CommonName == "" {
-		m.log.Warn("certificate common name is empty, skipping RHP4 net address")
+	var hostname string
+	if len(cert.Leaf.DNSNames) != 0 {
+		hostname = cert.Leaf.DNSNames[0]
+	} else {
+		// Fallback to the common name if no SAN names are present
+		hostname = cert.Leaf.Subject.CommonName
+	}
+
+	if hostname == "" {
+		m.log.Warn("certificate name is empty, skipping RHP4 net address")
 		return protos
 	}
 	// Add the RHP4 QUIC address using the common name from the certificate
 	// and the RHP4 port.
-	rhp4QuicAddress := net.JoinHostPort(cert.Leaf.Subject.CommonName, strconv.Itoa(int(m.rhp4Port)))
+	rhp4QuicAddress := net.JoinHostPort(hostname, strconv.Itoa(int(m.rhp4Port)))
 	protos = append(protos, chain.NetAddress{
 		Protocol: quic.Protocol,
 		Address:  rhp4QuicAddress,
