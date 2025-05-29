@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -9,6 +10,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.uber.org/zap"
 )
@@ -25,8 +27,58 @@ func (m *ConfigManager) rhp2NetAddress() string {
 	return net.JoinHostPort(m.Settings().NetAddress, strconv.Itoa(int(m.rhp2Port)))
 }
 
-func (m *ConfigManager) rhp4NetAddress() string {
-	return net.JoinHostPort(m.Settings().NetAddress, strconv.Itoa(int(m.rhp4Port)))
+func (m *ConfigManager) rhp4NetAddresses() []chain.NetAddress {
+	netAddress := m.Settings().NetAddress
+	rhp4SiaMuxAddress := net.JoinHostPort(netAddress, strconv.Itoa(int(m.rhp4Port)))
+
+	protos := []chain.NetAddress{
+		{Protocol: siamux.Protocol, Address: rhp4SiaMuxAddress},
+	}
+
+	if m.certs == nil {
+		return protos
+	}
+
+	cert, err := m.certs.GetCertificate(nil)
+	if err != nil {
+		m.log.Error("failed to get certificate for RHP4 net address", zap.Error(err))
+		return protos
+	} else if cert == nil || len(cert.Certificate) == 0 {
+		m.log.Warn("no certificate found for RHP4 net address, skipping")
+		return protos
+	}
+
+	if cert.Leaf == nil {
+		// try to load the leaf certificate from the certificate chain
+		m.log.Debug("parsing certificate leaf for RHP4 net address")
+		c, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			m.log.Error("failed to parse certificate for RHP4 net address", zap.Error(err))
+			return protos
+		}
+		cert.Leaf = c
+	}
+
+	var hostname string
+	if len(cert.Leaf.DNSNames) != 0 {
+		hostname = cert.Leaf.DNSNames[0]
+	} else {
+		// Fallback to the common name if no SAN names are present
+		hostname = cert.Leaf.Subject.CommonName
+	}
+
+	if hostname == "" {
+		m.log.Warn("certificate name is empty, skipping RHP4 net address")
+		return protos
+	}
+	// Add the RHP4 QUIC address using the common name from the certificate
+	// and the RHP4 port.
+	rhp4QuicAddress := net.JoinHostPort(hostname, strconv.Itoa(int(m.rhp4Port)))
+	protos = append(protos, chain.NetAddress{
+		Protocol: quic.Protocol,
+		Address:  rhp4QuicAddress,
+	})
+	return protos
 }
 
 // Announce announces the host to the network
@@ -74,12 +126,7 @@ func (m *ConfigManager) Announce() error {
 		// create a v2 transaction with an announcement
 		txn := types.V2Transaction{
 			Attestations: []types.Attestation{
-				chain.V2HostAnnouncement{
-					{
-						Protocol: siamux.Protocol,
-						Address:  m.rhp4NetAddress(),
-					},
-				}.ToAttestation(cs, m.hostKey),
+				chain.V2HostAnnouncement(m.rhp4NetAddresses()).ToAttestation(cs, m.hostKey),
 			},
 			MinerFee: minerFee,
 		}

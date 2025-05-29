@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"math"
@@ -87,6 +88,12 @@ type (
 		Usage() (used, total uint64, _ error)
 	}
 
+	// Certificates provides TLS certificates for the host
+	// to use when serving RHP4 over QUIC.
+	Certificates interface {
+		GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	}
+
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
@@ -161,6 +168,7 @@ type (
 		storage  Storage
 		wallet   Wallet
 		explorer Explorer
+		certs    Certificates
 
 		mu         sync.Mutex // guards the following fields
 		settings   Settings   // in-memory cache of the host's settings

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/hostd/v2/explorer"
 	"lukechampine.com/frand"
@@ -39,20 +37,11 @@ func (cm *ConfigManager) TestConnection(ctx context.Context) (explorer.TestResul
 	if rhp2NetAddress == "" {
 		return explorer.TestResult{}, false, errors.New("rhp2 net address is empty")
 	}
-	rhp4NetAddress := cm.rhp4NetAddress()
-	if rhp4NetAddress == "" {
-		return explorer.TestResult{}, false, errors.New("rhp4 net address is empty")
-	}
 
 	result, err := cm.explorer.TestConnection(ctx, explorer.Host{
-		PublicKey:      cm.hostKey.PublicKey(),
-		RHP2NetAddress: rhp2NetAddress,
-		RHP4NetAddresses: []chain.NetAddress{
-			{
-				Protocol: siamux.Protocol,
-				Address:  rhp4NetAddress,
-			},
-		},
+		PublicKey:        cm.hostKey.PublicKey(),
+		RHP2NetAddress:   rhp2NetAddress,
+		RHP4NetAddresses: cm.rhp4NetAddresses(),
 	})
 	if err != nil {
 		return explorer.TestResult{}, false, fmt.Errorf("failed to test connection: %w", err)
