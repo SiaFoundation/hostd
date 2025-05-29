@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -45,10 +46,20 @@ func (m *ConfigManager) rhp4NetAddresses() []chain.NetAddress {
 	} else if cert == nil {
 		m.log.Warn("no certificate found for RHP4 net address, skipping")
 		return protos
-	} else if cert.Leaf == nil {
-		m.log.Warn("certificate leaf is nil, skipping RHP4 net address")
-		return protos
-	} else if cert.Leaf.Subject.CommonName == "" {
+	}
+
+	if cert.Leaf == nil {
+		// try to load the leaf certificate from the certificate chain
+		m.log.Debug("parsing certificate leaf for RHP4 net address")
+		c, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			m.log.Error("failed to parse certificate for RHP4 net address", zap.Error(err))
+			return protos
+		}
+		cert.Leaf = c
+	}
+
+	if cert.Leaf.Subject.CommonName == "" {
 		m.log.Warn("certificate common name is empty, skipping RHP4 net address")
 		return protos
 	}
