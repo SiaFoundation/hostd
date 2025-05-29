@@ -73,6 +73,14 @@ func WithRHP4Port(port uint16) Option {
 	}
 }
 
+// WithCertificates gets the TLS certificates the host
+// should use for RHP4 over QUIC.
+func WithCertificates(certs Certificates) Option {
+	return func(c *ConfigManager) {
+		c.certs = certs
+	}
+}
+
 // WithExplorer sets the explorer for the settings manager.
 func WithExplorer(explorer Explorer) Option {
 	return func(c *ConfigManager) {

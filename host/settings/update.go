@@ -5,7 +5,6 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.uber.org/zap"
 )
 
@@ -143,12 +142,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 
 		nextHeight := announceIndex.Height + m.announceInterval
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, chain.V2HostAnnouncement{
-			{
-				Protocol: siamux.Protocol,
-				Address:  m.rhp4NetAddress(),
-			},
-		})
+		types.EncodeSlice(h.E, m.rhp4NetAddresses())
 		if err := h.E.Flush(); err != nil {
 			return fmt.Errorf("failed to hash v2 announcement: %w", err)
 		}
