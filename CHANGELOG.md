@@ -1,3 +1,11 @@
+## 2.2.3 (2025-05-29)
+
+### Fixes
+
+- Include QUIC in host announcement if configured.
+- Update core to v0.13.1 and coreutils to v0.15.2
+- Use WindowEnd instead of WindowStart when checking if the renter attempts to form a contract too close to the v2 require height (RHP2).
+
 ## 2.2.2 (2025-05-28)
 
 ### Fixes

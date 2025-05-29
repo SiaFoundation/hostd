@@ -1,4 +1,4 @@
-module go.sia.tech/hostd/v2 // v2.2.2
+module go.sia.tech/hostd/v2 // v2.2.3
 
 go 1.24.2
 
