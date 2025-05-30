@@ -70,6 +70,9 @@ func (m *ConfigManager) rhp4NetAddresses() []chain.NetAddress {
 	if hostname == "" {
 		m.log.Warn("certificate name is empty, skipping RHP4 net address")
 		return protos
+	} else if strings.HasPrefix(hostname, "*") {
+		m.log.Debug("wildcard certificate -- using netaddress as is", zap.String("certHost", hostname), zap.String("netAddress", netAddress))
+		hostname = netAddress
 	}
 	// Add the RHP4 QUIC address using the common name from the certificate
 	// and the RHP4 port.
