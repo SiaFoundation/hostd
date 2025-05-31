@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/certificates"
+	"go.sia.tech/hostd/v2/certificates/providers/selfsigned"
 	"go.sia.tech/hostd/v2/host/accounts"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/registry"
@@ -42,7 +43,7 @@ type (
 	HostNode struct {
 		ConsensusNode
 
-		Certs     *certificates.Manager
+		Certs     certificates.Provider
 		Settings  *settings.ConfigManager
 		Wallet    *wallet.SingleAddressWallet
 		Contracts *contracts.Manager
@@ -194,11 +195,16 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { contracts.Close() })
 
+	certs, err := selfsigned.New()
+	if err != nil {
+		t.Fatal("failed to create certificate provider:", err)
+	}
+
 	initialSettings := settings.DefaultSettings
 	initialSettings.AcceptingContracts = true
 	initialSettings.NetAddress = "127.0.0.1"
 	initialSettings.WindowSize = 10
-	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, &MockSyncer{}, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings))
+	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, &MockSyncer{}, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings), settings.WithCertificates(certs))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,12 +219,6 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	am := accounts.NewManager(cn.Store, sm)
 	rm := registry.NewManager(pk, cn.Store, log.Named("registry"))
 	t.Cleanup(func() { rm.Close() })
-
-	certs, err := certificates.NewManager("", pk, certificates.WithLog(log.Named("certificates")))
-	if err != nil {
-		t.Fatal("failed to create certificates manager:", err)
-	}
-	t.Cleanup(func() { certs.Close() })
 
 	return &HostNode{
 		ConsensusNode: *cn,
