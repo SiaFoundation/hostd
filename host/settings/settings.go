@@ -259,6 +259,12 @@ func (m *ConfigManager) LastAnnouncement() (Announcement, error) {
 
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
+	done, err := m.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	// validate DNS settings
 	if err := validateDNSSettings(&s.DDNS); err != nil {
 		return fmt.Errorf("failed to validate DNS settings: %w", err)
@@ -272,10 +278,10 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
 	m.resetDDNS()
-	m.mu.Unlock()
 	return m.store.UpdateSettings(s)
 }
 

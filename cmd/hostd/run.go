@@ -25,6 +25,8 @@ import (
 	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/hostd/v2/api"
 	"go.sia.tech/hostd/v2/certificates"
+	"go.sia.tech/hostd/v2/certificates/providers/local"
+	"go.sia.tech/hostd/v2/certificates/providers/nomad"
 	"go.sia.tech/hostd/v2/config"
 	"go.sia.tech/hostd/v2/explorer"
 	"go.sia.tech/hostd/v2/host/accounts"
@@ -450,11 +452,17 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		cfg.RHP4.ListenAddresses[i].Address = net.JoinHostPort(host, strconv.FormatUint(uint64(rhp4Port), 10))
 	}
 
-	certs, err := certificates.NewManager(cfg.Directory, hostKey, certificates.WithLocalCert(cfg.RHP4.QUIC.CertPath, cfg.RHP4.QUIC.KeyPath), certificates.WithLog(log.Named("certificates")))
-	if err != nil {
-		return fmt.Errorf("failed to create certificates manager: %w", err)
+	var certProvider certificates.Provider
+	if cfg.RHP4.QUIC.CertPath != "" || cfg.RHP4.QUIC.KeyPath != "" {
+		certProvider, err = local.NewProvider(cfg.RHP4.QUIC.CertPath, cfg.RHP4.QUIC.KeyPath)
+		if err != nil {
+			return fmt.Errorf("failed to create local certificates provider: %w", err)
+		}
+	} else {
+		nm := nomad.NewProvider(filepath.Join(cfg.Directory, "nomad"), hostKey, log.Named("certificates.nomad"))
+		defer nm.Close()
+		certProvider = nm
 	}
-	defer certs.Close()
 
 	sm, err := settings.NewConfigManager(hostKey, store, cm, s, vm, wm,
 		settings.WithAlertManager(am),
@@ -463,7 +471,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		settings.WithRHP4Port(uint16(rhp4Port)),
 		settings.WithExplorer(exp),
 		settings.WithLog(log.Named("settings")),
-		settings.WithCertificates(certs))
+		settings.WithCertificates(certProvider))
 	if err != nil {
 		return fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -544,7 +552,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			ql, err := quic.Listen(l, certs)
+			ql, err := quic.Listen(l, certProvider)
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
@@ -603,7 +611,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	log.Info("node started", zap.String("network", cm.TipState().Network.Name), zap.String("hostKey", hostKey.PublicKey().String()), zap.String("http", httpListener.Addr().String()), zap.String("p2p", string(s.Addr())), zap.String("rhp2", rhp2.LocalAddr()), zap.String("rhp3", rhp3.LocalAddr()))
 	<-ctx.Done()
 	log.Info("shutting down...")
-	time.AfterFunc(5*time.Minute, func() {
+	time.AfterFunc(time.Minute, func() {
 		log.Fatal("failed to shut down within 5 minutes")
 	})
 	return nil
