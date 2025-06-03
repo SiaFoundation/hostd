@@ -82,8 +82,13 @@ func (s *Store) ReleaseUTXOs(ids []types.SiacoinOutputID) error {
 }
 
 // UnspentSiacoinElements returns the spendable siacoin outputs in the wallet.
-func (s *Store) UnspentSiacoinElements() (utxos []types.SiacoinElement, err error) {
+func (s *Store) UnspentSiacoinElements() (utxos []types.SiacoinElement, tip types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
+		err = tx.QueryRow(`SELECT last_scanned_index FROM global_settings`).Scan(decodeNullable(&tip))
+		if err != nil {
+			return fmt.Errorf("failed to query last scanned index: %w", err)
+		}
+
 		rows, err := tx.Query(`SELECT id, siacoin_value, sia_address, leaf_index, merkle_proof, maturity_height FROM wallet_siacoin_elements`)
 		if err != nil {
 			return fmt.Errorf("failed to query unspent siacoin elements: %w", err)
