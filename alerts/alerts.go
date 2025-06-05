@@ -3,6 +3,7 @@ package alerts
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -178,6 +179,10 @@ func (m *Manager) Active() []Alert {
 	for _, alert := range m.alerts {
 		alerts = append(alerts, alert.DeepCopy())
 	}
+	// Sort by timestamp in desc order.
+	sort.Slice(alerts, func(i, j int) bool {
+		return alerts[i].Timestamp.After(alerts[j].Timestamp)
+	})
 	return alerts
 }
 
