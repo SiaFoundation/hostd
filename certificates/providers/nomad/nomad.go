@@ -124,6 +124,11 @@ func timeToRefresh(cert *tls.Certificate) time.Duration {
 	return time.Until(cert.Leaf.NotAfter.Add(-duration))
 }
 
+func backoff(failures int) time.Duration {
+	// Exponential backoff with a maximum of 6 hours
+	return time.Duration(min(6*time.Hour, time.Minute*time.Duration(math.Pow(2, float64(failures)))))
+}
+
 // NewProvider creates a new nomad certificate provider.
 func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provider {
 	domain := nomad.HostDomain(hostKey.PublicKey())
@@ -156,15 +161,12 @@ func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provide
 		}
 
 		var consecutiveFailures int
-		backoff := func() time.Duration {
-			return min(6*time.Hour, time.Minute*time.Duration(math.Pow(2, float64(consecutiveFailures))))
-		}
 		for {
 			provider.mu.Lock()
 			var reissueTime time.Duration
 			if provider.cert == nil {
 				log.Debug("no certificate loaded, issuing a new one")
-				reissueTime = backoff()
+				reissueTime = backoff(consecutiveFailures)
 			} else {
 				reissueTime = timeToRefresh(provider.cert)
 			}
