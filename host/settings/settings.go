@@ -424,6 +424,7 @@ func (m *ConfigManager) RHP4Settings() proto4.HostSettings {
 	}
 
 	hs := proto4.HostSettings{
+		ProtocolVersion:     [3]uint8{1, 0, 0},
 		Release:             "hostd " + build.Version(),
 		WalletAddress:       m.wallet.Address(),
 		AcceptingContracts:  settings.AcceptingContracts,
