@@ -2,6 +2,7 @@ package local
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -22,6 +23,10 @@ type localProvider struct {
 func (p *localProvider) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.cert == nil {
+		return nil, errors.New("certificate has not been initialized")
+	}
 
 	if p.cert == nil || time.Since(p.lastLoad) > 5*time.Minute {
 		cert, err := tls.LoadX509KeyPair(p.certFile, p.keyFile)
