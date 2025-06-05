@@ -4,8 +4,10 @@ import (
 	"reflect"
 	"testing"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/hostd/v2/build"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/settings"
 	"go.sia.tech/hostd/v2/host/storage"
@@ -53,8 +55,32 @@ func TestSettings(t *testing.T) {
 	}
 	defer idx.Close()
 
+	// helper to derive RHP4 settings from settings.Settings
+	v4Settings := func(settings settings.Settings) proto4.HostSettings {
+		return proto4.HostSettings{
+			ProtocolVersion:     [3]uint8{1, 0, 0},
+			Release:             "hostd " + build.Version(),
+			WalletAddress:       wm.Address(),
+			AcceptingContracts:  settings.AcceptingContracts,
+			MaxCollateral:       settings.MaxCollateral,
+			MaxContractDuration: settings.MaxContractDuration,
+			RemainingStorage:    0,
+			TotalStorage:        0,
+			Prices: proto4.HostPrices{
+				ContractPrice:   settings.ContractPrice,
+				StoragePrice:    settings.StoragePrice,
+				Collateral:      settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
+				IngressPrice:    settings.IngressPrice,
+				EgressPrice:     settings.EgressPrice,
+				FreeSectorPrice: types.Siacoins(1).Div64((1 << 40) / proto4.SectorSize), // 1 SC / TB
+			},
+		}
+	}
+
 	if !reflect.DeepEqual(sm.Settings(), settings.DefaultSettings) {
 		t.Fatal("settings not equal to default")
+	} else if !reflect.DeepEqual(sm.RHP4Settings(), v4Settings(sm.Settings())) {
+		t.Fatal("rhp4 settings not equal to expected")
 	}
 
 	updated := sm.Settings()
@@ -66,6 +92,8 @@ func TestSettings(t *testing.T) {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(sm.Settings(), updated) {
 		t.Fatal("settings not equal to updated")
+	} else if !reflect.DeepEqual(sm.RHP4Settings(), v4Settings(updated)) {
+		t.Fatal("rhp4 settings not equal to expected")
 	}
 }
 
