@@ -177,7 +177,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 
 	cn := NewConsensusNode(t, network, genesis, log)
 
-	wm, err := wallet.NewSingleAddressWallet(pk, cn.Chain, cn.Store)
+	wm, err := wallet.NewSingleAddressWallet(pk, cn.Chain, cn.Store, &MockSyncer{})
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)
 	}
@@ -189,7 +189,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { vm.Close() })
 
-	contracts, err := contracts.NewManager(cn.Store, vm, cn.Chain, &MockSyncer{}, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
+	contracts, err := contracts.NewManager(cn.Store, vm, cn.Chain, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
 	if err != nil {
 		t.Fatal("failed to create contracts manager:", err)
 	}
@@ -204,7 +204,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	initialSettings.AcceptingContracts = true
 	initialSettings.NetAddress = "127.0.0.1"
 	initialSettings.WindowSize = 10
-	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, &MockSyncer{}, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings), settings.WithCertificates(certs))
+	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings), settings.WithCertificates(certs))
 	if err != nil {
 		t.Fatal(err)
 	}

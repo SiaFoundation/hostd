@@ -25,7 +25,7 @@ func TestAutoAnnounce(t *testing.T) {
 
 	// TODO: its unfortunate that all these managers need to be created just to
 	// test the auto-announce feature.
-	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store)
+	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store, &testutil.MockSyncer{})
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)
 	}
@@ -37,7 +37,7 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer vm.Close()
 
-	contracts, err := contracts.NewManager(node.Store, vm, node.Chain, &testutil.MockSyncer{}, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
+	contracts, err := contracts.NewManager(node.Store, vm, node.Chain, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
 	if err != nil {
 		t.Fatal("failed to create contracts manager:", err)
 	}
@@ -49,7 +49,7 @@ func TestAutoAnnounce(t *testing.T) {
 	}
 	defer storage.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, &testutil.MockSyncer{}, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 
 	// TODO: its unfortunate that all these managers need to be created just to
 	// test the auto-announce feature.
-	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store)
+	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store, &testutil.MockSyncer{})
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)
 	}
@@ -177,7 +177,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 	}
 	defer vm.Close()
 
-	contracts, err := contracts.NewManager(node.Store, vm, node.Chain, &testutil.MockSyncer{}, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
+	contracts, err := contracts.NewManager(node.Store, vm, node.Chain, wm, contracts.WithRejectAfter(10), contracts.WithRevisionSubmissionBuffer(5), contracts.WithLog(log))
 	if err != nil {
 		t.Fatal("failed to create contracts manager:", err)
 	}
@@ -189,7 +189,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 	}
 	defer storage.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, &testutil.MockSyncer{}, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50))
 	if err != nil {
 		t.Fatal(err)
 	}

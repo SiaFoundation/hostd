@@ -32,6 +32,10 @@ type fundAndSign struct {
 	pk types.PrivateKey
 }
 
+func (fs *fundAndSign) RecommendedFee() types.Currency {
+	return fs.w.RecommendedFee()
+}
+
 func (fs *fundAndSign) FundV2Transaction(txn *types.V2Transaction, amount types.Currency) (types.ChainIndex, []int, error) {
 	return fs.w.FundV2Transaction(txn, amount, true)
 }

@@ -59,22 +59,13 @@ type (
 		Tip() types.ChainIndex
 		TipState() consensus.State
 		BestIndex(height uint64) (types.ChainIndex, bool)
-		RecommendedFee() types.Currency
 
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
-		AddPoolTransactions([]types.Transaction) (known bool, err error)
 
 		PoolTransactions() []types.Transaction
 		V2PoolTransactions() []types.V2Transaction
 
 		V2TransactionSet(types.ChainIndex, types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
-		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
-	}
-
-	// A Syncer broadcasts transactions to its peers
-	Syncer interface {
-		BroadcastTransactionSet([]types.Transaction) error
-		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
 	}
 
 	// An Explorer provides external information about the
@@ -103,6 +94,10 @@ type (
 
 		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error)
 		SignV2Inputs(txn *types.V2Transaction, toSign []int)
+
+		RecommendedFee() types.Currency
+		BroadcastTransactionSet([]types.Transaction) error
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
 	}
 
 	// Alerts registers global alerts.
@@ -164,7 +159,6 @@ type (
 		log   *zap.Logger
 
 		chain    ChainManager
-		syncer   Syncer
 		storage  Storage
 		wallet   Wallet
 		explorer Explorer
@@ -356,7 +350,7 @@ func (m *ConfigManager) RHP2Settings() (proto2.HostSettings, error) {
 func (m *ConfigManager) RHP3PriceTable() (proto3.HostPriceTable, error) {
 	settings := m.Settings()
 
-	fee := m.chain.RecommendedFee()
+	fee := m.wallet.RecommendedFee()
 	currentHeight := m.chain.TipState().Index.Height
 	oneHasting := types.NewCurrency64(1)
 
@@ -450,7 +444,7 @@ func (m *ConfigManager) RHP4Settings() proto4.HostSettings {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, sm Storage, wm Wallet, opts ...Option) (*ConfigManager, error) {
+func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, sm Storage, wm Wallet, opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
 		announceInterval:   144 * 90, // 90 days
 		validateNetAddress: true,
@@ -459,7 +453,6 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 
 		store:   store,
 		chain:   cm,
-		syncer:  s,
 		storage: sm,
 		wallet:  wm,
 
