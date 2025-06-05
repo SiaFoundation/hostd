@@ -25,17 +25,7 @@ type (
 		TipState() consensus.State
 		BestIndex(height uint64) (types.ChainIndex, bool)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
-		AddPoolTransactions([]types.Transaction) (known bool, err error)
-
 		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
-		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
-		RecommendedFee() types.Currency
-	}
-
-	// A Syncer broadcasts transactions to its peers
-	Syncer interface {
-		BroadcastTransactionSet([]types.Transaction) error
-		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
 	}
 
 	// A Wallet manages Siacoins and funds transactions
@@ -48,6 +38,10 @@ type (
 
 		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error)
 		SignV2Inputs(txn *types.V2Transaction, toSign []int)
+
+		BroadcastTransactionSet([]types.Transaction) error
+		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
+		RecommendedFee() types.Currency
 	}
 
 	// A StorageManager stores and retrieves sectors.
@@ -74,7 +68,6 @@ type (
 		alerts  Alerts
 		storage StorageManager
 		chain   ChainManager
-		syncer  Syncer
 		wallet  Wallet
 
 		locks *locker // contracts must be locked while they are being modified
@@ -385,12 +378,11 @@ func (cm *Manager) isGoodForModification(contract Contract) error {
 }
 
 // NewManager creates a new contract manager.
-func NewManager(store ContractStore, storage StorageManager, chain ChainManager, syncer Syncer, wallet Wallet, opts ...ManagerOption) (*Manager, error) {
+func NewManager(store ContractStore, storage StorageManager, chain ChainManager, wallet Wallet, opts ...ManagerOption) (*Manager, error) {
 	cm := &Manager{
 		store:   store,
 		storage: storage,
 		chain:   chain,
-		syncer:  syncer,
 		wallet:  wallet,
 
 		rejectBuffer:             18,

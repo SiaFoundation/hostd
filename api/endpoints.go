@@ -473,7 +473,7 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 	}
 
 	// estimate miner fee
-	feePerByte := a.chain.RecommendedFee()
+	feePerByte := a.wallet.RecommendedFee()
 	minerFee := feePerByte.Mul64(stdTxnSize)
 	if req.SubtractMinerFee {
 		var underflow bool
@@ -503,11 +503,7 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 		// shouldn't be necessary to get parents since the transaction is
 		// not using unconfirmed outputs, but good practice
 		txnset := append(a.chain.UnconfirmedParents(txn), txn)
-		// verify the transaction and add it to the transaction pool
-		if _, err := a.chain.AddPoolTransactions(txnset); !a.checkServerError(jc, "failed to add transaction set", err) {
-			a.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
-			return
-		} else if err := a.syncer.BroadcastTransactionSet(txnset); !a.checkServerError(jc, "failed to broadcast transaction set", err) {
+		if err := a.wallet.BroadcastTransactionSet(txnset); !a.checkServerError(jc, "failed to broadcast transaction set", err) {
 			a.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
 			return
 		}
@@ -531,10 +527,7 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 			return
 		}
 		// verify the transaction and add it to the transaction pool
-		if _, err := a.chain.AddV2PoolTransactions(basis, txnset); !a.checkServerError(jc, "failed to add v2 transaction set", err) {
-			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
-			return
-		} else if err := a.syncer.BroadcastV2TransactionSet(basis, txnset); err != nil {
+		if err := a.wallet.BroadcastV2TransactionSet(basis, txnset); err != nil {
 			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 			return
 		}
@@ -645,7 +638,7 @@ func (a *api) handlePOSTSystemSQLite3Backup(jc jape.Context) {
 }
 
 func (a *api) handleGETTPoolFee(jc jape.Context) {
-	a.writeResponse(jc, TPoolResp(a.chain.RecommendedFee()))
+	a.writeResponse(jc, TPoolResp(a.wallet.RecommendedFee()))
 }
 
 func (a *api) handleGETAccounts(jc jape.Context) {

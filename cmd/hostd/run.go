@@ -401,7 +401,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		log.Debug("rebroadcasted formation set")
 	}
 
-	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
+	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, s, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to create wallet: %w", err)
 	}
@@ -464,7 +464,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		certProvider = nm
 	}
 
-	sm, err := settings.NewConfigManager(hostKey, store, cm, s, vm, wm,
+	sm, err := settings.NewConfigManager(hostKey, store, cm, vm, wm,
 		settings.WithAlertManager(am),
 		settings.WithRHP2Port(uint16(rhp2Port)),
 		settings.WithRHP3Port(uint16(rhp3Port)),
@@ -477,7 +477,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer sm.Close()
 
-	contractManager, err := contracts.NewManager(store, vm, cm, s, wm, contracts.WithLog(log.Named("contracts")), contracts.WithAlerter(am))
+	contractManager, err := contracts.NewManager(store, vm, cm, wm, contracts.WithLog(log.Named("contracts")), contracts.WithAlerter(am))
 	if err != nil {
 		return fmt.Errorf("failed to create contracts manager: %w", err)
 	}
