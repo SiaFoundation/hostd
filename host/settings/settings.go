@@ -278,10 +278,10 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.settings = s
 	m.setRateLimit(s.IngressLimit, s.EgressLimit)
 	m.resetDDNS()
+	m.mu.Unlock()
 	return m.store.UpdateSettings(s)
 }
 
