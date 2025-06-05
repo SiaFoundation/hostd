@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,12 +152,16 @@ func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provide
 			log.Error("failed to refresh certificate", zap.Error(err))
 		}
 
+		var consecutiveFailures int
+		backoff := func() time.Duration {
+			return min(6*time.Hour, time.Minute*time.Duration(math.Pow(2, float64(consecutiveFailures))))
+		}
 		for {
 			provider.mu.Lock()
 			var reissueTime time.Duration
 			if provider.cert == nil {
 				log.Debug("no certificate loaded, issuing a new one")
-				reissueTime = time.Minute
+				reissueTime = backoff()
 			} else {
 				reissueTime = timeToRefresh(provider.cert)
 			}
@@ -168,7 +173,9 @@ func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provide
 			case <-time.After(reissueTime):
 				if err := provider.issueCertificate(); err != nil {
 					log.Error("failed to refresh certificate", zap.Error(err))
+					consecutiveFailures++
 				} else {
+					consecutiveFailures = 0
 					log.Debug("certificate refreshed successfully", zap.String("domain", domain))
 				}
 			}

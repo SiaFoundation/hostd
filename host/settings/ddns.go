@@ -11,7 +11,6 @@ import (
 	"go.sia.tech/hostd/v2/internal/ddns/providers/cloudflare"
 	"go.sia.tech/hostd/v2/internal/ddns/providers/duckdns"
 	"go.sia.tech/hostd/v2/internal/ddns/providers/noip"
-	"go.sia.tech/hostd/v2/internal/ddns/providers/nomad"
 	"go.sia.tech/hostd/v2/internal/ddns/providers/route53"
 	"go.uber.org/zap"
 )
@@ -22,7 +21,6 @@ const (
 	DNSProviderDuckDNS    = "duckdns"
 	DNSProviderNoIP       = "noip"
 	DNSProviderRoute53    = "route53"
-	DNSProviderNomad      = "nomad"
 )
 
 type (
@@ -126,8 +124,6 @@ func (m *ConfigManager) UpdateDDNS(force bool) error {
 
 	var provider ddns.Provider
 	switch settings.Provider {
-	case DNSProviderNomad:
-		provider = nomad.New(m.hostKey)
 	case DNSProviderCloudflare:
 		var options CloudflareSettings
 		if err := json.Unmarshal(settings.Options, &options); err != nil {
@@ -247,7 +243,6 @@ func validateDNSSettings(s *DNSSettings) error {
 			return errors.New("zone id must be set")
 		}
 		s.Options, _ = json.Marshal(opts) // re-encode the options to enforce the correct schema
-	case DNSProviderNomad:
 	default:
 		return fmt.Errorf("unknown dns provider: %q", s.Provider)
 	}
