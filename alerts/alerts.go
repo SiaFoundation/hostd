@@ -3,9 +3,6 @@ package alerts
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
-	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -114,6 +111,22 @@ func (s *Severity) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// DeepCopy creates a deep copy of the Alert.
+// This is necessary because the Data field is a map, which is a reference type
+// and can lead to concurrent map access issues if not copied properly.
+func (a Alert) DeepCopy() (b Alert) {
+	// Perform a JSON round-trip to create a deep copy of the Data field.
+	// This avoids concurrent map access issues and ensures nested reference
+	// types are also copied.
+	buf, err := json.Marshal(a)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal alert: %w", err)) // developer error
+	} else if err := json.Unmarshal(buf, &b); err != nil {
+		panic(fmt.Errorf("failed to unmarshal alert: %w", err)) // developer error
+	}
+	return
+}
+
 // Register registers a new alert with the manager
 func (m *Manager) Register(a Alert) {
 	if a.ID == (types.Hash256{}) {
@@ -127,13 +140,13 @@ func (m *Manager) Register(a Alert) {
 	}
 
 	if m.events != nil {
-		if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a); err != nil {
+		if err := m.events.BroadcastEvent("alert", "alerts."+a.Severity.String(), a.DeepCopy()); err != nil {
 			m.log.Error("failed to broadcast alert", zap.Error(err))
 		}
 	}
 
 	m.mu.Lock()
-	m.alerts[a.ID] = a
+	m.alerts[a.ID] = a.DeepCopy()
 	m.mu.Unlock()
 }
 
@@ -161,18 +174,9 @@ func (m *Manager) DismissCategory(category string) {
 func (m *Manager) Active() []Alert {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	alerts := slices.Collect(maps.Values(m.alerts))
-	sort.Slice(alerts, func(i, j int) bool {
-		return alerts[i].Timestamp.After(alerts[j].Timestamp)
-	})
-	// Perform a JSON round-trip to create a deep copy of the Data field.
-	// This avoids concurrent map access issues and ensures nested reference
-	// types are also copied.
-	buf, err := json.Marshal(alerts)
-	if err != nil {
-		panic(fmt.Errorf("failed to marshal alerts: %v", err)) // developer error
-	} else if err := json.Unmarshal(buf, &alerts); err != nil {
-		panic(fmt.Errorf("failed to unmarshal alerts: %v", err)) // developer error
+	alerts := make([]Alert, 0, len(m.alerts))
+	for _, alert := range m.alerts {
+		alerts = append(alerts, alert.DeepCopy())
 	}
 	return alerts
 }
