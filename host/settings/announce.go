@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -39,7 +40,7 @@ func (m *ConfigManager) rhp4NetAddresses() []chain.NetAddress {
 		return protos
 	}
 
-	cert, err := m.certs.GetCertificate(nil)
+	cert, err := m.certs.GetCertificate(context.Background())
 	if err != nil {
 		m.log.Error("failed to get certificate for RHP4 net address", zap.Error(err))
 		return protos

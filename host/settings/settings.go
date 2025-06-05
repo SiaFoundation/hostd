@@ -91,7 +91,7 @@ type (
 	// Certificates provides TLS certificates for the host
 	// to use when serving RHP4 over QUIC.
 	Certificates interface {
-		GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error)
+		GetCertificate(context.Context) (*tls.Certificate, error)
 	}
 
 	// A Wallet manages Siacoins and funds transactions

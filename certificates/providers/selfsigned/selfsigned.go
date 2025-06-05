@@ -1,6 +1,7 @@
 package selfsigned
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -18,7 +19,7 @@ type selfSignedProvider struct {
 }
 
 // GetCertificate implements [certificates.Provider].
-func (p *selfSignedProvider) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+func (p *selfSignedProvider) GetCertificate(ctx context.Context) (*tls.Certificate, error) {
 	return p.cert, nil
 }
 

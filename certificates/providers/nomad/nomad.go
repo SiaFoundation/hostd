@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -89,11 +88,11 @@ func (p *Provider) issueCertificate() error {
 }
 
 // GetCertificate implements [certificates.Provider].
-func (p *Provider) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+func (p *Provider) GetCertificate(context.Context) (*tls.Certificate, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.cert == nil {
-		return nil, errors.New("certificate has not been initialized")
+		return nil, certificates.ErrNotInitialized
 	}
 	return p.cert, nil
 }

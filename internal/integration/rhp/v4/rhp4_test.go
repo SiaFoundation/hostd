@@ -20,6 +20,7 @@ import (
 	"go.sia.tech/coreutils/rhp/v4/quic"
 	"go.sia.tech/coreutils/rhp/v4/siamux"
 	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/hostd/v2/certificates"
 	"go.sia.tech/hostd/v2/internal/testutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -84,7 +85,7 @@ func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testuti
 	}
 	tb.Cleanup(func() { l.Close() })
 
-	ql, err := quic.Listen(l, hn.Certs)
+	ql, err := quic.Listen(l, certificates.NewQUICCertManager(hn.Certs))
 	if err != nil {
 		tb.Fatal(err)
 	}

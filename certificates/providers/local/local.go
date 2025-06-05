@@ -1,8 +1,8 @@
 package local
 
 import (
+	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,12 +20,12 @@ type localProvider struct {
 }
 
 // GetCertificate implements [certificates.Provider].
-func (p *localProvider) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+func (p *localProvider) GetCertificate(ctx context.Context) (*tls.Certificate, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.cert == nil {
-		return nil, errors.New("certificate has not been initialized")
+		return nil, certificates.ErrNotInitialized
 	}
 
 	if p.cert == nil || time.Since(p.lastLoad) > 5*time.Minute {
