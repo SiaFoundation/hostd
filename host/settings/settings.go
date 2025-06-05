@@ -91,7 +91,7 @@ type (
 	// Certificates provides TLS certificates for the host
 	// to use when serving RHP4 over QUIC.
 	Certificates interface {
-		GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error)
+		GetCertificate(context.Context) (*tls.Certificate, error)
 	}
 
 	// A Wallet manages Siacoins and funds transactions
@@ -259,6 +259,12 @@ func (m *ConfigManager) LastAnnouncement() (Announcement, error) {
 
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
+	done, err := m.tg.Add()
+	if err != nil {
+		return err
+	}
+	defer done()
+
 	// validate DNS settings
 	if err := validateDNSSettings(&s.DDNS); err != nil {
 		return fmt.Errorf("failed to validate DNS settings: %w", err)

@@ -172,6 +172,7 @@ func (m *ConfigManager) UpdateDDNS(force bool) error {
 	if err := provider.Update(ipv4, ipv6); err != nil {
 		return fmt.Errorf("failed to update dns: %w", err)
 	}
+
 	m.mu.Lock()
 	m.lastIPv4, m.lastIPv6 = ipv4, ipv6
 	m.mu.Unlock()
