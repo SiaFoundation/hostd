@@ -24,10 +24,6 @@ func (p *localProvider) GetCertificate(ctx context.Context) (*tls.Certificate, e
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.cert == nil {
-		return nil, certificates.ErrNotInitialized
-	}
-
 	if p.cert == nil || time.Since(p.lastLoad) > 5*time.Minute {
 		cert, err := tls.LoadX509KeyPair(p.certFile, p.keyFile)
 		if err != nil {

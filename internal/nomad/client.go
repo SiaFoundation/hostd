@@ -161,14 +161,14 @@ func (c *Client) UpdateDNS(ctx context.Context, update UpdateDNSRequest, hostKey
 	if update.IPv4 == "" && update.IPv6 == "" {
 		return "", errors.New("no IPv4 or IPv6 address provided")
 	}
-	signedUpdateRequest := signedUpdateRequest{
+	sr := signedUpdateRequest{
 		IPv4:      update.IPv4,
 		IPv6:      update.IPv6,
 		Timestamp: time.Now(),
 		HostKey:   hostKey.PublicKey(),
 	}
-	signedUpdateRequest.Signature = hostKey.SignHash(signedUpdateRequest.SigHash())
-	buf, err := json.Marshal(signedUpdateRequest)
+	sr.Signature = hostKey.SignHash(sr.SigHash())
+	buf, err := json.Marshal(sr)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal update request: %w", err)
 	}
