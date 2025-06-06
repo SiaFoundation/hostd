@@ -75,6 +75,8 @@ type (
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.Address
+		BroadcastTransactionSet(txns []types.Transaction) error
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
 		FundTransaction(txn *types.Transaction, amount types.Currency, unconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
 		ReleaseInputs(txn []types.Transaction, v2txn []types.V2Transaction) error

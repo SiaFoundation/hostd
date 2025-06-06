@@ -238,7 +238,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			},
 		}
 
-		fee := cm.chain.RecommendedFee().Mul64(1000)
+		fee := cm.wallet.RecommendedFee().Mul64(1000)
 		revisionTxn.MinerFees = append(revisionTxn.MinerFees, fee)
 		toSign, err := cm.wallet.FundTransaction(&revisionTxn, fee, true)
 		if err != nil {
@@ -280,7 +280,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			continue
 		}
 
-		fee := cm.chain.RecommendedFee().Mul64(2000)
+		fee := cm.wallet.RecommendedFee().Mul64(2000)
 		resolutionTxnSet := []types.Transaction{
 			{
 				// intermediate funding transaction is required by v1 because
@@ -344,7 +344,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	for _, fcr := range actions.BroadcastV2Revision {
 		log := log.Named("v2 revision").With(zap.Stringer("contractID", fcr.Parent.ID))
 
-		fee := cm.chain.RecommendedFee().Mul64(1000)
+		fee := cm.wallet.RecommendedFee().Mul64(1000)
 		revisionTxn := types.V2Transaction{
 			MinerFee:              fee,
 			FileContractRevisions: []types.V2FileContractRevision{fcr},
@@ -396,7 +396,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 			Resolution: &sp,
 		}
 
-		fee := cm.chain.RecommendedFee().Mul64(2000)
+		fee := cm.wallet.RecommendedFee().Mul64(2000)
 		resolutionTxn := types.V2Transaction{
 			MinerFee:                fee,
 			FileContractResolutions: []types.V2FileContractResolution{resolution},
@@ -426,7 +426,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	for _, fce := range actions.BroadcastV2Expiration {
 		log := log.Named("v2 expiration").With(zap.Stringer("contractID", fce.ID))
 
-		fee := cm.chain.RecommendedFee().Mul64(1000)
+		fee := cm.wallet.RecommendedFee().Mul64(1000)
 		resolutionTxn := types.V2Transaction{
 			MinerFee: fee,
 			FileContractResolutions: []types.V2FileContractResolution{

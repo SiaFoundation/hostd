@@ -80,7 +80,6 @@ type (
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddPoolTransactions([]types.Transaction) (known bool, err error)
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
-		RecommendedFee() types.Currency
 	}
 
 	// A Syncer broadcasts transactions to the network

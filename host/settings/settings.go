@@ -59,7 +59,6 @@ type (
 		Tip() types.ChainIndex
 		TipState() consensus.State
 		BestIndex(height uint64) (types.ChainIndex, bool)
-		RecommendedFee() types.Currency
 
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddPoolTransactions([]types.Transaction) (known bool, err error)
@@ -100,6 +99,7 @@ type (
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+		RecommendedFee() types.Currency
 
 		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error)
 		SignV2Inputs(txn *types.V2Transaction, toSign []int)
@@ -350,7 +350,7 @@ func (m *ConfigManager) RHP2Settings() (proto2.HostSettings, error) {
 func (m *ConfigManager) RHP3PriceTable() (proto3.HostPriceTable, error) {
 	settings := m.Settings()
 
-	fee := m.chain.RecommendedFee()
+	fee := m.wallet.RecommendedFee()
 	currentHeight := m.chain.TipState().Index.Height
 	oneHasting := types.NewCurrency64(1)
 

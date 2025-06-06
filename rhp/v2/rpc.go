@@ -211,12 +211,7 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 	sh.wallet.SignTransaction(&formationTxn, toSign, types.CoveredFields{WholeTransaction: true})
 
 	formationTxnSet = append(formationTxnSet, formationTxn)
-	if _, err := sh.chain.AddPoolTransactions(formationTxnSet); err != nil {
-		sh.wallet.ReleaseInputs(formationTxnSet, nil)
-		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
-		s.t.WriteResponseErr(err)
-		return contracts.Usage{}, err
-	} else if err := sh.syncer.BroadcastTransactionSet(formationTxnSet); err != nil {
+	if err := sh.wallet.BroadcastTransactionSet(formationTxnSet); err != nil {
 		sh.wallet.ReleaseInputs(formationTxnSet, nil)
 		err = fmt.Errorf("failed to broadcast formation transaction: %w", err)
 		s.t.WriteResponseErr(err)

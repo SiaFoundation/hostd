@@ -29,7 +29,6 @@ type (
 
 		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
-		RecommendedFee() types.Currency
 	}
 
 	// A Syncer broadcasts transactions to its peers
@@ -45,6 +44,7 @@ type (
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+		RecommendedFee() types.Currency
 
 		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error)
 		SignV2Inputs(txn *types.V2Transaction, toSign []int)

@@ -23,7 +23,7 @@ func TestSettings(t *testing.T) {
 
 	// TODO: its unfortunate that all these managers need to be created just to
 	// test the auto-announce feature.
-	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store)
+	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store, node.Syncer)
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)
 	}
@@ -78,7 +78,7 @@ func TestRHP2Settings(t *testing.T) {
 
 	// TODO: its unfortunate that all these managers need to be created just to
 	// test the auto-announce feature.
-	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store)
+	wm, err := wallet.NewSingleAddressWallet(hostKey, node.Chain, node.Store, node.Syncer)
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)
 	}

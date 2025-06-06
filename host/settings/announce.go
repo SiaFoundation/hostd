@@ -95,7 +95,7 @@ func (m *ConfigManager) Announce() error {
 		}
 	}
 
-	minerFee := m.chain.RecommendedFee().Mul64(announcementTxnSize)
+	minerFee := m.wallet.RecommendedFee().Mul64(announcementTxnSize)
 
 	cs := m.chain.TipState()
 	if cs.Index.Height < cs.Network.HardforkV2.AllowHeight {

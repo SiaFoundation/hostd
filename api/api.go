@@ -32,6 +32,7 @@ type (
 		Balance() (balance wallet.Balance, err error)
 		UnconfirmedEvents() ([]wallet.Event, error)
 		Events(offset, limit int) ([]wallet.Event, error)
+		RecommendedFee() types.Currency
 
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 
@@ -140,7 +141,6 @@ type (
 		Tip() types.ChainIndex
 		TipState() consensus.State
 
-		RecommendedFee() types.Currency
 		AddPoolTransactions(txns []types.Transaction) (known bool, err error)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 		AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (known bool, err error)

@@ -473,7 +473,7 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 	}
 
 	// estimate miner fee
-	feePerByte := a.chain.RecommendedFee()
+	feePerByte := a.wallet.RecommendedFee()
 	minerFee := feePerByte.Mul64(stdTxnSize)
 	if req.SubtractMinerFee {
 		var underflow bool
@@ -645,7 +645,7 @@ func (a *api) handlePOSTSystemSQLite3Backup(jc jape.Context) {
 }
 
 func (a *api) handleGETTPoolFee(jc jape.Context) {
-	a.writeResponse(jc, TPoolResp(a.chain.RecommendedFee()))
+	a.writeResponse(jc, TPoolResp(a.wallet.RecommendedFee()))
 }
 
 func (a *api) handleGETAccounts(jc jape.Context) {

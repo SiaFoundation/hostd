@@ -176,7 +176,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 
 	cn := NewConsensusNode(t, network, genesis, log)
 
-	wm, err := wallet.NewSingleAddressWallet(pk, cn.Chain, cn.Store)
+	wm, err := wallet.NewSingleAddressWallet(pk, cn.Chain, cn.Store, cn.Syncer)
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)
 	}
