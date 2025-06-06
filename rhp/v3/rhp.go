@@ -82,11 +82,6 @@ type (
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
 	}
 
-	// A Syncer broadcasts transactions to the network
-	Syncer interface {
-		BroadcastTransactionSet([]types.Transaction) error
-	}
-
 	// A Wallet manages funds and signs transactions
 	Wallet interface {
 		Address() types.Address
@@ -116,7 +111,6 @@ type (
 		settings  SettingsReporter
 
 		chain  ChainManager
-		syncer Syncer
 		wallet Wallet
 
 		log *zap.Logger
@@ -264,14 +258,13 @@ func (sh *SessionHandler) LocalAddr() string {
 }
 
 // NewSessionHandler creates a new SessionHandler
-func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, syncer Syncer, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, sectors Sectors, settings SettingsReporter, log *zap.Logger) *SessionHandler {
+func NewSessionHandler(l net.Listener, hostKey types.PrivateKey, chain ChainManager, wallet Wallet, accounts AccountManager, contracts ContractManager, registry RegistryManager, sectors Sectors, settings SettingsReporter, log *zap.Logger) *SessionHandler {
 	sh := &SessionHandler{
 		privateKey: hostKey,
 
 		listener: l,
 
 		chain:  chain,
-		syncer: syncer,
 		wallet: wallet,
 
 		accounts:  accounts,

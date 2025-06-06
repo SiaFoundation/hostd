@@ -507,7 +507,7 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 		if _, err := a.chain.AddPoolTransactions(txnset); !a.checkServerError(jc, "failed to add transaction set", err) {
 			a.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
 			return
-		} else if err := a.syncer.BroadcastTransactionSet(txnset); !a.checkServerError(jc, "failed to broadcast transaction set", err) {
+		} else if err := a.wallet.BroadcastTransactionSet(txnset); !a.checkServerError(jc, "failed to broadcast transaction set", err) {
 			a.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
 			return
 		}
@@ -531,10 +531,7 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 			return
 		}
 		// verify the transaction and add it to the transaction pool
-		if _, err := a.chain.AddV2PoolTransactions(basis, txnset); !a.checkServerError(jc, "failed to add v2 transaction set", err) {
-			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
-			return
-		} else if err := a.syncer.BroadcastV2TransactionSet(basis, txnset); err != nil {
+		if err := a.wallet.BroadcastV2TransactionSet(basis, txnset); err != nil {
 			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 			return
 		}

@@ -117,10 +117,7 @@ func (m *ConfigManager) Announce() error {
 		}
 		m.wallet.SignTransaction(&txn, toSign, types.CoveredFields{WholeTransaction: true})
 		txnset := append(m.chain.UnconfirmedParents(txn), txn)
-		if _, err := m.chain.AddPoolTransactions(txnset); err != nil {
-			m.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
-			return fmt.Errorf("failed to add transaction to pool: %w", err)
-		} else if err := m.syncer.BroadcastTransactionSet(txnset); err != nil {
+		if err := m.wallet.BroadcastTransactionSet(txnset); err != nil {
 			m.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
 			return fmt.Errorf("failed to broadcast transaction set: %w", err)
 		}
@@ -139,14 +136,10 @@ func (m *ConfigManager) Announce() error {
 		}
 		m.wallet.SignV2Inputs(&txn, toSign)
 		basis, txnset, err := m.chain.V2TransactionSet(basis, txn)
-		if err != nil {
-			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
-			return fmt.Errorf("failed to create transaction set: %w", err)
-		} else if _, err := m.chain.AddV2PoolTransactions(basis, txnset); err != nil {
+		if err := m.wallet.BroadcastV2TransactionSet(cs.Index, txnset); err != nil {
 			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 			return fmt.Errorf("failed to add transaction to pool: %w", err)
 		}
-		m.syncer.BroadcastV2TransactionSet(cs.Index, txnset)
 		m.log.Debug("broadcast v2 announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
 	}
 	return nil

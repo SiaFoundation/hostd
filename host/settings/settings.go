@@ -70,12 +70,6 @@ type (
 		AddV2PoolTransactions(types.ChainIndex, []types.V2Transaction) (known bool, err error)
 	}
 
-	// A Syncer broadcasts transactions to its peers
-	Syncer interface {
-		BroadcastTransactionSet([]types.Transaction) error
-		BroadcastV2TransactionSet(types.ChainIndex, []types.V2Transaction) error
-	}
-
 	// An Explorer provides external information about the
 	// Sia network
 	Explorer interface {
@@ -96,6 +90,8 @@ type (
 	// A Wallet manages Siacoins and funds transactions
 	Wallet interface {
 		Address() types.Address
+		BroadcastTransactionSet(txns []types.Transaction) error
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
@@ -164,7 +160,6 @@ type (
 		log   *zap.Logger
 
 		chain    ChainManager
-		syncer   Syncer
 		storage  Storage
 		wallet   Wallet
 		explorer Explorer
@@ -444,7 +439,7 @@ func (m *ConfigManager) RHP4Settings() proto4.HostSettings {
 }
 
 // NewConfigManager initializes a new config manager
-func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s Syncer, sm Storage, wm Wallet, opts ...Option) (*ConfigManager, error) {
+func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, sm Storage, wm Wallet, opts ...Option) (*ConfigManager, error) {
 	m := &ConfigManager{
 		announceInterval:   144 * 90, // 90 days
 		validateNetAddress: true,
@@ -453,7 +448,6 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, s 
 
 		store:   store,
 		chain:   cm,
-		syncer:  s,
 		storage: sm,
 		wallet:  wm,
 

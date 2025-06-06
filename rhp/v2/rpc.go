@@ -408,12 +408,7 @@ func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) 
 
 	// validate & broadcast the transaction
 	renewalTxnSet = append(renewalParents, renewalTxn)
-	if _, err = sh.chain.AddPoolTransactions(renewalTxnSet); err != nil {
-		sh.wallet.ReleaseInputs(renewalTxnSet, nil)
-		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
-		s.t.WriteResponseErr(err)
-		return contracts.Usage{}, err
-	} else if err := sh.syncer.BroadcastTransactionSet(renewalTxnSet); err != nil {
+	if err := sh.wallet.BroadcastTransactionSet(renewalTxnSet); err != nil {
 		sh.wallet.ReleaseInputs(renewalTxnSet, nil)
 		err = fmt.Errorf("failed to broadcast renewal transaction: %w", err)
 		s.t.WriteResponseErr(err)

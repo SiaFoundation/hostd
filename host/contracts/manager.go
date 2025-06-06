@@ -44,6 +44,9 @@ type (
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 		FundTransaction(txn *types.Transaction, amount types.Currency, useUnconfirmed bool) ([]types.Hash256, error)
 		SignTransaction(txn *types.Transaction, toSign []types.Hash256, cf types.CoveredFields)
+
+		BroadcastTransactionSet(txns []types.Transaction) error
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
 		RecommendedFee() types.Currency
 
 		FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error)

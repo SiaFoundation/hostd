@@ -41,7 +41,7 @@ func TestSettings(t *testing.T) {
 	}
 	defer contracts.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, &testutil.MockSyncer{}, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithValidateNetAddress(false))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithValidateNetAddress(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestRHP2Settings(t *testing.T) {
 	}
 	defer contracts.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, node.Syncer, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithRHP2Port(1234), settings.WithRHP3Port(5678))
+	sm, err := settings.NewConfigManager(hostKey, node.Store, node.Chain, vm, wm, settings.WithLog(log.Named("settings")), settings.WithAnnounceInterval(50), settings.WithRHP2Port(1234), settings.WithRHP3Port(5678))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -456,7 +456,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer certs.Close()
 
-	sm, err := settings.NewConfigManager(hostKey, store, cm, s, vm, wm,
+	sm, err := settings.NewConfigManager(hostKey, store, cm, vm, wm,
 		settings.WithAlertManager(am),
 		settings.WithRHP2Port(uint16(rhp2Port)),
 		settings.WithRHP3Port(uint16(rhp3Port)),
@@ -495,13 +495,13 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer rhp3Listener.Close()
 
-	rhp2 := rhp2.NewSessionHandler(rhp2Listener, hostKey, cm, s, wm, contractManager, sm, vm, log.Named("rhp2"))
+	rhp2 := rhp2.NewSessionHandler(rhp2Listener, hostKey, cm, wm, contractManager, sm, vm, log.Named("rhp2"))
 	go rhp2.Serve()
 	defer rhp2.Close()
 
 	registry := registry.NewManager(hostKey, store, log.Named("registry"))
 	accounts := accounts.NewManager(store, sm)
-	rhp3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, sm, log.Named("rhp3"))
+	rhp3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, wm, accounts, contractManager, registry, vm, sm, log.Named("rhp3"))
 	go rhp3.Serve()
 	defer rhp3.Close()
 

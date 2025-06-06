@@ -32,7 +32,10 @@ type (
 		Balance() (balance wallet.Balance, err error)
 		UnconfirmedEvents() ([]wallet.Event, error)
 		Events(offset, limit int) ([]wallet.Event, error)
+
 		RecommendedFee() types.Currency
+		BroadcastTransactionSet(txns []types.Transaction) error
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
 
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
 
@@ -126,9 +129,6 @@ type (
 		Peers() []*syncer.Peer
 		PeerInfo(string) (syncer.PeerInfo, error)
 		Connect(ctx context.Context, addr string) (*syncer.Peer, error)
-
-		BroadcastTransactionSet(txns []types.Transaction) error
-		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
 	}
 
 	// The SQLite3Store provides an interface for backing up a SQLite3 database
