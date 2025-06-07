@@ -1,3 +1,22 @@
+## 2.3.0 (2025-06-07)
+
+### Features
+
+#### Add `nomad` Certificates
+
+Adds `nomad` as an experimental zero-config TLS Certificate provider for Sia hosts. `nomad` is run by the Sia Foundation to reduce friction of setting up a storage provider that supports WebTransport in browsers.
+
+#### Add `nomad` automatic certificate generation
+
+Optionally uses the Sia Foundation's `nomad` service to generate a `*.sia.host` TLS certificate to support the WebTransport protocol in browsers.
+
+### Fixes
+
+- Added fallback support for wildcard certificates.
+- Fixed a panic when updating contract formation proofs.
+- Fixed an issue with concurrent map access with webhook broadcasts.
+- Updated coreutils to v0.16.1
+
 ## 2.2.3 (2025-05-29)
 
 ### Fixes
