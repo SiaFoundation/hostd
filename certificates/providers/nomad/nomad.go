@@ -120,11 +120,17 @@ func loadCertificate(certFile, keyFile, domain string) (tls.Certificate, error) 
 }
 
 func timeToRefresh(cert *tls.Certificate) time.Duration {
+	if cert == nil || cert.Leaf == nil {
+		return 0
+	}
 	duration := cert.Leaf.NotAfter.Sub(cert.Leaf.NotBefore) / 4
 	return time.Until(cert.Leaf.NotAfter.Add(-duration))
 }
 
 func backoff(failures int) time.Duration {
+	if failures == 0 {
+		return 0
+	}
 	// Exponential backoff with a maximum of 6 hours
 	return time.Duration(min(6*time.Hour, time.Minute*time.Duration(math.Pow(2, float64(failures)))))
 }
@@ -156,10 +162,6 @@ func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provide
 		}
 		defer cancel()
 
-		if err := provider.issueCertificate(); err != nil {
-			log.Error("failed to refresh certificate", zap.Error(err))
-		}
-
 		var consecutiveFailures int
 		for {
 			provider.mu.Lock()
@@ -176,6 +178,7 @@ func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provide
 			case <-ctx.Done():
 				return
 			case <-time.After(reissueTime):
+				log.Debug("refreshing certificate", zap.Int("consecutiveFailures", consecutiveFailures))
 				if err := provider.issueCertificate(); err != nil {
 					log.Error("failed to refresh certificate", zap.Error(err))
 					consecutiveFailures++
