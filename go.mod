@@ -17,7 +17,7 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.33.0
 	golang.org/x/term v0.32.0
-	golang.org/x/time v0.11.0
+	golang.org/x/time v0.12.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.5.1
