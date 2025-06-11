@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,11 +43,11 @@ func makeRequest(ctx context.Context, method, url string, requestBody, response 
 	defer drainAndClose(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var errorMessage string
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 1024)).Decode(&errorMessage); err != nil {
-			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		buf, err := io.ReadAll(io.LimitReader(resp.Body, 4096)) // the body should return an error message
+		if err != nil {
+			return fmt.Errorf("unexpected status code: %d, failed to read response body: %w", resp.StatusCode, err)
 		}
-		return errors.New(errorMessage)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(buf))
 	}
 
 	if response == nil {
