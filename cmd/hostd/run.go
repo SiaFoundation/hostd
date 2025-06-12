@@ -440,8 +440,13 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			return fmt.Errorf("RHP4 listen addresses must not have duplicate protocols: %s", addr.Protocol)
 		}
 		protos[addr.Protocol] = true
-		if addr.Protocol == config.RHP4ProtoQUIC || addr.Protocol == config.RHP4ProtoQUIC4 || addr.Protocol == config.RHP4ProtoQUIC6 {
+		switch {
+		case addr.Protocol == config.RHP4ProtoTCP || addr.Protocol == config.RHP4ProtoTCP4 || addr.Protocol == config.RHP4ProtoTCP6:
+			hasSiamux = true
+		case addr.Protocol == config.RHP4ProtoQUIC || addr.Protocol == config.RHP4ProtoQUIC4 || addr.Protocol == config.RHP4ProtoQUIC6:
 			hasQuic = true
+		default:
+			return fmt.Errorf("unsupported RHP4 protocol: %s", addr.Protocol)
 		}
 
 		_, portStr, err := net.SplitHostPort(addr.Address)
