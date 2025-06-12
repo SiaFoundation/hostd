@@ -1,3 +1,11 @@
+## 2.3.1 (2025-06-12)
+
+### Fixes
+
+- Fixed a panic when the explorer is disabled.
+- Fixed an issue with nomad reissuing certificates on startup.
+- Return error message from forex API
+
 ## 2.3.0 (2025-06-07)
 
 ### Features
