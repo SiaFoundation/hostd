@@ -433,6 +433,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	var rhp4PortStr string
 	var hasQuic bool
+	var hasSiamux bool
 	protos := make(map[config.RHP4Proto]bool)
 	for _, addr := range cfg.RHP4.ListenAddresses {
 		if protos[addr.Protocol] {
@@ -460,6 +461,14 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	for i := range cfg.RHP4.ListenAddresses {
 		host, _, _ := net.SplitHostPort(cfg.RHP4.ListenAddresses[i].Address)
 		cfg.RHP4.ListenAddresses[i].Address = net.JoinHostPort(host, strconv.FormatUint(uint64(rhp4Port), 10))
+	}
+
+	if !hasSiamux {
+		cfg.RHP4.ListenAddresses = append(cfg.RHP4.ListenAddresses, config.RHP4ListenAddress{
+			Protocol: config.RHP4ProtoTCP,
+			Address:  fmt.Sprintf(":%d", rhp4Port),
+		})
+		log.Debug("no RHP4 SiaMux address specified, adding default", zap.String("address", cfg.RHP4.ListenAddresses[len(cfg.RHP4.ListenAddresses)-1].Address))
 	}
 
 	if !hasQuic {
