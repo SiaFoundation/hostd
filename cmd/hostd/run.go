@@ -432,7 +432,17 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer vm.Close()
 
 	var rhp4PortStr string
+	var hasQuic bool
+	protos := make(map[config.RHP4Proto]bool)
 	for _, addr := range cfg.RHP4.ListenAddresses {
+		if protos[addr.Protocol] {
+			return fmt.Errorf("RHP4 listen addresses must not have duplicate protocols: %s", addr.Protocol)
+		}
+		protos[addr.Protocol] = true
+		if addr.Protocol == config.RHP4ProtoQUIC || addr.Protocol == config.RHP4ProtoQUIC4 || addr.Protocol == config.RHP4ProtoQUIC6 {
+			hasQuic = true
+		}
+
 		_, portStr, err := net.SplitHostPort(addr.Address)
 		if err != nil {
 			return fmt.Errorf("failed to parse RHP4 address: %w", err)
@@ -450,6 +460,14 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	for i := range cfg.RHP4.ListenAddresses {
 		host, _, _ := net.SplitHostPort(cfg.RHP4.ListenAddresses[i].Address)
 		cfg.RHP4.ListenAddresses[i].Address = net.JoinHostPort(host, strconv.FormatUint(uint64(rhp4Port), 10))
+	}
+
+	if !hasQuic {
+		cfg.RHP4.ListenAddresses = append(cfg.RHP4.ListenAddresses, config.RHP4ListenAddress{
+			Protocol: config.RHP4ProtoQUIC,
+			Address:  fmt.Sprintf(":%d", rhp4Port),
+		})
+		log.Debug("no RHP4 QUIC address specified, adding default", zap.String("address", cfg.RHP4.ListenAddresses[len(cfg.RHP4.ListenAddresses)-1].Address))
 	}
 
 	var certProvider certificates.Provider
@@ -530,22 +548,22 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}()
 	for _, addr := range cfg.RHP4.ListenAddresses {
 		switch addr.Protocol {
-		case "tcp", "tcp4", "tcp6":
-			l, err := rhp.Listen(addr.Protocol, addr.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+		case config.RHP4ProtoTCP, config.RHP4ProtoTCP4, config.RHP4ProtoTCP6:
+			l, err := rhp.Listen(string(addr.Protocol), addr.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
 			if err != nil {
 				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
 			}
 			log.Info("started RHP4 listener", zap.String("address", l.Addr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
 			go siamux.Serve(l, rhp4, log.Named("rhp4.siamux"))
-		case "quic", "quic4", "quic6":
+		case config.RHP4ProtoQUIC, config.RHP4ProtoQUIC4, config.RHP4ProtoQUIC6:
 			var proto string
 			switch addr.Protocol {
-			case "quic":
+			case config.RHP4ProtoQUIC:
 				proto = "udp"
-			case "quic4":
+			case config.RHP4ProtoQUIC4:
 				proto = "udp4"
-			case "quic6":
+			case config.RHP4ProtoQUIC6:
 				proto = "udp6"
 			}
 			udpAddr, err := net.ResolveUDPAddr(proto, addr.Address)
