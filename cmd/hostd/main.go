@@ -151,7 +151,6 @@ func jsonEncoder() zapcore.Encoder {
 // text.
 func humanEncoder(showColors bool) zapcore.Encoder {
 	cfg := zap.NewProductionEncoderConfig()
-	cfg.TimeKey = "" // prevent duplicate timestamps
 	cfg.EncodeTime = zapcore.RFC3339TimeEncoder
 	cfg.EncodeDuration = zapcore.StringDurationEncoder
 

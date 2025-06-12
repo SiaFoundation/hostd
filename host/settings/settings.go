@@ -489,6 +489,12 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, sm
 	// initialize the DDNS update timer
 	m.resetDDNS()
 
+	if m.explorer == nil {
+		// explorer disabled, skip connection testing
+		m.log.Debug("explorer is disabled, skipping connection testing")
+		return m, nil
+	}
+
 	ctx, cancel, err := m.tg.AddContext(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to add context to threadgroup: %w", err)

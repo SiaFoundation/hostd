@@ -180,7 +180,7 @@ func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provide
 			case <-time.After(reissueTime):
 				log.Debug("refreshing certificate", zap.Int("consecutiveFailures", consecutiveFailures))
 				if err := provider.issueCertificate(); err != nil {
-					log.Error("failed to refresh certificate", zap.Error(err))
+					log.Warn("failed to refresh certificate", zap.Error(err))
 					consecutiveFailures++
 				} else {
 					consecutiveFailures = 0
