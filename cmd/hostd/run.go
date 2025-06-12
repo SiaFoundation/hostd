@@ -464,14 +464,19 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		certProvider = nm
 	}
 
-	sm, err := settings.NewConfigManager(hostKey, store, cm, vm, wm,
+	settingsOpts := []settings.Option{
 		settings.WithAlertManager(am),
 		settings.WithRHP2Port(uint16(rhp2Port)),
 		settings.WithRHP3Port(uint16(rhp3Port)),
 		settings.WithRHP4Port(uint16(rhp4Port)),
-		settings.WithExplorer(exp),
 		settings.WithLog(log.Named("settings")),
-		settings.WithCertificates(certProvider))
+		settings.WithCertificates(certProvider),
+	}
+	if !cfg.Explorer.Disable {
+		settingsOpts = append(settingsOpts, settings.WithExplorer(exp))
+	}
+
+	sm, err := settings.NewConfigManager(hostKey, store, cm, vm, wm, settingsOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to create settings manager: %w", err)
 	}
@@ -569,10 +574,10 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		api.WithLogger(log.Named("api")),
 		api.WithWebhooks(wr),
 		api.WithSQLite3Store(store),
-		api.WithExplorer(exp),
 	}
 
 	if !cfg.Explorer.Disable {
+		apiOpts = append(apiOpts, api.WithExplorer(exp))
 		pm, err := pin.NewManager(store, sm, exp, pin.WithLogger(log.Named("pin")))
 		if err != nil {
 			return fmt.Errorf("failed to create pin manager: %w", err)
