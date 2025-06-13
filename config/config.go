@@ -8,6 +8,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// RHP4Proto defines protocols valid for RHP4.
+const (
+	RHP4ProtoQUIC  RHP4Proto = "quic"
+	RHP4ProtoQUIC4 RHP4Proto = "quic4"
+	RHP4ProtoQUIC6 RHP4Proto = "quic6"
+
+	RHP4ProtoTCP  RHP4Proto = "tcp"
+	RHP4ProtoTCP4 RHP4Proto = "tcp4"
+	RHP4ProtoTCP6 RHP4Proto = "tcp6"
+)
+
 type (
 	// HTTP contains the configuration for the HTTP server.
 	HTTP struct {
@@ -45,10 +56,13 @@ type (
 		TCPAddress string `yaml:"tcp,omitempty"`
 	}
 
+	// RHP4Proto is the protocol used for RHP4.
+	RHP4Proto string
+
 	// RHP4ListenAddress contains the configuration for an RHP4 listen address.
 	RHP4ListenAddress struct {
-		Protocol string `yaml:"protocol,omitempty"`
-		Address  string `yaml:"address,omitempty"`
+		Protocol RHP4Proto `yaml:"protocol,omitempty"`
+		Address  string    `yaml:"address,omitempty"`
 	}
 
 	// RHP4QUIC contains the configuration for the RHP4 QUIC server.
