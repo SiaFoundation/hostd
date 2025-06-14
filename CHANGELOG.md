@@ -1,3 +1,10 @@
+## 2.3.2 (2025-06-14)
+
+### Fixes
+
+- Add default QUIC listener if not specified in config.
+- Update coreutils to v0.16.1 and core to v0.13.2
+
 ## 2.3.1 (2025-06-12)
 
 ### Fixes
