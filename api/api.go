@@ -138,6 +138,9 @@ type (
 
 	// A ChainManager retrieves the current blockchain state
 	ChainManager interface {
+		Block(id types.BlockID) (types.Block, bool)
+		State(id types.BlockID) (consensus.State, bool)
+
 		Tip() types.ChainIndex
 		TipState() consensus.State
 
@@ -243,9 +246,10 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		// state endpoints
 		"GET /state": a.handleGETState,
 		// consensus endpoints
-		"GET /consensus/tip":      a.handleGETConsensusTip,
-		"GET /consensus/tipstate": a.handleGETConsensusTipState,
-		"GET /consensus/network":  a.handleGETConsensusNetwork,
+		"GET /consensus/tip":            a.handleGETConsensusTip,
+		"GET /consensus/tipstate":       a.handleGETConsensusTipState,
+		"GET /consensus/checkpoint/:id": a.handleGETConsensusCheckpoint,
+		"GET /consensus/network":        a.handleGETConsensusNetwork,
 		// syncer endpoints
 		"GET /syncer/address": a.handleGETSyncerAddr,
 		"GET /syncer/peers":   a.handleGETSyncerPeers,

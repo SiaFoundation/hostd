@@ -104,6 +104,27 @@ func (a *api) handleGETConsensusTip(jc jape.Context) {
 func (a *api) handleGETConsensusTipState(jc jape.Context) {
 	a.writeResponse(jc, ConsensusStateResp(a.chain.TipState()))
 }
+
+func (a *api) handleGETConsensusCheckpoint(jc jape.Context) {
+	var id types.BlockID
+	if err := jc.DecodeParam("id", &id); err != nil {
+		return
+	}
+	block, ok := a.chain.Block(id)
+	if !ok {
+		jc.Error(fmt.Errorf("block not found: %s", id), http.StatusNotFound)
+		return
+	}
+	state, ok := a.chain.State(id)
+	if !ok {
+		jc.Error(fmt.Errorf("state not found for block: %s", id), http.StatusNotFound)
+		return
+	}
+	a.writeResponse(jc, ConsensusCheckpointResponse{
+		State: state,
+		Block: block,
+	})
+}
 func (a *api) handleGETConsensusNetwork(jc jape.Context) {
 	jc.Encode(a.chain.TipState().Network)
 }

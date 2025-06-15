@@ -197,6 +197,12 @@ type (
 	// ConsensusStateResp is the response body for the [GET] /consensus/state endpoint
 	ConsensusStateResp consensus.State
 
+	// ConsensusCheckpointResponse is the response body for the [GET] /consensus/checkpoint/:id endpoint
+	ConsensusCheckpointResponse struct {
+		State consensus.State `json:"state"`
+		Block types.Block     `json:"block"`
+	}
+
 	// IndexTipResp is the response body for the [GET] /index/tip endpoint
 	IndexTipResp types.ChainIndex
 
