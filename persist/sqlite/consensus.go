@@ -1483,7 +1483,13 @@ func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) 
 			return fmt.Errorf("failed to delete contract state element %q: %w", fce.ID, err)
 		}
 
-		if state.Status != contracts.V2ContractStatusActive {
+		if state.Status == contracts.V2ContractStatusRenewed || state.Status == contracts.V2ContractStatusSuccessful {
+			// note: special case due to a bug in revert handling. This should not happen, but we need to account for it
+			// in the revert logic.
+			if err := updateV2EarnedRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
+				return fmt.Errorf("failed to update earned revenue metrics: %w", err)
+			}
+		} else if state.Status != contracts.V2ContractStatusActive {
 			// if the contract is not active, panic. Applies should have ensured
 			// that this never happens.
 			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusPending))
@@ -1715,7 +1721,7 @@ func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, suc
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(status, state.ID); err != nil {
+		if res, err := updateStmt.Exec(contracts.V2ContractStatusActive, state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
