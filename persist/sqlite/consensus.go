@@ -1265,7 +1265,7 @@ func revertSuccessfulContracts(tx *txn, successful []types.FileContractID) error
 			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", contractID, state.Status, contracts.ContractStatusActive))
 		}
 
-		if res, err := updateStmt.Exec(encode(contractID)); err != nil {
+		if res, err := updateStmt.Exec(contracts.ContractStatusActive, state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
