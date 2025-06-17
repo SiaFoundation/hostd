@@ -749,7 +749,7 @@ func (a *api) handleDELETEWebhooks(jc jape.Context) {
 }
 
 func (a *api) handlePUTSystemConnectTest(jc jape.Context) {
-	result, _, err := a.settings.TestConnection(jc.Request.Context())
+	result, _, err := a.connectivity.TestConnection(jc.Request.Context())
 	if err != nil {
 		jc.Error(err, http.StatusInternalServerError)
 		return
