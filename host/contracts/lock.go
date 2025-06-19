@@ -134,7 +134,7 @@ func (cm *Manager) LockV2Contract(id types.FileContractID) (rev rhp4.RevisionSta
 	if contract.ProofHeight > cm.revisionSubmissionBuffer {
 		maxRevisionHeight = contract.ProofHeight - cm.revisionSubmissionBuffer
 	}
-	revisable := !renewed && cm.chain.Tip().Height < maxRevisionHeight
+	revisable := !renewed && contract.Status != V2ContractStatusRejected && cm.chain.Tip().Height < maxRevisionHeight
 	return rhp4.RevisionState{
 			Revision:  contract.V2FileContract,
 			Renewed:   renewed,
