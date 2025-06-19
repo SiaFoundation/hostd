@@ -119,6 +119,11 @@ func (sh *SessionHandler) rpcUnlock(s *session, log *zap.Logger) (contracts.Usag
 func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contracts.Usage, error) {
 	cs := sh.chain.TipState()
 
+	if cs.Index.Height >= cs.Network.HardforkV2.AllowHeight {
+		s.t.WriteResponseErr(ErrV2Hardfork)
+		return contracts.Usage{}, ErrV2Hardfork
+	}
+
 	settings, err := sh.settings.RHP2Settings()
 	if err != nil {
 		s.t.WriteResponseErr(err)
@@ -252,6 +257,11 @@ func (sh *SessionHandler) rpcFormContract(s *session, log *zap.Logger) (contract
 // existing contract
 func (sh *SessionHandler) rpcRenewAndClearContract(s *session, log *zap.Logger) (contracts.Usage, error) {
 	cs := sh.chain.TipState()
+
+	if cs.Index.Height >= cs.Network.HardforkV2.AllowHeight {
+		s.t.WriteResponseErr(ErrV2Hardfork)
+		return contracts.Usage{}, ErrV2Hardfork
+	}
 
 	settings, err := sh.settings.RHP2Settings()
 	if err != nil {

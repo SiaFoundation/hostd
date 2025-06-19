@@ -244,6 +244,11 @@ func (sh *SessionHandler) handleRPCLatestRevision(s *rhp3.Stream, log *zap.Logge
 func (sh *SessionHandler) handleRPCRenew(s *rhp3.Stream, log *zap.Logger) (contracts.Usage, error) {
 	cs := sh.chain.TipState()
 
+	if cs.Index.Height >= cs.Network.HardforkV2.AllowHeight {
+		s.WriteResponseErr(ErrV2Hardfork)
+		return contracts.Usage{}, ErrV2Hardfork
+	}
+
 	s.SetDeadline(time.Now().Add(2 * time.Minute))
 	if !sh.settings.AcceptingContracts() {
 		s.WriteResponseErr(ErrNotAcceptingContracts)
