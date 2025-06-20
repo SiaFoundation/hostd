@@ -18,6 +18,13 @@ func WithAlerts(al Alerts) ServerOption {
 	}
 }
 
+// WithConnectivity sets the connectivity manager for the API server.
+func WithConnectivity(c Connectivity) ServerOption {
+	return func(a *api) {
+		a.connectivity = c
+	}
+}
+
 // WithSQLite3Store sets the SQLite3 store for the API server.
 //
 // This option is not required since it is only used for backups and there

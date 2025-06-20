@@ -29,6 +29,7 @@ import (
 	"go.sia.tech/hostd/v2/certificates/providers/nomad"
 	"go.sia.tech/hostd/v2/config"
 	"go.sia.tech/hostd/v2/explorer"
+	"go.sia.tech/hostd/v2/explorer/connectivity"
 	"go.sia.tech/hostd/v2/host/accounts"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/registry"
@@ -610,13 +611,22 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	if !cfg.Explorer.Disable {
 		apiOpts = append(apiOpts, api.WithExplorer(exp))
+
+		// enable price pinning
 		pm, err := pin.NewManager(store, sm, exp, pin.WithLogger(log.Named("pin")))
 		if err != nil {
 			return fmt.Errorf("failed to create pin manager: %w", err)
 		}
 		defer pm.Close()
 
-		apiOpts = append(apiOpts, api.WithPinnedSettings(pm))
+		// enable connectivity tests
+		connectivity, err := connectivity.NewManager(hostKey.PublicKey(), sm, exp, connectivity.WithLog(log.Named("connectivity")), connectivity.WithAlerts(am))
+		if err != nil {
+			return fmt.Errorf("failed to create connectivity manager: %w", err)
+		}
+		defer connectivity.Close()
+
+		apiOpts = append(apiOpts, api.WithPinnedSettings(pm), api.WithConnectivity(connectivity))
 	}
 	go version.RunVersionCheck(ctx, am, log.Named("version"))
 	web := http.Server{
