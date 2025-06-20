@@ -1,3 +1,10 @@
+## 2.3.3 (2025-06-20)
+
+### Fixes
+
+- Prevent new v1 contracts from being formed post hardfork activation.
+- Prevent revising rejected contracts.
+
 ## 2.3.2 (2025-06-17)
 
 ### Fixes
