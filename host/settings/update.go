@@ -133,7 +133,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 		}
 
 		nextHeight := announcement.Index.Height + m.announceInterval
-		shouldAnnounce = index.Height >= nextHeight || announcement.Address != m.rhp2NetAddress()
+		shouldAnnounce = index.Height >= nextHeight || announcement.Address != m.RHP2NetAddress()
 	} else {
 		announceHash, announceIndex, err := m.store.LastV2AnnouncementHash()
 		if err != nil {
@@ -142,7 +142,7 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 
 		nextHeight := announceIndex.Height + m.announceInterval
 		h := types.NewHasher()
-		types.EncodeSlice(h.E, m.rhp4NetAddresses())
+		types.EncodeSlice(h.E, m.RHP4NetAddresses())
 		if err := h.E.Flush(); err != nil {
 			return fmt.Errorf("failed to hash v2 announcement: %w", err)
 		}

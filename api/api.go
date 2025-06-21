@@ -57,7 +57,10 @@ type (
 		LastAnnouncement() (settings.Announcement, error)
 
 		UpdateDDNS(force bool) error
+	}
 
+	// Connectivity tests the host's connectivity to the network
+	Connectivity interface {
 		TestConnection(context.Context) (explorer.TestResult, bool, error)
 	}
 
@@ -170,15 +173,16 @@ type (
 
 		sqlite3Store SQLite3Store
 
-		syncer    Syncer
-		chain     ChainManager
-		accounts  AccountManager
-		contracts ContractManager
-		volumes   VolumeManager
-		wallet    Wallet
-		metrics   MetricManager
-		settings  Settings
-		index     Index
+		syncer       Syncer
+		chain        ChainManager
+		accounts     AccountManager
+		contracts    ContractManager
+		volumes      VolumeManager
+		wallet       Wallet
+		metrics      MetricManager
+		settings     Settings
+		connectivity Connectivity
+		index        Index
 
 		explorerDisabled bool
 		explorer         *explorer.Explorer

@@ -24,11 +24,16 @@ type (
 	}
 )
 
-func (m *ConfigManager) rhp2NetAddress() string {
+// RHP2NetAddress returns the host's RHP2 net address.
+func (m *ConfigManager) RHP2NetAddress() string {
 	return net.JoinHostPort(m.Settings().NetAddress, strconv.Itoa(int(m.rhp2Port)))
 }
 
-func (m *ConfigManager) rhp4NetAddresses() []chain.NetAddress {
+// RHP4NetAddresses returns the host's RHP4 net addresses.
+// SiaMux should always be enabled by default. If a host
+// certificate is available, it will also include a quic
+// address using the common name from the certificate.
+func (m *ConfigManager) RHP4NetAddresses() []chain.NetAddress {
 	netAddress := m.Settings().NetAddress
 	rhp4SiaMuxAddress := net.JoinHostPort(netAddress, strconv.Itoa(int(m.rhp4Port)))
 
@@ -105,7 +110,7 @@ func (m *ConfigManager) Announce() error {
 			ArbitraryData: [][]byte{
 				chain.HostAnnouncement{
 					PublicKey:  m.hostKey.PublicKey(),
-					NetAddress: m.rhp2NetAddress(),
+					NetAddress: m.RHP2NetAddress(),
 				}.ToArbitraryData(m.hostKey),
 			},
 			MinerFees: []types.Currency{minerFee},
@@ -127,7 +132,7 @@ func (m *ConfigManager) Announce() error {
 		// create a v2 transaction with an announcement
 		txn := types.V2Transaction{
 			Attestations: []types.Attestation{
-				chain.V2HostAnnouncement(m.rhp4NetAddresses()).ToAttestation(cs, m.hostKey),
+				chain.V2HostAnnouncement(m.RHP4NetAddresses()).ToAttestation(cs, m.hostKey),
 			},
 			MinerFee: minerFee,
 		}

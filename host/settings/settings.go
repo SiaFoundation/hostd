@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -314,7 +313,7 @@ func (m *ConfigManager) RHP2Settings() (proto2.HostSettings, error) {
 		// host info
 		Address:          m.wallet.Address(),
 		SiaMuxPort:       strconv.FormatUint(uint64(m.rhp3Port), 10),
-		NetAddress:       m.rhp2NetAddress(),
+		NetAddress:       m.RHP2NetAddress(),
 		TotalStorage:     totalSectors * proto2.SectorSize,
 		RemainingStorage: (totalSectors - usedSectors) * proto2.SectorSize,
 
@@ -488,49 +487,6 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, sm
 	m.setRateLimit(settings.IngressLimit, settings.EgressLimit)
 	// initialize the DDNS update timer
 	m.resetDDNS()
-
-	if m.explorer == nil {
-		// explorer disabled, skip connection testing
-		m.log.Debug("explorer is disabled, skipping connection testing")
-		return m, nil
-	}
-
-	ctx, cancel, err := m.tg.AddContext(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("failed to add context to threadgroup: %w", err)
-	}
-	go func() {
-		defer cancel()
-
-		var consecutiveFailures int
-		nextTestTime := 15 * time.Second // short initial delay
-		for {
-			select {
-			case <-time.After(nextTestTime):
-				if !m.AcceptingContracts() {
-					nextTestTime = time.Minute
-					continue
-				}
-
-				result, ok, err := m.TestConnection(context.Background())
-				if err != nil {
-					m.log.Error("failed to test connection", zap.Error(err))
-				} else {
-					m.log.Debug("connection test result", zap.Bool("ok", ok), zap.Any("result", result))
-				}
-
-				if !ok {
-					consecutiveFailures++
-					nextTestTime = min(2*time.Hour, time.Minute*time.Duration(math.Pow(2, float64(consecutiveFailures))))
-				} else {
-					consecutiveFailures = 0
-					nextTestTime = 2 * time.Hour
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
 
 	return m, nil
 }
