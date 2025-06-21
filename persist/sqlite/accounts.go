@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	rhp3 "go.sia.tech/core/rhp/v3"
@@ -263,8 +264,18 @@ func (s *Store) Accounts(limit, offset int) (acc []accounts.Account, err error) 
 
 		for rows.Next() {
 			var a accounts.Account
-			if err := rows.Scan(decode(&a.ID), decode(&a.Balance), decode(&a.Expiration)); err != nil {
+			var expirationStr string
+			if err := rows.Scan(decode(&a.ID), decode(&a.Balance), &expirationStr); err != nil {
 				return fmt.Errorf("failed to scan row: %w", err)
+			}
+			if unixSecs, err := strconv.ParseInt(expirationStr, 10, 64); err == nil {
+				a.Expiration = time.Unix(unixSecs, 0)
+			} else {
+				parsed, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", expirationStr)
+				if err != nil {
+					return fmt.Errorf("failed to parse expiration timestamp: %w", err)
+				}
+				a.Expiration = parsed.Truncate(time.Second) // Drop subsecond accuracy to match unix version
 			}
 			acc = append(acc, a)
 		}
