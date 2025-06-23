@@ -12,6 +12,40 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion41(tx *txn, _ *zap.Logger) error {
+	rows, err := tx.Query(`SELECT id, expiration_timestamp FROM accounts`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	toUpdate := make(map[int64]time.Time)
+	for rows.Next() {
+		var id int64
+		var expiration time.Time
+		if err := rows.Scan(decode(&id), &expiration); err == nil {
+			toUpdate[id] = expiration
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	updateStmt, err := tx.Prepare(`UPDATE accounts SET expiration_timestamp = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer updateStmt.Close()
+
+	for id, expiration := range toUpdate {
+		_, err := updateStmt.Exec(encode(expiration), id)
+		if err != nil {
+			return fmt.Errorf("failed to update account %d: %w", id, err)
+		}
+	}
+	return nil
+}
+
 func migrateVersion40(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 CREATE TABLE wallet_locked_utxos (
@@ -1047,4 +1081,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion38,
 	migrateVersion39,
 	migrateVersion40,
+	migrateVersion41,
 }
