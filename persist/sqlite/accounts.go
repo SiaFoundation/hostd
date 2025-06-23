@@ -48,7 +48,7 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 			return proto4.ErrNotEnoughFunds
 		}
 
-		_, err = tx.Exec(`UPDATE accounts SET balance=$1, expiration_timestamp=$2 WHERE id=$3`, encode(balance), time.Now().Add(accountExpirationTime), dbID)
+		_, err = tx.Exec(`UPDATE accounts SET balance=$1, expiration_timestamp=$2 WHERE id=$3`, encode(balance), encode(time.Now().Add(accountExpirationTime)), dbID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
 		} else if err := distributeRHP4AccountUsage(tx, dbID, usage); err != nil {
