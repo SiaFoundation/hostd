@@ -22,6 +22,7 @@ type UpdateTx interface {
 }
 
 func (m *Manager) syncDB(ctx context.Context) error {
+	var resetAttempts int
 	log := m.log.Named("sync")
 	index := m.Tip()
 	for index != m.chain.Tip() {
@@ -44,6 +45,10 @@ func (m *Manager) syncDB(ctx context.Context) error {
 			m.mu.Lock()
 			m.index = types.ChainIndex{}
 			m.mu.Unlock()
+			resetAttempts++
+			if resetAttempts > 3 {
+				return fmt.Errorf("failed to sync chain state after multiple attempts: %w", err)
+			}
 			continue
 		} else if len(reverted) == 0 && len(applied) == 0 {
 			return nil
