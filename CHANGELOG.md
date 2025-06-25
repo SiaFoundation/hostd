@@ -1,3 +1,11 @@
+## 2.3.4 (2025-06-25)
+
+### Fixes
+
+- Don't log error when testing connection fails on shutdown
+- Remove unused Explorer interface
+- Reset chain state when bootstrapping.
+
 ## 2.3.3 (2025-06-20)
 
 ### Fixes
