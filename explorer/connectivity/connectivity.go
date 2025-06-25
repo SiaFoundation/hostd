@@ -2,6 +2,7 @@ package connectivity
 
 import (
 	"context"
+	"errors"
 	"math"
 	"time"
 
@@ -131,7 +132,9 @@ func NewManager(hostKey types.PublicKey, settings Settings, explorer Explorer, o
 			select {
 			case <-time.After(nextTestTime):
 				result, ok, err := m.TestConnection(context.Background())
-				if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return // shutdown
+				} else if err != nil {
 					m.log.Error("failed to test connection", zap.Error(err))
 				} else {
 					m.log.Debug("connection test result", zap.Bool("ok", ok), zap.Any("result", result))
