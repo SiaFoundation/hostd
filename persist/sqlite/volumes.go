@@ -304,6 +304,8 @@ LIMIT 1;`
 		} else if done {
 			return
 		}
+		// allow other transactions to run
+		jitterSleep(50 * time.Millisecond) // maximum of 48000 sectors per hour
 	}
 }
 
@@ -333,6 +335,7 @@ func (s *Store) RemoveVolume(id int64, force bool) error {
 		} else if removed == 0 {
 			break
 		}
+		jitterSleep(50 * time.Millisecond)
 	}
 
 	return s.transaction(func(tx *txn) error {
