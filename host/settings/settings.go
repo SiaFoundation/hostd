@@ -19,7 +19,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/hostd/v2/build"
-	"go.sia.tech/hostd/v2/explorer"
 	"go.sia.tech/hostd/v2/internal/threadgroup"
 	rhp2 "go.sia.tech/hostd/v2/rhp/v2"
 	"go.uber.org/zap"
@@ -65,12 +64,6 @@ type (
 		V2PoolTransactions() []types.V2Transaction
 
 		V2TransactionSet(types.ChainIndex, types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
-	}
-
-	// An Explorer provides external information about the
-	// Sia network
-	Explorer interface {
-		TestConnection(context.Context, explorer.Host) (explorer.TestResult, error)
 	}
 
 	// Storage provides information about the host's storage capacity
@@ -157,11 +150,10 @@ type (
 		a     Alerts
 		log   *zap.Logger
 
-		chain    ChainManager
-		storage  Storage
-		wallet   Wallet
-		explorer Explorer
-		certs    Certificates
+		chain   ChainManager
+		storage Storage
+		wallet  Wallet
+		certs   Certificates
 
 		mu         sync.Mutex // guards the following fields
 		settings   Settings   // in-memory cache of the host's settings
