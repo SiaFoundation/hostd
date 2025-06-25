@@ -131,7 +131,7 @@ func NewManager(hostKey types.PublicKey, settings Settings, explorer Explorer, o
 		for {
 			select {
 			case <-time.After(nextTestTime):
-				result, ok, err := m.TestConnection(context.Background())
+				result, ok, err := m.TestConnection(ctx)
 				if errors.Is(err, context.Canceled) {
 					return // shutdown
 				} else if err != nil {
