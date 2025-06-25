@@ -505,9 +505,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		settings.WithLog(log.Named("settings")),
 		settings.WithCertificates(certProvider),
 	}
-	if !cfg.Explorer.Disable {
-		settingsOpts = append(settingsOpts, settings.WithExplorer(exp))
-	}
 
 	sm, err := settings.NewConfigManager(hostKey, store, cm, vm, wm, settingsOpts...)
 	if err != nil {

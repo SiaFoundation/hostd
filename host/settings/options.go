@@ -80,10 +80,3 @@ func WithCertificates(certs Certificates) Option {
 		c.certs = certs
 	}
 }
-
-// WithExplorer sets the explorer for the settings manager.
-func WithExplorer(explorer Explorer) Option {
-	return func(c *ConfigManager) {
-		c.explorer = explorer
-	}
-}
