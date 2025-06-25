@@ -496,6 +496,7 @@ func (s *Store) ExpireContractSectors(height uint64) error {
 			return nil
 		}
 		log.Debug("removed sectors", zap.Int("expired", expired), zap.Int("batch", i))
+		jitterSleep(50 * time.Millisecond) // allow other transactions to run
 	}
 }
 
@@ -512,6 +513,7 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 			return nil
 		}
 		log.Debug("removed sectors", zap.Int("expired", expired), zap.Int("batch", i))
+		jitterSleep(50 * time.Millisecond) // allow other transactions to run
 	}
 }
 
