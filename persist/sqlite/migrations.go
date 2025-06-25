@@ -19,12 +19,17 @@ func migrateVersion41(tx *txn, _ *zap.Logger) error {
 	}
 	defer rows.Close()
 
+	const layout = "2006-01-02 15:04:05.999999999Z07:00"
+
 	toUpdate := make(map[int64]time.Time)
 	for rows.Next() {
 		var id int64
-		var expiration time.Time
-		if err := rows.Scan(decode(&id), &expiration); err == nil {
-			toUpdate[id] = expiration
+		var expiration string
+		if err := rows.Scan(&id, &expiration); err == nil {
+			parsed, err := time.Parse(layout, expiration)
+			if err == nil {
+				toUpdate[id] = parsed
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
