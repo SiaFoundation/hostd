@@ -3,7 +3,6 @@ package index
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
@@ -23,6 +22,7 @@ type UpdateTx interface {
 }
 
 func (m *Manager) syncDB(ctx context.Context) error {
+	var resetAttempts int
 	log := m.log.Named("sync")
 	index := m.Tip()
 	for index != m.chain.Tip() {
@@ -33,20 +33,23 @@ func (m *Manager) syncDB(ctx context.Context) error {
 		}
 
 		reverted, applied, err := m.chain.UpdatesSince(index, m.updateBatchSize)
-		if err != nil && strings.Contains(err.Error(), "missing block at index") {
-			log.Warn("missing block at index, resetting chain state")
+		if err != nil {
+			log.Warn("resetting chain state due to error", zap.Stringer("index", index), zap.Error(err))
 			// reset the consensus state. Should delete all chain related
 			// state from the store
 			if err := m.store.ResetChainState(); err != nil {
 				return fmt.Errorf("failed to reset consensus state: %w", err)
 			}
 			// zero out the index to force a full resync
+			index = types.ChainIndex{}
 			m.mu.Lock()
 			m.index = types.ChainIndex{}
 			m.mu.Unlock()
-			return nil
-		} else if err != nil {
-			return fmt.Errorf("failed to get updates since %v: %w", index, err)
+			resetAttempts++
+			if resetAttempts > 3 {
+				return fmt.Errorf("failed to sync chain state after multiple attempts: %w", err)
+			}
+			continue
 		} else if len(reverted) == 0 && len(applied) == 0 {
 			return nil
 		}
