@@ -917,6 +917,12 @@ func (vm *VolumeManager) HasSector(root types.Hash256) (bool, error) {
 
 // StoreSector writes a sector to disk and adds it to temporary storage
 func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSize]byte, expiration uint64) error {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return fmt.Errorf("failed to add task group: %w", err)
+	}
+	defer done()
+
 	if err := vm.writeSector(root, data); err != nil {
 		return fmt.Errorf("failed to store sector: %w", err)
 	} else if err := vm.vs.AddTempSector(root, expiration); err != nil {
