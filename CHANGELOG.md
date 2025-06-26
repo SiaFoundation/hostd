@@ -1,3 +1,9 @@
+## 2.3.5 (2025-06-26)
+
+### Fixes
+
+- Prevent volume writes during shutdown.
+
 ## 2.3.4 (2025-06-25)
 
 ### Fixes
