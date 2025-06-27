@@ -13,42 +13,8 @@ import (
 )
 
 func migrateVersion41(tx *txn, _ *zap.Logger) error {
-	rows, err := tx.Query(`SELECT id, expiration_timestamp FROM accounts`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	const layout = "2006-01-02 15:04:05.999999999Z07:00"
-
-	toUpdate := make(map[int64]time.Time)
-	for rows.Next() {
-		var id int64
-		var expiration string
-		if err := rows.Scan(&id, &expiration); err == nil {
-			parsed, err := time.Parse(layout, expiration)
-			if err == nil {
-				toUpdate[id] = parsed
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	updateStmt, err := tx.Prepare(`UPDATE accounts SET expiration_timestamp = ? WHERE id = ?`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare update statement: %w", err)
-	}
-	defer updateStmt.Close()
-
-	for id, expiration := range toUpdate {
-		_, err := updateStmt.Exec(encode(expiration), id)
-		if err != nil {
-			return fmt.Errorf("failed to update account %d: %w", id, err)
-		}
-	}
-	return nil
+	_, err := tx.Exec(`UPDATE accounts SET expiration_timestamp = ?`, encode(time.Now().Add(30*24*time.Hour)))
+	return err
 }
 
 func migrateVersion40(tx *txn, _ *zap.Logger) error {
