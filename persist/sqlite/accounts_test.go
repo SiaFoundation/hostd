@@ -128,6 +128,19 @@ func TestRHP4Accounts(t *testing.T) {
 		t.Fatalf("expected balance to be %v, got %v", types.Siacoins(4), balance)
 	}
 
+	accounts, err := db.Accounts(100, 0)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(accounts))
+	} else if accounts[0].Balance != balance {
+		t.Fatalf("expected account balance %v, got %v", balance, accounts[0].Balance)
+	} else if proto4.Account(accounts[0].ID) != account {
+		t.Fatalf("expected account ID %v, got %v", account, accounts[0].ID)
+	} else if accounts[0].Expiration.IsZero() {
+		t.Fatalf("expected account expiration to be set, got zero value")
+	}
+
 	// pending accounts do not affect metrics
 	checkMetricConsistency(t, proto4.Usage{}, proto4.Usage{})
 
