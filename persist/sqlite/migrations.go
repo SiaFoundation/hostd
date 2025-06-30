@@ -12,6 +12,11 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion41(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`UPDATE accounts SET expiration_timestamp = ?`, encode(time.Now().Add(30*24*time.Hour)))
+	return err
+}
+
 func migrateVersion40(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 CREATE TABLE wallet_locked_utxos (
@@ -1047,4 +1052,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion38,
 	migrateVersion39,
 	migrateVersion40,
+	migrateVersion41,
 }
