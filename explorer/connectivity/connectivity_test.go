@@ -130,14 +130,14 @@ func TestConnectivityAlerts(t *testing.T) {
 
 	cm, err := connectivity.NewManager(hostKey, sm, mexp,
 		connectivity.WithAlerts(am),
-		connectivity.WithMaxCheckInterval(time.Second),
-		connectivity.WithBackoff(func(int) time.Duration { return time.Second }))
+		connectivity.WithMaxCheckInterval(100*time.Millisecond),
+		connectivity.WithBackoff(func(int) time.Duration { return 100 * time.Millisecond }))
 	if err != nil {
 		t.Fatalf("failed to create connectivity manager: %v", err)
 	}
 	defer cm.Close()
 
-	time.Sleep(time.Second)
+	time.Sleep(500 * time.Millisecond) // wait for the first test to run
 
 	active := am.Active()
 	if len(active) != 1 {
@@ -151,7 +151,7 @@ func TestConnectivityAlerts(t *testing.T) {
 	}
 
 	mexp.SetFn(validConnectionResult)
-	time.Sleep(2 * time.Second) // wait for the next test to run
+	time.Sleep(500 * time.Millisecond) // wait for the next test to run
 	if len(am.Active()) != 0 {
 		t.Fatalf("expected no active alerts, got %d", len(am.Active()))
 	}
