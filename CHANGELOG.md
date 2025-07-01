@@ -1,3 +1,11 @@
+## 2.3.5 (2025-07-01)
+
+### Fixes
+
+- Fix SQL error when fetching accounts.
+- Prevent volume writes during shutdown.
+- Reintroduce db transaction retries for 'database is locked' errors
+
 ## 2.3.4 (2025-06-25)
 
 ### Fixes
