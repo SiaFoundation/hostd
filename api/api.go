@@ -112,6 +112,7 @@ type (
 		// disk. The result of each sector checked is sent on the returned
 		// channel. Read errors are logged.
 		CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan contracts.IntegrityResult, uint64, error)
+		V2CheckIntegrity(ctx context.Context, contractID types.FileContractID) (<-chan contracts.IntegrityResult, uint64, error)
 	}
 
 	// An AccountManager manages ephemeral accounts
@@ -313,7 +314,8 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		"DELETE /webhooks/:id":    a.handleDELETEWebhooks,
 
 		// v2 contracts
-		"POST /v2/contracts":    a.handlePOSTV2Contracts,
-		"GET /v2/contracts/:id": a.handleGETV2Contract,
+		"POST /v2/contracts":              a.handlePOSTV2Contracts,
+		"GET /v2/contracts/:id":           a.handleGETV2Contract,
+		"PUT /v2/contracts/:id/integrity": a.handlePUTV2ContractCheck,
 	})
 }
