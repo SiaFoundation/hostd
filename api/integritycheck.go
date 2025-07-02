@@ -94,6 +94,48 @@ func (ic *integrityCheckJobs) CheckContract(contractID types.FileContractID) (ui
 	return roots, nil
 }
 
+// CheckV2Contract starts an integrity check for the specified contract. If a
+// check is already running, an error is returned.
+func (ic *integrityCheckJobs) CheckV2Contract(contractID types.FileContractID) (uint64, error) {
+	ic.mu.Lock()
+	defer ic.mu.Unlock()
+
+	check, exists := ic.checks[contractID]
+	if exists && check.End.IsZero() { // if a check is still running, return an error
+		return 0, fmt.Errorf("integrity check already running for contract %v", contractID)
+	}
+
+	results, roots, err := ic.contracts.V2CheckIntegrity(context.Background(), contractID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check contract integrity: %w", err)
+	}
+
+	check = IntegrityCheckResult{
+		Start:        time.Now(),
+		TotalSectors: roots,
+	}
+	ic.checks[contractID] = check
+
+	go func() {
+		for result := range results {
+			ic.mu.Lock()
+			check := ic.checks[contractID]
+			check.CheckedSectors++
+			if result.Error != nil {
+				check.BadSectors = append(check.BadSectors, result)
+			}
+			ic.checks[contractID] = check
+			ic.mu.Unlock()
+		}
+		ic.mu.Lock()
+		check := ic.checks[contractID]
+		check.End = time.Now()
+		ic.checks[contractID] = check
+		ic.mu.Unlock()
+	}()
+	return roots, nil
+}
+
 func (a *api) handleGETContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {
@@ -126,5 +168,15 @@ func (a *api) handlePUTContractCheck(c jape.Context) {
 	}
 
 	_, err := a.checks.CheckContract(contractID)
+	a.checkServerError(c, "failed to check contract integrity", err)
+}
+
+func (a *api) handlePUTV2ContractCheck(c jape.Context) {
+	var contractID types.FileContractID
+	if err := c.DecodeParam("id", &contractID); err != nil {
+		return
+	}
+
+	_, err := a.checks.CheckV2Contract(contractID)
 	a.checkServerError(c, "failed to check contract integrity", err)
 }
