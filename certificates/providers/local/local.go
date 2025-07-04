@@ -91,7 +91,7 @@ func NewProvider(certFile, keyFile string, alerter Alerter, log *zap.Logger) (ce
 	}, nil
 }
 
-// CheckCertExpiry checks if the certificate is expiring within 90 days and sends a warning alert.
+// CheckCertificateExpiry checks if the certificate is expiring within 90 days and sends a warning alert.
 func CheckCertificateExpiry(cert *tls.Certificate, a Alerter, log *zap.Logger) error {
 	if cert == nil || len(cert.Certificate) == 0 {
 		return nil
@@ -105,7 +105,7 @@ func CheckCertificateExpiry(cert *tls.Certificate, a Alerter, log *zap.Logger) e
 		return nil
 	}
 
-	//alert helpers
+	// Alert helpers
 	if a == nil {
 		return nil
 	}
