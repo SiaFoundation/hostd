@@ -104,7 +104,6 @@ func (p *localProvider) CheckCertificateExpiry(cert *tls.Certificate, a Alerter,
 	a.DismissCategory(localCertAlertCategory) // Clear any previous alerts
 
 	hoursLeft := int(time.Until(cert.Leaf.NotAfter).Hours())
-	log.Warn("const", zap.Int("hoursLeft", hoursLeft))
 
 	// Compare by hours, warning if under minExpireTime and error if negative
 	switch {
