@@ -487,7 +487,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	var certProvider certificates.Provider
 	if cfg.RHP4.QUIC.CertPath != "" || cfg.RHP4.QUIC.KeyPath != "" {
-		certProvider, err = local.NewProvider(cfg.RHP4.QUIC.CertPath, cfg.RHP4.QUIC.KeyPath)
+		certProvider, err = local.NewProvider(cfg.RHP4.QUIC.CertPath, cfg.RHP4.QUIC.KeyPath, am, log)
 		if err != nil {
 			return fmt.Errorf("failed to create local certificates provider: %w", err)
 		}
