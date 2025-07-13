@@ -51,7 +51,7 @@ func (p *localProvider) GetCertificate(ctx context.Context) (*tls.Certificate, e
 
 		p.cert = &cert
 		p.lastLoad = time.Now()
-		p.CheckCertificateExpiry(p.cert, p.alerter, p.log)
+		p.checkCertificateExpiry()
 	}
 
 	return p.cert, nil
@@ -86,62 +86,61 @@ func NewProvider(certFile, keyFile string, alerter Alerter, log *zap.Logger) (ce
 	}
 
 	// CheckCertificateExpiry during startup
-	p.CheckCertificateExpiry(p.cert, p.alerter, p.log)
+	p.checkCertificateExpiry()
 
 	return p, nil
 }
 
 // CheckCertificateExpiry checks certificate NotAfter and sends a warning or error alert.
-func (p *localProvider) CheckCertificateExpiry(cert *tls.Certificate, a Alerter, log *zap.Logger) {
-	if cert == nil || len(cert.Certificate) == 0 {
+func (p *localProvider) checkCertificateExpiry() {
+	if p.cert == nil || len(p.cert.Certificate) == 0 {
 		return
 	}
 
 	// Alert helper
-	if a == nil {
+	if p.alerter == nil {
 		return
 	}
-	a.DismissCategory(localCertAlertCategory) // Clear any previous alerts
+	p.alerter.DismissCategory(localCertAlertCategory) // Clear any previous alerts
 
-	hoursLeft := int(time.Until(cert.Leaf.NotAfter).Hours())
+	remainder := time.Until(p.cert.Leaf.NotAfter)
 
-	// Compare by hours, warning if under minExpireTime and error if negative
+	// Compare remainder, warning if under minExpireTime and error if negative
 	switch {
-	case hoursLeft <= 0:
-		log.Error("local certificate check expired",
-			zap.Time("Not Valid After", cert.Leaf.NotAfter))
+	case remainder <= 0:
+		p.log.Error("localCertExpireTime",
+			zap.Time("expiration", p.cert.Leaf.NotAfter))
 
-		a.Register(alerts.Alert{
+		p.alerter.Register(alerts.Alert{
 			ID:       alertID,
 			Severity: alerts.SeverityError,
 			Category: localCertAlertCategory,
 			Message:  "Local QUIC Certificate has expired",
 			Data: map[string]any{
-				"CertFile":  p.certFile,
-				"NotAfter":  cert.Leaf.NotAfter,
-				"NotBefore": cert.Leaf.NotBefore,
+				"certFile":  p.certFile,
+				"notAfter":  p.cert.Leaf.NotAfter,
+				"notBefore": p.cert.Leaf.NotBefore,
 			},
 			Timestamp: time.Now(),
 		})
-	case hoursLeft < int(minExpireTime.Hours()):
-		log.Warn("local certificate check expiring soon",
-			zap.Time("Not Valid After", cert.Leaf.NotAfter))
+	case remainder < minExpireTime:
+		p.log.Warn("localCertExpireTime",
+			zap.Time("expiration", p.cert.Leaf.NotAfter))
 
-		a.Register(alerts.Alert{
+		p.alerter.Register(alerts.Alert{
 			ID:       alertID,
 			Severity: alerts.SeverityWarning,
 			Category: localCertAlertCategory,
 			Message:  "Local QUIC Certificate expires under 30 days",
 			Data: map[string]any{
-				"CertFile":  p.certFile,
-				"NotAfter":  cert.Leaf.NotAfter,
-				"NotBefore": cert.Leaf.NotBefore,
+				"certFile":  p.certFile,
+				"notAfter":  p.cert.Leaf.NotAfter,
+				"notBefore": p.cert.Leaf.NotBefore,
 			},
 			Timestamp: time.Now(),
 		})
 	default:
-		log.Debug("local certificate check", zap.Duration("remaining", time.Until(cert.Leaf.NotAfter).Truncate(time.Second)))
-		a.DismissCategory(localCertAlertCategory) // Cert isn't expiring. Ensure alerts are clear
+		p.log.Debug("localCertExpireTime", zap.Time("expiring", p.cert.Leaf.NotAfter))
 		return
 	}
 }
