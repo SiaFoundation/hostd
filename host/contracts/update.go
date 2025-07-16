@@ -139,7 +139,7 @@ func (cm *Manager) buildStorageProof(revision types.FileContractRevision, index 
 		ParentID: revision.ParentID,
 		Proof:    append(segmentProof, sectorProof...),
 	}
-	copy(sp.Leaf[:], sector[segmentIndex*rhp2.LeafSize:])
+	copy(sp.Leaf[:], sector[segmentIndex*proto4.LeafSize:])
 	return sp, nil
 }
 
@@ -182,7 +182,7 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 		ProofIndex: pi,
 		Proof:      append(segmentProof, sectorProof...),
 	}
-	copy(sp.Leaf[:], sector[segmentIndex*rhp2.LeafSize:])
+	copy(sp.Leaf[:], sector[segmentIndex*proto4.LeafSize:])
 	return sp, nil
 }
 

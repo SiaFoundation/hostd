@@ -26,7 +26,7 @@ var (
 
 type segWriter struct {
 	w   io.Writer
-	buf [rhp2.LeafSize * 64]byte
+	buf [proto4.LeafSize * 64]byte
 	len int
 }
 
@@ -36,7 +36,7 @@ func (sw *segWriter) Write(p []byte) (int, error) {
 		n := copy(sw.buf[sw.len:], p)
 		sw.len += n
 		p = p[n:]
-		segs := sw.buf[:sw.len-(sw.len%rhp2.LeafSize)]
+		segs := sw.buf[:sw.len-(sw.len%proto4.LeafSize)]
 		if _, err := sw.w.Write(segs); err != nil {
 			return 0, err
 		}
@@ -123,8 +123,8 @@ func readSection(w io.Writer, t *rhp2.Transport, sec rhp2.RPCReadRequestSection)
 	} else if binary.LittleEndian.Uint64(lenbuf) != uint64(sec.Length) {
 		return nil, errors.New("host sent wrong amount of sector data")
 	}
-	proofStart := sec.Offset / rhp2.LeafSize
-	proofEnd := proofStart + sec.Length/rhp2.LeafSize
+	proofStart := sec.Offset / proto4.LeafSize
+	proofEnd := proofStart + sec.Length/proto4.LeafSize
 	rpv := rhp2.NewRangeProofVerifier(proofStart, proofEnd)
 	tee := io.TeeReader(io.LimitReader(msgReader, int64(sec.Length)), &segWriter{w: w})
 	// the proof verifier Reads one segment at a time, so bufio is crucial

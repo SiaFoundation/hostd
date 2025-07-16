@@ -855,8 +855,8 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 			Data: sector[sec.Offset : sec.Offset+sec.Length],
 		}
 		if req.MerkleProof {
-			start := sec.Offset / rhp2.LeafSize
-			end := (sec.Offset + sec.Length) / rhp2.LeafSize
+			start := sec.Offset / proto4.LeafSize
+			end := (sec.Offset + sec.Length) / proto4.LeafSize
 			resp.MerkleProof = rhp2.BuildProof(sector, start, end, nil)
 		}
 

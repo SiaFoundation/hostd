@@ -231,8 +231,8 @@ func (pe *programExecutor) executeReadOffset(instr *rhp3.InstrReadOffset, log *z
 	}
 
 	proofStartTime := time.Now()
-	proofStart := relOffset / rhp2.LeafSize
-	proofEnd := (relOffset + length) / rhp2.LeafSize
+	proofStart := relOffset / proto4.LeafSize
+	proofEnd := (relOffset + length) / proto4.LeafSize
 	proof := rhp2.BuildProof(sector, proofStart, proofEnd, nil)
 	log.Debug("built proof", zap.Duration("duration", time.Since(proofStartTime)))
 	return sector[relOffset : relOffset+length], proof, nil
@@ -258,8 +258,8 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 		return nil, nil, fmt.Errorf("read length cannot be 0")
 	case offset+length > proto4.SectorSize:
 		return nil, nil, fmt.Errorf("read length %v is out of bounds", length)
-	case instr.ProofRequired && (offset%rhp2.LeafSize != 0 || length%rhp2.LeafSize != 0):
-		return nil, nil, fmt.Errorf("read offset (%d) and length (%d) must be multiples of %d", offset, length, rhp2.LeafSize)
+	case instr.ProofRequired && (offset%proto4.LeafSize != 0 || length%proto4.LeafSize != 0):
+		return nil, nil, fmt.Errorf("read offset (%d) and length (%d) must be multiples of %d", offset, length, proto4.LeafSize)
 	}
 
 	// pay for execution
@@ -281,8 +281,8 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 	}
 
 	proofStartTime := time.Now()
-	proofStart := offset / rhp2.LeafSize
-	proofEnd := (offset + length) / rhp2.LeafSize
+	proofStart := offset / proto4.LeafSize
+	proofEnd := (offset + length) / proto4.LeafSize
 	proof := rhp2.BuildProof(sector, proofStart, proofEnd, nil)
 	log.Debug("built proof", zap.Duration("duration", time.Since(proofStartTime)))
 	return sector[offset : offset+length], proof, nil
