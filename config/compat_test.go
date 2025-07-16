@@ -61,24 +61,24 @@ func TestUpgradeV235(t *testing.T) {
 		},
 		RHP4: struct {
 			QUIC struct {
-				CertPath string "yaml:\"certPath,omitempty\""
-				KeyPath  string "yaml:\"keyPath,omitempty\""
-			} "yaml:\"quic,omitempty\""
+				CertPath string `yaml:"certPath,omitempty"`
+				KeyPath  string `yaml:"keyPath,omitempty"`
+			} `yaml:"quic,omitempty"`
 			ListenAddresses []struct {
-				Protocol string "yaml:\"protocol,omitempty\""
-				Address  string "yaml:\"address,omitempty\""
-			} "yaml:\"listenAddresses,omitempty\""
+				Protocol string `yaml:"protocol,omitempty"`
+				Address  string `yaml:"address,omitempty"`
+			} `yaml:"listenAddresses,omitempty"`
 		}{
 			QUIC: struct {
-				CertPath string "yaml:\"certPath,omitempty\""
-				KeyPath  string "yaml:\"keyPath,omitempty\""
+				CertPath string `yaml:"certPath,omitempty"`
+				KeyPath  string `yaml:"keyPath,omitempty"`
 			}{
 				CertPath: hex.EncodeToString(frand.Bytes(10)),
 				KeyPath:  hex.EncodeToString(frand.Bytes(10)),
 			},
 			ListenAddresses: []struct {
-				Protocol string "yaml:\"protocol,omitempty\""
-				Address  string "yaml:\"address,omitempty\""
+				Protocol string `yaml:"protocol,omitempty"`
+				Address  string `yaml:"address,omitempty"`
 			}{
 				{
 					Protocol: "siamux",
