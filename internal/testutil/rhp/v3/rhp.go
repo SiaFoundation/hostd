@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	rhp3 "go.sia.tech/core/rhp/v3"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
@@ -175,7 +176,7 @@ func (s *Session) Revision(contractID types.FileContractID) (types.FileContractR
 }
 
 // StoreSector stores the given sector for the given duration
-func (s *Session) StoreSector(sector *[rhp2.SectorSize]byte, duration uint64, payment PaymentMethod, budget types.Currency) error {
+func (s *Session) StoreSector(sector *[proto4.SectorSize]byte, duration uint64, payment PaymentMethod, budget types.Currency) error {
 	stream := s.t.DialStream()
 	defer stream.Close()
 
@@ -211,7 +212,7 @@ func (s *Session) StoreSector(sector *[rhp2.SectorSize]byte, duration uint64, pa
 }
 
 // AppendSector appends a sector to the contract
-func (s *Session) AppendSector(sector *[rhp2.SectorSize]byte, revision *rhp2.ContractRevision, renterKey types.PrivateKey, payment PaymentMethod, budget types.Currency) (types.Currency, error) {
+func (s *Session) AppendSector(sector *[proto4.SectorSize]byte, revision *rhp2.ContractRevision, renterKey types.PrivateKey, payment PaymentMethod, budget types.Currency) (types.Currency, error) {
 	stream := s.t.DialStream()
 	defer stream.Close()
 
@@ -243,8 +244,8 @@ func (s *Session) AppendSector(sector *[rhp2.SectorSize]byte, revision *rhp2.Con
 		return types.ZeroCurrency, fmt.Errorf("failed to read response: %w", err)
 	} else if resp.Error != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to append sector: %w", resp.Error)
-	} else if resp.NewSize != revision.Revision.Filesize+rhp2.SectorSize {
-		return types.ZeroCurrency, fmt.Errorf("unexpected filesize: %v != %v", resp.NewSize, revision.Revision.Filesize+rhp2.SectorSize)
+	} else if resp.NewSize != revision.Revision.Filesize+proto4.SectorSize {
+		return types.ZeroCurrency, fmt.Errorf("unexpected filesize: %v != %v", resp.NewSize, revision.Revision.Filesize+proto4.SectorSize)
 	}
 	//TODO: validate proof
 	// revise the contract

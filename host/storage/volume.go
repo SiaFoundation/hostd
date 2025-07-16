@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
@@ -163,7 +163,7 @@ func (v *volume) Status() string {
 }
 
 // ReadSector reads the sector at index from the volume
-func (v *volume) ReadSector(index uint64) (*[rhp2.SectorSize]byte, error) {
+func (v *volume) ReadSector(index uint64) (*[proto4.SectorSize]byte, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
@@ -171,8 +171,8 @@ func (v *volume) ReadSector(index uint64) (*[rhp2.SectorSize]byte, error) {
 		return nil, ErrVolumeNotAvailable
 	}
 
-	var sector [rhp2.SectorSize]byte
-	_, err := v.data.ReadAt(sector[:], int64(index*rhp2.SectorSize))
+	var sector [proto4.SectorSize]byte
+	_, err := v.data.ReadAt(sector[:], int64(index*proto4.SectorSize))
 	if err != nil {
 		err = fmt.Errorf("failed to read sector at index %v: %w", index, err)
 	}
@@ -181,14 +181,14 @@ func (v *volume) ReadSector(index uint64) (*[rhp2.SectorSize]byte, error) {
 }
 
 // WriteSector writes a sector to the volume at index
-func (v *volume) WriteSector(data *[rhp2.SectorSize]byte, index uint64) error {
+func (v *volume) WriteSector(data *[proto4.SectorSize]byte, index uint64) error {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
 	if v.data == nil {
 		panic("volume not open") // developer error
 	}
-	_, err := v.data.WriteAt(data[:], int64(index*rhp2.SectorSize))
+	_, err := v.data.WriteAt(data[:], int64(index*proto4.SectorSize))
 	if err != nil {
 		if isNotEnoughStorageErr(err) {
 			err = ErrNotEnoughStorage
@@ -223,7 +223,7 @@ func (v *volume) Resize(newSectors uint64) error {
 	if v.data == nil {
 		return ErrVolumeNotAvailable
 	}
-	return v.data.Truncate(int64(newSectors * rhp2.SectorSize))
+	return v.data.Truncate(int64(newSectors * proto4.SectorSize))
 }
 
 func (v *volume) Stats() VolumeStats {

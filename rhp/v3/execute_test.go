@@ -3,14 +3,14 @@ package rhp
 import (
 	"testing"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"lukechampine.com/frand"
 )
 
 func BenchmarkReadSector(b *testing.B) {
-	data := programData(frand.Bytes((rhp2.SectorSize) * 4))
+	data := programData(frand.Bytes((proto4.SectorSize) * 4))
 
-	b.SetBytes(rhp2.SectorSize)
+	b.SetBytes(proto4.SectorSize)
 	b.ResetTimer()
 	b.ReportAllocs()
 

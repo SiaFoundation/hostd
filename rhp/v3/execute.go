@@ -12,6 +12,7 @@ import (
 
 	rhp2 "go.sia.tech/core/rhp/v2"
 	rhp3 "go.sia.tech/core/rhp/v3"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/accounts"
 	"go.sia.tech/hostd/v2/host/contracts"
@@ -74,7 +75,7 @@ func (pe *programExecutor) instructionOutput(output []byte, proof []types.Hash25
 	}
 	if pe.updater != nil {
 		resp.NewMerkleRoot = pe.updater.MerkleRoot()
-		resp.NewSize = pe.updater.SectorCount() * rhp2.SectorSize
+		resp.NewSize = pe.updater.SectorCount() * proto4.SectorSize
 	}
 	return resp
 }
@@ -94,7 +95,7 @@ func (pe *programExecutor) executeAppendSector(instr *rhp3.InstrAppendSector, lo
 		return nil, nil, fmt.Errorf("failed to read sector: %w", err)
 	}
 	rootCalcStart := time.Now()
-	root := rhp2.SectorRoot(sector)
+	root := proto4.SectorRoot(sector)
 	log.Debug("calculated sector root", zap.Duration("duration", time.Since(rootCalcStart)))
 	// pay for execution
 	cost := pe.priceTable.AppendSectorCost(pe.remainingDuration)
@@ -211,8 +212,8 @@ func (pe *programExecutor) executeReadOffset(instr *rhp3.InstrReadOffset, log *z
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
-	sectorIndex := offset / rhp2.SectorSize
-	relOffset := offset % rhp2.SectorSize
+	sectorIndex := offset / proto4.SectorSize
+	relOffset := offset % proto4.SectorSize
 
 	root, err := pe.updater.SectorRoot(sectorIndex)
 	if err != nil {
@@ -255,7 +256,7 @@ func (pe *programExecutor) executeReadSector(instr *rhp3.InstrReadSector, log *z
 	switch {
 	case length == 0:
 		return nil, nil, fmt.Errorf("read length cannot be 0")
-	case offset+length > rhp2.SectorSize:
+	case offset+length > proto4.SectorSize:
 		return nil, nil, fmt.Errorf("read length %v is out of bounds", length)
 	case instr.ProofRequired && (offset%rhp2.LeafSize != 0 || length%rhp2.LeafSize != 0):
 		return nil, nil, fmt.Errorf("read offset (%d) and length (%d) must be multiples of %d", offset, length, rhp2.LeafSize)
@@ -346,8 +347,8 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 		return nil, nil, fmt.Errorf("failed to pay for instruction: %w", err)
 	}
 
-	sectorIndex := offset / rhp2.SectorSize
-	relOffset := offset % rhp2.SectorSize
+	sectorIndex := offset / proto4.SectorSize
+	relOffset := offset % proto4.SectorSize
 
 	oldRoot, err := pe.updater.SectorRoot(sectorIndex)
 	if err != nil {
@@ -360,13 +361,13 @@ func (pe *programExecutor) executeUpdateSector(instr *rhp3.InstrUpdateSector, _ 
 	}
 
 	// validate and apply the patch
-	if relOffset+length > rhp2.SectorSize {
+	if relOffset+length > proto4.SectorSize {
 		return nil, nil, fmt.Errorf("update offset %v length %v is out of bounds", relOffset, length)
 	}
 	copy(sector[relOffset:], patch)
 
 	// store the new sector
-	newRoot := rhp2.SectorRoot((*[rhp2.SectorSize]byte)(sector))
+	newRoot := proto4.SectorRoot((*[proto4.SectorSize]byte)(sector))
 	if err := pe.sectors.Write(newRoot, sector); err != nil {
 		return nil, nil, fmt.Errorf("failed to write sector: %w", err)
 	}
@@ -382,7 +383,7 @@ func (pe *programExecutor) executeStoreSector(instr *rhp3.InstrStoreSector, log 
 		return nil, fmt.Errorf("failed to read sector: %w", err)
 	}
 	rootCalcStart := time.Now()
-	root := rhp2.SectorRoot(sector)
+	root := proto4.SectorRoot(sector)
 	log.Debug("calculated sector root", zap.Duration("duration", time.Since(rootCalcStart)))
 
 	// pay for execution
@@ -681,7 +682,7 @@ func (pe *programExecutor) commit(s *rhp3.Stream) error {
 
 		// update the size and root of the contract
 		revision.FileMerkleRoot = pe.updater.MerkleRoot()
-		revision.Filesize = rhp2.SectorSize * pe.updater.SectorCount()
+		revision.Filesize = proto4.SectorSize * pe.updater.SectorCount()
 
 		// verify the renter signature
 		sigHash := rhp.HashRevision(revision)
@@ -733,12 +734,12 @@ func (pe *programExecutor) commit(s *rhp3.Stream) error {
 }
 
 // Sector returns a sector and its root from the program's data.
-func (pd programData) Sector(offset uint64) (*[rhp2.SectorSize]byte, error) {
-	if offset+rhp2.SectorSize > uint64(len(pd)) {
+func (pd programData) Sector(offset uint64) (*[proto4.SectorSize]byte, error) {
+	if offset+proto4.SectorSize > uint64(len(pd)) {
 		return nil, fmt.Errorf("sector offset %v is out of bounds", offset)
 	}
 
-	sector := (*[rhp2.SectorSize]byte)(pd[offset : offset+rhp2.SectorSize])
+	sector := (*[proto4.SectorSize]byte)(pd[offset : offset+proto4.SectorSize])
 	return sector, nil
 }
 

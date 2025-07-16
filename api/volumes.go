@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/jape"
@@ -227,7 +227,7 @@ func (a *api) handleGETVerifySector(jc jape.Context) {
 	data, err := a.volumes.ReadSector(root)
 	if err != nil {
 		resp.Error = err.Error()
-	} else if calc := rhp2.SectorRoot(data); calc != root {
+	} else if calc := proto4.SectorRoot(data); calc != root {
 		resp.Error = fmt.Sprintf("sector is corrupt: expected root %q, got %q", root, calc)
 	}
 	jc.Encode(resp)

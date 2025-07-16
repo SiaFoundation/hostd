@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.uber.org/zap"
@@ -376,7 +375,7 @@ func (cu *ContractUpdater) SectorRoot(i uint64) (types.Hash256, error) {
 
 // MerkleRoot returns the merkle root of the contract's sector roots.
 func (cu *ContractUpdater) MerkleRoot() types.Hash256 {
-	return rhp2.MetaRoot(cu.sectorRoots)
+	return proto4.MetaRoot(cu.sectorRoots)
 }
 
 // SectorRoots returns a copy of the current state of the contract's sector roots.

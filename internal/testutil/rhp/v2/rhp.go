@@ -10,6 +10,7 @@ import (
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
@@ -259,14 +260,14 @@ func RPCWrite(t *rhp2.Transport, renterKey types.PrivateKey, rev *rhp2.ContractR
 	contractSize := rev.Revision.Filesize
 	for _, action := range actions {
 		if action.Type == rhp2.RPCWriteActionAppend {
-			appendRoots = append(appendRoots, rhp2.SectorRoot((*[rhp2.SectorSize]byte)(action.Data)))
+			appendRoots = append(appendRoots, proto4.SectorRoot((*[proto4.SectorSize]byte)(action.Data)))
 		}
 
 		switch action.Type {
 		case rhp2.RPCWriteActionAppend:
-			contractSize += rhp2.SectorSize
+			contractSize += proto4.SectorSize
 		case rhp2.RPCWriteActionTrim:
-			d := rhp2.SectorSize * action.A
+			d := proto4.SectorSize * action.A
 			if contractSize < d {
 				return fmt.Errorf("contract size too small to trim %d sectors", action.A)
 			}

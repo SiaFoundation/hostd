@@ -11,6 +11,7 @@ import (
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
 	rhp3 "go.sia.tech/core/rhp/v3"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/accounts"
 	"go.sia.tech/hostd/v2/host/contracts"
@@ -54,9 +55,9 @@ type (
 		// HasSector returns true if the sector with the given root is stored
 		HasSector(root types.Hash256) (bool, error)
 		// Write writes a sector to persistent storage.
-		Write(root types.Hash256, data *[rhp2.SectorSize]byte) error
+		Write(root types.Hash256, data *[proto4.SectorSize]byte) error
 		// ReadSector reads the sector with the given root from the manager.
-		ReadSector(root types.Hash256) (*[rhp2.SectorSize]byte, error)
+		ReadSector(root types.Hash256) (*[proto4.SectorSize]byte, error)
 		// Sync syncs the data files of changed volumes.
 		Sync() error
 

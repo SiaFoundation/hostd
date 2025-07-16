@@ -374,9 +374,9 @@ func TestContractLifecycle(t *testing.T) {
 
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
-			var sector [rhp2.SectorSize]byte
+			var sector [proto4.SectorSize]byte
 			frand.Read(sector[:256])
-			root := rhp2.SectorRoot(&sector)
+			root := proto4.SectorRoot(&sector)
 
 			if err := node.Volumes.Write(root, &sector); err != nil {
 				t.Fatal(err)
@@ -388,8 +388,8 @@ func TestContractLifecycle(t *testing.T) {
 		amount := types.NewCurrency64(100)
 		collateral := types.NewCurrency64(200)
 		rev.Revision.RevisionNumber++
-		rev.Revision.Filesize = rhp2.SectorSize * uint64(len(roots))
-		rev.Revision.FileMerkleRoot = rhp2.MetaRoot(roots)
+		rev.Revision.Filesize = proto4.SectorSize * uint64(len(roots))
+		rev.Revision.FileMerkleRoot = proto4.MetaRoot(roots)
 		rev.Revision.ValidProofOutputs[0].Value = rev.Revision.ValidProofOutputs[0].Value.Sub(amount)
 		rev.Revision.ValidProofOutputs[1].Value = rev.Revision.ValidProofOutputs[1].Value.Add(amount)
 		rev.Revision.MissedProofOutputs[0].Value = rev.Revision.MissedProofOutputs[0].Value.Sub(amount)
@@ -646,9 +646,9 @@ func TestContractLifecycle(t *testing.T) {
 		// add sectors to the volume manager
 		var roots []types.Hash256
 		for i := 0; i < 5; i++ {
-			var sector [rhp2.SectorSize]byte
+			var sector [proto4.SectorSize]byte
 			frand.Read(sector[:])
-			root := rhp2.SectorRoot(&sector)
+			root := proto4.SectorRoot(&sector)
 			err := node.Volumes.Write(root, &sector)
 			if err != nil {
 				t.Fatal(err)
@@ -660,7 +660,7 @@ func TestContractLifecycle(t *testing.T) {
 		amount := types.NewCurrency64(100)
 		collateral := types.NewCurrency64(200)
 		rev.Revision.RevisionNumber++
-		rev.Revision.Filesize = rhp2.SectorSize * uint64(len(roots))
+		rev.Revision.Filesize = proto4.SectorSize * uint64(len(roots))
 		rev.Revision.FileMerkleRoot = frand.Entropy256() // corrupt the file merkle root so the blockchain rejects the proof
 		rev.Revision.ValidProofOutputs[0].Value = rev.Revision.ValidProofOutputs[0].Value.Sub(amount)
 		rev.Revision.ValidProofOutputs[1].Value = rev.Revision.ValidProofOutputs[1].Value.Add(amount)
@@ -939,9 +939,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// add a root to the contract
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:])
-		root := rhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
 		if err := node.Volumes.Write(root, &sector); err != nil {
@@ -995,7 +995,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// add a root to the contract
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := frand.Entropy256() // random root
 		roots := []types.Hash256{root}
@@ -1051,9 +1051,9 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
 		// add a root to the contract
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:])
-		root := rhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
 		if err := node.Volumes.Write(root, &sector); err != nil {

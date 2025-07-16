@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	crhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/internal/testutil"
@@ -144,7 +145,7 @@ func TestUploadDownload(t *testing.T) {
 	}
 	defer rpc2.RPCUnlock(transport)
 
-	var sector [crhp2.SectorSize]byte
+	var sector [proto4.SectorSize]byte
 	frand.Read(sector[:256])
 	appendAction := []crhp2.RPCWriteAction{
 		{
@@ -152,7 +153,7 @@ func TestUploadDownload(t *testing.T) {
 			Data: sector[:],
 		},
 	}
-	root := crhp2.SectorRoot(&sector)
+	root := proto4.SectorRoot(&sector)
 
 	err = rpc2.RPCWrite(transport, renterKey, &revision, appendAction, types.Siacoins(1), types.ZeroCurrency) // just overpay
 	if err != nil {
@@ -172,10 +173,10 @@ func TestUploadDownload(t *testing.T) {
 		{
 			MerkleRoot: root,
 			Offset:     0,
-			Length:     crhp2.SectorSize,
+			Length:     proto4.SectorSize,
 		},
 	}
-	buf := bytes.NewBuffer(make([]byte, 0, crhp2.SectorSize))
+	buf := bytes.NewBuffer(make([]byte, 0, proto4.SectorSize))
 	err = rpc2.RPCRead(transport, buf, renterKey, &revision, readSection, types.Siacoins(1)) // just overpay
 	if err != nil {
 		t.Fatal(err)
@@ -318,7 +319,7 @@ func TestRenew(t *testing.T) {
 
 		// upload a sector and pay the entire contract value
 		// minus the cost of renewal
-		var sector [crhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		appendAction := []crhp2.RPCWriteAction{
 			{
@@ -326,16 +327,16 @@ func TestRenew(t *testing.T) {
 				Data: sector[:],
 			},
 		}
-		root := crhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 
 		err = rpc2.RPCWrite(transport, renterKey, &fc, appendAction, fc.RenterFunds().Sub(settings.BaseRPCPrice), types.ZeroCurrency)
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertContract(t, fc, 2, root, crhp2.SectorSize)
+		assertContract(t, fc, 2, root, proto4.SectorSize)
 
 		renewal := renewContract(t, fc, fc.Revision.WindowEnd)
-		assertContract(t, renewal, 1, root, crhp2.SectorSize)
+		assertContract(t, renewal, 1, root, proto4.SectorSize)
 	})
 
 	t.Run("renew contract", func(t *testing.T) {
@@ -350,7 +351,7 @@ func TestRenew(t *testing.T) {
 		// upload a sector and pay the entire contract value
 		// minus the cost of renewal
 		var roots []types.Hash256
-		var sector [crhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		appendAction := []crhp2.RPCWriteAction{
 			{
@@ -358,17 +359,17 @@ func TestRenew(t *testing.T) {
 				Data: sector[:],
 			},
 		}
-		root := crhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 		roots = append(roots, root)
 
 		err = rpc2.RPCWrite(transport, renterKey, &fc, appendAction, fc.RenterFunds().Sub(settings.BaseRPCPrice), types.ZeroCurrency)
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertContract(t, fc, 2, crhp2.MetaRoot(roots), uint64(len(roots))*crhp2.SectorSize)
+		assertContract(t, fc, 2, proto4.MetaRoot(roots), uint64(len(roots))*proto4.SectorSize)
 
 		renewal := renewContract(t, fc, fc.Revision.WindowEnd+10)
-		assertContract(t, renewal, 1, crhp2.MetaRoot(roots), uint64(len(roots))*crhp2.SectorSize)
+		assertContract(t, renewal, 1, proto4.MetaRoot(roots), uint64(len(roots))*proto4.SectorSize)
 
 		if err := rpc2.RPCUnlock(transport); err != nil {
 			t.Fatal(err)
@@ -384,14 +385,14 @@ func TestRenew(t *testing.T) {
 				Data: sector[:],
 			},
 		}
-		root = crhp2.SectorRoot(&sector)
+		root = proto4.SectorRoot(&sector)
 		roots = append(roots, root)
 
 		err = rpc2.RPCWrite(transport, renterKey, &renewal, appendAction, types.Siacoins(1), types.ZeroCurrency)
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertContract(t, renewal, 2, crhp2.MetaRoot(roots), uint64(len(roots))*crhp2.SectorSize)
+		assertContract(t, renewal, 2, proto4.MetaRoot(roots), uint64(len(roots))*proto4.SectorSize)
 	})
 }
 

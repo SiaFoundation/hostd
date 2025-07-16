@@ -5,6 +5,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
@@ -114,7 +115,7 @@ func (cm *Manager) buildStorageProof(revision types.FileContractRevision, index 
 	segmentIndex := index % rhp2.LeavesPerSector
 
 	roots := cm.getSectorRoots(revision.ParentID)
-	contractRoot := rhp2.MetaRoot(roots)
+	contractRoot := proto4.MetaRoot(roots)
 	if contractRoot != revision.FileMerkleRoot {
 		log.Error("unexpected contract merkle root", zap.Stringer("expectedRoot", revision.FileMerkleRoot), zap.Stringer("actualRoot", contractRoot))
 		return types.StorageProof{}, fmt.Errorf("merkle root mismatch")
@@ -128,8 +129,8 @@ func (cm *Manager) buildStorageProof(revision types.FileContractRevision, index 
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.StorageProof{}, fmt.Errorf("failed to read sector data")
-	} else if rhp2.SectorRoot(sector) != sectorRoot {
-		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(sector)))
+	} else if proto4.SectorRoot(sector) != sectorRoot {
+		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", proto4.SectorRoot(sector)))
 		return types.StorageProof{}, fmt.Errorf("invalid sector root")
 	}
 	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
@@ -157,7 +158,7 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	segmentIndex := leafIndex % rhp2.LeavesPerSector
 
 	roots := cm.getSectorRoots(contractID)
-	contractRoot := rhp2.MetaRoot(roots)
+	contractRoot := proto4.MetaRoot(roots)
 	if contractRoot != revision.FileMerkleRoot {
 		log.Error("unexpected contract root", zap.Stringer("expectedRoot", revision.FileMerkleRoot), zap.Stringer("actualRoot", contractRoot))
 		return types.V2StorageProof{}, fmt.Errorf("merkle root mismatch")
@@ -171,8 +172,8 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.V2StorageProof{}, fmt.Errorf("failed to read sector data")
-	} else if rhp2.SectorRoot(sector) != sectorRoot {
-		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(sector)))
+	} else if proto4.SectorRoot(sector) != sectorRoot {
+		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", proto4.SectorRoot(sector)))
 		return types.V2StorageProof{}, fmt.Errorf("invalid sector root")
 	}
 	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)

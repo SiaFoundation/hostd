@@ -3,7 +3,7 @@ package api
 import (
 	"time"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/internal/prometheus"
 )
@@ -252,19 +252,19 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 		},
 		{
 			Name:  "hostd_metrics_storage_total_bytes",
-			Value: float64(m.Storage.TotalSectors * rhp2.SectorSize),
+			Value: float64(m.Storage.TotalSectors * proto4.SectorSize),
 		},
 		{
 			Name:  "hostd_metrics_storage_physical_used_bytes",
-			Value: float64(m.Storage.PhysicalSectors * rhp2.SectorSize),
+			Value: float64(m.Storage.PhysicalSectors * proto4.SectorSize),
 		},
 		{
 			Name:  "hostd_metrics_storage_contract_used_bytes",
-			Value: float64(m.Storage.ContractSectors * rhp2.SectorSize),
+			Value: float64(m.Storage.ContractSectors * proto4.SectorSize),
 		},
 		{
 			Name:  "hostd_metrics_storage_temp_used_bytes",
-			Value: float64(m.Storage.TempSectors * rhp2.SectorSize),
+			Value: float64(m.Storage.TempSectors * proto4.SectorSize),
 		},
 		{
 			Name:  "hostd_metrics_storage_reads",
