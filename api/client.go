@@ -161,7 +161,7 @@ func (c *Client) V2Contract(id types.FileContractID) (contract contracts.V2Contr
 	return
 }
 
-// StartIntegrityCheck scans the volume with the specified ID for consistency errors.
+// StartIntegrityCheck starts an integrity check for the specified v2 contract.
 func (c *Client) StartIntegrityCheck(id types.FileContractID) error {
 	return c.c.PUT(context.Background(), fmt.Sprintf("/contracts/%v/integrity", id), nil)
 }
