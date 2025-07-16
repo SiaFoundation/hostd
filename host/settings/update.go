@@ -105,7 +105,6 @@ func (cm *ConfigManager) UpdateChainState(tx UpdateStateTx, reverted []chain.Rev
 
 // ProcessActions processes announcement actions based on the given chain index.
 func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
-	n := m.chain.TipState().Network
 	hostPub := m.hostKey.PublicKey()
 
 	// check if there is an unconfirmed announcement
@@ -125,34 +124,22 @@ func (m *ConfigManager) ProcessActions(index types.ChainIndex) error {
 		}
 	}
 
-	var shouldAnnounce bool
-	if index.Height < n.HardforkV2.AllowHeight {
-		announcement, err := m.store.LastAnnouncement()
-		if err != nil {
-			return fmt.Errorf("failed to get last announcement: %w", err)
-		}
-
-		nextHeight := announcement.Index.Height + m.announceInterval
-		shouldAnnounce = index.Height >= nextHeight || announcement.Address != m.RHP2NetAddress()
-	} else {
-		announceHash, announceIndex, err := m.store.LastV2AnnouncementHash()
-		if err != nil {
-			return fmt.Errorf("failed to get last v2 announcement: %w", err)
-		}
-
-		nextHeight := announceIndex.Height + m.announceInterval
-		h := types.NewHasher()
-		types.EncodeSlice(h.E, m.RHP4NetAddresses())
-		if err := h.E.Flush(); err != nil {
-			return fmt.Errorf("failed to hash v2 announcement: %w", err)
-		}
-		shouldAnnounce = index.Height >= nextHeight || announceHash != h.Sum()
+	announceHash, announceIndex, err := m.store.LastV2AnnouncementHash()
+	if err != nil {
+		return fmt.Errorf("failed to get last v2 announcement: %w", err)
 	}
 
-	if shouldAnnounce {
-		if err := m.Announce(); err != nil {
-			m.log.Debug("failed to announce", zap.Error(err))
-		}
+	nextHeight := announceIndex.Height + m.announceInterval
+	h := types.NewHasher()
+	types.EncodeSlice(h.E, m.RHP4NetAddresses())
+	if err := h.E.Flush(); err != nil {
+		return fmt.Errorf("failed to hash v2 announcement: %w", err)
+	}
+
+	if index.Height < nextHeight && announceHash == h.Sum() {
+		return nil
+	} else if err := m.Announce(); err != nil {
+		m.log.Debug("failed to announce", zap.Error(err))
 	}
 	return nil
 }

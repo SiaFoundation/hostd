@@ -16,9 +16,7 @@ import (
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/certificates"
 	"go.sia.tech/hostd/v2/certificates/providers/selfsigned"
-	"go.sia.tech/hostd/v2/host/accounts"
 	"go.sia.tech/hostd/v2/host/contracts"
-	"go.sia.tech/hostd/v2/host/registry"
 	"go.sia.tech/hostd/v2/host/settings"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/index"
@@ -49,9 +47,6 @@ type (
 		Contracts *contracts.Manager
 		Volumes   *storage.VolumeManager
 		Indexer   *index.Manager
-
-		Accounts *accounts.AccountManager
-		Registry *registry.Manager
 	}
 )
 
@@ -216,10 +211,6 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { idx.Close() })
 
-	am := accounts.NewManager(cn.Store, sm)
-	rm := registry.NewManager(pk, cn.Store, log.Named("registry"))
-	t.Cleanup(func() { rm.Close() })
-
 	return &HostNode{
 		ConsensusNode: *cn,
 
@@ -229,8 +220,5 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 		Contracts: contracts,
 		Volumes:   vm,
 		Indexer:   idx,
-
-		Accounts: am,
-		Registry: rm,
 	}
 }

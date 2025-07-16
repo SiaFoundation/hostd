@@ -24,11 +24,6 @@ type (
 	}
 )
 
-// RHP2NetAddress returns the host's RHP2 net address.
-func (m *ConfigManager) RHP2NetAddress() string {
-	return net.JoinHostPort(m.Settings().NetAddress, strconv.Itoa(int(m.rhp2Port)))
-}
-
 // RHP4NetAddresses returns the host's RHP4 net addresses.
 // SiaMux should always be enabled by default. If a host
 // certificate is available, it will also include a quic
@@ -104,53 +99,26 @@ func (m *ConfigManager) Announce() error {
 	minerFee := m.wallet.RecommendedFee().Mul64(announcementTxnSize)
 
 	cs := m.chain.TipState()
-	if cs.Index.Height < cs.Network.HardforkV2.AllowHeight {
-		// create a transaction with an announcement
-		txn := types.Transaction{
-			ArbitraryData: [][]byte{
-				chain.HostAnnouncement{
-					PublicKey:  m.hostKey.PublicKey(),
-					NetAddress: m.RHP2NetAddress(),
-				}.ToArbitraryData(m.hostKey),
-			},
-			MinerFees: []types.Currency{minerFee},
-		}
-
-		// fund the transaction
-		toSign, err := m.wallet.FundTransaction(&txn, minerFee, true)
-		if err != nil {
-			return fmt.Errorf("failed to fund transaction: %w", err)
-		}
-		m.wallet.SignTransaction(&txn, toSign, types.CoveredFields{WholeTransaction: true})
-		txnset := append(m.chain.UnconfirmedParents(txn), txn)
-		if err := m.wallet.BroadcastTransactionSet(txnset); err != nil {
-			m.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
-			return fmt.Errorf("failed to broadcast transaction set: %w", err)
-		}
-		m.log.Debug("broadcast announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
-	} else {
-		// create a v2 transaction with an announcement
-		txn := types.V2Transaction{
-			Attestations: []types.Attestation{
-				chain.V2HostAnnouncement(m.RHP4NetAddresses()).ToAttestation(cs, m.hostKey),
-			},
-			MinerFee: minerFee,
-		}
-		basis, toSign, err := m.wallet.FundV2Transaction(&txn, minerFee, true)
-		if err != nil {
-			return fmt.Errorf("failed to fund transaction: %w", err)
-		}
-		m.wallet.SignV2Inputs(&txn, toSign)
-		basis, txnset, err := m.chain.V2TransactionSet(basis, txn)
-		if err != nil {
-			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
-			return fmt.Errorf("failed to create transaction set: %w", err)
-		} else if err := m.wallet.BroadcastV2TransactionSet(cs.Index, txnset); err != nil {
-			m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
-			return fmt.Errorf("failed to add transaction to pool: %w", err)
-		}
-		m.log.Debug("broadcast v2 announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
+	txn := types.V2Transaction{
+		Attestations: []types.Attestation{
+			chain.V2HostAnnouncement(m.RHP4NetAddresses()).ToAttestation(cs, m.hostKey),
+		},
+		MinerFee: minerFee,
 	}
+	basis, toSign, err := m.wallet.FundV2Transaction(&txn, minerFee, true)
+	if err != nil {
+		return fmt.Errorf("failed to fund transaction: %w", err)
+	}
+	m.wallet.SignV2Inputs(&txn, toSign)
+	basis, txnset, err := m.chain.V2TransactionSet(basis, txn)
+	if err != nil {
+		m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+		return fmt.Errorf("failed to create transaction set: %w", err)
+	} else if err := m.wallet.BroadcastV2TransactionSet(cs.Index, txnset); err != nil {
+		m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+		return fmt.Errorf("failed to add transaction to pool: %w", err)
+	}
+	m.log.Debug("broadcast v2 announcement", zap.String("transactionID", txn.ID().String()), zap.String("netaddress", settings.NetAddress), zap.String("cost", minerFee.ExactString()))
 	return nil
 }
 

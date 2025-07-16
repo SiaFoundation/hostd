@@ -213,7 +213,7 @@ func (a *api) requiresExplorer(h jape.Handler) jape.Handler {
 // metrics
 // settings
 // index
-func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, am AccountManager, c ContractManager, vm VolumeManager, wm Wallet, mm MetricManager, sm Settings, im Index, opts ...ServerOption) http.Handler {
+func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, c ContractManager, vm VolumeManager, wm Wallet, mm MetricManager, sm Settings, im Index, opts ...ServerOption) http.Handler {
 	a := &api{
 		hostKey: hostKey,
 		name:    name,
@@ -224,7 +224,6 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 
 		syncer:    s,
 		chain:     cm,
-		accounts:  am,
 		contracts: c,
 		volumes:   vm,
 		wallet:    wm,
@@ -279,9 +278,6 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		"GET /contracts/:id/integrity":    a.handleGETContractCheck,
 		"PUT /contracts/:id/integrity":    a.handlePUTContractCheck,
 		"DELETE /contracts/:id/integrity": a.handleDeleteContractCheck,
-		// account endpoints
-		"GET /accounts":                  a.handleGETAccounts,
-		"GET /accounts/:account/funding": a.handleGETAccountFunding,
 		// sector endpoints
 		"DELETE /sectors/:root":     a.handleDeleteSector,
 		"GET /sectors/:root/verify": a.handleGETVerifySector,

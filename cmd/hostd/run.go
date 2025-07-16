@@ -30,17 +30,13 @@ import (
 	"go.sia.tech/hostd/v2/config"
 	"go.sia.tech/hostd/v2/explorer"
 	"go.sia.tech/hostd/v2/explorer/connectivity"
-	"go.sia.tech/hostd/v2/host/accounts"
 	"go.sia.tech/hostd/v2/host/contracts"
-	"go.sia.tech/hostd/v2/host/registry"
 	"go.sia.tech/hostd/v2/host/settings"
 	"go.sia.tech/hostd/v2/host/settings/pin"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/index"
 	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.sia.tech/hostd/v2/rhp"
-	rhp2 "go.sia.tech/hostd/v2/rhp/v2"
-	rhp3 "go.sia.tech/hostd/v2/rhp/v3"
 	"go.sia.tech/hostd/v2/version"
 	"go.sia.tech/hostd/v2/webhooks"
 	"go.sia.tech/jape"
@@ -415,17 +411,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer wr.Close()
 
 	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
-
-	rhp2Addr, rhp2Port, err := normalizeAddress(cfg.RHP2.Address)
-	if err != nil {
-		return fmt.Errorf("failed to normalize RHP2 address: %w", err)
-	}
-
-	rhp3Addr, rhp3Port, err := normalizeAddress(cfg.RHP3.TCPAddress)
-	if err != nil {
-		return fmt.Errorf("failed to normalize RHP3 address: %w", err)
-	}
-
 	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
 	if err != nil {
 		return fmt.Errorf("failed to create storage manager: %w", err)
@@ -499,8 +484,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	settingsOpts := []settings.Option{
 		settings.WithAlertManager(am),
-		settings.WithRHP2Port(uint16(rhp2Port)),
-		settings.WithRHP3Port(uint16(rhp3Port)),
 		settings.WithRHP4Port(uint16(rhp4Port)),
 		settings.WithLog(log.Named("settings")),
 		settings.WithCertificates(certProvider),
@@ -526,27 +509,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
 	rl, wl := sm.RHPBandwidthLimiters()
-	rhp2Listener, err := rhp.Listen("tcp", rhp2Addr, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
-	}
-	defer rhp2Listener.Close()
-
-	rhp3Listener, err := rhp.Listen("tcp", rhp3Addr, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
-	}
-	defer rhp3Listener.Close()
-
-	rhp2 := rhp2.NewSessionHandler(rhp2Listener, hostKey, cm, s, wm, contractManager, sm, vm, log.Named("rhp2"))
-	go rhp2.Serve()
-	defer rhp2.Close()
-
-	registry := registry.NewManager(hostKey, store, log.Named("registry"))
-	accounts := accounts.NewManager(store, sm)
-	rhp3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, sm, log.Named("rhp3"))
-	go rhp3.Serve()
-	defer rhp3.Close()
 
 	rhp4 := rhp4.NewServer(hostKey, cm, s, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
 
@@ -628,7 +590,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	go version.RunVersionCheck(ctx, am, log.Named("version"))
 	web := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contractManager, vm, wm, store, sm, index, apiOpts...)),
+			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, contractManager, vm, wm, store, sm, index, apiOpts...)),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,
@@ -652,7 +614,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}
 
-	log.Info("node started", zap.String("network", cm.TipState().Network.Name), zap.String("hostKey", hostKey.PublicKey().String()), zap.String("http", httpListener.Addr().String()), zap.String("p2p", string(s.Addr())), zap.String("rhp2", rhp2.LocalAddr()), zap.String("rhp3", rhp3.LocalAddr()))
+	log.Info("node started", zap.String("network", cm.TipState().Network.Name), zap.String("hostKey", hostKey.PublicKey().String()), zap.String("http", httpListener.Addr().String()), zap.String("p2p", string(s.Addr())))
 	<-ctx.Done()
 	log.Info("shutting down...")
 	time.AfterFunc(time.Minute, func() {
