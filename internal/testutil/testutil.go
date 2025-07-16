@@ -96,9 +96,7 @@ func MineBlocks(t testing.TB, cn *ConsensusNode, addr types.Address, n int) {
 			t.Fatal(err)
 		}
 
-		if b.V2 == nil {
-			cn.Syncer.BroadcastHeader(b.Header())
-		} else {
+		if b.V2 != nil {
 			cn.Syncer.BroadcastV2BlockOutline(gateway.OutlineBlock(b, cn.Chain.PoolTransactions(), cn.Chain.V2PoolTransactions()))
 		}
 	}

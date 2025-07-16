@@ -25,11 +25,6 @@ type (
 	// LifecycleActions contains the actions that need to be taken to maintain
 	// the lifecycle of active contracts.
 	LifecycleActions struct {
-		RebroadcastFormation [][]types.Transaction
-		BroadcastRevision    []SignedRevision
-		BroadcastProof       []SignedRevision
-
-		// V2 actions
 		RebroadcastV2Formation []rhp4.TransactionSet
 		BroadcastV2Revision    []types.V2FileContractRevision
 		BroadcastV2Proof       []types.V2FileContractElement
@@ -197,119 +192,6 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		return fmt.Errorf("failed to get contract actions: %w", err)
 	}
 
-	for _, formationSet := range actions.RebroadcastFormation {
-		switch {
-		case len(formationSet) == 0:
-			log.Debug("skipping empty formation set")
-			continue
-		case len(formationSet[len(formationSet)-1].FileContracts) == 0:
-			log.Debug("skipping formation set missing file contract")
-			continue
-		}
-		formationTxn := formationSet[len(formationSet)-1]
-		contractID := formationSet[len(formationSet)-1].FileContractID(0)
-		log := log.With(zap.Stringer("contractID", contractID), zap.Stringer("transactionID", formationTxn.ID()))
-		if err := cm.wallet.BroadcastTransactionSet(formationSet); err != nil {
-			log.Error("failed to broadcast transaction set", zap.Error(err))
-		} else {
-			log.Debug("rebroadcast formation transaction", zap.String("transactionID", formationTxn.ID().String()))
-		}
-	}
-
-	for _, revision := range actions.BroadcastRevision {
-		log := log.Named("broadcastRevision").With(zap.Stringer("contractID", revision.Revision.ParentID), zap.Uint64("windowStart", revision.Revision.WindowStart), zap.Uint64("revisionNumber", revision.Revision.RevisionNumber))
-		revisionTxn := types.Transaction{
-			FileContractRevisions: []types.FileContractRevision{revision.Revision},
-			Signatures: []types.TransactionSignature{
-				{
-					ParentID:      types.Hash256(revision.Revision.ParentID),
-					CoveredFields: types.CoveredFields{FileContractRevisions: []uint64{0}},
-					Signature:     revision.RenterSignature[:],
-				},
-				{
-					ParentID:       types.Hash256(revision.Revision.ParentID),
-					CoveredFields:  types.CoveredFields{FileContractRevisions: []uint64{0}},
-					Signature:      revision.HostSignature[:],
-					PublicKeyIndex: 1,
-				},
-			},
-		}
-
-		fee := cm.wallet.RecommendedFee().Mul64(1000)
-		revisionTxn.MinerFees = append(revisionTxn.MinerFees, fee)
-		toSign, err := cm.wallet.FundTransaction(&revisionTxn, fee, true)
-		if err != nil {
-			log.Error("failed to fund revision transaction", zap.Error(err))
-			continue
-		}
-		cm.wallet.SignTransaction(&revisionTxn, toSign, types.CoveredFields{WholeTransaction: true})
-		revisionTxnSet := append(cm.chain.UnconfirmedParents(revisionTxn), revisionTxn)
-		if err := cm.wallet.BroadcastTransactionSet(revisionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(revisionTxnSet[len(revisionTxnSet)-1:], nil) // only release the revision transaction
-			log.Warn("failed to broadcast transaction set", zap.Error(err))
-		} else {
-			log.Debug("broadcast revision transaction", zap.String("transactionID", revisionTxn.ID().String()))
-		}
-	}
-
-	cs := cm.chain.TipState()
-	for _, revision := range actions.BroadcastProof {
-		log := log.Named("proof").With(zap.Stringer("contractID", revision.Revision.ParentID))
-		validPayout, missedPayout := revision.Revision.ValidHostPayout(), revision.Revision.MissedHostPayout()
-		if missedPayout.Cmp(validPayout) >= 0 {
-			log.Debug("skipping storage proof, no benefit to host", zap.String("validPayout", validPayout.ExactString()), zap.String("missedPayout", missedPayout.ExactString()))
-			continue
-		}
-
-		proofIndex, ok := cm.chain.BestIndex(revision.Revision.WindowStart - 1)
-		if !ok {
-			log.Error("proof index not found", zap.Uint64("windowStart", revision.Revision.WindowStart))
-			continue
-		}
-
-		leafIndex := cs.StorageProofLeafIndex(revision.Revision.Filesize, proofIndex.ID, revision.Revision.ParentID)
-		sp, err := cm.buildStorageProof(revision.Revision, leafIndex, log)
-		if err != nil {
-			log.Error("failed to build storage proof", zap.Error(err))
-			continue
-		}
-
-		fee := cm.wallet.RecommendedFee().Mul64(2000)
-		resolutionTxnSet := []types.Transaction{
-			{
-				// intermediate funding transaction is required by v1 because
-				// transactions with storage proofs cannot have change outputs
-				SiacoinOutputs: []types.SiacoinOutput{
-					{Address: cm.wallet.Address(), Value: fee},
-				},
-			},
-			{
-				MinerFees:     []types.Currency{fee},
-				StorageProofs: []types.StorageProof{sp},
-			},
-		}
-
-		intermediateToSign, err := cm.wallet.FundTransaction(&resolutionTxnSet[0], fee, true)
-		if err != nil {
-			log.Error("failed to fund resolution transaction", zap.Error(err))
-			continue
-		}
-		cm.wallet.SignTransaction(&resolutionTxnSet[0], intermediateToSign, types.CoveredFields{WholeTransaction: true})
-		resolutionTxnSet[1].SiacoinInputs = append(resolutionTxnSet[1].SiacoinInputs, types.SiacoinInput{
-			ParentID:         resolutionTxnSet[0].SiacoinOutputID(0),
-			UnlockConditions: cm.wallet.UnlockConditions(),
-		})
-		proofToSign := []types.Hash256{types.Hash256(resolutionTxnSet[1].SiacoinInputs[0].ParentID)}
-		cm.wallet.SignTransaction(&resolutionTxnSet[1], proofToSign, types.CoveredFields{WholeTransaction: true})
-		resolutionTxnSet = append(cm.chain.UnconfirmedParents(resolutionTxnSet[0]), resolutionTxnSet...)
-		if err := cm.wallet.BroadcastTransactionSet(resolutionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(resolutionTxnSet[len(resolutionTxnSet)-2:], nil) // unlock intermediate setup transaction and proof transaction
-			log.Warn("failed to add v2 resolution transaction to pool", zap.Error(err))
-		} else {
-			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxnSet[1].ID().String()))
-		}
-	}
-
 	for _, formationSet := range actions.RebroadcastV2Formation {
 		switch {
 		case len(formationSet.Transactions) == 0:
@@ -358,6 +240,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 	}
 
+	cs := cm.chain.TipState()
 	for _, fce := range actions.BroadcastV2Proof {
 		log := log.Named("v2 proof").With(zap.Stringer("contractID", fce.ID))
 		proofIndex, ok := cm.chain.BestIndex(fce.V2FileContract.ProofHeight)

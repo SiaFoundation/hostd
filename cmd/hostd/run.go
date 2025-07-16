@@ -201,53 +201,6 @@ func explorerURL() string {
 	}
 }
 
-// migrateConsensusDB checks if the consensus database needs to be migrated
-// to match the new v2 commitment.
-func migrateConsensusDB(fp string, n *consensus.Network, genesis types.Block, log *zap.Logger) error {
-	bdb, err := coreutils.OpenBoltChainDB(fp)
-	if err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
-	}
-	defer bdb.Close()
-
-	dbstore, tipState, err := chain.NewDBStore(bdb, n, genesis, chain.NewZapMigrationLogger(log.Named("chaindb")))
-	if err != nil {
-		return fmt.Errorf("failed to create chain store: %w", err)
-	} else if tipState.Index.Height < n.HardforkV2.AllowHeight {
-		log.Debug("chain is still on v1 -- no migration needed")
-		return nil // no migration needed, the chain is still on v1
-	}
-
-	log.Debug("checking for v2 commitment migration")
-	b, _, ok := dbstore.Block(tipState.Index.ID)
-	if !ok {
-		return fmt.Errorf("failed to get tip block %q", tipState.Index)
-	} else if b.V2 == nil {
-		log.Debug("tip block is not a v2 block -- skipping commitment migration")
-		return nil
-	}
-
-	parentState, ok := dbstore.State(b.ParentID)
-	if !ok {
-		return fmt.Errorf("failed to get parent state for tip block %q", b.ParentID)
-	}
-	commitment := parentState.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
-	log = log.With(zap.Stringer("tip", b.ID()), zap.Stringer("commitment", b.V2.Commitment), zap.Stringer("expected", commitment))
-	if b.V2.Commitment == commitment {
-		log.Debug("tip block commitment matches parent state -- no migration needed")
-		return nil
-	}
-	// reset the database if the commitment is not a merkle root
-	log.Debug("resetting consensus database for new v2 commitment")
-	if err := bdb.Close(); err != nil {
-		return fmt.Errorf("failed to close old consensus database: %w", err)
-	} else if err := os.RemoveAll(fp); err != nil {
-		return fmt.Errorf("failed to remove old consensus database: %w", err)
-	}
-	log.Debug("consensus database reset")
-	return nil
-}
-
 func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
 	if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
@@ -275,16 +228,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		if cfg.Syncer.Bootstrap {
 			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.ZenBootstrapPeers...)
 		}
-	case "anagami":
-		network, genesisBlock = chain.TestnetAnagami()
-		if cfg.Syncer.Bootstrap {
-			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.AnagamiBootstrapPeers...)
-		}
-	case "erravimus":
-		network, genesisBlock = chain.TestnetErravimus()
-		if cfg.Syncer.Bootstrap {
-			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.ErravimusBootstrapPeers...)
-		}
 	default:
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
 	}
@@ -294,12 +237,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		exp = explorer.New(explorerURL())
 	}
 
-	consensusPath := filepath.Join(cfg.Directory, "consensus.db")
-	if err := migrateConsensusDB(consensusPath, network, genesisBlock, log); err != nil {
-		return fmt.Errorf("failed to migrate consensus database: %w", err)
-	}
-
-	bdb, err := coreutils.OpenBoltChainDB(consensusPath)
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
 	if err != nil {
 		return fmt.Errorf("failed to open consensus database: %w", err)
 	}
@@ -362,41 +300,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}, syncer.WithLogger(log.Named("syncer")))
 	go s.Run()
 	defer s.Close()
-
-	var minRebroadcastHeight uint64
-	if height := cm.Tip().Height; height > 4380 {
-		minRebroadcastHeight = height - 4380
-	}
-	rebroadcast, err := store.RebroadcastFormationSets(minRebroadcastHeight)
-	if err != nil {
-		return fmt.Errorf("failed to load rebroadcast formation sets: %w", err)
-	}
-	for _, formationSet := range rebroadcast {
-		if len(formationSet) == 0 {
-			continue
-		}
-
-		formationTxn := formationSet[len(formationSet)-1]
-		if len(formationTxn.FileContracts) == 0 {
-			continue
-		}
-		log := log.Named("rebroadcast").With(zap.Stringer("transactionID", formationTxn.ID()), zap.Stringer("contractID", formationTxn.FileContractID(0)))
-
-		// add all transactions back to the pool progressively in case some of them were confirmed.
-		for _, txn := range formationSet {
-			cm.AddPoolTransactions(append(cm.UnconfirmedParents(txn), txn)) // error is ignored because it will be caught below
-		}
-		// update the formation set and broadcast it as a whole. Technically not necessary, but logs the error if it still fails
-		formationSet = append(cm.UnconfirmedParents(formationTxn), formationTxn)
-		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
-			log.Debug("failed to add formation set to pool", zap.Error(err))
-			continue
-		} else if err := s.BroadcastTransactionSet(formationSet); err != nil {
-			log.Debug("failed to rebroadcast formation set", zap.Error(err))
-			continue
-		}
-		log.Debug("rebroadcasted formation set")
-	}
 
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, s, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {

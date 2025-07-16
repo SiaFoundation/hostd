@@ -435,20 +435,6 @@ ORDER BY cr.contract_id, cr.root_index ASC;`
 // ContractActions returns the contract lifecycle actions for the given index.
 func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight uint64) (actions contracts.LifecycleActions, err error) {
 	err = s.transaction(func(tx *txn) error {
-		actions.RebroadcastFormation, err = rebroadcastContracts(tx)
-		if err != nil {
-			return fmt.Errorf("failed to get formation broadcast actions: %w", err)
-		}
-		actions.BroadcastRevision, err = broadcastRevision(tx, index, revisionBroadcastHeight)
-		if err != nil {
-			return fmt.Errorf("failed to get revision broadcast actions: %w", err)
-		}
-		actions.BroadcastProof, err = proofContracts(tx, index)
-		if err != nil {
-			return fmt.Errorf("failed to get proof broadcast actions: %w", err)
-		}
-
-		// v2
 		actions.RebroadcastV2Formation, err = rebroadcastV2Contracts(tx)
 		if err != nil {
 			return fmt.Errorf("failed to get v2 formation broadcast actions: %w", err)
@@ -800,82 +786,6 @@ func updateContractUsage(tx *txn, contractID int64, lockedCollateral types.Curre
 		}
 	}
 	return nil
-}
-
-func rebroadcastContracts(tx *txn) (rebroadcast [][]types.Transaction, err error) {
-	rows, err := tx.Query(`SELECT formation_txn_set FROM contracts WHERE formation_confirmed=false AND contract_status <> ?`, contracts.ContractStatusRejected)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var buf []byte
-		if err := rows.Scan(&buf); err != nil {
-			return nil, fmt.Errorf("failed to scan contract id: %w", err)
-		}
-		var formationSet []types.Transaction
-		if err := decodeTxnSet(buf, &formationSet); err != nil {
-			return nil, fmt.Errorf("failed to decode formation txn set: %w", err)
-		}
-		rebroadcast = append(rebroadcast, formationSet)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return
-}
-
-func broadcastRevision(tx *txn, index types.ChainIndex, revisionBroadcastHeight uint64) (revisions []contracts.SignedRevision, err error) {
-	const query = `SELECT raw_revision, host_sig, renter_sig
-	FROM contracts
-	WHERE formation_confirmed=true AND confirmed_revision_number != revision_number AND window_start BETWEEN ? AND ?`
-
-	rows, err := tx.Query(query, index.Height, revisionBroadcastHeight)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var rev contracts.SignedRevision
-		err = rows.Scan(
-			decode(&rev.Revision),
-			decode(&rev.HostSignature),
-			decode(&rev.RenterSignature))
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		revisions = append(revisions, rev)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return
-}
-
-func proofContracts(tx *txn, index types.ChainIndex) (revisions []contracts.SignedRevision, err error) {
-	const query = `SELECT raw_revision, host_sig, renter_sig
-	FROM contracts
-	WHERE formation_confirmed AND resolution_height IS NULL AND window_start <= $1 AND window_end > $1`
-
-	rows, err := tx.Query(query, index.Height)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		contract, err := scanSignedRevision(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		revisions = append(revisions, contract)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return
 }
 
 func rebroadcastV2Contracts(tx *txn) (rebroadcast []rhp4.TransactionSet, err error) {

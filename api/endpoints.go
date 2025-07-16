@@ -505,55 +505,29 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 		}
 	}
 
-	state := a.chain.TipState()
-	// if the current height is below the v2 hardfork height, send a v1
-	// transaction
-	if state.Index.Height < state.Network.HardforkV2.AllowHeight {
-		// build transaction
-		txn := types.Transaction{
-			MinerFees: []types.Currency{minerFee},
-			SiacoinOutputs: []types.SiacoinOutput{
-				{Address: req.Address, Value: req.Amount},
-			},
-		}
-		toSign, err := a.wallet.FundTransaction(&txn, req.Amount.Add(minerFee), false)
-		if !a.checkServerError(jc, "failed to fund transaction", err) {
-			return
-		}
-		a.wallet.SignTransaction(&txn, toSign, types.CoveredFields{WholeTransaction: true})
-		// shouldn't be necessary to get parents since the transaction is
-		// not using unconfirmed outputs, but good practice
-		txnset := append(a.chain.UnconfirmedParents(txn), txn)
-		if err := a.wallet.BroadcastTransactionSet(txnset); !a.checkServerError(jc, "failed to broadcast transaction set", err) {
-			a.wallet.ReleaseInputs([]types.Transaction{txn}, nil)
-			return
-		}
-		jc.Encode(txn.ID())
-	} else {
-		txn := types.V2Transaction{
-			MinerFee: minerFee,
-			SiacoinOutputs: []types.SiacoinOutput{
-				{Address: req.Address, Value: req.Amount},
-			},
-		}
-		// fund and sign transaction
-		basis, toSign, err := a.wallet.FundV2Transaction(&txn, req.Amount.Add(minerFee), false)
-		if !a.checkServerError(jc, "failed to fund transaction", err) {
-			return
-		}
-		a.wallet.SignV2Inputs(&txn, toSign)
-		basis, txnset, err := a.chain.V2TransactionSet(basis, txn)
-		if !a.checkServerError(jc, "failed to create transaction set", err) {
-			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
-			return
-		}
-		// verify the transaction and add it to the transaction pool
-		if err := a.wallet.BroadcastV2TransactionSet(basis, txnset); err != nil {
-			a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
-			return
-		}
-		jc.Encode(txn.ID())
+	txn := types.V2Transaction{
+		MinerFee: minerFee,
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: req.Address, Value: req.Amount},
+		},
 	}
+	// fund and sign transaction
+	basis, toSign, err := a.wallet.FundV2Transaction(&txn, req.Amount.Add(minerFee), false)
+	if !a.checkServerError(jc, "failed to fund transaction", err) {
+		return
+	}
+	a.wallet.SignV2Inputs(&txn, toSign)
+	basis, txnset, err := a.chain.V2TransactionSet(basis, txn)
+	if !a.checkServerError(jc, "failed to create transaction set", err) {
+		a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+		return
+	}
+	// verify the transaction and add it to the transaction pool
+	if err := a.wallet.BroadcastV2TransactionSet(basis, txnset); err != nil {
+		a.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
+		return
+	}
+	jc.Encode(txn.ID())
 }
 
 func (a *api) handleGETSystemDir(jc jape.Context) {
