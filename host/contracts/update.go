@@ -111,8 +111,8 @@ func (cm *Manager) buildStorageProof(revision types.FileContractRevision, index 
 		}, nil
 	}
 
-	sectorIndex := index / rhp2.LeavesPerSector
-	segmentIndex := index % rhp2.LeavesPerSector
+	sectorIndex := index / proto4.LeavesPerSector
+	segmentIndex := index % proto4.LeavesPerSector
 
 	roots := cm.getSectorRoots(revision.ParentID)
 	contractRoot := proto4.MetaRoot(roots)
@@ -154,8 +154,8 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	contractID := types.FileContractID(fce.ID)
 
 	leafIndex := cs.StorageProofLeafIndex(fce.V2FileContract.Filesize, types.BlockID(pi.ID), contractID)
-	sectorIndex := leafIndex / rhp2.LeavesPerSector
-	segmentIndex := leafIndex % rhp2.LeavesPerSector
+	sectorIndex := leafIndex / proto4.LeavesPerSector
+	segmentIndex := leafIndex % proto4.LeavesPerSector
 
 	roots := cm.getSectorRoots(contractID)
 	contractRoot := proto4.MetaRoot(roots)

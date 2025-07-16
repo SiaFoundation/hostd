@@ -136,7 +136,7 @@ func readSection(w io.Writer, t *rhp2.Transport, sec rhp2.RPCReadRequestSection)
 	if _, err := io.ReadFull(msgReader, lenbuf); err != nil {
 		return nil, fmt.Errorf("couldn't read proof len: %w", err)
 	}
-	if binary.LittleEndian.Uint64(lenbuf) != uint64(rhp2.RangeProofSize(rhp2.LeavesPerSector, proofStart, proofEnd)) {
+	if binary.LittleEndian.Uint64(lenbuf) != uint64(rhp2.RangeProofSize(proto4.LeavesPerSector, proofStart, proofEnd)) {
 		return nil, errors.New("invalid proof size")
 	}
 	proof := make([]types.Hash256, binary.LittleEndian.Uint64(lenbuf))
