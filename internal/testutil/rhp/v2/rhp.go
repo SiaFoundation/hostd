@@ -10,6 +10,7 @@ import (
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
@@ -25,7 +26,7 @@ var (
 
 type segWriter struct {
 	w   io.Writer
-	buf [rhp2.LeafSize * 64]byte
+	buf [proto4.LeafSize * 64]byte
 	len int
 }
 
@@ -35,7 +36,7 @@ func (sw *segWriter) Write(p []byte) (int, error) {
 		n := copy(sw.buf[sw.len:], p)
 		sw.len += n
 		p = p[n:]
-		segs := sw.buf[:sw.len-(sw.len%rhp2.LeafSize)]
+		segs := sw.buf[:sw.len-(sw.len%proto4.LeafSize)]
 		if _, err := sw.w.Write(segs); err != nil {
 			return 0, err
 		}
@@ -122,8 +123,8 @@ func readSection(w io.Writer, t *rhp2.Transport, sec rhp2.RPCReadRequestSection)
 	} else if binary.LittleEndian.Uint64(lenbuf) != uint64(sec.Length) {
 		return nil, errors.New("host sent wrong amount of sector data")
 	}
-	proofStart := sec.Offset / rhp2.LeafSize
-	proofEnd := proofStart + sec.Length/rhp2.LeafSize
+	proofStart := sec.Offset / proto4.LeafSize
+	proofEnd := proofStart + sec.Length/proto4.LeafSize
 	rpv := rhp2.NewRangeProofVerifier(proofStart, proofEnd)
 	tee := io.TeeReader(io.LimitReader(msgReader, int64(sec.Length)), &segWriter{w: w})
 	// the proof verifier Reads one segment at a time, so bufio is crucial
@@ -135,7 +136,7 @@ func readSection(w io.Writer, t *rhp2.Transport, sec rhp2.RPCReadRequestSection)
 	if _, err := io.ReadFull(msgReader, lenbuf); err != nil {
 		return nil, fmt.Errorf("couldn't read proof len: %w", err)
 	}
-	if binary.LittleEndian.Uint64(lenbuf) != uint64(rhp2.RangeProofSize(rhp2.LeavesPerSector, proofStart, proofEnd)) {
+	if binary.LittleEndian.Uint64(lenbuf) != uint64(rhp2.RangeProofSize(proto4.LeavesPerSector, proofStart, proofEnd)) {
 		return nil, errors.New("invalid proof size")
 	}
 	proof := make([]types.Hash256, binary.LittleEndian.Uint64(lenbuf))
@@ -259,14 +260,14 @@ func RPCWrite(t *rhp2.Transport, renterKey types.PrivateKey, rev *rhp2.ContractR
 	contractSize := rev.Revision.Filesize
 	for _, action := range actions {
 		if action.Type == rhp2.RPCWriteActionAppend {
-			appendRoots = append(appendRoots, rhp2.SectorRoot((*[rhp2.SectorSize]byte)(action.Data)))
+			appendRoots = append(appendRoots, proto4.SectorRoot((*[proto4.SectorSize]byte)(action.Data)))
 		}
 
 		switch action.Type {
 		case rhp2.RPCWriteActionAppend:
-			contractSize += rhp2.SectorSize
+			contractSize += proto4.SectorSize
 		case rhp2.RPCWriteActionTrim:
-			d := rhp2.SectorSize * action.A
+			d := proto4.SectorSize * action.A
 			if contractSize < d {
 				return fmt.Errorf("contract size too small to trim %d sectors", action.A)
 			}

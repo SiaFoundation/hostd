@@ -10,6 +10,7 @@ import (
 	"time"
 
 	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/rhp"
@@ -458,7 +459,7 @@ func (sh *SessionHandler) rpcSectorRoots(s *session, log *zap.Logger) (contracts
 		return contracts.Usage{}, err
 	}
 
-	contractSectors := s.contract.Revision.Filesize / rhp2.SectorSize
+	contractSectors := s.contract.Revision.Filesize / proto4.SectorSize
 
 	var req rhp2.RPCSectorRootsRequest
 	if err := s.readRequest(&req, minMessageSize, 30*time.Second); err != nil {
@@ -571,13 +572,13 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	}
 
 	var req rhp2.RPCWriteRequest
-	if err := s.readRequest(&req, 5*rhp2.SectorSize, 5*time.Minute); err != nil {
+	if err := s.readRequest(&req, 5*proto4.SectorSize, 5*time.Minute); err != nil {
 		return contracts.Usage{}, fmt.Errorf("failed to read write request: %w", err)
 	}
 
 	remainingDuration := uint64(s.contract.Revision.WindowEnd) - currentHeight
 	// validate the requested actions
-	oldSectors := s.contract.Revision.Filesize / rhp2.SectorSize
+	oldSectors := s.contract.Revision.Filesize / proto4.SectorSize
 	costs, err := settings.RPCWriteCost(req.Actions, oldSectors, remainingDuration, req.MerkleProof)
 	if err != nil {
 		err := fmt.Errorf("failed to validate write actions: %w", err)
@@ -612,13 +613,13 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 	for _, action := range req.Actions {
 		switch action.Type {
 		case rhp2.RPCWriteActionAppend:
-			if len(action.Data) != rhp2.SectorSize {
+			if len(action.Data) != proto4.SectorSize {
 				err := fmt.Errorf("append action: invalid sector size: %v", len(action.Data))
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
-			sector := (*[rhp2.SectorSize]byte)(action.Data)
-			root := rhp2.SectorRoot(sector)
+			sector := (*[proto4.SectorSize]byte)(action.Data)
+			root := proto4.SectorRoot(sector)
 			err := sh.sectors.Write(root, sector)
 			if err != nil {
 				err := fmt.Errorf("append action: failed to write sector: %w", err)
@@ -653,18 +654,18 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 			}
 
 			i, offset := action.A, action.B
-			if offset > rhp2.SectorSize {
+			if offset > proto4.SectorSize {
 				err := fmt.Errorf("update action: invalid offset %v bytes", offset)
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
-			} else if offset+uint64(len(action.Data)) > rhp2.SectorSize {
+			} else if offset+uint64(len(action.Data)) > proto4.SectorSize {
 				err := errors.New("update action: offset + data exceeds sector size")
 				s.t.WriteResponseErr(err)
 				return contracts.Usage{}, err
 			}
 
 			copy(sector[offset:], action.Data)
-			newRoot := rhp2.SectorRoot(sector)
+			newRoot := proto4.SectorRoot(sector)
 
 			if err := contractUpdater.UpdateSector(newRoot, i); err != nil {
 				err := fmt.Errorf("update action: failed to update sector: %w", err)
@@ -693,7 +694,7 @@ func (sh *SessionHandler) rpcWrite(s *session, log *zap.Logger) (contracts.Usage
 
 	// apply the new merkle root and file size to the revision
 	revision.FileMerkleRoot = writeResp.NewMerkleRoot
-	revision.Filesize = contractUpdater.SectorCount() * rhp2.SectorSize
+	revision.Filesize = contractUpdater.SectorCount() * proto4.SectorSize
 
 	// read the renter's signature
 	var renterSigResponse rhp2.RPCWriteResponse
@@ -854,8 +855,8 @@ func (sh *SessionHandler) rpcRead(s *session, log *zap.Logger) (contracts.Usage,
 			Data: sector[sec.Offset : sec.Offset+sec.Length],
 		}
 		if req.MerkleProof {
-			start := sec.Offset / rhp2.LeafSize
-			end := (sec.Offset + sec.Length) / rhp2.LeafSize
+			start := sec.Offset / proto4.LeafSize
+			end := (sec.Offset + sec.Length) / proto4.LeafSize
 			resp.MerkleProof = rhp2.BuildProof(sector, start, end, nil)
 		}
 

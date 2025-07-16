@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"go.sia.tech/core/consensus"
-	rhp2 "go.sia.tech/core/rhp/v2"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
@@ -47,7 +46,7 @@ type (
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
 		// Read reads a sector from the store
-		ReadSector(root types.Hash256) (*[rhp2.SectorSize]byte, error)
+		ReadSector(root types.Hash256) (*[proto4.SectorSize]byte, error)
 	}
 
 	// Alerts registers and dismisses global alerts.
@@ -158,9 +157,9 @@ func (cm *Manager) RenewContract(renewal SignedRevision, existing SignedRevision
 		return errors.New("existing contract must be cleared")
 	} else if existing.Revision.RevisionNumber != types.MaxRevisionNumber {
 		return errors.New("existing contract must be cleared")
-	} else if renewal.Revision.Filesize != uint64(rhp2.SectorSize*len(existingRoots)) {
+	} else if renewal.Revision.Filesize != uint64(proto4.SectorSize*len(existingRoots)) {
 		return errors.New("renewal contract must have same file size as existing contract")
-	} else if renewal.Revision.FileMerkleRoot != rhp2.MetaRoot(existingRoots) {
+	} else if renewal.Revision.FileMerkleRoot != proto4.MetaRoot(existingRoots) {
 		return errors.New("renewal root does not match existing roots")
 	}
 
@@ -202,7 +201,7 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 		return errors.New("proof height does not match")
 	case existing.ExpirationHeight != revision.ExpirationHeight:
 		return errors.New("expiration height does not match")
-	case revision.Filesize != uint64(rhp2.SectorSize*len(newRoots)):
+	case revision.Filesize != uint64(proto4.SectorSize*len(newRoots)):
 		return errors.New("revision has incorrect file size")
 	case revision.Capacity < revision.Filesize:
 		return errors.New("revision capacity must be greater than or equal to file size")
@@ -217,7 +216,7 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 	}
 
 	// validate contract Merkle root
-	metaRoot := rhp2.MetaRoot(newRoots)
+	metaRoot := proto4.MetaRoot(newRoots)
 	if revision.FileMerkleRoot != metaRoot {
 		return errors.New("revision root does not match")
 	}
@@ -309,7 +308,7 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 
 	existingID := types.FileContractID(existing.ID)
 	existingRoots := cm.getSectorRoots(existingID)
-	if fc.FileMerkleRoot != rhp2.MetaRoot(existingRoots) {
+	if fc.FileMerkleRoot != proto4.MetaRoot(existingRoots) {
 		return errors.New("renewal root does not match existing roots")
 	}
 

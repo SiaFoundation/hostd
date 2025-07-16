@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/persist/sqlite"
@@ -54,9 +54,9 @@ func TestVolumeLoad(t *testing.T) {
 	}
 
 	// write a sector
-	var sector [rhp2.SectorSize]byte
+	var sector [proto4.SectorSize]byte
 	frand.Read(sector[:])
-	root := rhp2.SectorRoot(&sector)
+	root := proto4.SectorRoot(&sector)
 	if err = vm.Write(root, &sector); err != nil {
 		t.Fatal(err)
 	} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
@@ -99,7 +99,7 @@ func TestVolumeLoad(t *testing.T) {
 
 	// write a new sector
 	frand.Read(sector[:])
-	root = rhp2.SectorRoot(&sector)
+	root = proto4.SectorRoot(&sector)
 	if err = vm.Write(root, &sector); err != nil {
 		t.Fatal(err)
 	}
@@ -180,11 +180,11 @@ func TestRemoveVolume(t *testing.T) {
 
 	roots := make([]types.Hash256, 10)
 	for i := range roots {
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		if _, err := frand.Read(sector[:256]); err != nil {
 			t.Fatal(err)
 		}
-		roots[i] = rhp2.SectorRoot(&sector)
+		roots[i] = proto4.SectorRoot(&sector)
 
 		// write the sector
 
@@ -200,7 +200,7 @@ func TestRemoveVolume(t *testing.T) {
 			sector, err := vm.ReadSector(root)
 			if err != nil {
 				return fmt.Errorf("failed to read sector: %w", err)
-			} else if rhp2.SectorRoot(sector) != root {
+			} else if proto4.SectorRoot(sector) != root {
 				return errors.New("sector was corrupted")
 			}
 		}
@@ -378,7 +378,7 @@ func TestRemoveCorrupt(t *testing.T) {
 	defer f.Close()
 
 	// corrupt a sector in the volume
-	n := rhp2.SectorSize * frand.Intn(10)
+	n := proto4.SectorSize * frand.Intn(10)
 	f.WriteAt(frand.Bytes(512), int64(n))
 	if err := f.Sync(); err != nil {
 		t.Fatal(err)
@@ -634,7 +634,7 @@ func TestVolumeConcurrency(t *testing.T) {
 		sector, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
-		} else if rhp2.SectorRoot(sector) != root {
+		} else if proto4.SectorRoot(sector) != root {
 			t.Fatal("sector was corrupted")
 		}
 	}
@@ -649,7 +649,7 @@ func TestVolumeConcurrency(t *testing.T) {
 		sector, err := vm.ReadSector(root)
 		if err != nil {
 			t.Fatal(err)
-		} else if rhp2.SectorRoot(sector) != root {
+		} else if proto4.SectorRoot(sector) != root {
 			t.Fatal("sector was corrupted")
 		}
 	}
@@ -662,7 +662,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	volume = v.Volume
 
 	// check the volume
-	if err := checkFileSize(volumeFilePath, int64(sectors*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64(sectors*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != sectors {
 		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
@@ -671,9 +671,9 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 
 	// generate a random sector
-	var sector [rhp2.SectorSize]byte
+	var sector [proto4.SectorSize]byte
 	_, _ = frand.Read(sector[:256])
-	root := rhp2.SectorRoot(&sector)
+	root := proto4.SectorRoot(&sector)
 
 	// shrink the volume so it is nearly full
 	const newSectors = writeSectors + 5
@@ -700,7 +700,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	volume = v.Volume
 
 	// check the volume
-	if err := checkFileSize(volumeFilePath, int64((newSectors)*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64((newSectors)*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != newSectors {
 		t.Fatalf("expected %v total sectors, got %v", newSectors, volume.TotalSectors)
@@ -750,7 +750,7 @@ func TestVolumeGrow(t *testing.T) {
 	volume = v.Volume
 
 	// check the volume
-	if err := checkFileSize(volumeFilePath, int64(initialSectors*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64(initialSectors*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != initialSectors {
 		t.Fatalf("expected %v total sectors, got %v", initialSectors, volume.TotalSectors)
@@ -777,7 +777,7 @@ func TestVolumeGrow(t *testing.T) {
 	}
 
 	// check the volume
-	if err := checkFileSize(volumeFilePath, int64(newSectors*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64(newSectors*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -796,11 +796,11 @@ func TestVolumeGrow(t *testing.T) {
 	}
 	defer f.Close()
 
-	var sector [rhp2.SectorSize]byte
+	var sector [proto4.SectorSize]byte
 	for _, root := range roots {
 		if _, err := io.ReadFull(f, sector[:]); err != nil {
 			t.Fatal(err)
-		} else if rhp2.SectorRoot(&sector) != root {
+		} else if proto4.SectorRoot(&sector) != root {
 			t.Fatal("sector was corrupted")
 		}
 	}
@@ -840,7 +840,7 @@ func TestVolumeShrink(t *testing.T) {
 	}
 
 	// check the volume
-	if err := checkFileSize(volumeFilePath, int64(sectors*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64(sectors*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != sectors {
 		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
@@ -913,7 +913,7 @@ func TestVolumeShrink(t *testing.T) {
 		t.Fatal(err)
 	} else if err := <-result; err != nil {
 		t.Fatal(err)
-	} else if err := checkFileSize(volumeFilePath, int64(remainingSectors*rhp2.SectorSize)); err != nil {
+	} else if err := checkFileSize(volumeFilePath, int64(remainingSectors*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -973,7 +973,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := checkFileSize(volumeFilePath, int64(sectors*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64(sectors*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != sectors {
 		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
@@ -1007,7 +1007,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		retrievedRoot := rhp2.SectorRoot(sector)
+		retrievedRoot := proto4.SectorRoot(sector)
 		if retrievedRoot != root {
 			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
 		}
@@ -1015,11 +1015,11 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 }
 
 func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash256, error) {
-	var sector [rhp2.SectorSize]byte
+	var sector [proto4.SectorSize]byte
 	if _, err := frand.Read(sector[:256]); err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to generate random sector: %w", err)
 	}
-	root := rhp2.SectorRoot(&sector)
+	root := proto4.SectorRoot(&sector)
 	err := vm.Write(root, &sector)
 	if err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to write sector: %w", err)
@@ -1065,7 +1065,7 @@ func TestSectorCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := checkFileSize(volumeFilePath, int64(sectors*rhp2.SectorSize)); err != nil {
+	if err := checkFileSize(volumeFilePath, int64(sectors*proto4.SectorSize)); err != nil {
 		t.Fatal(err)
 	} else if volume.TotalSectors != sectors {
 		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
@@ -1190,11 +1190,11 @@ func TestStoragePrune(t *testing.T) {
 	storeRandomSector := func(t *testing.T, expiration uint64) types.Hash256 {
 		t.Helper()
 
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		if _, err := frand.Read(sector[:256]); err != nil {
 			t.Fatal("failed to generate random sector:", err)
 		}
-		root := rhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 		if err = vm.StoreSector(root, &sector, expiration); err != nil {
 			t.Fatal("failed to store sector:", err)
 		}
@@ -1250,16 +1250,16 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	sectors := make([][rhp2.SectorSize]byte, b.N)
+	sectors := make([][proto4.SectorSize]byte, b.N)
 	roots := make([]types.Hash256, b.N)
 	for i := range sectors {
 		frand.Read(sectors[i][:256])
-		roots[i] = rhp2.SectorRoot(&sectors[i])
+		roots[i] = proto4.SectorRoot(&sectors[i])
 	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
-	b.SetBytes(rhp2.SectorSize)
+	b.SetBytes(proto4.SectorSize)
 
 	// fill the volume
 	for i := 0; i < b.N; i++ {
@@ -1292,7 +1292,7 @@ func BenchmarkNewVolume(b *testing.B) {
 
 	b.ResetTimer()
 	b.ReportMetric(float64(sectors), "sectors")
-	b.SetBytes(sectors * rhp2.SectorSize)
+	b.SetBytes(sectors * proto4.SectorSize)
 
 	result := make(chan error, 1)
 	for i := 0; i < b.N; i++ {
@@ -1336,9 +1336,9 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	// fill the volume
 	written := make([]types.Hash256, 0, b.N)
 	for i := 0; i < b.N; i++ {
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
-		root := rhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 		err := vm.Write(root, &sector)
 		if err != nil {
 			b.Fatal(i, err)
@@ -1348,7 +1348,7 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 
 	b.ResetTimer()
 	b.ReportAllocs()
-	b.SetBytes(rhp2.SectorSize)
+	b.SetBytes(proto4.SectorSize)
 	// read the sectors back
 	for _, root := range written {
 		if _, err := vm.ReadSector(root); err != nil {
@@ -1386,9 +1386,9 @@ func BenchmarkVolumeRemove(b *testing.B) {
 
 	// fill the volume
 	for i := 0; i < b.N; i++ {
-		var sector [rhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
-		root := rhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 		err := vm.Write(root, &sector)
 		if err != nil {
 			b.Fatal(i, err)
@@ -1406,7 +1406,7 @@ func BenchmarkVolumeRemove(b *testing.B) {
 
 	b.ResetTimer()
 	b.ReportAllocs()
-	b.SetBytes(rhp2.SectorSize)
+	b.SetBytes(proto4.SectorSize)
 
 	// migrate the sectors
 	if err := vm.RemoveVolume(context.Background(), volume1.ID, false, result); err != nil {

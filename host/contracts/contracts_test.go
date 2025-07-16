@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/storage"
@@ -118,7 +118,7 @@ func TestContractUpdater(t *testing.T) {
 			}
 			roots = roots[:len(roots)-int(test.trim)]
 
-			if updater.MerkleRoot() != rhp2.MetaRoot(roots) {
+			if updater.MerkleRoot() != proto4.MetaRoot(roots) {
 				t.Fatal("wrong merkle root")
 			} else if err := updater.Commit(rev, contracts.Usage{}); err != nil {
 				t.Fatal(err)
@@ -130,14 +130,14 @@ func TestContractUpdater(t *testing.T) {
 			allRoots, err := node.Store.SectorRoots()
 			if err != nil {
 				t.Fatal(err)
-			} else if rhp2.MetaRoot(allRoots[rev.Revision.ParentID]) != rhp2.MetaRoot(roots) {
+			} else if proto4.MetaRoot(allRoots[rev.Revision.ParentID]) != proto4.MetaRoot(roots) {
 				t.Fatal("wrong merkle root in database")
 			}
 			// check that the cache sector roots are correct
 			cachedRoots := node.Contracts.SectorRoots(rev.Revision.ParentID)
 			if err != nil {
 				t.Fatal(err)
-			} else if rhp2.MetaRoot(cachedRoots) != rhp2.MetaRoot(roots) {
+			} else if proto4.MetaRoot(cachedRoots) != proto4.MetaRoot(roots) {
 				t.Fatal("wrong merkle root in cache")
 			}
 		})

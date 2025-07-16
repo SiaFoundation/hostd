@@ -13,6 +13,7 @@ import (
 
 	crhp2 "go.sia.tech/core/rhp/v2"
 	crhp3 "go.sia.tech/core/rhp/v3"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/wallet"
@@ -230,9 +231,9 @@ func TestAppendSector(t *testing.T) {
 		if cost.IsZero() {
 			t.Fatal("cost is zero")
 		}
-		var sector [crhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
-		root := crhp2.SectorRoot(&sector)
+		root := proto4.SectorRoot(&sector)
 		roots = append(roots, root)
 
 		if _, err = session.AppendSector(&sector, &revision, renterKey, payment, cost); err != nil {
@@ -240,13 +241,13 @@ func TestAppendSector(t *testing.T) {
 		}
 
 		// check that the contract merkle root matches
-		if revision.Revision.FileMerkleRoot != crhp2.MetaRoot(roots) {
+		if revision.Revision.FileMerkleRoot != proto4.MetaRoot(roots) {
 			t.Fatal("contract merkle root doesn't match")
 		}
 
 		// download the sector
-		cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(crhp2.SectorSize)).Total()
-		downloaded, _, err := session.ReadSector(root, 0, crhp2.SectorSize, payment, cost)
+		cost, _ = pt.BaseCost().Add(pt.ReadSectorCost(proto4.SectorSize)).Total()
+		downloaded, _, err := session.ReadSector(root, 0, proto4.SectorSize, payment, cost)
 		if err != nil {
 			t.Fatal(err)
 		} else if !bytes.Equal(downloaded, sector[:]) {
@@ -255,8 +256,8 @@ func TestAppendSector(t *testing.T) {
 	}
 
 	// assert ReadSector exposes ErrSectorNotFound
-	cost, _ := pt.BaseCost().Add(pt.ReadSectorCost(crhp2.SectorSize)).Total()
-	_, _, err = session.ReadSector(types.Hash256{}, 0, crhp2.SectorSize, payment, cost)
+	cost, _ := pt.BaseCost().Add(pt.ReadSectorCost(proto4.SectorSize)).Total()
+	_, _, err = session.ReadSector(types.Hash256{}, 0, proto4.SectorSize, payment, cost)
 	if err == nil {
 		t.Fatal("expected error when reading nil sector")
 	} else if !strings.Contains(err.Error(), storage.ErrSectorNotFound.Error()) {
@@ -305,17 +306,17 @@ func TestStoreSector(t *testing.T) {
 	// calculate the cost of the upload
 	usage := pt.StoreSectorCost(10)
 	cost, _ := usage.Total()
-	var sector [crhp2.SectorSize]byte
+	var sector [proto4.SectorSize]byte
 	frand.Read(sector[:256])
-	root := crhp2.SectorRoot(&sector)
+	root := proto4.SectorRoot(&sector)
 	if err = session.StoreSector(&sector, 10, payment, cost); err != nil {
 		t.Fatal(err)
 	}
 
 	// download the sector
-	usage = pt.ReadSectorCost(crhp2.SectorSize)
+	usage = pt.ReadSectorCost(proto4.SectorSize)
 	cost, _ = usage.Total()
-	downloaded, _, err := session.ReadSector(root, 0, crhp2.SectorSize, payment, cost)
+	downloaded, _, err := session.ReadSector(root, 0, proto4.SectorSize, payment, cost)
 	if err != nil {
 		t.Fatal(err)
 	} else if !bytes.Equal(downloaded, sector[:]) {
@@ -330,9 +331,9 @@ func TestStoreSector(t *testing.T) {
 	}
 
 	// check that the sector was deleted
-	usage = pt.ReadSectorCost(crhp2.SectorSize)
+	usage = pt.ReadSectorCost(proto4.SectorSize)
 	cost, _ = usage.Total()
-	_, _, err = session.ReadSector(root, 0, crhp2.SectorSize, payment, cost)
+	_, _, err = session.ReadSector(root, 0, proto4.SectorSize, payment, cost)
 	if err == nil {
 		t.Fatal("expected error when reading sector")
 	}
@@ -375,7 +376,7 @@ func TestReadSectorOffset(t *testing.T) {
 	}
 
 	cost, _ := pt.BaseCost().Add(pt.AppendSectorCost(revision.Revision.WindowEnd - node.Chain.Tip().Height)).Total()
-	var sectors [][crhp2.SectorSize]byte
+	var sectors [][proto4.SectorSize]byte
 	for i := 0; i < 5; i++ {
 		// upload a few sectors
 		payment = proto3.AccountPayment(account, renterKey)
@@ -383,7 +384,7 @@ func TestReadSectorOffset(t *testing.T) {
 		if cost.IsZero() {
 			t.Fatal("cost is zero")
 		}
-		var sector [crhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		_, err = session.AppendSector(&sector, &revision, renterKey, payment, cost)
 		if err != nil {
@@ -394,7 +395,7 @@ func TestReadSectorOffset(t *testing.T) {
 
 	// download the sector
 	cost, _ = pt.BaseCost().Add(pt.ReadOffsetCost(256)).Total()
-	downloaded, _, err := session.ReadOffset(crhp2.SectorSize*3+64, 256, revision.ID(), payment, cost)
+	downloaded, _, err := session.ReadOffset(proto4.SectorSize*3+64, 256, revision.ID(), payment, cost)
 	if err != nil {
 		t.Fatal(err)
 	} else if !bytes.Equal(downloaded, sectors[3][64:64+256]) {
@@ -541,7 +542,7 @@ func TestRenew(t *testing.T) {
 		}
 
 		// generate a sector
-		var sector [crhp2.SectorSize]byte
+		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 
 		remainingDuration = contractExpiration - currentHeight
