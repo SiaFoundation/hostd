@@ -3,8 +3,10 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -46,16 +48,6 @@ type (
 		URL     string `yaml:"url,omitempty"`
 	}
 
-	// RHP2 contains the configuration for the RHP2 server.
-	RHP2 struct {
-		Address string `yaml:"address,omitempty"`
-	}
-
-	// RHP3 contains the configuration for the RHP3 server.
-	RHP3 struct {
-		TCPAddress string `yaml:"tcp,omitempty"`
-	}
-
 	// RHP4Proto is the protocol used for RHP4.
 	RHP4Proto string
 
@@ -79,24 +71,23 @@ type (
 
 	// LogFile configures the file output of the logger.
 	LogFile struct {
-		Enabled bool   `yaml:"enabled,omitempty"`
-		Level   string `yaml:"level,omitempty"` // override the file log level
-		Format  string `yaml:"format,omitempty"`
+		Enabled bool            `yaml:"enabled,omitempty"`
+		Level   zap.AtomicLevel `yaml:"level,omitempty"` // override the file log level
+		Format  string          `yaml:"format,omitempty"`
 		// Path is the path of the log file.
 		Path string `yaml:"path,omitempty"`
 	}
 
 	// StdOut configures the standard output of the logger.
 	StdOut struct {
-		Level      string `yaml:"level,omitempty"` // override the stdout log level
-		Enabled    bool   `yaml:"enabled,omitempty"`
-		Format     string `yaml:"format,omitempty"`
-		EnableANSI bool   `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
+		Enabled    bool            `yaml:"enabled,omitempty"`
+		Level      zap.AtomicLevel `yaml:"level,omitempty"` // override the stdout log level
+		Format     string          `yaml:"format,omitempty"`
+		EnableANSI bool            `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
 	}
 
 	// Log contains the configuration for the logger.
 	Log struct {
-		Level  string  `yaml:"level,omitempty"` // global log level
 		StdOut StdOut  `yaml:"stdout,omitempty"`
 		File   LogFile `yaml:"file,omitempty"`
 	}
@@ -112,12 +103,45 @@ type (
 		Syncer    Syncer       `yaml:"syncer,omitempty"`
 		Consensus Consensus    `yaml:"consensus,omitempty"`
 		Explorer  ExplorerData `yaml:"explorer,omitempty"`
-		RHP2      RHP2         `yaml:"rhp2,omitempty"`
-		RHP3      RHP3         `yaml:"rhp3,omitempty"`
 		RHP4      RHP4         `yaml:"rhp4,omitempty"`
 		Log       Log          `yaml:"log,omitempty"`
 	}
 )
+
+func upgrade(fp string, r io.ReadSeeker, cfg *Config) error {
+	versions := []func(string, io.Reader, *Config) error{
+		updateConfigV235,
+		updateConfigV112,
+	}
+	for _, fn := range versions {
+		if _, err := r.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("failed to reset reader: %w", err)
+		} else if upgradeErr := fn(fp, r, cfg); upgradeErr == nil {
+			break // no error means the upgrade was successful
+		}
+	}
+
+	// write the updated config back to the file
+	tmpFilePath := fp + ".tmp"
+	f, err := os.Create(tmpFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer f.Close()
+
+	enc := yaml.NewEncoder(f)
+	enc.SetIndent(2)
+	if err := enc.Encode(cfg); err != nil {
+		return fmt.Errorf("failed to encode config file: %w", err)
+	} else if err := f.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
+	} else if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close file: %w", err)
+	} else if err := os.Rename(tmpFilePath, fp); err != nil {
+		return fmt.Errorf("failed to rename file: %w", err)
+	}
+	return nil
+}
 
 // LoadFile loads the configuration from the provided file path.
 // If the file does not exist, an error is returned.
@@ -134,8 +158,7 @@ func LoadFile(fp string, cfg *Config) error {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(cfg); err != nil {
-		r.Reset(buf)
-		if upgradeErr := updateConfigV112(fp, r, cfg); upgradeErr == nil {
+		if upgradeErr := upgrade(fp, r, cfg); upgradeErr == nil {
 			return nil
 		}
 		return fmt.Errorf("failed to decode config file: %w", err)

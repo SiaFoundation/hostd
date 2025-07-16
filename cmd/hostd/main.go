@@ -48,12 +48,6 @@ var (
 			Network:        "mainnet",
 			IndexBatchSize: 1000,
 		},
-		RHP2: config.RHP2{
-			Address: ":9982",
-		},
-		RHP3: config.RHP3{
-			TCPAddress: ":9983",
-		},
 		RHP4: config.RHP4{
 			ListenAddresses: []config.RHP4ListenAddress{
 				{
@@ -67,14 +61,15 @@ var (
 			},
 		},
 		Log: config.Log{
-			Level: "info",
 			File: config.LogFile{
 				Enabled: true,
+				Level:   zap.NewAtomicLevelAt(zap.InfoLevel),
 				Format:  "json",
 				Path:    os.Getenv(logFileEnvVar),
 			},
 			StdOut: config.StdOut{
 				Enabled:    true,
+				Level:      zap.NewAtomicLevelAt(zap.InfoLevel),
 				Format:     "human",
 				EnableANSI: runtime.GOOS != "windows",
 			},
@@ -165,21 +160,9 @@ func humanEncoder(showColors bool) zapcore.Encoder {
 	return zapcore.NewConsoleEncoder(cfg)
 }
 
-func parseLogLevel(level string) zap.AtomicLevel {
-	switch level {
-	case "debug":
-		return zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		return zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn":
-		return zap.NewAtomicLevelAt(zap.WarnLevel)
-	case "error":
-		return zap.NewAtomicLevelAt(zap.ErrorLevel)
-	default:
-		fmt.Printf("invalid log level %q", level)
-		os.Exit(1)
-	}
-	panic("unreachable")
+func initStdoutLog(colored bool, level zap.AtomicLevel) *zap.Logger {
+	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
+	return zap.New(core, zap.AddCaller())
 }
 
 const (
@@ -251,12 +234,6 @@ func checkFatalError(context string, err error) {
 	os.Exit(1)
 }
 
-func initStdoutLog(colored bool, levelStr string) *zap.Logger {
-	level := parseLogLevel(levelStr)
-	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
-	return zap.New(core, zap.AddCaller())
-}
-
 func runBackupCommand(srcPath, destPath string) error {
 	if err := sqlite.Backup(context.Background(), srcPath, destPath); err != nil {
 		return fmt.Errorf("failed to backup database: %w", err)
@@ -292,15 +269,10 @@ func runRecalcCommand(srcPath string, log *zap.Logger) error {
 }
 
 func main() {
-	log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
-	defer log.Sync()
-
 	// attempt to load the config file, command line flags will override any
 	// values set in the config file
 	configPath := tryLoadConfig()
-	if configPath != "" {
-		log.Info("loaded config file", zap.String("path", configPath))
-	}
+
 	// set the data directory to the default if it is not set
 	cfg.Directory = defaultDataDirectory(cfg.Directory)
 
@@ -315,15 +287,14 @@ func main() {
 	rootCmd.BoolVar(&cfg.Syncer.Bootstrap, "syncer.bootstrap", cfg.Syncer.Bootstrap, "bootstrap the gateway and consensus modules")
 	// consensus
 	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network name (mainnet, zen, etc)")
-	// rhp
-	rootCmd.StringVar(&cfg.RHP2.Address, "rhp2", cfg.RHP2.Address, "address to listen on for RHP2 connections")
-	rootCmd.StringVar(&cfg.RHP3.TCPAddress, "rhp3", cfg.RHP3.TCPAddress, "address to listen on for TCP RHP3 connections")
+
 	var rhp4Override string
 	rootCmd.StringVar(&rhp4Override, "rhp4", "", "address to listen on for RHP4 connections")
 	// http
 	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	// log
-	rootCmd.StringVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
+	var levelOverride string
+	rootCmd.StringVar(&levelOverride, "log.level", "", "log level (debug, info, warn, error)")
 
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
@@ -355,6 +326,14 @@ func main() {
 		for i := range cfg.RHP4.ListenAddresses {
 			cfg.RHP4.ListenAddresses[i].Address = rhp4Override
 		}
+	}
+
+	// override the log level if the flag is set
+	if levelOverride != "" {
+		var level zap.AtomicLevel
+		checkFatalError("failed to parse level arg", level.UnmarshalText([]byte(levelOverride)))
+		cfg.Log.File.Level = level
+		cfg.Log.StdOut.Level = level
 	}
 
 	switch cmd {
@@ -392,6 +371,9 @@ func main() {
 			return
 		}
 
+		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.StdOut.Level)
+		defer log.Sync()
+
 		checkFatalError("command failed", runRecalcCommand(cmd.Arg(0), log))
 	case sqlite3Cmd:
 		cmd.Usage()
@@ -401,11 +383,11 @@ func main() {
 			return
 		}
 
-		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, "info")
-		defer log.Sync()
-
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
+
+		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.StdOut.Level)
+		defer log.Sync()
 
 		log.Info("running integrity check")
 		checkFatalError("integrity check failed", runIntegrityCommand(ctx, cmd.Arg(0), log))
@@ -419,9 +401,6 @@ func main() {
 			cmd.Usage()
 			return
 		}
-
-		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
-		defer log.Sync()
 
 		checkFatalError("command failed", runBackupCommand(cmd.Arg(0), cmd.Arg(1)))
 	case rootCmd:
@@ -461,18 +440,8 @@ func main() {
 			checkFatalError("logging disabled", errors.New("either stdout or file logging must be enabled"))
 		}
 
-		// normalize log level
-		if cfg.Log.Level == "" {
-			cfg.Log.Level = "info"
-		}
-
 		var logCores []zapcore.Core
 		if cfg.Log.StdOut.Enabled {
-			// if no log level is set for stdout, use the global log level
-			if cfg.Log.StdOut.Level == "" {
-				cfg.Log.StdOut.Level = cfg.Log.Level
-			}
-
 			var encoder zapcore.Encoder
 			switch cfg.Log.StdOut.Format {
 			case "json":
@@ -482,16 +451,10 @@ func main() {
 			}
 
 			// create the stdout logger
-			level := parseLogLevel(cfg.Log.StdOut.Level)
-			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level))
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), cfg.Log.StdOut.Level))
 		}
 
 		if cfg.Log.File.Enabled {
-			// if no log level is set for file, use the global log level
-			if cfg.Log.File.Level == "" {
-				cfg.Log.File.Level = cfg.Log.Level
-			}
-
 			// normalize log path
 			if cfg.Log.File.Path == "" {
 				cfg.Log.File.Path = filepath.Join(cfg.Directory, "hostd.log")
@@ -511,8 +474,7 @@ func main() {
 			defer closeFn()
 
 			// create the file logger
-			level := parseLogLevel(cfg.Log.File.Level)
-			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), level))
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), cfg.Log.File.Level))
 		}
 
 		var log *zap.Logger
