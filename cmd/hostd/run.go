@@ -30,17 +30,13 @@ import (
 	"go.sia.tech/hostd/v2/config"
 	"go.sia.tech/hostd/v2/explorer"
 	"go.sia.tech/hostd/v2/explorer/connectivity"
-	"go.sia.tech/hostd/v2/host/accounts"
 	"go.sia.tech/hostd/v2/host/contracts"
-	"go.sia.tech/hostd/v2/host/registry"
 	"go.sia.tech/hostd/v2/host/settings"
 	"go.sia.tech/hostd/v2/host/settings/pin"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/index"
 	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.sia.tech/hostd/v2/rhp"
-	rhp2 "go.sia.tech/hostd/v2/rhp/v2"
-	rhp3 "go.sia.tech/hostd/v2/rhp/v3"
 	"go.sia.tech/hostd/v2/version"
 	"go.sia.tech/hostd/v2/webhooks"
 	"go.sia.tech/jape"
@@ -205,53 +201,6 @@ func explorerURL() string {
 	}
 }
 
-// migrateConsensusDB checks if the consensus database needs to be migrated
-// to match the new v2 commitment.
-func migrateConsensusDB(fp string, n *consensus.Network, genesis types.Block, log *zap.Logger) error {
-	bdb, err := coreutils.OpenBoltChainDB(fp)
-	if err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
-	}
-	defer bdb.Close()
-
-	dbstore, tipState, err := chain.NewDBStore(bdb, n, genesis, chain.NewZapMigrationLogger(log.Named("chaindb")))
-	if err != nil {
-		return fmt.Errorf("failed to create chain store: %w", err)
-	} else if tipState.Index.Height < n.HardforkV2.AllowHeight {
-		log.Debug("chain is still on v1 -- no migration needed")
-		return nil // no migration needed, the chain is still on v1
-	}
-
-	log.Debug("checking for v2 commitment migration")
-	b, _, ok := dbstore.Block(tipState.Index.ID)
-	if !ok {
-		return fmt.Errorf("failed to get tip block %q", tipState.Index)
-	} else if b.V2 == nil {
-		log.Debug("tip block is not a v2 block -- skipping commitment migration")
-		return nil
-	}
-
-	parentState, ok := dbstore.State(b.ParentID)
-	if !ok {
-		return fmt.Errorf("failed to get parent state for tip block %q", b.ParentID)
-	}
-	commitment := parentState.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
-	log = log.With(zap.Stringer("tip", b.ID()), zap.Stringer("commitment", b.V2.Commitment), zap.Stringer("expected", commitment))
-	if b.V2.Commitment == commitment {
-		log.Debug("tip block commitment matches parent state -- no migration needed")
-		return nil
-	}
-	// reset the database if the commitment is not a merkle root
-	log.Debug("resetting consensus database for new v2 commitment")
-	if err := bdb.Close(); err != nil {
-		return fmt.Errorf("failed to close old consensus database: %w", err)
-	} else if err := os.RemoveAll(fp); err != nil {
-		return fmt.Errorf("failed to remove old consensus database: %w", err)
-	}
-	log.Debug("consensus database reset")
-	return nil
-}
-
 func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
 	if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
@@ -279,16 +228,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		if cfg.Syncer.Bootstrap {
 			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.ZenBootstrapPeers...)
 		}
-	case "anagami":
-		network, genesisBlock = chain.TestnetAnagami()
-		if cfg.Syncer.Bootstrap {
-			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.AnagamiBootstrapPeers...)
-		}
-	case "erravimus":
-		network, genesisBlock = chain.TestnetErravimus()
-		if cfg.Syncer.Bootstrap {
-			cfg.Syncer.Peers = append(cfg.Syncer.Peers, syncer.ErravimusBootstrapPeers...)
-		}
 	default:
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
 	}
@@ -298,12 +237,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		exp = explorer.New(explorerURL())
 	}
 
-	consensusPath := filepath.Join(cfg.Directory, "consensus.db")
-	if err := migrateConsensusDB(consensusPath, network, genesisBlock, log); err != nil {
-		return fmt.Errorf("failed to migrate consensus database: %w", err)
-	}
-
-	bdb, err := coreutils.OpenBoltChainDB(consensusPath)
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
 	if err != nil {
 		return fmt.Errorf("failed to open consensus database: %w", err)
 	}
@@ -367,41 +301,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	go s.Run()
 	defer s.Close()
 
-	var minRebroadcastHeight uint64
-	if height := cm.Tip().Height; height > 4380 {
-		minRebroadcastHeight = height - 4380
-	}
-	rebroadcast, err := store.RebroadcastFormationSets(minRebroadcastHeight)
-	if err != nil {
-		return fmt.Errorf("failed to load rebroadcast formation sets: %w", err)
-	}
-	for _, formationSet := range rebroadcast {
-		if len(formationSet) == 0 {
-			continue
-		}
-
-		formationTxn := formationSet[len(formationSet)-1]
-		if len(formationTxn.FileContracts) == 0 {
-			continue
-		}
-		log := log.Named("rebroadcast").With(zap.Stringer("transactionID", formationTxn.ID()), zap.Stringer("contractID", formationTxn.FileContractID(0)))
-
-		// add all transactions back to the pool progressively in case some of them were confirmed.
-		for _, txn := range formationSet {
-			cm.AddPoolTransactions(append(cm.UnconfirmedParents(txn), txn)) // error is ignored because it will be caught below
-		}
-		// update the formation set and broadcast it as a whole. Technically not necessary, but logs the error if it still fails
-		formationSet = append(cm.UnconfirmedParents(formationTxn), formationTxn)
-		if _, err := cm.AddPoolTransactions(formationSet); err != nil {
-			log.Debug("failed to add formation set to pool", zap.Error(err))
-			continue
-		} else if err := s.BroadcastTransactionSet(formationSet); err != nil {
-			log.Debug("failed to rebroadcast formation set", zap.Error(err))
-			continue
-		}
-		log.Debug("rebroadcasted formation set")
-	}
-
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, s, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to create wallet: %w", err)
@@ -415,17 +314,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer wr.Close()
 
 	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
-
-	rhp2Addr, rhp2Port, err := normalizeAddress(cfg.RHP2.Address)
-	if err != nil {
-		return fmt.Errorf("failed to normalize RHP2 address: %w", err)
-	}
-
-	rhp3Addr, rhp3Port, err := normalizeAddress(cfg.RHP3.TCPAddress)
-	if err != nil {
-		return fmt.Errorf("failed to normalize RHP3 address: %w", err)
-	}
-
 	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
 	if err != nil {
 		return fmt.Errorf("failed to create storage manager: %w", err)
@@ -499,8 +387,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	settingsOpts := []settings.Option{
 		settings.WithAlertManager(am),
-		settings.WithRHP2Port(uint16(rhp2Port)),
-		settings.WithRHP3Port(uint16(rhp3Port)),
 		settings.WithRHP4Port(uint16(rhp4Port)),
 		settings.WithLog(log.Named("settings")),
 		settings.WithCertificates(certProvider),
@@ -526,27 +412,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
 	rl, wl := sm.RHPBandwidthLimiters()
-	rhp2Listener, err := rhp.Listen("tcp", rhp2Addr, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp2 addr: %w", err)
-	}
-	defer rhp2Listener.Close()
-
-	rhp3Listener, err := rhp.Listen("tcp", rhp3Addr, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
-	if err != nil {
-		return fmt.Errorf("failed to listen on rhp3 addr: %w", err)
-	}
-	defer rhp3Listener.Close()
-
-	rhp2 := rhp2.NewSessionHandler(rhp2Listener, hostKey, cm, s, wm, contractManager, sm, vm, log.Named("rhp2"))
-	go rhp2.Serve()
-	defer rhp2.Close()
-
-	registry := registry.NewManager(hostKey, store, log.Named("registry"))
-	accounts := accounts.NewManager(store, sm)
-	rhp3 := rhp3.NewSessionHandler(rhp3Listener, hostKey, cm, s, wm, accounts, contractManager, registry, vm, sm, log.Named("rhp3"))
-	go rhp3.Serve()
-	defer rhp3.Close()
 
 	rhp4 := rhp4.NewServer(hostKey, cm, s, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
 
@@ -628,7 +493,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	go version.RunVersionCheck(ctx, am, log.Named("version"))
 	web := http.Server{
 		Handler: webRouter{
-			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, accounts, contractManager, vm, wm, store, sm, index, apiOpts...)),
+			api: jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cfg.Name, hostKey.PublicKey(), cm, s, contractManager, vm, wm, store, sm, index, apiOpts...)),
 			ui:  hostd.Handler(),
 		},
 		ReadTimeout: 30 * time.Second,
@@ -652,7 +517,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}
 
-	log.Info("node started", zap.String("network", cm.TipState().Network.Name), zap.String("hostKey", hostKey.PublicKey().String()), zap.String("http", httpListener.Addr().String()), zap.String("p2p", string(s.Addr())), zap.String("rhp2", rhp2.LocalAddr()), zap.String("rhp3", rhp3.LocalAddr()))
+	log.Info("node started", zap.String("network", cm.TipState().Network.Name), zap.String("hostKey", hostKey.PublicKey().String()), zap.String("http", httpListener.Addr().String()), zap.String("p2p", string(s.Addr())))
 	<-ctx.Done()
 	log.Info("shutting down...")
 	time.AfterFunc(time.Minute, func() {

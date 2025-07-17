@@ -47,23 +47,6 @@ func WithInitialSettings(settings Settings) Option {
 	}
 }
 
-// WithRHP2Port sets the port that the host is listening for
-// RHP2 connections on. This is appended to the host's net address
-// and announced on the blockchain.
-func WithRHP2Port(port uint16) Option {
-	return func(c *ConfigManager) {
-		c.rhp2Port = port
-	}
-}
-
-// WithRHP3Port sets the port that the host is listening for
-// RHP3 connections on. This is part of the RHP2 settings.
-func WithRHP3Port(port uint16) Option {
-	return func(c *ConfigManager) {
-		c.rhp3Port = port
-	}
-}
-
 // WithRHP4Port sets the port that the host is listening for
 // RHP4 connections on. This is appended to the host's net address
 // and announced on the blockchain.

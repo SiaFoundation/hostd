@@ -81,7 +81,7 @@ func startAPI(t testing.TB, sk types.PrivateKey, host *testutil.HostNode, log *z
 	t.Cleanup(func() { l.Close() })
 
 	s := &http.Server{
-		Handler:     jape.BasicAuth("test")(api.NewServer("test", sk.PublicKey(), host.Chain, host.Syncer, host.Accounts, host.Contracts, host.Volumes, host.Wallet, host.Store, host.Settings, host.Indexer, api.WithLogger(log))),
+		Handler:     jape.BasicAuth("test")(api.NewServer("test", sk.PublicKey(), host.Chain, host.Syncer, host.Contracts, host.Volumes, host.Wallet, host.Store, host.Settings, host.Indexer, api.WithLogger(log))),
 		ReadTimeout: 30 * time.Second,
 	}
 	t.Cleanup(func() { s.Close() })

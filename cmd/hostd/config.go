@@ -210,20 +210,6 @@ func setAdvancedConfig() {
 	fmt.Println("The syncer address is used to exchange blocks with other nodes in the Sia network")
 	fmt.Println("It should be exposed publicly to improve the host's connectivity.")
 	setListenAddress("Gateway Address", &cfg.Syncer.Address)
-
-	// rhp2 address
-	fmt.Println("")
-	fmt.Println("The RHP2 address is used by renters to connect to the host.")
-	fmt.Println("It is a legacy protocol, but still required for host discovery")
-	fmt.Println("It should be exposed publicly to allow renters to connect and upload data.")
-	setListenAddress("RHP2 Address", &cfg.RHP2.Address)
-
-	// rhp3 TCP address
-	fmt.Println("")
-	fmt.Println("The RHP3 address is used by renters to connect to the host.")
-	fmt.Println("It is a newer protocol that is more efficient than RHP2.")
-	fmt.Println("It should be exposed publicly to allow renters to connect and upload data.")
-	setListenAddress("RHP3 TCP Address", &cfg.RHP3.TCPAddress)
 }
 
 func setDataDirectory() {
