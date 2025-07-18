@@ -12,11 +12,13 @@ CREATE TABLE wallet_siacoin_elements (
 	maturity_height INTEGER NOT NULL
 );
 
-CREATE TABLE wallet_locked_utxos (
+CREATE TABLE wallet_broadcasted_txnsets (
 	id BLOB PRIMARY KEY,
-	unlock_timestamp INTEGER NOT NULL
+	basis BLOB NOT NULL, -- binary serialized chain index
+	raw_transactions BLOB NOT NULL, -- binary serialized transaction set
+	date_created INTEGER NOT NULL
 );
-CREATE INDEX wallet_locked_utxos_unlock_timestamp ON wallet_locked_utxos(unlock_timestamp);
+CREATE INDEX wallet_broadcasted_txnsets_date_created ON wallet_broadcasted_txnsets(date_created);
 
 CREATE TABLE wallet_events (
 	id BLOB PRIMARY KEY,

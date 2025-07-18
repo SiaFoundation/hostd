@@ -33,7 +33,7 @@ type (
 		UnconfirmedEvents() ([]wallet.Event, error)
 		Events(offset, limit int) ([]wallet.Event, error)
 
-		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction) error
+		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
 
 		RecommendedFee() types.Currency
 

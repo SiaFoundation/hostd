@@ -413,7 +413,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	dr := rhp.NewDataRecorder(store, log.Named("data"))
 	rl, wl := sm.RHPBandwidthLimiters()
 
-	rhp4 := rhp4.NewServer(hostKey, cm, s, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
+	rhp4 := rhp4.NewServer(hostKey, cm, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
 
 	var stopListenerFuncs []func() error
 	defer func() {

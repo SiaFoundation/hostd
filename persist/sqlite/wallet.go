@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
@@ -12,72 +11,50 @@ import (
 
 var _ wallet.SingleAddressStore = (*Store)(nil)
 
-func cleanupLockedUTXOs(tx *txn) error {
-	_, err := tx.Exec(`DELETE FROM wallet_locked_utxos WHERE unlock_timestamp < $1`, encode(time.Now()))
-	return err
-}
-
-// LockUTXOs locks the given UTXOs until the given unlock time. If the UTXO is
-// already locked, it is updated. The unlock time should be in the future.
-func (s *Store) LockUTXOs(ids []types.SiacoinOutputID, unlockTime time.Time) error {
+// AddBroadcastedSet adds a set of broadcasted transactions. The wallet
+// will periodically rebroadcast the transactions in this set until all
+// transactions are gone from the transaction pool or one week has
+// passed.
+func (s *Store) AddBroadcastedSet(txnset wallet.BroadcastedSet) error {
 	return s.transaction(func(tx *txn) error {
-		stmt, err := tx.Prepare(`INSERT INTO wallet_locked_utxos (id, unlock_timestamp) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET unlock_timestamp=EXCLUDED.unlock_timestamp`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare lock statement: %w", err)
-		}
-		defer stmt.Close()
-
-		ts := encode(unlockTime)
-		for _, id := range ids {
-			if _, err := stmt.Exec(encode(id), ts); err != nil {
-				return fmt.Errorf("failed to lock UTXO %s: %w", id, err)
-			}
-		}
-		return cleanupLockedUTXOs(tx)
+		_, err := tx.Exec(`INSERT INTO wallet_broadcasted_txnsets (id, basis, raw_transactions, date_created) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+			encode(txnset.ID()), encode(txnset.Basis), encodeSlice(txnset.Transactions), encode(txnset.BroadcastedAt))
+		return err
 	})
 }
 
-// LockedUTXOs returns the IDs of all locked UTXOs. A locked UTXO is one that
-// has an unlock timestamp greater than ts.
-func (s *Store) LockedUTXOs(ts time.Time) (ids []types.SiacoinOutputID, err error) {
+// BroadcastedSets returns recently broadcasted sets.
+func (s *Store) BroadcastedSets() (sets []wallet.BroadcastedSet, err error) {
 	err = s.transaction(func(tx *txn) error {
-		rows, err := tx.Query(`SELECT id FROM wallet_locked_utxos WHERE unlock_timestamp > $1`, encode(ts))
+		rows, err := tx.Query(`SELECT basis, raw_transactions, date_created FROM wallet_broadcasted_txnsets ORDER BY date_created DESC`)
 		if err != nil {
-			return fmt.Errorf("failed to query locked UTXOs: %w", err)
+			return fmt.Errorf("failed to query broadcasted sets: %w", err)
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			var id types.SiacoinOutputID
-			if err := rows.Scan(decode(&id)); err != nil {
-				return fmt.Errorf("failed to scan locked UTXO: %w", err)
+			var buf []byte
+			var set wallet.BroadcastedSet
+			if err := rows.Scan(decode(&set.Basis), &buf, decode(&set.BroadcastedAt)); err != nil {
+				return fmt.Errorf("failed to scan broadcasted set: %w", err)
 			}
-			ids = append(ids, id)
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("failed to iterate locked UTXOs: %w", err)
+			dec := types.NewBufDecoder(buf)
+			types.DecodeSlice(dec, &set.Transactions)
+			if err := dec.Err(); err != nil {
+				return fmt.Errorf("failed to decode broadcasted set transactions: %w", err)
+			}
+			sets = append(sets, set)
 		}
 		return nil
 	})
 	return
 }
 
-// ReleaseUTXOs unlocks the given UTXOs. If the UTXO is not locked, it is
-// ignored.
-func (s *Store) ReleaseUTXOs(ids []types.SiacoinOutputID) error {
+// RemoveBroadcastedSet removes a set so it's no longer rebroadcasted.
+func (s *Store) RemoveBroadcastedSet(txnset wallet.BroadcastedSet) error {
 	return s.transaction(func(tx *txn) error {
-		stmt, err := tx.Prepare(`DELETE FROM wallet_locked_utxos WHERE id=$1`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare unlock statement: %w", err)
-		}
-		defer stmt.Close()
-
-		for _, id := range ids {
-			if _, err := stmt.Exec(encode(id)); err != nil {
-				return fmt.Errorf("failed to unlock UTXO %s: %w", id, err)
-			}
-		}
-		return cleanupLockedUTXOs(tx)
+		_, err := tx.Exec(`DELETE FROM wallet_broadcasted_txnsets WHERE id = ?`, encode(txnset.ID()))
+		return err
 	})
 }
 

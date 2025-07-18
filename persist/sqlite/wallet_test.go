@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/wallet"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
-func TestWalletLockUnlock(t *testing.T) {
+func TestWalletBroadcastedSets(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "hostd.sqlite3"), log)
 	if err != nil {
@@ -18,55 +19,43 @@ func TestWalletLockUnlock(t *testing.T) {
 	}
 	defer db.Close()
 
-	expectedLocked := make(map[types.SiacoinOutputID]bool)
-	lockedIDs := make([]types.SiacoinOutputID, 10)
-	for i := range lockedIDs {
-		lockedIDs[i] = frand.Entropy256()
-		expectedLocked[lockedIDs[i]] = true
-	}
-	if err := db.LockUTXOs(lockedIDs, time.Now().Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	ids, err := db.LockedUTXOs(time.Now())
-	if err != nil {
-		t.Fatal(err)
-	} else if len(ids) != len(lockedIDs) {
-		t.Fatalf("expected %d locked UTXOs, got %d", len(lockedIDs), len(ids))
-	}
-	for _, id := range ids {
-		if _, ok := expectedLocked[id]; !ok {
-			t.Fatalf("unexpected locked UTXO %s", id)
-		}
+	set := wallet.BroadcastedSet{
+		Basis:         types.ChainIndex{Height: 1, ID: types.BlockID{1}},
+		BroadcastedAt: time.Now(),
+		Transactions: []types.V2Transaction{
+			{
+				ArbitraryData: frand.Bytes(10),
+			},
+			{
+				ArbitraryData: frand.Bytes(10),
+			},
+			{
+				ArbitraryData: frand.Bytes(10),
+			},
+		},
 	}
 
-	if err := db.ReleaseUTXOs(lockedIDs); err != nil {
+	if err := db.AddBroadcastedSet(set); err != nil {
 		t.Fatal(err)
 	}
 
-	ids, err = db.LockedUTXOs(time.Now())
+	sets, err := db.BroadcastedSets()
 	if err != nil {
 		t.Fatal(err)
-	} else if len(ids) != 0 {
-		t.Fatalf("expected 0 locked UTXOs, got %d", len(ids))
+	} else if len(sets) != 1 {
+		t.Fatalf("expected 1 broadcasted set, got %d", len(sets))
+	} else if sets[0].ID() != set.ID() {
+		t.Fatalf("expected broadcasted set ID %s, got %s", set.ID(), sets[0].ID())
 	}
 
-	// lock the ids, but set the unlock time to the past
-	if err := db.LockUTXOs(lockedIDs, time.Now().Add(-time.Minute)); err != nil {
+	if err := db.RemoveBroadcastedSet(set); err != nil {
 		t.Fatal(err)
-	}
-	ids, err = db.LockedUTXOs(time.Now())
-	if err != nil {
-		t.Fatal(err)
-	} else if len(ids) != 0 {
-		t.Fatalf("expected 0 locked UTXOs, got %d", len(ids))
 	}
 
-	// assert the utxos were cleaned up
-	var count int
-	err = db.db.QueryRow(`SELECT COUNT(*) FROM wallet_locked_utxos`).Scan(&count)
+	sets, err = db.BroadcastedSets()
 	if err != nil {
 		t.Fatal(err)
-	} else if count != 0 {
-		t.Fatalf("expected 0 locked UTXOs, got %d", count)
+	} else if len(sets) != 0 {
+		t.Fatalf("expected 0 broadcasted sets, got %d", len(sets))
 	}
 }
