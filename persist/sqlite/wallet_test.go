@@ -44,8 +44,12 @@ func TestWalletBroadcastedSets(t *testing.T) {
 		t.Fatal(err)
 	} else if len(sets) != 1 {
 		t.Fatalf("expected 1 broadcasted set, got %d", len(sets))
+	} else if sets[0].Basis != set.Basis {
+		t.Fatalf("expected basis %v, got %v", set.Basis, sets[0].Basis)
+	} else if !sets[0].BroadcastedAt.Equal(set.BroadcastedAt.Truncate(time.Second)) {
+		t.Fatalf("expected broadcasted at %v, got %v", set.BroadcastedAt, sets[0].BroadcastedAt)
 	} else if sets[0].ID() != set.ID() {
-		t.Fatalf("expected broadcasted set ID %s, got %s", set.ID(), sets[0].ID())
+		t.Fatalf("expected ID %v, got %v", set.ID(), sets[0].ID())
 	}
 
 	if err := db.RemoveBroadcastedSet(set); err != nil {
