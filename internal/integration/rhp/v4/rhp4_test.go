@@ -57,7 +57,7 @@ func (fs *fundAndSign) Address() types.Address {
 }
 
 func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
-	rs := rhp4.NewServer(hostKey, hn.Chain, &testutil.MockSyncer{}, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
+	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
 
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -76,7 +76,7 @@ func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.Ho
 }
 
 func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
-	rs := rhp4.NewServer(hostKey, hn.Chain, &testutil.MockSyncer{}, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
+	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
 
 	udpAddr, err := net.ResolveUDPAddr("udp", "localhost:0")
 	if err != nil {
