@@ -100,6 +100,19 @@ func (s *Store) WalletEventCount() (count uint64, err error) {
 	return
 }
 
+// WalletEvent retrieves a wallet event by its ID.
+// If the event does not exist, wallet.ErrEventNotFound is returned.
+func (s *Store) WalletEvent(id types.Hash256) (event wallet.Event, err error) {
+	err = s.transaction(func(tx *txn) error {
+		err := tx.QueryRow(`SELECT raw_data FROM wallet_events WHERE id = ?`, encode(id)).Scan(decode(&event))
+		if errors.Is(err, sql.ErrNoRows) {
+			return wallet.ErrEventNotFound
+		}
+		return err
+	})
+	return
+}
+
 // WalletEvents returns a paginated list of transactions ordered by
 // maturity height, descending. If no more transactions are available,
 // (nil, nil) should be returned.

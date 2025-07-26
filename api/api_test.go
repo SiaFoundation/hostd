@@ -3,6 +3,7 @@ package api_test
 import (
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,5 +188,41 @@ func TestV2Contracts(t *testing.T) {
 		t.Fatalf("expected 1 contract, got %v", count)
 	} else if resp[0].ID != contractID {
 		t.Fatalf("expected contract %v, got %v", contractID, resp[0].ID)
+	}
+}
+
+func TestWalletEvent(t *testing.T) {
+	log := zap.NewNop()
+	n, genesis := testutil.V2Network()
+	hostKey := types.GeneratePrivateKey()
+	host := testutil.NewHostNode(t, hostKey, n, genesis, log)
+	client := startAPI(t, hostKey, host, log)
+
+	testutil.MineAndSync(t, host, host.Wallet.Address(), 10)
+
+	txnID, err := client.SendSiacoins(types.Address{1}, types.Siacoins(100), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventID := types.Hash256(txnID)
+
+	_, err = client.Event(eventID)
+	if !strings.Contains(err.Error(), wallet.ErrEventNotFound.Error()) {
+		t.Fatalf("expected %q, got %q", wallet.ErrEventNotFound, err)
+	}
+
+	testutil.MineAndSync(t, host, types.VoidAddress, 1)
+
+	event, err := client.Event(eventID)
+	if err != nil {
+		t.Fatal(err)
+	} else if event.ID != eventID {
+		t.Fatalf("expected event ID %q, got %q", eventID, event.ID)
+	} else if event.Type != wallet.EventTypeV2Transaction {
+		t.Fatalf("expected event type %q, got %q", wallet.EventTypeV2Transaction, event.Type)
+	} else if event.Timestamp.IsZero() {
+		t.Fatal("expected event timestamp to be set")
+	} else if !event.SiacoinOutflow().Sub(event.SiacoinInflow()).Equals(types.Siacoins(100)) {
+		t.Fatalf("expected event outflow %s, got %s", types.Siacoins(100), event.SiacoinOutflow().Sub(event.SiacoinInflow()))
 	}
 }
