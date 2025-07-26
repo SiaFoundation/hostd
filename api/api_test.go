@@ -225,5 +225,4 @@ func TestWalletEvent(t *testing.T) {
 	} else if !event.SiacoinOutflow().Sub(event.SiacoinInflow()).Equals(types.Siacoins(100)) {
 		t.Fatalf("expected event outflow %s, got %s", types.Siacoins(100), event.SiacoinOutflow().Sub(event.SiacoinInflow()))
 	}
-
 }
