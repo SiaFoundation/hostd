@@ -32,6 +32,7 @@ type (
 		Balance() (balance wallet.Balance, err error)
 		UnconfirmedEvents() ([]wallet.Event, error)
 		Events(offset, limit int) ([]wallet.Event, error)
+		Event(types.Hash256) (wallet.Event, error)
 
 		ReleaseInputs(txns []types.Transaction, v2txns []types.V2Transaction)
 
@@ -286,10 +287,11 @@ func NewServer(name string, hostKey types.PublicKey, cm ChainManager, s Syncer, 
 		// tpool endpoints
 		"GET /tpool/fee": a.handleGETTPoolFee,
 		// wallet endpoints
-		"GET /wallet":         a.handleGETWallet,
-		"GET /wallet/events":  a.handleGETWalletEvents,
-		"GET /wallet/pending": a.handleGETWalletPending,
-		"POST /wallet/send":   a.handlePOSTWalletSend,
+		"GET /wallet":            a.handleGETWallet,
+		"GET /wallet/events":     a.handleGETWalletEvents,
+		"GET /wallet/events/:id": a.handleGETWalletEvent,
+		"GET /wallet/pending":    a.handleGETWalletPending,
+		"POST /wallet/send":      a.handlePOSTWalletSend,
 		// system endpoints
 		"GET /system/dir":             a.handleGETSystemDir,
 		"PUT /system/dir":             a.handlePUTSystemDir,

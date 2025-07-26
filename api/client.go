@@ -237,6 +237,12 @@ func (c *Client) Events(limit, offset int) (transactions []wallet.Event, err err
 	return
 }
 
+// Event retrieves a wallet event by its ID.
+func (c *Client) Event(id types.Hash256) (event wallet.Event, err error) {
+	err = c.c.GET(context.Background(), fmt.Sprintf("/wallet/events/%s", id.String()), &event)
+	return
+}
+
 // PendingEvents returns transactions that are not yet confirmed.
 func (c *Client) PendingEvents() (events []wallet.Event, err error) {
 	err = c.c.GET(context.Background(), "/wallet/pending", &events)

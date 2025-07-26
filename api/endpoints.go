@@ -476,6 +476,20 @@ func (a *api) handleGETWalletEvents(jc jape.Context) {
 	a.writeResponse(jc, WalletTransactionsResp(transactions))
 }
 
+func (a *api) handleGETWalletEvent(jc jape.Context) {
+	var id types.Hash256
+	if err := jc.DecodeParam("id", &id); err != nil {
+		return
+	}
+
+	event, err := a.wallet.Event(id)
+	if !a.checkServerError(jc, "failed to get event", err) {
+		return
+	}
+
+	a.writeResponse(jc, event)
+}
+
 func (a *api) handleGETWalletPending(jc jape.Context) {
 	pending, err := a.wallet.UnconfirmedEvents()
 	if !a.checkServerError(jc, "failed to get wallet pending", err) {

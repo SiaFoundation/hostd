@@ -1,12 +1,15 @@
 package sqlite
 
 import (
+	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/wallet"
+	"go.sia.tech/hostd/v2/index"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -61,5 +64,49 @@ func TestWalletBroadcastedSets(t *testing.T) {
 		t.Fatal(err)
 	} else if len(sets) != 0 {
 		t.Fatalf("expected 0 broadcasted sets, got %d", len(sets))
+	}
+}
+
+func TestWalletEvent(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "hostd.sqlite3"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	event := wallet.Event{
+		ID:        types.Hash256{1},
+		Timestamp: time.Now().Truncate(time.Second),
+		Type:      wallet.EventTypeV2Transaction,
+		Data: wallet.EventV2Transaction{
+			ArbitraryData: frand.Bytes(10),
+		},
+	}
+
+	if _, err = db.WalletEvent(event.ID); !errors.Is(err, wallet.ErrEventNotFound) {
+		t.Fatalf("expected %q, got %q", wallet.ErrEventNotFound, err)
+	}
+
+	err = db.UpdateChainState(func(tx index.UpdateTx) error {
+		return tx.WalletApplyIndex(types.ChainIndex{}, nil, nil, []wallet.Event{
+			event,
+		}, time.Now())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	retrieved, err := db.WalletEvent(event.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if retrieved.ID != event.ID {
+		t.Fatalf("expected ID %v, got %v", event.ID, retrieved.ID)
+	} else if !retrieved.Timestamp.Equal(event.Timestamp) {
+		t.Fatalf("expected timestamp %v, got %v", event.Timestamp, retrieved.Timestamp)
+	} else if retrieved.Type != event.Type {
+		t.Fatalf("expected type %v, got %v", event.Type, retrieved.Type)
+	} else if !reflect.DeepEqual(retrieved.Data, event.Data) {
+		t.Fatalf("expected data %v, got %v", event.Data, retrieved.Data)
 	}
 }
