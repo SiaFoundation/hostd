@@ -1602,7 +1602,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 			return fmt.Errorf("failed to set contract %q status: %w", contractID, err)
 		}
 
-		switch status {
+		switch state.Status {
 		case contracts.V2ContractStatusActive:
 			if err := updateV2EarnedRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
 				return fmt.Errorf("failed to update earned revenue metrics: %w", err)
