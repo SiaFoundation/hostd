@@ -1,3 +1,9 @@
+## 2.3.6 (2025-08-01)
+
+### Fixes
+
+- Fixed a panic when a v2 contract state transitions from renewed to failed.
+
 ## 2.3.5 (2025-07-01)
 
 ### Fixes
