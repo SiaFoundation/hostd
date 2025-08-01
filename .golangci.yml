@@ -1,150 +1,110 @@
-# Based off of the example file at https://github.com/golangci/golangci-lint
-
-# options for analysis running
+version: "2"
 run:
-  # default concurrency is a available CPU number
   concurrency: 4
-
-  # timeout for analysis, e.g. 30s, 5m, default is 1m
-  timeout: 600s
-
-  # exit code when at least one issue was found, default is 1
   issues-exit-code: 1
-
-  # include test files or not, default is true
   tests: true
-
-  # list of build tags, all linters use it. Default is empty list.
-  build-tags: []
-
-# output configuration options
-output:
-  # print lines of code with issue, default is true
-  print-issued-lines: true
-
-  # print linter name in the end of issue text, default is true
-  print-linter-name: true
-
-# all available settings of specific linters
-linters-settings:
-  ## Enabled linters:
-  govet:
-    # report about shadowed variables
-    disable-all: false
-
-  tagliatelle:
-    case:
-      rules:
-        json: goCamel
-        yaml: goCamel
-
-
-  gocritic:
-    # Which checks should be enabled; can't be combined with 'disabled-checks';
-    # See https://go-critic.github.io/overview#checks-overview
-    # To check which checks are enabled run `GL_DEBUG=gocritic golangci-lint run`
-    # By default list of stable checks is used.
-    enabled-tags:
-      - diagnostic
-      - style
-    disabled-checks:
-      # diagnostic
-      - appendAssign
-      - commentedOutCode
-      - uncheckedInlineErr
-      # style
-      - httpNoBody
-      - exitAfterDefer
-      - ifElseChain
-      - importShadow
-      - initClause
-      - nestingReduce
-      - octalLiteral
-      - paramTypeCombine
-      - ptrToRefParam
-      - stringsCompare
-      - tooManyResultsChecker
-      - typeDefFirst
-      - typeUnparen
-      - unlabelStmt
-      - unnamedResult
-      - whyNoLint
-  revive:
-    ignore-generated-header: true
-    rules:
-      - name: blank-imports
-        disabled: false
-      - name: bool-literal-in-expr
-        disabled: false
-      - name: confusing-naming
-        disabled: false
-      - name: confusing-results
-        disabled: false
-      - name: constant-logical-expr
-        disabled: false
-      - name: context-as-argument
-        disabled: false
-      - name: exported
-        disabled: false
-      - name: errorf
-        disabled: false
-      - name: if-return
-        disabled: false
-      - name: indent-error-flow
-        disabled: true
-      - name: increment-decrement
-        disabled: false
-      - name: modifies-value-receiver
-        disabled: true
-      - name: optimize-operands-order
-        disabled: false
-      - name: range-val-in-closure
-        disabled: false
-      - name: struct-tag
-        disabled: false
-      - name: superfluous-else
-        disabled: false
-      - name: time-equal
-        disabled: false
-      - name: unexported-naming
-        disabled: false
-      - name: unexported-return
-        disabled: false
-      - name: unnecessary-stmt
-        disabled: false
-      - name: unreachable-code
-        disabled: false
-      - name: package-comments
-        disabled: true
-
 linters:
-  disable-all: true
-  fast: false
+  default: none
   enable:
-    - tagliatelle
     - gocritic
-    - gofmt
-    - revive
     - govet
     - misspell
-    - typecheck
+    - revive
+    - tagliatelle
     - whitespace
-
+  settings:
+    gocritic:
+      disabled-checks:
+        - appendAssign
+        - commentedOutCode
+        - uncheckedInlineErr
+        - httpNoBody
+        - exitAfterDefer
+        - ifElseChain
+        - importShadow
+        - initClause
+        - nestingReduce
+        - octalLiteral
+        - paramTypeCombine
+        - ptrToRefParam
+        - stringsCompare
+        - tooManyResultsChecker
+        - typeDefFirst
+        - typeUnparen
+        - unlabelStmt
+        - unnamedResult
+        - whyNoLint
+      enabled-tags:
+        - diagnostic
+        - style
+    govet:
+      disable-all: false
+    revive:
+      rules:
+        - name: blank-imports
+          disabled: false
+        - name: bool-literal-in-expr
+          disabled: false
+        - name: confusing-naming
+          disabled: false
+        - name: confusing-results
+          disabled: false
+        - name: constant-logical-expr
+          disabled: false
+        - name: context-as-argument
+          disabled: false
+        - name: exported
+          disabled: false
+        - name: errorf
+          disabled: false
+        - name: if-return
+          disabled: false
+        - name: indent-error-flow
+          disabled: true
+        - name: increment-decrement
+          disabled: false
+        - name: modifies-value-receiver
+          disabled: true
+        - name: optimize-operands-order
+          disabled: false
+        - name: range-val-in-closure
+          disabled: false
+        - name: struct-tag
+          disabled: false
+        - name: superfluous-else
+          disabled: false
+        - name: time-equal
+          disabled: false
+        - name: unexported-naming
+          disabled: false
+        - name: unexported-return
+          disabled: false
+        - name: unnecessary-stmt
+          disabled: false
+        - name: unreachable-code
+          disabled: false
+        - name: package-comments
+          disabled: true
+    tagliatelle:
+      case:
+        rules:
+          json: goCamel
+          yaml: goCamel
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
   max-issues-per-linter: 0
-
-  # Maximum count of issues with the same text. Set to 0 to disable. Default is 3.
   max-same-issues: 0
-
-  # List of regexps of issue texts to exclude, empty list by default.
-  # But independently from this option we use default exclude patterns,
-  # it can be disabled by `exclude-use-default: false`. To list all
-  # excluded by default patterns execute `golangci-lint run --help`
-  exclude: []
-
-  # Independently from option `exclude` we use default exclude patterns,
-  # it can be disabled by this option. To list all
-  # excluded by default patterns execute `golangci-lint run --help`.
-  # Default value for this option is true.
-  exclude-use-default: false
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
