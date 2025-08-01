@@ -1616,7 +1616,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 				return fmt.Errorf("failed to update earned revenue metrics: %w", err)
 			}
 		case contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusRenewed:
-			log.Debug("skipping successful->successful state transition")
+			log.Debug("skipping already completed state transition")
 		default:
 			log.Panic("unexpected contract status")
 		}
