@@ -12,6 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion43(tx *txn, log *zap.Logger) error {
+	return recalcContractMetrics(tx, log)
+}
+
 func migrateVersion42(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 DROP TABLE wallet_locked_utxos;
@@ -1067,4 +1071,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion40,
 	migrateVersion41,
 	migrateVersion42,
+	migrateVersion43,
 }
