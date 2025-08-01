@@ -1577,9 +1577,10 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 		if err != nil {
 			return fmt.Errorf("failed to get contract state %q: %w", contractID, err)
 		}
+		log := log.With(zap.Stringer("contractID", contractID), zap.String("currentStatus", string(state.Status)), zap.String("targetStatus", string(status)))
 
 		if state.Status == status {
-			log.Debug("skipping rescan state transition", zap.Stringer("contractID", contractID), zap.String("current", string(state.Status)))
+			log.Debug("skipping rescan state transition")
 			continue
 		} else if state.Status == contracts.V2ContractStatusPending || state.Status == contracts.V2ContractStatusRejected {
 			// panic if the contract is not active. Proper reverts should have
@@ -1587,7 +1588,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 			//
 			// note: failed -> successful/renewed is allowed due to
 			// reorgs or rescans potentially changing the contract state.
-			panic(fmt.Errorf("unexpected contract state transition %q %q -> %q", contractID, state.Status, contracts.V2ContractStatusSuccessful))
+			log.Panic("unexpected contract state transition")
 		}
 
 		// update the contract's resolution index and status
@@ -1615,7 +1616,9 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 				return fmt.Errorf("failed to update earned revenue metrics: %w", err)
 			}
 		case contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusRenewed:
-			log.Debug("skipping successful->successful state transition", zap.Stringer("contractID", contractID), zap.String("current", string(state.Status)), zap.String("target", string(status)))
+			log.Debug("skipping successful->successful state transition")
+		default:
+			log.Panic("unexpected contract status")
 		}
 	}
 	return nil
@@ -1657,10 +1660,11 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 		if err != nil {
 			return fmt.Errorf("failed to get contract state %q: %w", contractID, err)
 		}
+		log := log.With(zap.Stringer("contractID", contractID), zap.String("currentStatus", string(state.Status)), zap.String("targetStatus", string(contracts.V2ContractStatusFailed)))
 
 		if state.Status == contracts.V2ContractStatusFailed {
 			// skip update if the contract is already failed.
-			log.Debug("skipping rescan state transition", zap.Stringer("contractID", contractID))
+			log.Debug("skipping rescan state transition")
 			continue
 		} else if state.Status == contracts.V2ContractStatusPending || state.Status == contracts.V2ContractStatusRejected {
 			// panic if the contract is pending or rejected. Proper reverts
@@ -1668,7 +1672,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 			//
 			// note: successful/renewed -> failed is allowed due to
 			// reorgs or rescans potentially changing the contract state.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.V2ContractStatusFailed))
+			log.Panic("unexpected contract state transition")
 		}
 
 		// update the contract's resolution index and status
@@ -1678,9 +1682,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
 			return fmt.Errorf("no rows updated: %q", contractID)
-		}
-
-		if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusFailed, incrementNumericStat); err != nil {
+		} else if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusFailed, incrementNumericStat); err != nil {
 			return fmt.Errorf("failed to set contract %q status: %w", contractID, err)
 		}
 
@@ -1699,6 +1701,10 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 			if err := updateV2EarnedRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
 				return fmt.Errorf("failed to update earned revenue metrics: %w", err)
 			}
+		default:
+			// panic if the contract is not active, successful or renewed. Proper
+			// reverts should have ensured that this never happens.
+			log.Panic("unexpected contract status")
 		}
 	}
 	return nil
