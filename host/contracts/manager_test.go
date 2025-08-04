@@ -13,6 +13,7 @@ import (
 	"go.sia.tech/core/consensus"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/coreutils/syncer"
@@ -95,8 +96,8 @@ func mineEmptyBlock(state consensus.State, minerAddr types.Address) types.Block 
 		b.V2 = &types.V2BlockData{Height: state.Index.Height + 1}
 		b.V2.Commitment = state.Commitment(minerAddr, b.Transactions, b.V2Transactions())
 	}
-	for b.ID().CmpWork(state.ChildTarget) < 0 {
-		b.Nonce += state.NonceFactor()
+	if !coreutils.FindBlockNonce(state, &b, 10*time.Second) {
+		panic(fmt.Sprintf("failed to mine empty block at height %d", state.Index.Height+1))
 	}
 	return b
 }
@@ -718,7 +719,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// prepare blocks to revert the contract formation
 		revertState := node.Chain.TipState()
 		var blocks []types.Block
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			blocks = append(blocks, mineEmptyBlock(revertState, types.VoidAddress))
 			revertState, _ = consensus.ApplyBlock(revertState, blocks[len(blocks)-1], consensus.V1BlockSupplement{}, time.Time{})
 		}
