@@ -266,7 +266,7 @@ func TestRPCRefresh(t *testing.T) {
 		revision.Revision = fundResult.Revision
 
 		// upload data
-		at := account.Token(renterKey, hostKey.PublicKey())
+		at := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 		wRes, err := rhp4.RPCWriteSector(context.Background(), transport, settings.Prices, at, bytes.NewReader(bytes.Repeat([]byte{1}, proto4.LeafSize)), proto4.LeafSize)
 		if err != nil {
 			t.Fatal(err)
@@ -288,11 +288,11 @@ func TestRPCRefresh(t *testing.T) {
 		return revision
 	}
 
-	t.Run("no allowance or collateral", func(t *testing.T) {
+	t.Run("full rollover - no allowance or collateral", func(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 
 		// refresh the contract
-		_, err = rhp4.RPCRefreshContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		_, err = rhp4.RPCRefreshContractFullRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  types.ZeroCurrency,
 			Collateral: types.ZeroCurrency,
@@ -304,13 +304,86 @@ func TestRPCRefresh(t *testing.T) {
 		}
 	})
 
-	t.Run("valid refresh", func(t *testing.T) {
+	t.Run("full rollover - valid refresh", func(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 		// refresh the contract
-		refreshResult, err := rhp4.RPCRefreshContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		refreshResult, err := rhp4.RPCRefreshContractFullRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  types.Siacoins(10),
 			Collateral: types.Siacoins(20),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// verify the transaction set is valid
+		if known, err := cm.AddV2PoolTransactions(refreshResult.RenewalSet.Basis, refreshResult.RenewalSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if !known {
+			t.Fatal("expected transaction set to be known")
+		}
+
+		sigHash := cm.TipState().ContractSigHash(refreshResult.Contract.Revision)
+		if !renterKey.PublicKey().VerifyHash(sigHash, refreshResult.Contract.Revision.RenterSignature) {
+			t.Fatal("renter signature verification failed")
+		} else if !hostKey.PublicKey().VerifyHash(sigHash, refreshResult.Contract.Revision.HostSignature) {
+			t.Fatal("host signature verification failed")
+		}
+
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		if err != nil {
+			t.Fatal(err)
+		} else if !rs.Renewed {
+			t.Fatal("expected contract to be renewed")
+		} else if rs.Revisable {
+			t.Fatal("expected contract to not be revisable")
+		}
+	})
+
+	t.Run("partial rollover - no allowance or collateral", func(t *testing.T) {
+		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
+
+		// refresh the contract
+		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+			ContractID: revision.ID,
+			Allowance:  types.Siacoins(100),
+			Collateral: types.Siacoins(200),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// verify the transaction set is valid
+		if known, err := cm.AddV2PoolTransactions(refreshResult.RenewalSet.Basis, refreshResult.RenewalSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if !known {
+			t.Fatal("expected transaction set to be known")
+		}
+
+		sigHash := cm.TipState().ContractSigHash(refreshResult.Contract.Revision)
+		if !renterKey.PublicKey().VerifyHash(sigHash, refreshResult.Contract.Revision.RenterSignature) {
+			t.Fatal("renter signature verification failed")
+		} else if !hostKey.PublicKey().VerifyHash(sigHash, refreshResult.Contract.Revision.HostSignature) {
+			t.Fatal("host signature verification failed")
+		}
+
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		if err != nil {
+			t.Fatal(err)
+		} else if !rs.Renewed {
+			t.Fatal("expected contract to be renewed")
+		} else if rs.Revisable {
+			t.Fatal("expected contract to not be revisable")
+		}
+	})
+
+	t.Run("partial rollover - valid refresh", func(t *testing.T) {
+		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
+		// refresh the contract
+		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+			ContractID: revision.ID,
+			Allowance:  types.Siacoins(110),
+			Collateral: types.Siacoins(220),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -408,7 +481,7 @@ func TestRPCRenew(t *testing.T) {
 		revision.Revision = fundResult.Revision
 
 		// upload data
-		at := account.Token(renterKey, hostKey.PublicKey())
+		at := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 		at.Signature = renterKey.SignHash(at.SigHash())
 		wRes, err := rhp4.RPCWriteSector(context.Background(), transport, settings.Prices, at, bytes.NewReader(bytes.Repeat([]byte{1}, proto4.LeafSize)), proto4.LeafSize)
 		if err != nil {
@@ -816,7 +889,7 @@ func TestReadWriteSector(t *testing.T) {
 	}
 	revision.Revision = fundResult.Revision
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	data := frand.Bytes(1024)
 
 	// store the sector
@@ -917,7 +990,7 @@ func TestAppendSectors(t *testing.T) {
 	revision.Revision = fundResult.Revision
 	assertLastRevision(t)
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	// store random sectors
 	roots := make([]types.Hash256, 0, 10)
 	for i := 0; i < 10; i++ {
@@ -1016,7 +1089,7 @@ func TestVerifySector(t *testing.T) {
 	}
 	revision.Revision = fundResult.Revision
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	data := frand.Bytes(1024)
 
 	// store the sector
@@ -1088,7 +1161,7 @@ func TestRPCFreeSectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	revision.Revision = fundResult.Revision
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	roots := make([]types.Hash256, 10)
 	for i := range roots {
 		// store random sectors on the host
@@ -1191,7 +1264,7 @@ func TestRPCSectorRoots(t *testing.T) {
 	}
 	revision.Revision = fundResult.Revision
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	roots := make([]types.Hash256, 0, 50)
 
 	checkRoots := func(t *testing.T, expected []types.Hash256) {
@@ -1281,7 +1354,7 @@ func TestPrune(t *testing.T) {
 	}
 	revision.Revision = fundResult.Revision
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	tempExpirationHeight := cm.Tip().Height + proto4.TempSectorDuration
 	roots := make([]types.Hash256, 10)
 	for i := 0; i < len(roots); i++ {
@@ -1392,7 +1465,7 @@ func BenchmarkWrite(b *testing.B) {
 	}
 	revision.Revision = fundResult.Revision
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 
 	var sectors [][proto4.SectorSize]byte
 	for i := 0; i < b.N; i++ {
@@ -1464,7 +1537,7 @@ func BenchmarkRead(b *testing.B) {
 	}
 	revision.Revision = fundResult.Revision
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 
 	var sectors [][proto4.SectorSize]byte
 	roots := make([]types.Hash256, 0, b.N)
@@ -1548,7 +1621,7 @@ func BenchmarkContractUpload(b *testing.B) {
 	}
 	revision.Revision = fundResult.Revision
 
-	token := account.Token(renterKey, hostKey.PublicKey())
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 
 	var sectors [][proto4.SectorSize]byte
 	roots := make([]types.Hash256, 0, b.N)
