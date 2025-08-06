@@ -13,8 +13,6 @@ type (
 		// ContractActions returns the lifecycle actions for the contract at the
 		// given index.
 		ContractActions(index types.ChainIndex, revisionBroadcastHeight uint64) (LifecycleActions, error)
-		// ContractChainIndexElement returns the chain index element for the given height.
-		ContractChainIndexElement(types.ChainIndex) (types.ChainIndexElement, error)
 
 		// SectorRoots returns the sector roots for all contracts.
 		SectorRoots() (map[types.FileContractID][]types.Hash256, error)

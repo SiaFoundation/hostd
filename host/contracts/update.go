@@ -5,6 +5,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	rhp2 "go.sia.tech/core/rhp/v2"
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
@@ -21,6 +22,13 @@ import (
 const chainIndexBuffer = 144
 
 type (
+	// V2ProofElement groups the necessary chain index element with its
+	// file contract element for building a v2 storage proof resolution.
+	V2ProofElement struct {
+		ChainIndexElement     types.ChainIndexElement
+		V2FileContractElement types.V2FileContractElement
+	}
+
 	// LifecycleActions contains the actions that need to be taken to maintain
 	// the lifecycle of active contracts.
 	LifecycleActions struct {
@@ -28,10 +36,11 @@ type (
 		BroadcastRevision    []SignedRevision
 		BroadcastProof       []SignedRevision
 
-		// V2 actions
+		// V2
+		Basis                  types.ChainIndex
 		RebroadcastV2Formation []rhp4.TransactionSet
 		BroadcastV2Revision    []types.V2FileContractRevision
-		BroadcastV2Proof       []types.V2FileContractElement
+		BroadcastV2Proof       []V2ProofElement
 		BroadcastV2Expiration  []types.V2FileContractElement
 	}
 
@@ -153,11 +162,11 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	contractID := types.FileContractID(fce.ID)
 
 	leafIndex := cs.StorageProofLeafIndex(fce.V2FileContract.Filesize, types.BlockID(pi.ID), contractID)
-	sectorIndex := leafIndex / rhp2.LeavesPerSector
-	segmentIndex := leafIndex % rhp2.LeavesPerSector
+	sectorIndex := leafIndex / proto4.LeavesPerSector
+	segmentIndex := leafIndex % proto4.LeavesPerSector
 
 	roots := cm.getSectorRoots(contractID)
-	contractRoot := rhp2.MetaRoot(roots)
+	contractRoot := proto4.MetaRoot(roots)
 	if contractRoot != revision.FileMerkleRoot {
 		log.Error("unexpected contract root", zap.Stringer("expectedRoot", revision.FileMerkleRoot), zap.Stringer("actualRoot", contractRoot))
 		return types.V2StorageProof{}, fmt.Errorf("merkle root mismatch")
@@ -171,8 +180,8 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.V2StorageProof{}, fmt.Errorf("failed to read sector data")
-	} else if rhp2.SectorRoot(sector) != sectorRoot {
-		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", rhp2.SectorRoot(sector)))
+	} else if proto4.SectorRoot(sector) != sectorRoot {
+		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", proto4.SectorRoot(sector)))
 		return types.V2StorageProof{}, fmt.Errorf("invalid sector root")
 	}
 	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
@@ -181,8 +190,134 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 		ProofIndex: pi,
 		Proof:      append(segmentProof, sectorProof...),
 	}
-	copy(sp.Leaf[:], sector[segmentIndex*rhp2.LeafSize:])
+	copy(sp.Leaf[:], sector[segmentIndex*proto4.LeafSize:])
 	return sp, nil
+}
+
+func (cm *Manager) broadcastV2Revision(revisionBasis types.ChainIndex, fcr types.V2FileContractRevision, log *zap.Logger) error {
+	log = log.With(zap.Stringer("contractID", fcr.Parent.ID))
+
+	fee := cm.wallet.RecommendedFee().Mul64(1000)
+	revisionTxn := types.V2Transaction{
+		MinerFee:              fee,
+		FileContractRevisions: []types.V2FileContractRevision{fcr},
+	}
+	basis, toSign, err := cm.wallet.FundV2Transaction(&revisionTxn, fee, true)
+	if err != nil {
+		return fmt.Errorf("failed to fund revision transaction: %w", err)
+	}
+
+	if revisionBasis != basis {
+		log.Debug("updating revision basis", zap.Stringer("current", revisionBasis), zap.Stringer("target", basis))
+		updated, err := cm.chain.UpdateV2TransactionSet([]types.V2Transaction{
+			{FileContractRevisions: []types.V2FileContractRevision{fcr}},
+		}, revisionBasis, basis)
+		if err != nil {
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
+			return fmt.Errorf("failed to update transaction set basis: %w", err)
+		}
+		revisionTxn.FileContractRevisions[0] = updated[0].FileContractRevisions[0]
+	}
+	cm.wallet.SignV2Inputs(&revisionTxn, toSign)
+
+	if basis, revisionTxnSet, err := cm.chain.V2TransactionSet(basis, revisionTxn); err != nil {
+		cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
+		return fmt.Errorf("failed to get transaction set parents: %w", err)
+	} else if err := cm.wallet.BroadcastV2TransactionSet(basis, revisionTxnSet); err != nil {
+		cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
+		return fmt.Errorf("failed to broadcast transaction set: %w", err)
+	}
+	log.Debug("broadcast revision transaction", zap.Stringer("transactionID", revisionTxn.ID()))
+	return nil
+}
+
+func (cm *Manager) broadcastV2StorageProof(cs consensus.State, proofBasis types.ChainIndex, fce types.V2FileContractElement, pi types.ChainIndexElement, log *zap.Logger) error {
+	log = log.With(zap.Stringer("contractID", fce.ID))
+
+	sp, err := cm.buildV2StorageProof(cs, fce, pi, log.Named("proof"))
+	if err != nil {
+		return fmt.Errorf("failed to build storage proof: %w", err)
+	}
+
+	resolution := types.V2FileContractResolution{
+		Parent:     fce,
+		Resolution: &sp,
+	}
+
+	fee := cm.wallet.RecommendedFee().Mul64(2000)
+	resolutionTxn := types.V2Transaction{
+		MinerFee:                fee,
+		FileContractResolutions: []types.V2FileContractResolution{resolution},
+	}
+	basis, toSign, err := cm.wallet.FundV2Transaction(&resolutionTxn, fee, true)
+	if err != nil {
+		return fmt.Errorf("failed to fund resolution transaction: %w", err)
+	}
+	cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
+
+	if proofBasis != basis {
+		log.Debug("updating proof basis", zap.Stringer("current", proofBasis), zap.Stringer("target", basis))
+		updated, err := cm.chain.UpdateV2TransactionSet([]types.V2Transaction{
+			{FileContractResolutions: []types.V2FileContractResolution{resolution}},
+		}, proofBasis, basis)
+		if err != nil {
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+			return fmt.Errorf("failed to update transaction set basis: %w", err)
+		}
+		resolutionTxn.FileContractResolutions[0] = updated[0].FileContractResolutions[0]
+	}
+
+	if basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn); err != nil {
+		cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+		return fmt.Errorf("failed to get transaction set parents: %w", err)
+	} else if err := cm.wallet.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
+		cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+		return fmt.Errorf("failed to broadcast transaction set: %w", err)
+	}
+	log.Debug("broadcast v2 storage proof transaction", zap.Stringer("transactionID", resolutionTxn.ID()))
+	return nil
+}
+
+func (cm *Manager) broadcastV2Expiration(elementBasis types.ChainIndex, fce types.V2FileContractElement, log *zap.Logger) error {
+	log = log.With(zap.Stringer("contractID", fce.ID))
+
+	fee := cm.wallet.RecommendedFee().Mul64(1000)
+	resolutionTxn := types.V2Transaction{
+		MinerFee: fee,
+		FileContractResolutions: []types.V2FileContractResolution{
+			{
+				Parent:     fce,
+				Resolution: &types.V2FileContractExpiration{},
+			},
+		},
+	}
+	basis, toSign, err := cm.wallet.FundV2Transaction(&resolutionTxn, fee, true)
+	if err != nil {
+		return fmt.Errorf("failed to fund resolution transaction: %w", err)
+	}
+	cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
+
+	if elementBasis != basis {
+		log.Debug("updating expiration basis", zap.Stringer("current", elementBasis), zap.Stringer("target", basis))
+		updated, err := cm.chain.UpdateV2TransactionSet([]types.V2Transaction{
+			{FileContractResolutions: []types.V2FileContractResolution{resolutionTxn.FileContractResolutions[0]}},
+		}, elementBasis, basis)
+		if err != nil {
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+			return fmt.Errorf("failed to update transaction set basis: %w", err)
+		}
+		resolutionTxn.FileContractResolutions[0] = updated[0].FileContractResolutions[0]
+	}
+
+	if basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn); err != nil {
+		cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+		return fmt.Errorf("failed to get transaction set parents: %w", err)
+	} else if err := cm.wallet.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
+		cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
+		return fmt.Errorf("failed to broadcast transaction set: %w", err)
+	}
+	log.Debug("broadcast expiration transaction", zap.Stringer("transactionID", resolutionTxn.ID()))
+	return nil
 }
 
 // ProcessActions processes additional lifecycle actions after a new block is
@@ -330,106 +465,20 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	}
 
 	for _, fcr := range actions.BroadcastV2Revision {
-		log := log.Named("v2 revision").With(zap.Stringer("contractID", fcr.Parent.ID))
-
-		fee := cm.wallet.RecommendedFee().Mul64(1000)
-		revisionTxn := types.V2Transaction{
-			MinerFee:              fee,
-			FileContractRevisions: []types.V2FileContractRevision{fcr},
-		}
-		basis, toSign, err := cm.wallet.FundV2Transaction(&revisionTxn, fee, true) // TODO: true
-		if err != nil {
-			log.Error("failed to fund transaction", zap.Error(err))
-			continue
-		}
-		cm.wallet.SignV2Inputs(&revisionTxn, toSign)
-
-		if basis, revisionTxnSet, err := cm.chain.V2TransactionSet(basis, revisionTxn); err != nil {
-			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
-			log.Error("failed to create transaction set", zap.Error(err))
-		} else if err := cm.wallet.BroadcastV2TransactionSet(basis, revisionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
-			log.Warn("failed to broadcast transaction set", zap.Error(err))
-		} else {
-			log.Debug("broadcast transaction", zap.Stringer("transactionID", revisionTxn.ID()))
+		if err := cm.broadcastV2Revision(actions.Basis, fcr, log); err != nil {
+			log.Warn("failed to broadcast v2 final revision", zap.Error(err))
 		}
 	}
 
-	for _, fce := range actions.BroadcastV2Proof {
-		log := log.Named("v2 proof").With(zap.Stringer("contractID", fce.ID))
-		proofIndex, ok := cm.chain.BestIndex(fce.V2FileContract.ProofHeight)
-		if !ok {
-			log.Error("proof index not found", zap.Uint64("proofHeight", fce.V2FileContract.ProofHeight))
-			continue
-		}
-		proofElement, err := cm.store.ContractChainIndexElement(proofIndex)
-		if err != nil {
-			log.Error("failed to get proof index element", zap.Stringer("proofIndex", proofIndex), zap.Error(err))
-			continue
-		}
-
-		sp, err := cm.buildV2StorageProof(cs, fce, proofElement, log.Named("proof"))
-		if err != nil {
-			log.Error("failed to build storage proof", zap.Error(err))
-			continue
-		}
-
-		resolution := types.V2FileContractResolution{
-			Parent:     fce,
-			Resolution: &sp,
-		}
-
-		fee := cm.wallet.RecommendedFee().Mul64(2000)
-		resolutionTxn := types.V2Transaction{
-			MinerFee:                fee,
-			FileContractResolutions: []types.V2FileContractResolution{resolution},
-		}
-		basis, toSign, err := cm.wallet.FundV2Transaction(&resolutionTxn, fee, true)
-		if err != nil {
-			log.Error("failed to fund resolution transaction", zap.Error(err))
-			continue
-		}
-		cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
-
-		if basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn); err != nil {
-			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
-			log.Error("failed to create transaction set", zap.Error(err))
-		} else if err := cm.wallet.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
-			log.Warn("failed to broadcast transaction set", zap.Error(err))
-		} else {
-			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
+	for _, pe := range actions.BroadcastV2Proof {
+		if err := cm.broadcastV2StorageProof(cs, actions.Basis, pe.V2FileContractElement, pe.ChainIndexElement, log); err != nil {
+			log.Warn("failed to broadcast v2 storage proof", zap.Error(err), zap.Stringer("contractID", pe.V2FileContractElement.ID))
 		}
 	}
 
 	for _, fce := range actions.BroadcastV2Expiration {
-		log := log.Named("v2 expiration").With(zap.Stringer("contractID", fce.ID))
-
-		fee := cm.wallet.RecommendedFee().Mul64(1000)
-		resolutionTxn := types.V2Transaction{
-			MinerFee: fee,
-			FileContractResolutions: []types.V2FileContractResolution{
-				{
-					Parent:     fce,
-					Resolution: &types.V2FileContractExpiration{},
-				},
-			},
-		}
-		basis, toSign, err := cm.wallet.FundV2Transaction(&resolutionTxn, fee, true)
-		if err != nil {
-			log.Error("failed to fund resolution transaction", zap.Error(err))
-			continue
-		}
-		cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
-
-		if basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn); err != nil {
-			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
-			log.Error("failed to create transaction set", zap.Error(err))
-		} else if err := cm.wallet.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
-			log.Warn("failed to broadcast transaction set", zap.Error(err))
-		} else {
-			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
+		if err := cm.broadcastV2Expiration(actions.Basis, fce, log); err != nil {
+			log.Warn("failed to broadcast v2 expiration", zap.Error(err), zap.Stringer("contractID", fce.ID))
 		}
 	}
 
