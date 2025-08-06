@@ -450,7 +450,7 @@ func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight 
 			return fmt.Errorf("failed to get v2 revision broadcast actions: %w", err)
 		}
 
-		actions.BroadcastV2Proof, err = proofV2Contracts(tx, index)
+		actions.BroadcastV2Proof, err = proofV2Contracts(tx, index, s.log.Named("proofV2Contracts"))
 		if err != nil {
 			return fmt.Errorf("failed to get v2 proof broadcast actions: %w", err)
 		}
@@ -700,7 +700,7 @@ func broadcastV2Revision(tx *txn, index types.ChainIndex, revisionBroadcastHeigh
 	return
 }
 
-func proofV2Contracts(tx *txn, index types.ChainIndex) (elements []contracts.V2ProofElement, err error) {
+func proofV2Contracts(tx *txn, index types.ChainIndex, log *zap.Logger) (elements []contracts.V2ProofElement, err error) {
 	const query = `SELECT c.contract_id, cs.raw_contract, cs.leaf_index, cs.merkle_proof
 	FROM contracts_v2 c
 	INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
@@ -742,7 +742,9 @@ func proofV2Contracts(tx *txn, index types.ChainIndex) (elements []contracts.V2P
 			decode(&elements[i].ChainIndexElement.StateElement.MerkleProof),
 		)
 		if errors.Is(err, sql.ErrNoRows) {
-			continue // should not happen, but safer to ignore the error than fail every contract
+			// should not happen, but safer to ignore the error than fail every contract
+			log.Error("missing chain index element for contract", zap.String("contractID", elements[i].V2FileContractElement.ID.String()), zap.Uint64("proofHeight", proofHeight))
+			continue
 		} else if err != nil {
 			return nil, fmt.Errorf("failed to get chain index element: %w", err)
 		}

@@ -108,17 +108,18 @@ type (
 	}
 )
 
-func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContractElement, pi types.ChainIndexElement, log *zap.Logger) (types.V2StorageProof, error) {
+func (cm *Manager) buildV2StorageProof(cs consensus.State, ele V2ProofElement, log *zap.Logger) (types.V2StorageProof, error) {
+	fce := ele.V2FileContractElement
 	if fce.V2FileContract.Filesize == 0 {
 		return types.V2StorageProof{
-			ProofIndex: pi,
+			ProofIndex: ele.ChainIndexElement,
 		}, nil
 	}
 
 	revision := fce.V2FileContract
 	contractID := types.FileContractID(fce.ID)
 
-	leafIndex := cs.StorageProofLeafIndex(fce.V2FileContract.Filesize, types.BlockID(pi.ID), contractID)
+	leafIndex := cs.StorageProofLeafIndex(fce.V2FileContract.Filesize, ele.ChainIndexElement.ID, contractID)
 	sectorIndex := leafIndex / proto4.LeavesPerSector
 	segmentIndex := leafIndex % proto4.LeavesPerSector
 
@@ -144,7 +145,7 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
 	sectorProof := rhp2.ConvertProofOrdering(rhp2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
 	sp := types.V2StorageProof{
-		ProofIndex: pi,
+		ProofIndex: ele.ChainIndexElement,
 		Proof:      append(segmentProof, sectorProof...),
 	}
 	copy(sp.Leaf[:], sector[segmentIndex*proto4.LeafSize:])
@@ -152,8 +153,6 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, fce types.V2FileContr
 }
 
 func (cm *Manager) broadcastV2Revision(revisionBasis types.ChainIndex, fcr types.V2FileContractRevision, log *zap.Logger) error {
-	log = log.With(zap.Stringer("contractID", fcr.Parent.ID))
-
 	fee := cm.wallet.RecommendedFee().Mul64(1000)
 	revisionTxn := types.V2Transaction{
 		MinerFee:              fee,
@@ -188,16 +187,14 @@ func (cm *Manager) broadcastV2Revision(revisionBasis types.ChainIndex, fcr types
 	return nil
 }
 
-func (cm *Manager) broadcastV2StorageProof(cs consensus.State, proofBasis types.ChainIndex, fce types.V2FileContractElement, pi types.ChainIndexElement, log *zap.Logger) error {
-	log = log.With(zap.Stringer("contractID", fce.ID))
-
-	sp, err := cm.buildV2StorageProof(cs, fce, pi, log.Named("proof"))
+func (cm *Manager) broadcastV2StorageProof(cs consensus.State, proofBasis types.ChainIndex, ele V2ProofElement, log *zap.Logger) error {
+	sp, err := cm.buildV2StorageProof(cs, ele, log.Named("proof"))
 	if err != nil {
 		return fmt.Errorf("failed to build storage proof: %w", err)
 	}
 
 	resolution := types.V2FileContractResolution{
-		Parent:     fce,
+		Parent:     ele.V2FileContractElement,
 		Resolution: &sp,
 	}
 
@@ -236,8 +233,6 @@ func (cm *Manager) broadcastV2StorageProof(cs consensus.State, proofBasis types.
 }
 
 func (cm *Manager) broadcastV2Expiration(elementBasis types.ChainIndex, fce types.V2FileContractElement, log *zap.Logger) error {
-	log = log.With(zap.Stringer("contractID", fce.ID))
-
 	fee := cm.wallet.RecommendedFee().Mul64(1000)
 	resolutionTxn := types.V2Transaction{
 		MinerFee: fee,
@@ -299,16 +294,17 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 		formationTxn := formationSet.Transactions[len(formationSet.Transactions)-1]
 		contractID := formationTxn.V2FileContractID(formationTxn.ID(), 0)
-		log := log.Named("v2 formation").With(zap.Stringer("basis", formationSet.Basis), zap.Stringer("contractID", contractID))
+		log := log.Named("v2Formation").With(zap.Stringer("transaction", formationTxn.ID()), zap.Stringer("basis", formationSet.Basis), zap.Stringer("contractID", contractID))
 
 		if err := cm.wallet.BroadcastV2TransactionSet(formationSet.Basis, formationSet.Transactions); err != nil {
 			log.Warn("failed to broadcast transaction set", zap.Error(err))
 		} else {
-			log.Debug("broadcast transaction", zap.String("transactionID", formationSet.Transactions[len(formationSet.Transactions)-1].ID().String()))
+			log.Debug("broadcast transaction")
 		}
 	}
 
 	for _, fcr := range actions.BroadcastV2Revision {
+		log := log.With(zap.Stringer("contractID", fcr.Parent.ID)).Named("v2Revision")
 		if err := cm.broadcastV2Revision(actions.Basis, fcr, log); err != nil {
 			log.Warn("failed to broadcast v2 final revision", zap.Error(err))
 		}
@@ -316,14 +312,16 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 
 	cs := cm.chain.TipState()
 	for _, pe := range actions.BroadcastV2Proof {
-		if err := cm.broadcastV2StorageProof(cs, actions.Basis, pe.V2FileContractElement, pe.ChainIndexElement, log); err != nil {
-			log.Warn("failed to broadcast v2 storage proof", zap.Error(err), zap.Stringer("contractID", pe.V2FileContractElement.ID))
+		log := log.With(zap.Stringer("contractID", pe.V2FileContractElement.ID)).Named("v2Proof")
+		if err := cm.broadcastV2StorageProof(cs, actions.Basis, pe, log); err != nil {
+			log.Warn("failed to broadcast v2 storage proof", zap.Error(err))
 		}
 	}
 
 	for _, fce := range actions.BroadcastV2Expiration {
+		log := log.With(zap.Stringer("contractID", fce.ID)).Named("v2Expiration")
 		if err := cm.broadcastV2Expiration(actions.Basis, fce, log); err != nil {
-			log.Warn("failed to broadcast v2 expiration", zap.Error(err), zap.Stringer("contractID", fce.ID))
+			log.Warn("failed to broadcast v2 expiration", zap.Error(err))
 		}
 	}
 
