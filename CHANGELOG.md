@@ -1,3 +1,23 @@
+## 2.4.0 (2025-08-06)
+
+### Features
+
+- Added `[GET] /wallet/events/:id`
+- Remove RHP2 and RHP3 support
+- Removed V1 support
+
+### Fixes
+
+- Fix integrity checks for v2 contracts
+- Fixed a panic when a v2 contract state transitions from renewed to failed.
+- Fixed a race condition with Merkle proofs when broadcasting storage proofs.
+- Fixed panic when attempting to broadcast v2 contract revision.
+- Updated coreutils to v0.17.0 and core to v0.16.0
+
+#### Added Warning alert on locally installed QUIC certificate if its expiring under 29 days. 
+
+## Added Error alert on locally installed QUIC certificate if its expired.
+
 ## 2.3.5 (2025-07-01)
 
 ### Fixes
