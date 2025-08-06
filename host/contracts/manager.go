@@ -24,6 +24,7 @@ type (
 		TipState() consensus.State
 		BestIndex(height uint64) (types.ChainIndex, bool)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
+		UpdateV2TransactionSet(txns []types.V2Transaction, from, to types.ChainIndex) ([]types.V2Transaction, error)
 		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 	}
 
