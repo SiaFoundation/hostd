@@ -435,6 +435,11 @@ ORDER BY cr.contract_id, cr.root_index ASC;`
 // ContractActions returns the contract lifecycle actions for the given index.
 func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight uint64) (actions contracts.LifecycleActions, err error) {
 	err = s.transaction(func(tx *txn) error {
+		actions.Basis, err = getProofBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get proof basis: %w", err)
+		}
+
 		actions.RebroadcastV2Formation, err = rebroadcastV2Contracts(tx)
 		if err != nil {
 			return fmt.Errorf("failed to get v2 formation broadcast actions: %w", err)
@@ -454,17 +459,6 @@ func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight 
 			return fmt.Errorf("failed to get v2 expiration broadcast actions: %w", err)
 		}
 		return nil
-	})
-	return
-}
-
-// ContractChainIndexElement returns the chain index element for the given height.
-func (s *Store) ContractChainIndexElement(index types.ChainIndex) (element types.ChainIndexElement, err error) {
-	err = s.transaction(func(tx *txn) error {
-		err := tx.QueryRow(`SELECT leaf_index, merkle_proof FROM contracts_v2_chain_index_elements WHERE id=? AND height=?`, encode(index.ID), index.Height).Scan(decode(&element.StateElement.LeafIndex), decode(&element.StateElement.MerkleProof))
-		element.ChainIndex = index
-		element.ID = index.ID
-		return err
 	})
 	return
 }
@@ -706,7 +700,7 @@ func broadcastV2Revision(tx *txn, index types.ChainIndex, revisionBroadcastHeigh
 	return
 }
 
-func proofV2Contracts(tx *txn, index types.ChainIndex) (elements []types.V2FileContractElement, err error) {
+func proofV2Contracts(tx *txn, index types.ChainIndex) (elements []contracts.V2ProofElement, err error) {
 	const query = `SELECT c.contract_id, cs.raw_contract, cs.leaf_index, cs.merkle_proof
 	FROM contracts_v2 c
 	INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
@@ -723,11 +717,38 @@ func proofV2Contracts(tx *txn, index types.ChainIndex) (elements []types.V2FileC
 		if err := rows.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.StateElement.LeafIndex), decode(&fce.StateElement.MerkleProof)); err != nil {
 			return nil, fmt.Errorf("failed to scan contract: %w", err)
 		}
-		elements = append(elements, fce)
+		elements = append(elements, contracts.V2ProofElement{
+			V2FileContractElement: fce,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	} else if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close rows: %w", err)
 	}
+
+	stmt, err := tx.Prepare(`SELECT id, height, leaf_index, merkle_proof FROM contracts_v2_chain_index_elements WHERE height=$1`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare chain index element statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for i := range elements {
+		proofHeight := elements[i].V2FileContractElement.V2FileContract.ProofHeight
+		err := stmt.QueryRow(proofHeight).Scan(
+			decode(&elements[i].ChainIndexElement.ChainIndex.ID),
+			&elements[i].ChainIndexElement.ChainIndex.Height,
+			decode(&elements[i].ChainIndexElement.StateElement.LeafIndex),
+			decode(&elements[i].ChainIndexElement.StateElement.MerkleProof),
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue // should not happen, but safer to ignore the error than fail every contract
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to get chain index element: %w", err)
+		}
+		elements[i].ChainIndexElement.ID = elements[i].ChainIndexElement.ChainIndex.ID
+	}
+
 	return
 }
 
