@@ -344,13 +344,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 		cm.wallet.SignV2Inputs(&revisionTxn, toSign)
 
-		basis, revisionTxnSet, err := cm.chain.V2TransactionSet(basis, revisionTxn)
-		if err != nil {
+		if basis, revisionTxnSet, err := cm.chain.V2TransactionSet(basis, revisionTxn); err != nil {
 			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
 			log.Error("failed to create transaction set", zap.Error(err))
-		}
-		if err := cm.wallet.BroadcastV2TransactionSet(basis, revisionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(nil, revisionTxnSet[len(revisionTxnSet)-1:])
+		} else if err := cm.wallet.BroadcastV2TransactionSet(basis, revisionTxnSet); err != nil {
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{revisionTxn})
 			log.Warn("failed to broadcast transaction set", zap.Error(err))
 		} else {
 			log.Debug("broadcast transaction", zap.Stringer("transactionID", revisionTxn.ID()))
@@ -393,12 +391,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 		cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
 
-		basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn)
-		if err != nil {
+		if basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn); err != nil {
 			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
 			log.Error("failed to create transaction set", zap.Error(err))
 		} else if err := cm.wallet.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(nil, resolutionTxnSet[len(resolutionTxnSet)-1:]) // only release the resolution transaction
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
 			log.Warn("failed to broadcast transaction set", zap.Error(err))
 		} else {
 			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
@@ -425,12 +422,11 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 		cm.wallet.SignV2Inputs(&resolutionTxn, toSign)
 
-		basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn)
-		if err != nil {
+		if basis, resolutionTxnSet, err := cm.chain.V2TransactionSet(basis, resolutionTxn); err != nil {
 			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
 			log.Error("failed to create transaction set", zap.Error(err))
 		} else if err := cm.wallet.BroadcastV2TransactionSet(basis, resolutionTxnSet); err != nil {
-			cm.wallet.ReleaseInputs(nil, resolutionTxnSet[len(resolutionTxnSet)-1:]) // only release the resolution transaction
+			cm.wallet.ReleaseInputs(nil, []types.V2Transaction{resolutionTxn})
 			log.Warn("failed to broadcast transaction set", zap.Error(err))
 		} else {
 			log.Debug("broadcast transaction", zap.String("transactionID", resolutionTxn.ID().String()))
