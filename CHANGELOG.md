@@ -1,3 +1,10 @@
+## 2.3.7 (2025-08-10)
+
+### Fixes
+
+- Fixed a race condition with Merkle proofs when broadcasting storage proofs.
+- Fixed panic when attempting to broadcast v2 contract revision.
+
 ## 2.3.6 (2025-08-01)
 
 ### Fixes
