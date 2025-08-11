@@ -273,7 +273,7 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get affected rows: %w", err)
 		} else if n != int64(len(roots)) {
-			// should never happen, but it would signal an inconsistency
+			// Should never happen; it would signal an inconsistency
 			// between the roots on disk and the roots in memory.
 			// It is preferable to not let the contract be renewed
 			// since the roots passed in are validated in the contract
