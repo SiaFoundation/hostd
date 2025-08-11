@@ -176,7 +176,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { wm.Close() })
 
-	vm, err := storage.NewVolumeManager(cn.Store, storage.WithLogger(log.Named("storage")), storage.WithPruneInterval(30*time.Second))
+	vm, err := storage.NewVolumeManager(cn.Store, storage.WithLogger(log.Named("storage")), storage.WithPruneInterval(time.Second))
 	if err != nil {
 		t.Fatal("failed to create volume manager:", err)
 	}

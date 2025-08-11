@@ -325,9 +325,16 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 	}
 
-	if err := cm.store.ExpireContractSectors(index.Height); err != nil {
+	const reorgBuffer = 6
+	if index.Height < reorgBuffer {
+		return nil
+	}
+	expireHeight := index.Height - reorgBuffer
+
+	// 6 block buffer for reorg protection
+	if err := cm.store.ExpireContractSectors(expireHeight); err != nil {
 		return fmt.Errorf("failed to expire contract sectors: %w", err)
-	} else if err := cm.store.ExpireV2ContractSectors(index.Height); err != nil {
+	} else if err := cm.store.ExpireV2ContractSectors(expireHeight); err != nil {
 		return fmt.Errorf("failed to expire v2 contract sectors: %w", err)
 	}
 	return nil

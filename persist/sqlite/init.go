@@ -56,9 +56,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 	return nil
 }
 
-func (s *Store) init() error {
-	// calculate the expected final database version
-	target := int64(len(migrations) + 1)
+func (s *Store) init(target int64) error {
 	version := getDBVersion(s.db)
 	switch {
 	case version == 0:

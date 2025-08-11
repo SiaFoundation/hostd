@@ -4,12 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
-	"time"
 
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.uber.org/zap"
 )
 
 // A SectorAction denotes the type of action to be performed on a
@@ -208,21 +205,6 @@ type (
 		SortField string `json:"sortField"`
 		SortDesc  bool   `json:"sortDesc"`
 	}
-
-	// A ContractUpdater is used to atomically update a contract's sectors
-	// and metadata.
-	ContractUpdater struct {
-		manager *Manager
-		store   ContractStore
-		log     *zap.Logger
-
-		once sync.Once
-		done func() // done is called when the updater is closed.
-
-		contractID  types.FileContractID
-		sectorRoots []types.Hash256
-		oldRoots    []types.Hash256
-	}
 )
 
 var (
@@ -326,83 +308,4 @@ func (sr SignedRevision) Signatures() []types.TransactionSignature {
 			PublicKeyIndex: 1,
 		},
 	}
-}
-
-// AppendSector appends a sector to the contract.
-func (cu *ContractUpdater) AppendSector(root types.Hash256) {
-	cu.sectorRoots = append(cu.sectorRoots, root)
-}
-
-// SwapSectors swaps the sectors at the given indices.
-func (cu *ContractUpdater) SwapSectors(a, b uint64) error {
-	if a >= uint64(len(cu.sectorRoots)) || b >= uint64(len(cu.sectorRoots)) {
-		return fmt.Errorf("invalid sector indices %v, %v", a, b)
-	}
-	cu.sectorRoots[a], cu.sectorRoots[b] = cu.sectorRoots[b], cu.sectorRoots[a]
-	return nil
-}
-
-// TrimSectors removes the last n sectors from the contract.
-func (cu *ContractUpdater) TrimSectors(n uint64) error {
-	if n > uint64(len(cu.sectorRoots)) {
-		return fmt.Errorf("invalid sector count %v", n)
-	}
-	cu.sectorRoots = cu.sectorRoots[:uint64(len(cu.sectorRoots))-n]
-	return nil
-}
-
-// UpdateSector updates the Merkle root of the sector at the given index.
-func (cu *ContractUpdater) UpdateSector(root types.Hash256, i uint64) error {
-	if i >= uint64(len(cu.sectorRoots)) {
-		return fmt.Errorf("invalid sector index %v", i)
-	}
-	cu.sectorRoots[i] = root
-	return nil
-}
-
-// SectorCount returns the number of sectors in the contract.
-func (cu *ContractUpdater) SectorCount() uint64 {
-	return uint64(len(cu.sectorRoots))
-}
-
-// SectorRoot returns the Merkle root of the sector at the given index.
-func (cu *ContractUpdater) SectorRoot(i uint64) (types.Hash256, error) {
-	if i >= uint64(len(cu.sectorRoots)) {
-		return types.Hash256{}, fmt.Errorf("invalid sector index %v", i)
-	}
-	return cu.sectorRoots[i], nil
-}
-
-// MerkleRoot returns the merkle root of the contract's sector roots.
-func (cu *ContractUpdater) MerkleRoot() types.Hash256 {
-	return proto4.MetaRoot(cu.sectorRoots)
-}
-
-// SectorRoots returns a copy of the current state of the contract's sector roots.
-func (cu *ContractUpdater) SectorRoots() []types.Hash256 {
-	return append([]types.Hash256(nil), cu.sectorRoots...)
-}
-
-// Close must be called when the contract updater is no longer needed.
-func (cu *ContractUpdater) Close() error {
-	cu.once.Do(cu.done)
-	return nil
-}
-
-// Commit atomically applies all changes to the contract store.
-func (cu *ContractUpdater) Commit(revision SignedRevision, usage Usage) error {
-	if revision.Revision.ParentID != cu.contractID {
-		panic("contract updater used with wrong contract")
-	}
-
-	start := time.Now()
-	// revise the contract
-	err := cu.store.ReviseContract(revision, cu.oldRoots, cu.sectorRoots, usage)
-	if err != nil {
-		return err
-	}
-	// update the roots cache
-	cu.manager.setSectorRoots(cu.contractID, cu.sectorRoots)
-	cu.log.Debug("contract update committed", zap.String("contractID", revision.Revision.ParentID.String()), zap.Uint64("revision", revision.Revision.RevisionNumber), zap.Duration("elapsed", time.Since(start)))
-	return nil
 }

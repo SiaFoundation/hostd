@@ -333,27 +333,6 @@ func (cm *Manager) SectorRoots(id types.FileContractID) []types.Hash256 {
 	return cm.getSectorRoots(id)
 }
 
-// ReviseContract initializes a new contract updater for the given contract.
-func (cm *Manager) ReviseContract(contractID types.FileContractID) (*ContractUpdater, error) {
-	done, err := cm.tg.Add()
-	if err != nil {
-		return nil, err
-	}
-
-	roots := cm.getSectorRoots(contractID)
-	return &ContractUpdater{
-		manager: cm,
-		store:   cm.store,
-		log:     cm.log.Named("contractUpdater"),
-
-		contractID:  contractID,
-		sectorRoots: roots, // roots is already a deep copy
-		oldRoots:    append([]types.Hash256(nil), roots...),
-
-		done: done, // decrements the threadgroup counter after the updater is closed
-	}, nil
-}
-
 // Close closes the contract manager.
 func (cm *Manager) Close() error {
 	cm.tg.Stop()

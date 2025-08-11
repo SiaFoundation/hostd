@@ -146,7 +146,7 @@ WHERE c.contract_id=?`
 func (s *Store) V2Contract(id types.FileContractID) (contract contracts.V2Contract, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index,
-COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_index, c.rpc_revenue,
+COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_block_id, c.resolution_height, c.rpc_revenue,
 c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision
 FROM contracts_v2 c
 LEFT JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
@@ -196,7 +196,7 @@ func (s *Store) V2Contracts(filter contracts.V2ContractFilter) (contracts []cont
 	}
 
 	contractQuery := fmt.Sprintf(`SELECT c.contract_id, rt.contract_id AS renewed_to, rf.contract_id AS renewed_from, c.contract_status, c.negotiation_height, c.confirmation_index,
-COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_index, c.rpc_revenue,
+COALESCE(c.revision_number=cs.revision_number, false) AS revision_confirmed, c.resolution_block_id, c.resolution_height, c.rpc_revenue,
 c.storage_revenue, c.ingress_revenue, c.egress_revenue, c.account_funding, c.risked_collateral, c.raw_revision
 FROM contracts_v2 c
 LEFT JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
@@ -263,10 +263,24 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 			return fmt.Errorf("failed to update renewed contract: %w", err)
 		}
 
-		// move the sector roots from the old contract to the new contract
-		_, err = tx.Exec(`UPDATE contract_v2_sector_roots SET contract_id=$1 WHERE contract_id=$2`, renewedDBID, clearedDBID)
+		if len(roots) == 0 {
+			return nil
+		}
+
+		res, err := tx.Exec(`INSERT INTO contract_v2_sector_roots (contract_id, sector_id, root_index) SELECT $1, sector_id, root_index FROM contract_v2_sector_roots WHERE contract_id=$2`, renewedDBID, clearedDBID)
 		if err != nil {
 			return fmt.Errorf("failed to copy sector roots: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get affected rows: %w", err)
+		} else if n != int64(len(roots)) {
+			// should never happen, but it would signal an inconsistency
+			// between the roots on disk and the roots in memory.
+			// It is preferable to not let the contract be renewed
+			// since the roots passed in are validated in the contract
+			// manager to match the contract's merkle root.
+			return fmt.Errorf("not all sector roots were copied")
+		} else if err := incrementNumericStat(tx, metricContractSectors, len(roots), time.Now()); err != nil {
+			return fmt.Errorf("failed to update contract sectors: %w", err)
 		}
 		return nil
 	})
@@ -540,7 +554,7 @@ func deleteExpiredV2ContractSectors(tx *txn, height uint64) (sectorIDs []int64, 
 WHERE id IN (SELECT csr.id FROM contract_v2_sector_roots csr
 INNER JOIN contracts_v2 c ON (csr.contract_id=c.id)
 -- past expiration or not confirmed and past the rebroadcast height
-WHERE c.expiration_height < $1 OR c.contract_status=$2 LIMIT $3)
+WHERE c.resolution_height < $1 OR c.contract_status=$2 LIMIT $3)
 RETURNING sector_id;`
 	rows, err := tx.Query(query, height, contracts.ContractStatusRejected, sqlSectorBatchSize)
 	if err != nil {
@@ -673,7 +687,7 @@ func broadcastV2Revision(tx *txn, index types.ChainIndex, revisionBroadcastHeigh
 	const query = `SELECT c.raw_revision, c.contract_id, cs.leaf_index, cs.merkle_proof, cs.raw_contract
 	FROM contracts_v2 c
 	INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
-	WHERE c.confirmation_index IS NOT NULL AND c.resolution_index IS NULL AND cs.revision_number != c.revision_number AND c.proof_height BETWEEN ? AND ?`
+	WHERE c.confirmation_index IS NOT NULL AND c.resolution_block_id IS NULL AND cs.revision_number != c.revision_number AND c.proof_height BETWEEN ? AND ?`
 
 	rows, err := tx.Query(query, index.Height, revisionBroadcastHeight)
 	if err != nil {
@@ -704,7 +718,7 @@ func proofV2Contracts(tx *txn, index types.ChainIndex, log *zap.Logger) (element
 	const query = `SELECT c.contract_id, cs.raw_contract, cs.leaf_index, cs.merkle_proof
 	FROM contracts_v2 c
 	INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
-	WHERE c.confirmation_index IS NOT NULL AND c.resolution_index IS NULL AND c.proof_height <= $1 AND c.expiration_height > $1`
+	WHERE c.confirmation_index IS NOT NULL AND c.resolution_block_id IS NULL AND c.proof_height <= $1 AND c.expiration_height > $1`
 
 	rows, err := tx.Query(query, index.Height)
 	if err != nil {
@@ -758,7 +772,7 @@ func expireV2Contracts(tx *txn, index types.ChainIndex) (elements []types.V2File
 	const query = `SELECT c.contract_id, cs.raw_contract, cs.leaf_index, cs.merkle_proof
 	FROM contracts_v2 c
 	INNER JOIN contract_v2_state_elements cs ON (c.id = cs.contract_id)
-	WHERE c.resolution_index IS NULL AND c.expiration_height <= $1`
+	WHERE c.resolution_block_id IS NULL AND c.expiration_height <= $1`
 
 	rows, err := tx.Query(query, index.Height)
 	if err != nil {
@@ -1245,7 +1259,8 @@ func scanV2Contract(row scanner) (c contracts.V2Contract, err error) {
 		&c.NegotiationHeight,
 		decodeNullable(&c.FormationIndex),
 		&c.RevisionConfirmed,
-		decodeNullable(&c.ResolutionIndex),
+		decodeNullable(&c.ResolutionIndex.ID),
+		decodeNullable(&c.ResolutionIndex.Height),
 		decode(&c.Usage.RPC),
 		decode(&c.Usage.Storage),
 		decode(&c.Usage.Ingress),

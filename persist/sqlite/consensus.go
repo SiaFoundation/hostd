@@ -1554,7 +1554,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_index=?, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1592,7 +1592,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(encode(index), status, state.ID); err != nil {
+		if res, err := updateStmt.Exec(encode(index.ID), index.Height, status, state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -1637,7 +1637,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_index=?, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1676,7 +1676,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(encode(index), contracts.V2ContractStatusFailed, state.ID); err != nil {
+		if res, err := updateStmt.Exec(encode(index.ID), index.Height, contracts.V2ContractStatusFailed, state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -1723,7 +1723,7 @@ func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, suc
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_index=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1793,7 +1793,7 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_index=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
