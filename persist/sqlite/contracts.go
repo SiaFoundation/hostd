@@ -556,7 +556,7 @@ INNER JOIN contracts_v2 c ON (csr.contract_id=c.id)
 -- past expiration or not confirmed and past the rebroadcast height
 WHERE c.resolution_height < $1 OR c.contract_status=$2 LIMIT $3)
 RETURNING sector_id;`
-	rows, err := tx.Query(query, height, contracts.ContractStatusRejected, sqlSectorBatchSize)
+	rows, err := tx.Query(query, height, contracts.V2ContractStatusRejected, sqlSectorBatchSize)
 	if err != nil {
 		return nil, err
 	}

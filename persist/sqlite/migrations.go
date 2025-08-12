@@ -32,15 +32,13 @@ CREATE INDEX contracts_v2_resolution_height ON contracts_v2(resolution_height);`
 	}
 	defer rows.Close()
 
-	var contractResolutionIndices []struct {
+	type contractResolutionIndex struct {
 		dbID            int64
 		resolutionIndex types.ChainIndex
 	}
+	var contractResolutionIndices []contractResolutionIndex
 	for rows.Next() {
-		var idx struct {
-			dbID            int64
-			resolutionIndex types.ChainIndex
-		}
+		var idx contractResolutionIndex
 		if err := rows.Scan(&idx.dbID, decode(&idx.resolutionIndex)); err != nil {
 			return fmt.Errorf("failed to scan contract resolution index: %w", err)
 		}

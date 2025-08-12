@@ -740,8 +740,8 @@ func BenchmarkRefreshContract(b *testing.B) {
 		10,
 		100,
 		1000,
-		(1 << 40) / (1 << 22),
-		(10 << 40) / (1 << 22),
+		(1 << 40) / proto4.SectorSize,  // 1 TiB
+		(10 << 40) / proto4.SectorSize, // 10 TiB
 	} {
 		runBenchmark(b, n)
 	}

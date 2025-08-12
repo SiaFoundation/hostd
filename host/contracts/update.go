@@ -13,13 +13,20 @@ import (
 	"go.uber.org/zap"
 )
 
-// chainIndexBuffer is the number of chain index elements to store and update
-// in the database. Older elements will be deleted. The number of elements
-// corresponds to the default proof window.
-//
-// This is less complex than storing an element per contract or
-// tracking each contract's proof window.
-const chainIndexBuffer = 144
+const (
+	// chainIndexBuffer is the number of chain index elements to store and update
+	// in the database. Older elements will be deleted. The number of elements
+	// corresponds to the default proof window.
+	//
+	// This is less complex than storing an element per contract or
+	// tracking each contract's proof window.
+	chainIndexBuffer = 144
+
+	// ReorgBuffer is the number of blocks after contract expiration before
+	// storage will be reclaimed. This is to prevent small reorgs from
+	// causing contracts to fail unnecessarily.
+	ReorgBuffer = 6
+)
 
 type (
 	// V2ProofElement groups the necessary chain index element with its
@@ -325,11 +332,10 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 		}
 	}
 
-	const reorgBuffer = 6
-	if index.Height < reorgBuffer {
+	if index.Height < ReorgBuffer {
 		return nil
 	}
-	expireHeight := index.Height - reorgBuffer
+	expireHeight := index.Height - ReorgBuffer
 
 	// 6 block buffer for reorg protection
 	if err := cm.store.ExpireContractSectors(expireHeight); err != nil {
