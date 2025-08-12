@@ -483,8 +483,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 				Filesize:         fc.Filesize,
 				Capacity:         fc.Capacity,
 				FileMerkleRoot:   fc.FileMerkleRoot,
-				ProofHeight:      fc.ProofHeight + 20,
-				ExpirationHeight: fc.ExpirationHeight + 20,
+				ProofHeight:      fc.ProofHeight + 30,
+				ExpirationHeight: fc.ExpirationHeight + 30,
 				RenterOutput:     fc.RenterOutput,
 				HostOutput: types.SiacoinOutput{
 					Address: fc.HostOutput.Address,
@@ -595,13 +595,15 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// garbage collected
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 1, 1)
+		t.Log("current height", cm.Tip().Height, fc.ProofHeight, fc.ExpirationHeight, renewal.NewContract.ProofHeight, renewal.NewContract.ExpirationHeight)
 
 		// mine until the renewed contract is successful
-		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.NewContract.ProofHeight+1))
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.NewContract.ProofHeight-cm.Tip().Height+1))
 		expectedStatuses[contracts.V2ContractStatusActive]--
 		expectedStatuses[contracts.V2ContractStatusSuccessful]++
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		t.Log("current height", cm.Tip().Height, fc.ProofHeight, fc.ExpirationHeight, renewal.NewContract.ProofHeight, renewal.NewContract.ExpirationHeight)
 		// storage metrics will not change due to the reorg buffer
 		assertStorageMetrics(t, 1, 1)
 
