@@ -1492,7 +1492,7 @@ func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) 
 		} else if state.Status != contracts.V2ContractStatusActive {
 			// if the contract is not active, panic. Applies should have ensured
 			// that this never happens.
-			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.ContractStatusPending))
+			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.V2ContractStatusPending))
 		}
 
 		// set the contract status to pending

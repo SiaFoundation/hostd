@@ -658,7 +658,7 @@ func updateContractUsage(tx *txn, contractID int64, lockedCollateral types.Curre
 }
 
 func rebroadcastV2Contracts(tx *txn) (rebroadcast []rhp4.TransactionSet, err error) {
-	rows, err := tx.Query(`SELECT formation_txn_set, formation_txn_set_basis FROM contracts_v2 WHERE confirmation_index IS NULL AND contract_status <> ?`, contracts.ContractStatusRejected)
+	rows, err := tx.Query(`SELECT formation_txn_set, formation_txn_set_basis FROM contracts_v2 WHERE confirmation_index IS NULL AND contract_status <> ?`, contracts.V2ContractStatusRejected)
 	if err != nil {
 		return nil, err
 	}
