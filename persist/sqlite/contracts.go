@@ -15,14 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type (
-	contractSectorRootRef struct {
-		dbID     int64
-		sectorID int64
-		root     types.Hash256
-	}
-)
-
 var _ contracts.ContractStore = (*Store)(nil)
 
 func (s *Store) batchExpireContractSectors(height uint64) (expired int, err error) {
@@ -1272,13 +1264,5 @@ func scanV2Contract(row scanner) (c contracts.V2Contract, err error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		err = contracts.ErrNotFound
 	}
-	return
-}
-
-func scanSignedRevision(row scanner) (rev contracts.SignedRevision, err error) {
-	err = row.Scan(
-		decode(&rev.Revision),
-		decode(&rev.HostSignature),
-		decode(&rev.RenterSignature))
 	return
 }

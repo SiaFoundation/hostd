@@ -170,7 +170,6 @@ type (
 
 		syncer       Syncer
 		chain        ChainManager
-		accounts     AccountManager
 		contracts    ContractManager
 		volumes      VolumeManager
 		wallet       Wallet

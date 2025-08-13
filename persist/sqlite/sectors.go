@@ -33,7 +33,7 @@ RETURNING sector_id;`
 	return
 }
 
-func (s *Store) batchExpireTempSectors(height uint64) (expired int, pruned []types.Hash256, err error) {
+func (s *Store) batchExpireTempSectors(height uint64) (expired int, err error) {
 	err = s.transaction(func(tx *txn) error {
 		sectorIDs, err := deleteTempSectors(tx, height)
 		if err != nil {
@@ -150,13 +150,13 @@ func (s *Store) ExpireTempSectors(height uint64) error {
 	log := s.log.Named("ExpireTempSectors").With(zap.Uint64("height", height))
 	// delete in batches to avoid holding a lock on the table for too long
 	for i := 0; ; i++ {
-		expired, removed, err := s.batchExpireTempSectors(height)
+		expired, err := s.batchExpireTempSectors(height)
 		if err != nil {
 			return fmt.Errorf("failed to expire sectors: %w", err)
 		} else if expired == 0 {
 			return nil
 		}
-		log.Debug("expired temp sectors", zap.Int("expired", expired), zap.Stringers("removed", removed), zap.Int("batch", i))
+		log.Debug("expired temp sectors", zap.Int("expired", expired), zap.Int("batch", i))
 		jitterSleep(50 * time.Millisecond) // allow other transactions to run
 	}
 }

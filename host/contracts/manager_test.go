@@ -16,7 +16,6 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/storage"
@@ -25,15 +24,10 @@ import (
 	"lukechampine.com/frand"
 )
 
-func hashRevision(rev types.FileContractRevision) types.Hash256 {
-	h := types.NewHasher()
-	rev.EncodeTo(h.E)
-	return h.Sum()
-}
-
-func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, s *syncer.Syncer, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, duration uint64, broadcast bool) (types.FileContractID, types.V2FileContract) {
+func formV2Contract(t *testing.T, cm *chain.Manager, c *contracts.Manager, w *wallet.SingleAddressWallet, renterKey, hostKey types.PrivateKey, renterFunds, hostFunds types.Currency, broadcast bool) (types.FileContractID, types.V2FileContract) {
 	t.Helper()
 
+	const duration = 10
 	cs := cm.TipState()
 	fc := types.V2FileContract{
 		RevisionNumber:   0,
@@ -251,7 +245,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("rebroadcast", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, false)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), false)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		assertStorageMetrics(t, 0, 0)
@@ -280,7 +274,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("successful empty contract", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -303,7 +297,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("storage proof", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -365,7 +359,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("failed storage proof", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 
@@ -427,7 +421,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 	t.Run("renewal", func(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 
-		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, node.Syncer, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), true)
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 

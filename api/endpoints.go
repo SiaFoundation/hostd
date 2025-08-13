@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"time"
 
-	rhp3 "go.sia.tech/core/rhp/v3"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/hostd/v2/build"
@@ -648,27 +647,6 @@ func (a *api) handlePOSTSystemSQLite3Backup(jc jape.Context) {
 
 func (a *api) handleGETTPoolFee(jc jape.Context) {
 	a.writeResponse(jc, TPoolResp(a.wallet.RecommendedFee()))
-}
-
-func (a *api) handleGETAccounts(jc jape.Context) {
-	limit, offset := parseLimitParams(jc, 100, 500)
-	accounts, err := a.accounts.Accounts(limit, offset)
-	if !a.checkServerError(jc, "failed to get accounts", err) {
-		return
-	}
-	jc.Encode(accounts)
-}
-
-func (a *api) handleGETAccountFunding(jc jape.Context) {
-	var account rhp3.Account
-	if err := jc.DecodeParam("account", &account); err != nil {
-		return
-	}
-	funding, err := a.accounts.AccountFunding(account)
-	if !a.checkServerError(jc, "failed to get account funding", err) {
-		return
-	}
-	jc.Encode(funding)
 }
 
 func (a *api) handleGETWebhooks(jc jape.Context) {
