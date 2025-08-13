@@ -1,3 +1,22 @@
+## 2.4.0 (2025-08-13)
+
+### Features
+
+- Added `[GET] /wallet/events/:id`
+- Remove RHP2 and RHP3 support
+- Removed V1 support
+
+### Fixes
+
+- Added alert for expiring local certificates
+- Added a 6 block buffer before storage is reclaimed to ensure small reorgs do not cause unnecessary contract failures.
+- Fix integrity checks for v2 contracts
+- Fixed a panic when a v2 contract state transitions from renewed to failed.
+- Fixed a race condition with Merkle proofs when broadcasting storage proofs.
+- Fixed panic when attempting to broadcast v2 contract revision.
+- Fixed an issue where renewed contracts that are rejected will cause the original contract to fail.
+- Updated coreutils to v0.17.0 and core to v0.16.0
+
 ## 2.3.7 (2025-08-10)
 
 ### Fixes
