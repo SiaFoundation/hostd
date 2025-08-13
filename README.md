@@ -17,6 +17,15 @@ ensuring a smooth user experience across a diverse range of devices.
 - A project roadmap is available on [GitHub](https://github.com/orgs/SiaFoundation/projects/3)
 - Setup guides are available at [https://docs.sia.tech](https://docs.sia.tech/hosting/hostd/about-hosting-on-sia)
 
+### RHP4
+
+RHP4 is the latest version of the renter–host protocol, delivering major performance improvements over RHP2 and RHP3. It supports 
+significantly higher throughput and concurrency, enabling hosts to handle more renters in parallel with lower latency. 
+
+For maximum interoperability, RHP4 supports both:
+- **SiaMux (TCP)** — Secure, high-speed multiplexing layer, built by the Sia Foundation, allowing multiple protocol streams over a single connection. Reliable connections for most environments.
+- **QUIC (UDP)** — Modern, secure, multiplexed connections ideal for direct browser access. QUIC requires no special setup, but for better decentralization, configure a custom domain with a valid TLS certificate (`certPath` and `keyPath` in config).
+
 ## Configuration
 
 The YAML config file is the recommended way to configure `hostd`. `hostd` includes a command to interactively generate a config file: `hostd config`. Some settings can be overridden using CLI flags or environment variables. 
@@ -46,13 +55,13 @@ Docker | `/data/hostd.yml`
 The default config path can be changed using the `HOSTD_CONFIG_FILE` environment variable. For backwards compatibility with earlier versions, `hostd` will also check for `hostd.yml` in the current directory.
 
 ### Default Ports
-+ `9980` - UI and API
-+ `9981` - Sia consensus
-+ `9984` - RHP4 (Note: TCP and UDP ports for SiaMux and Quic protocols respectively)
 
-### RHP4 - QUIC HTTP3 over UDP
++ `9980/TCP` - UI and API
++ `9981/TCP` - Sia consensus
++ `9984/TCP` - RHP4 (SiaMux)
++ `9984/UDP` - RHP4 (QUIC)
 
-RHP4 has two transport methods, SiaMux (using TCP) and QUIC (using UDP). QUIC protocol uses TLS as its security layer. To support QUIC, ensure that you are applying a valid certificate and private key that match the hosts address into the config file below. 
+*When running in Docker, bind `9980` to `127.0.0.1` unless you explicitly intend to expose the API publicly.*
 
 ### Example Config File
 
@@ -79,8 +88,8 @@ rhp4:
     - protocol: quic # quic, quic4, quic6
       address: :9984
   quic:
-    certPath: '/path/certs/certchain.crt' # Certificate chain file
-    keyPath: '/path/private/keyfile.key' # Certificate private keyfile 
+    certPath: '/path/certs/certchain.crt' # Certificate chain file (optional)
+    keyPath: '/path/private/keyfile.key' # Certificate private keyfile (optional)
 log:
   level: info # global log level
   stdout:
