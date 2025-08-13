@@ -3,11 +3,15 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"path/filepath"
 	"testing"
 
+	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/v2/host/contracts"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"lukechampine.com/frand"
 )
 
 // nolint:misspell
@@ -248,21 +252,51 @@ CREATE TABLE global_settings (
 
 INSERT INTO global_settings (id, db_version) VALUES (0, 1); -- version must be updated when the schema changes`
 
-func TestMigrationConsistency(t *testing.T) {
-	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
+func initDBVersion(tb testing.TB, fp string, target int64, log *zap.Logger) *Store {
 	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	defer db.Close()
+	tb.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			tb.Fatal(err)
+		}
+	})
 	if _, err := db.Exec(initialSchema); err != nil {
-		t.Fatal(err)
-	} else if err := db.Close(); err != nil {
+		tb.Fatal(err)
+	}
+
+	// set the number of open connections to 1 to prevent "database is locked"
+	// errors
+	db.SetMaxOpenConns(1)
+
+	store := &Store{
+		db:  db,
+		log: log,
+	}
+	tb.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			tb.Fatal(err)
+		}
+	})
+
+	if err := store.init(target); err != nil {
+		tb.Fatal(err)
+	}
+	return store
+}
+
+func TestMigrationConsistency(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
+
+	// initialize the v1 database
+	store := initDBVersion(t, fp, 1, log)
+	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 
 	expectedVersion := int64(len(migrations) + 1)
-	log := zaptest.NewLogger(t)
 	store, err := OpenDatabase(fp, log)
 	if err != nil {
 		t.Fatal(err)
@@ -433,5 +467,72 @@ func TestMigrationConsistency(t *testing.T) {
 				t.Errorf("unexpected column %s.%s", k, c)
 			}
 		}
+	}
+}
+
+// TestMigrateV44 ensures that the migration from version 43 to 44
+// correctly updates the resolution height and ID to the split format.
+func TestMigrateV44(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
+	store := initDBVersion(t, fp, 43, log)
+
+	contractID := types.FileContractID(frand.Entropy256())
+	resolutionIndex := types.ChainIndex{
+		ID:     frand.Entropy256(),
+		Height: frand.Uint64n(math.MaxUint32), // SQLite only supports int64
+	}
+
+	err := store.transaction(func(tx *txn) error {
+		var renterID int64
+		err := tx.QueryRow(`INSERT INTO contract_renters (public_key) VALUES ($1) RETURNING id`, encode(types.PublicKey(frand.Entropy256()))).Scan(&renterID)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(`INSERT INTO contracts_v2 (renter_id, contract_id, revision_number, negotiation_height, proof_height, expiration_height, formation_txn_set, formation_txn_set_basis, 
+locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, resolution_index, contract_status) 
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+			renterID,
+			encode(contractID),
+			encode(frand.Uint64n(math.MaxUint64)),
+			frand.Uint64n(math.MaxUint32),
+			frand.Uint64n(math.MaxUint32),
+			frand.Uint64n(math.MaxUint32),
+			encodeSlice([]types.V2Transaction{}),
+			encode(types.ChainIndex{}),
+			encode(types.NewCurrency64(frand.Uint64n(math.MaxUint64))),
+			encode(types.NewCurrency64(frand.Uint64n(math.MaxUint64))),
+			encode(types.NewCurrency64(frand.Uint64n(math.MaxUint64))),
+			encode(types.NewCurrency64(frand.Uint64n(math.MaxUint64))),
+			encode(types.NewCurrency64(frand.Uint64n(math.MaxUint64))),
+			encode(types.NewCurrency64(frand.Uint64n(math.MaxUint64))),
+			encode(types.NewCurrency64(frand.Uint64n(math.MaxUint64))),
+			encode(types.V2FileContract{}),
+			encode(resolutionIndex),
+			contracts.V2ContractStatusActive,
+		)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	} else if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = OpenDatabase(fp, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	contract, err := store.V2Contract(contractID)
+	if err != nil {
+		t.Fatal(err)
+	} else if contract.ResolutionIndex != resolutionIndex {
+		t.Fatalf("unexpected resolution index: got %v, want %v", contract.ResolutionIndex, resolutionIndex)
 	}
 }

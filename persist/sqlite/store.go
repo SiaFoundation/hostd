@@ -330,7 +330,7 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 		db:  db,
 		log: log,
 	}
-	if err := store.init(); err != nil {
+	if err := store.init(int64(len(migrations) + 1)); err != nil {
 		return nil, err
 	}
 	sqliteVersion, _, _ := sqlite3.Version()

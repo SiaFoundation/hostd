@@ -13,6 +13,7 @@ import (
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/storage"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
@@ -662,5 +663,86 @@ func BenchmarkV2TrimSectors(b *testing.B) {
 
 	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, nil, proto4.Usage{}); err != nil {
 		b.Fatal(err)
+	}
+}
+
+func BenchmarkRefreshContract(b *testing.B) {
+	runBenchmark := func(b *testing.B, sectors uint64) {
+		b.Helper()
+
+		b.Run(fmt.Sprintf("sectors=%d", sectors), func(b *testing.B) {
+			log := zap.NewNop()
+			db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer db.Close()
+
+			// add a contract to the database
+			contract := contracts.V2Contract{
+				ID: frand.Entropy256(),
+				V2FileContract: types.V2FileContract{
+					RevisionNumber: 1,
+				},
+			}
+
+			if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+				b.Fatal(err)
+			}
+
+			volumeID, err := db.AddVolume("test.dat", false)
+			if err != nil {
+				b.Fatal(err)
+			} else if err := db.SetAvailable(volumeID, true); err != nil {
+				b.Fatal(err)
+			} else if err = db.GrowVolume(volumeID, sectors); err != nil {
+				b.Fatal(err)
+			}
+
+			roots := make([]types.Hash256, 0, sectors)
+
+			for range sectors {
+				root := types.Hash256(frand.Entropy256())
+				roots = append(roots, root)
+
+				err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+				if err != nil {
+					b.Fatal(err)
+				} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
+					b.Fatal(err)
+				}
+			}
+
+			if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+				b.Fatal(err)
+			}
+
+			currentID := contract.ID
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for b.Loop() {
+				contract := contracts.V2Contract{
+					ID: frand.Entropy256(),
+					V2FileContract: types.V2FileContract{
+						RevisionNumber: 1,
+					},
+				}
+				if err := db.RenewV2Contract(contract, rhp4.TransactionSet{}, currentID, roots); err != nil {
+					b.Fatal(err)
+				}
+				currentID = contract.ID
+			}
+		})
+	}
+
+	for _, n := range []uint64{
+		10,
+		100,
+		1000,
+		(1 << 40) / proto4.SectorSize,  // 1 TiB
+		(10 << 40) / proto4.SectorSize, // 10 TiB
+	} {
+		runBenchmark(b, n)
 	}
 }

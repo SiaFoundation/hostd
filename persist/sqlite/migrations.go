@@ -12,6 +12,61 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion44(tx *txn, log *zap.Logger) error {
+	_, err := tx.Exec(`
+ALTER TABLE contracts_v2 ADD COLUMN resolution_block_id BLOB;
+ALTER TABLE contracts_v2 ADD COLUMN resolution_height INTEGER CHECK((resolution_height IS NULL) = (resolution_block_id IS NULL));
+DROP INDEX contracts_v2_confirmation_index_resolution_index_proof_height;
+DROP INDEX contracts_v2_confirmation_index_resolution_index_expiration_height;
+CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_proof_height ON contracts_v2(confirmation_index, resolution_block_id, proof_height);
+CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_expiration_height ON contracts_v2(confirmation_index, resolution_block_id, expiration_height);
+CREATE INDEX contracts_v2_resolution_height ON contracts_v2(resolution_height);`)
+	if err != nil {
+		return fmt.Errorf("failed to add resolution columns: %w", err)
+	}
+
+	// migrate the existing resolved contracts
+	rows, err := tx.Query(`SELECT id, resolution_index FROM contracts_v2 WHERE resolution_index IS NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("failed to query contract resolution indices: %w", err)
+	}
+	defer rows.Close()
+
+	type contractResolutionIndex struct {
+		dbID            int64
+		resolutionIndex types.ChainIndex
+	}
+	var contractResolutionIndices []contractResolutionIndex
+	for rows.Next() {
+		var idx contractResolutionIndex
+		if err := rows.Scan(&idx.dbID, decode(&idx.resolutionIndex)); err != nil {
+			return fmt.Errorf("failed to scan contract resolution index: %w", err)
+		}
+		contractResolutionIndices = append(contractResolutionIndices, idx)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate contract resolution indices: %w", err)
+	} else if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close rows: %w", err)
+	}
+
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_height = ?, resolution_block_id = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer updateStmt.Close()
+
+	for _, idx := range contractResolutionIndices {
+		if _, err := updateStmt.Exec(idx.resolutionIndex.Height, encode(idx.resolutionIndex.ID), idx.dbID); err != nil {
+			return fmt.Errorf("failed to update contract resolution index: %w", err)
+		}
+	}
+
+	// drop the old column
+	_, err = tx.Exec(`ALTER TABLE contracts_v2 DROP COLUMN resolution_index`)
+	return err
+}
+
 func migrateVersion43(tx *txn, log *zap.Logger) error {
 	return recalcContractMetrics(tx, log)
 }
@@ -1072,4 +1127,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion41,
 	migrateVersion42,
 	migrateVersion43,
+	migrateVersion44,
 }

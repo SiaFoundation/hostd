@@ -153,10 +153,11 @@ CREATE TABLE contracts_v2 (
 	risked_collateral BLOB NOT NULL,
 	raw_revision BLOB NOT NULL, -- binary serialized contract revision
 	confirmation_index BLOB, -- null if the contract has not been confirmed on the blockchain, otherwise the chain index of the block containing the confirmation transaction
-	resolution_index BLOB, -- null if the storage proof/resolution has not been confirmed on the blockchain, otherwise the chain index of the block containing the resolution transaction
 	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
 	proof_height INTEGER NOT NULL,
 	expiration_height INTEGER NOT NULL,
+	resolution_block_id BLOB, -- null if the resolution has not been confirmed on the blockchain
+	resolution_height INTEGER CHECK((resolution_height IS NULL) = (resolution_block_id IS NULL)), -- null if the resolution has not been confirmed on the blockchain
 	contract_status TEXT NOT NULL
 );
 CREATE INDEX contracts_v2_contract_id ON contracts_v2(contract_id);
@@ -167,8 +168,9 @@ CREATE INDEX contracts_v2_negotiation_height ON contracts_v2(negotiation_height)
 CREATE INDEX contracts_v2_proof_height ON contracts_v2(proof_height);
 CREATE INDEX contracts_v2_expiration_height ON contracts_v2(expiration_height);
 CREATE INDEX contracts_v2_contract_status ON contracts_v2(contract_status);
-CREATE INDEX contracts_v2_confirmation_index_resolution_index_proof_height ON contracts_v2(confirmation_index, resolution_index, proof_height);
-CREATE INDEX contracts_v2_confirmation_index_resolution_index_expiration_height ON contracts_v2(confirmation_index, resolution_index, expiration_height);
+CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_proof_height ON contracts_v2(confirmation_index, resolution_block_id, proof_height);
+CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_expiration_height ON contracts_v2(confirmation_index, resolution_block_id, expiration_height);
+CREATE INDEX contracts_v2_resolution_height ON contracts_v2(resolution_height);
 CREATE INDEX contracts_v2_confirmation_index_proof_height ON contracts_v2(confirmation_index, proof_height);
 CREATE INDEX contracts_v2_confirmation_index_negotiation_height ON contracts_v2(confirmation_index, negotiation_height);
 
