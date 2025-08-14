@@ -387,6 +387,63 @@ func TestV2Contracts(t *testing.T) {
 	}
 }
 
+func TestV2DuplicateContracts(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	c, count, err := db.V2Contracts(contracts.V2ContractFilter{})
+	if err != nil {
+		t.Fatal(err)
+	} else if len(c) != 0 {
+		t.Fatal("expected no contracts")
+	} else if count != 0 {
+		t.Fatal("expected no contracts")
+	}
+
+	// add a contract to the database
+	contract := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RenterPublicKey:  renterKey.PublicKey(),
+			HostPublicKey:    hostKey.PublicKey(),
+			ProofHeight:      100,
+			ExpirationHeight: 200,
+		},
+	}
+
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); !errors.Is(err, contracts.ErrContractExists) {
+		t.Fatalf("expected ErrContractExists, got %v", err)
+	}
+
+	// change the contract status to rejected
+	err = db.transaction(func(tx *txn) error {
+		if err := incrementNumericStat(tx, metricRejectedContracts, 1, time.Now()); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_id=$2`, contracts.V2ContractStatusRejected, encode(contract.ID))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// add should succeed since the contract is rejected
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReviseV2ContractConsistency(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)

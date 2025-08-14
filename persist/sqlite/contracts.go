@@ -864,11 +864,52 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, 
 	return
 }
 
+// v2ContractExists is a helper that checks if a contract already exists.
+//
+// If the contract exists, and its contract_status is rejected the
+// existing contract will be deleted so the new contract can be inserted
+// and returns (nil).
+//
+// If the contract exists, and its contract_status is not rejected,
+// [contracts.ErrContractExists] will be returned.
+//
+// If the contract does not exist, it returns (nil).
+
+func v2ContractExists(tx *txn, contractID types.FileContractID) error {
+	var dbID int64
+	var status contracts.V2ContractStatus
+	err := tx.QueryRow(`SELECT id, contract_status FROM contracts_v2 WHERE contract_id=$1;`, encode(contractID)).Scan(&dbID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // contract does not exist
+	} else if err != nil {
+		return fmt.Errorf("failed to check contract existence: %w", err)
+	}
+
+	if status != contracts.V2ContractStatusRejected {
+		return contracts.ErrContractExists
+	}
+
+	_, err = tx.Exec(`DELETE FROM contracts_v2 WHERE id=$1;`, dbID)
+	if err != nil {
+		return fmt.Errorf("failed to delete rejected contract: %w", err)
+	}
+
+	if err := incrementNumericStat(tx, metricRejectedContracts, -1, time.Now()); err != nil {
+		return fmt.Errorf("failed to update rejected contracts metric: %w", err)
+	}
+	return nil
+}
+
 func insertV2Contract(tx *txn, contract contracts.V2Contract, formationSet rhp4.TransactionSet) (dbID int64, err error) {
 	const query = `INSERT INTO contracts_v2 (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue,
 egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, proof_height, expiration_height, formation_txn_set,
 formation_txn_set_basis, raw_revision, contract_status) VALUES
  ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id;`
+
+	if err := v2ContractExists(tx, contract.ID); err != nil {
+		return 0, err
+	}
+
 	renterID, err := renterDBID(tx, contract.RenterPublicKey)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get renter id: %w", err)

@@ -76,6 +76,11 @@ type (
 	}
 )
 
+var (
+	// ErrAlreadyRenewed is returned when a contract has already been renewed.
+	ErrAlreadyRenewed = errors.New("renewed contracts cannot be revised")
+)
+
 func (cm *Manager) getSectorRoots(id types.FileContractID) []types.Hash256 {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -184,7 +189,7 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 
 	// note: not checking status here since that is only changed after the renewal is confirmed.
 	if existing.RenewedTo != (types.FileContractID{}) {
-		return errors.New("renewed contracts cannot be revised")
+		return ErrAlreadyRenewed
 	}
 
 	oldRoots := cm.getSectorRoots(contractID)
