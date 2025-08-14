@@ -1925,7 +1925,8 @@ func rejectV2Contracts(tx *txn, height uint64, log *zap.Logger) (rejected []type
 			return nil, fmt.Errorf("failed to update contract metrics: %w", err)
 		}
 
-		// clear the renewed to field on the existing contract so that it can be renewed again
+		// clear the renewed to field on the existing contract so that it can be renewed
+		// again. For historical purposes, renewed_from is not cleared on the new contract.
 		if _, err := clearRenewedTo.Exec(state.RenewedFromID); err != nil {
 			return nil, fmt.Errorf("failed to clear renewed_to field: %w", err)
 		}
