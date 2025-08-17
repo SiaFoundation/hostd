@@ -135,18 +135,19 @@ func NewManager(hostKey types.PublicKey, settings Settings, explorer Explorer, o
 				if errors.Is(err, context.Canceled) {
 					return // shutdown
 				} else if err != nil {
-					m.log.Error("failed to test connection", zap.Error(err))
+					m.log.Error("failed to test connection", zap.Error(err), zap.Int("consecutiveFailures", consecutiveFailures))
 				} else {
 					m.log.Debug("connection test result", zap.Bool("ok", ok), zap.Any("result", result))
 				}
 
 				if !ok {
 					consecutiveFailures++
-					nextTestTime = min(m.maxCheckInterval, m.backoffFn(consecutiveFailures))
+					nextTestTime = min(m.maxCheckInterval, m.backoffFn(min(consecutiveFailures, 10))) // capped at a reasonable value
 				} else {
 					consecutiveFailures = 0
 					nextTestTime = m.maxCheckInterval
 				}
+				m.log.Debug("next connectivity test in", zap.Duration("duration", nextTestTime), zap.Int("consecutiveFailures", consecutiveFailures))
 			case <-ctx.Done():
 				return
 			}
