@@ -50,7 +50,6 @@ type (
 	// FundingSource tracks a funding source for an account.
 	FundingSource struct {
 		ContractID types.FileContractID `json:"contractID"`
-		AccountID  rhp3.Account         `json:"accountID"`
 		Amount     types.Currency       `json:"amount"`
 	}
 

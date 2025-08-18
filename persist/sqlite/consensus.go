@@ -1874,6 +1874,83 @@ func v2ContractsToReject(tx *txn, height uint64) (rejected []types.FileContractI
 	return
 }
 
+type accountFundAmount struct {
+	accountDBID int64
+	amount      types.Currency
+}
+
+func resetRejectedContractAccountFunding(tx *txn, contractDBID int64, log *zap.Logger) error {
+	rows, err := tx.Query(`DELETE FROM contract_v2_account_funding WHERE contract_id=? RETURNING account_id, amount`, contractDBID)
+	if err != nil {
+		return fmt.Errorf("failed to revert contract account funding: %w", err)
+	}
+	defer rows.Close()
+
+	var sources []accountFundAmount
+	for rows.Next() {
+		var source accountFundAmount
+		if err := rows.Scan(&source.accountDBID, decode(&source.amount)); err != nil {
+			return fmt.Errorf("failed to scan contract account funding: %w", err)
+		}
+		sources = append(sources, source)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to scan contract account funding: %w", err)
+	} else if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close contract account funding rows: %w", err)
+	}
+
+	if len(sources) == 0 {
+		return nil
+	}
+
+	getAccountFundingStmt, err := tx.Prepare(`SELECT balance FROM accounts WHERE id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare get account funding statement: %w", err)
+	}
+	defer getAccountFundingStmt.Close()
+
+	updateAccountFundingStmt, err := tx.Prepare(`UPDATE accounts SET balance=$1 WHERE id=$2`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update account funding statement: %w", err)
+	}
+	defer updateAccountFundingStmt.Close()
+
+	deleteAccountStmt, err := tx.Prepare(`DELETE FROM accounts WHERE id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare delete account statement: %w", err)
+	}
+	defer deleteAccountStmt.Close()
+
+	var balanceDelta types.Currency
+	for _, source := range sources {
+		var balance types.Currency
+		if err := getAccountFundingStmt.QueryRow(source.accountDBID).Scan(decode(&balance)); err != nil {
+			return fmt.Errorf("failed to get account funding: %w", err)
+		}
+
+		if balance.Cmp(source.amount) <= 0 {
+			if _, err := deleteAccountStmt.Exec(source.accountDBID); err != nil {
+				return fmt.Errorf("failed to clear account: %w", err)
+			}
+			balanceDelta = balanceDelta.Add(balance)
+			log.Debug("reverted account funding", zap.Int64("accountID", source.accountDBID), zap.Stringer("delta", balance), zap.Stringer("balance", types.ZeroCurrency))
+		} else {
+			newBalance := balance.Sub(source.amount)
+			if _, err := updateAccountFundingStmt.Exec(encode(newBalance), source.accountDBID); err != nil {
+				return fmt.Errorf("failed to update account funding: %w", err)
+			}
+			balanceDelta = balanceDelta.Sub(source.amount)
+			log.Debug("reverted account funding", zap.Int64("accountID", source.accountDBID), zap.Stringer("delta", source.amount), zap.Stringer("balance", newBalance))
+		}
+	}
+
+	if err := incrementCurrencyStat(tx, metricAccountBalance, balanceDelta, true, time.Now()); err != nil {
+		return fmt.Errorf("failed to increment currency stat: %w", err)
+	}
+	return nil
+}
+
 func rejectV2Contracts(tx *txn, height uint64, log *zap.Logger) (rejected []types.FileContractID, err error) {
 	rejected, err = v2ContractsToReject(tx, height)
 	if err != nil {
@@ -1929,6 +2006,11 @@ func rejectV2Contracts(tx *txn, height uint64, log *zap.Logger) (rejected []type
 		// again. For historical purposes, renewed_from is not cleared on the new contract.
 		if _, err := clearRenewedTo.Exec(state.RenewedFromID); err != nil {
 			return nil, fmt.Errorf("failed to clear renewed_to field: %w", err)
+		}
+
+		// clear the account funding for the rejected contract.
+		if err := resetRejectedContractAccountFunding(tx, state.ID, log); err != nil {
+			return nil, fmt.Errorf("failed to clear rejected contract account funding: %w", err)
 		}
 	}
 	return rejected, nil

@@ -864,18 +864,19 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, 
 	return
 }
 
-// v2ContractExists is a helper that checks if a contract already exists.
+// resetRejectedV2Contract is a helper that checks if a contract
+// already exists and is rejected.
 //
 // If the contract exists, and its contract_status is rejected the
-// existing contract will be deleted so the new contract can be inserted
-// and returns (nil).
+// existing contract and metrics will be reset so the new contract
+// can be inserted and returns (nil).
 //
 // If the contract exists, and its contract_status is not rejected,
 // [contracts.ErrContractExists] will be returned.
 //
-// If the contract does not exist, it returns (nil).
+// If the contract does not exist, this is a no-op and returns (nil).
 
-func v2ContractExists(tx *txn, contractID types.FileContractID) error {
+func resetRejectedV2Contract(tx *txn, contractID types.FileContractID) error {
 	var dbID int64
 	var status contracts.V2ContractStatus
 	err := tx.QueryRow(`SELECT id, contract_status FROM contracts_v2 WHERE contract_id=$1;`, encode(contractID)).Scan(&dbID, &status)
@@ -889,12 +890,32 @@ func v2ContractExists(tx *txn, contractID types.FileContractID) error {
 		return contracts.ErrContractExists
 	}
 
-	_, err = tx.Exec(`DELETE FROM contracts_v2 WHERE id=$1;`, dbID)
+	incrementNumericStat, done, err := incrementNumericStatStmt(tx)
 	if err != nil {
+		return fmt.Errorf("failed to increment contract stats: %w", err)
+	}
+	defer done()
+
+	// cleanup sector references for rejected contracts
+	// note: this should already be handled, but there is a small race where
+	// not all of the sectors may be cleaned up before the renter tries to
+	// renew. Instead of failing, it is preferred to clean up the remaining roots.
+	res, err := tx.Exec(`DELETE FROM contract_v2_sector_roots WHERE contract_id=$1;`, dbID)
+	if err != nil {
+		return fmt.Errorf("failed to delete rejected contract sectors: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows: %w", err)
+	}
+
+	if _, err = tx.Exec(`DELETE FROM contracts_v2 WHERE id=$1;`, dbID); err != nil {
 		return fmt.Errorf("failed to delete rejected contract: %w", err)
 	}
 
-	if err := incrementNumericStat(tx, metricRejectedContracts, -1, time.Now()); err != nil {
+	if err := incrementNumericStat(metricContractSectors, -n, time.Now()); err != nil {
+		return fmt.Errorf("failed to decrement contract sectors: %w", err)
+	} else if err := incrementNumericStat(metricRejectedContracts, -1, time.Now()); err != nil {
 		return fmt.Errorf("failed to update rejected contracts metric: %w", err)
 	}
 	return nil
@@ -906,7 +927,7 @@ egress_revenue, account_funding, risked_collateral, revision_number, negotiation
 formation_txn_set_basis, raw_revision, contract_status) VALUES
  ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id;`
 
-	if err := v2ContractExists(tx, contract.ID); err != nil {
+	if err := resetRejectedV2Contract(tx, contract.ID); err != nil {
 		return 0, err
 	}
 
