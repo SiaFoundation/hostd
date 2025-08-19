@@ -477,7 +477,7 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		}
 		// apply state changes
 		if err := tx.ApplyContracts(cau.State.Index, state); err != nil {
-			return fmt.Errorf("failed to revert contracts: %w", err)
+			return fmt.Errorf("failed to apply contracts: %w", err)
 		}
 
 		if err := tx.UpdateChainIndexElementProofs(cau); err != nil {

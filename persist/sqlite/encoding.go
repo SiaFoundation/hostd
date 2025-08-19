@@ -123,6 +123,8 @@ func (d *decodable) Scan(src any) error {
 		return nil
 	case int64:
 		switch v := d.v.(type) {
+		case *int64:
+			*v = src
 		case *uint64:
 			*v = uint64(src)
 		case *time.Time:

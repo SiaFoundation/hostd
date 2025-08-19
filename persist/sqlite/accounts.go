@@ -16,6 +16,33 @@ import (
 
 const accountExpirationTime = 90 * 24 * time.Hour
 
+// RHP4AccountFunding returns all contracts that were used to fund the account.
+func (s *Store) RHP4AccountFunding(account proto4.Account) (srcs []accounts.FundingSource, err error) {
+	const query = `SELECT c.contract_id, caf.amount
+FROM contract_v2_account_funding caf
+INNER JOIN accounts a ON a.id=caf.account_id
+INNER JOIN contracts_v2 c ON c.id=caf.contract_id
+WHERE a.account_id=$1`
+
+	err = s.transaction(func(tx *txn) error {
+		rows, err := tx.Query(query, encode(account))
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var src accounts.FundingSource
+			if err := rows.Scan(decode(&src.ContractID), decode(&src.Amount)); err != nil {
+				return fmt.Errorf("failed to scan row: %w", err)
+			}
+			srcs = append(srcs, src)
+		}
+		return rows.Err()
+	})
+	return
+}
+
 // RHP4AccountBalance returns the balance of the account with the given ID.
 func (s *Store) RHP4AccountBalance(account proto4.Account) (balance types.Currency, err error) {
 	err = s.transaction(func(tx *txn) error {
@@ -121,8 +148,7 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 			}
 		}
 
-		_, err = reviseV2Contract(tx, contractID, revision, usage)
-		if err != nil {
+		if _, err = reviseV2Contract(tx, contractID, revision, usage); err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
 		}
 
@@ -275,7 +301,7 @@ func (s *Store) Accounts(limit, offset int) (acc []accounts.Account, err error) 
 
 // AccountFunding returns all contracts that were used to fund the account.
 func (s *Store) AccountFunding(account rhp3.Account) (srcs []accounts.FundingSource, err error) {
-	const query = `SELECT a.account_id, c.contract_id, caf.amount
+	const query = `SELECT c.contract_id, caf.amount
 FROM contract_account_funding caf
 INNER JOIN accounts a ON a.id=caf.account_id
 INNER JOIN contracts c ON c.id=caf.contract_id
@@ -290,7 +316,7 @@ WHERE a.account_id=$1`
 
 		for rows.Next() {
 			var src accounts.FundingSource
-			if err := rows.Scan(decode((*types.PublicKey)(&src.AccountID)), decode(&src.ContractID), decode(&src.Amount)); err != nil {
+			if err := rows.Scan(decode(&src.ContractID), decode(&src.Amount)); err != nil {
 				return fmt.Errorf("failed to scan row: %w", err)
 			}
 			srcs = append(srcs, src)
