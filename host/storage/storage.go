@@ -221,10 +221,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int64, volume *volum
 		default:
 		}
 
-		target := current + resizeBatchSize
-		if target > newMaxSectors {
-			target = newMaxSectors
-		}
+		target := min(current+resizeBatchSize, newMaxSectors)
 
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
@@ -299,10 +296,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 		}
 		var target uint64
 		if current > resizeBatchSize {
-			target = current - resizeBatchSize
-			if target < newMaxSectors {
-				target = newMaxSectors
-			}
+			target = max(current-resizeBatchSize, newMaxSectors)
 		} else {
 			target = newMaxSectors
 		}

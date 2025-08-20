@@ -963,10 +963,7 @@ func BenchmarkStoreSector(b *testing.B) {
 		minSectors           = 20 * sectorsPerTiB
 	)
 
-	sectors := minSectors
-	if sectors < uint64(b.N) {
-		sectors = uint64(b.N)
-	}
+	sectors := max(minSectors, uint64(b.N))
 
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
@@ -1048,10 +1045,7 @@ func BenchmarkReadSector(b *testing.B) {
 		minSectors           = 20 * sectorsPerTiB
 	)
 
-	sectors := minSectors
-	if sectors < uint64(b.N) {
-		sectors = uint64(b.N)
-	}
+	sectors := max(minSectors, uint64(b.N))
 
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
