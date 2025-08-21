@@ -1619,6 +1619,129 @@ func TestPrune(t *testing.T) {
 	assertSectors(t, nil, roots)
 }
 
+func TestMaxSectorBatchSize(t *testing.T) {
+	n, genesis := testutil.V2Network()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+
+	hn := testutil.NewHostNode(t, hostKey, n, genesis, zap.NewNop())
+	cm := hn.Chain
+	w := hn.Wallet
+
+	results := make(chan error, 1)
+	if _, err := hn.Volumes.AddVolume(context.Background(), filepath.Join(t.TempDir(), "test.dat"), 64, results); err != nil {
+		t.Fatal(err)
+	} else if err := <-results; err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
+
+	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+
+	settings, err := rhp4.RPCSettings(context.Background(), transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fundAndSign := &fundAndSign{w, renterKey}
+	renterAllowance, hostCollateral := types.Siacoins(100), types.Siacoins(200)
+	formResult, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
+		RenterPublicKey: renterKey.PublicKey(),
+		RenterAddress:   w.Address(),
+		Allowance:       renterAllowance,
+		Collateral:      hostCollateral,
+		ProofHeight:     cm.Tip().Height + 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := formResult.Contract
+
+	cs := cm.TipState()
+	account := proto4.Account(renterKey.PublicKey())
+
+	accountFundAmount := types.Siacoins(25)
+	fundResult, err := rhp4.RPCFundAccounts(context.Background(), transport, cs, renterKey, revision, []proto4.AccountDeposit{
+		{Account: account, Amount: accountFundAmount},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.Revision = fundResult.Revision
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
+	roots := make([]types.Hash256, 10)
+	for i := range roots {
+		// store random sectors on the host
+		data := frand.Bytes(1024)
+
+		// store the sector
+		writeResult, err := rhp4.RPCWriteSector(context.Background(), transport, settings.Prices, token, bytes.NewReader(data), uint64(len(data)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots[i] = writeResult.Root
+	}
+
+	assertRevision := func(t *testing.T, revision types.V2FileContract, roots []types.Hash256) {
+		t.Helper()
+
+		expectedRoot := proto4.MetaRoot(roots)
+		n := len(roots)
+
+		if revision.Filesize/proto4.SectorSize != uint64(n) {
+			t.Fatalf("expected %v sectors, got %v", n, revision.Filesize/proto4.SectorSize)
+		} else if revision.FileMerkleRoot != expectedRoot {
+			t.Fatalf("expected %v, got %v", expectedRoot, revision.FileMerkleRoot)
+		}
+	}
+
+	// append duplicate roots so the contract has over 1 TiB of sectors
+	var appendRoots []types.Hash256
+	for i := range 2 * proto4.MaxSectorBatchSize {
+		appendRoots = append(appendRoots, roots[i%len(roots)])
+	}
+
+	_, err = rhp4.RPCAppendSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, appendRoots)
+	if code := proto4.ErrorCode(err); code != proto4.ErrorCodeDecoding {
+		t.Fatalf("expected decoding error, got %d", code)
+	}
+
+	// append all the sector roots to the contract
+	appendRoots = appendRoots[:proto4.MaxSectorBatchSize]
+	appendResult, err := rhp4.RPCAppendSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, appendRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRevision(t, appendResult.Revision, appendRoots)
+	revision.Revision = appendResult.Revision
+
+	rootsResp, err := rhp4.RPCSectorRoots(context.Background(), transport, cs, settings.Prices, renterKey, revision, 0, uint64(len(appendRoots)))
+	if err != nil {
+		t.Fatal(err)
+	} else if !slices.Equal(rootsResp.Roots, appendRoots) {
+		t.Fatal("expected roots to match")
+	}
+	assertRevision(t, rootsResp.Revision, appendRoots)
+	revision.Revision = rootsResp.Revision
+
+	// try to remove too many indices
+	indices := make([]uint64, len(appendRoots)*10)
+	_, err = rhp4.RPCFreeSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, indices)
+	if code := proto4.ErrorCode(err); code != proto4.ErrorCodeDecoding {
+		t.Fatalf("expected decoding error, got %q", err)
+	}
+
+	indices = indices[:len(appendRoots)]
+	for i := range indices {
+		indices[i] = uint64(i)
+	}
+	removeResult, err := rhp4.RPCFreeSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, indices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRevision(t, removeResult.Revision, []types.Hash256{})
+}
+
 func BenchmarkWrite(b *testing.B) {
 	n, genesis := testutil.V2Network()
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
