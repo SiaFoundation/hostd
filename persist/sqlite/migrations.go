@@ -12,6 +12,75 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion45 cleans up unresolved v1 contracts since they will never complete
+// and v1 support has been removed.
+func migrateVersion45(tx *txn, log *zap.Logger) error {
+	rows, err := tx.Query(`SELECT id FROM contracts WHERE status IN ($1, $2)`, contracts.ContractStatusActive, contracts.ContractStatusPending)
+	if err != nil {
+		return fmt.Errorf("failed to query active and pending contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contractIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("failed to scan contract ID: %w", err)
+		}
+		contractIDs = append(contractIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate contract IDs: %w", err)
+	} else if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close rows: %w", err)
+	} else if len(contractIDs) == 0 {
+		return nil
+	}
+
+	deleteSectorsStmt, err := tx.Prepare(`DELETE FROM contract_sector_roots WHERE contract_id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare delete statement: %w", err)
+	}
+	defer deleteSectorsStmt.Close()
+
+	for _, id := range contractIDs {
+		if _, err := deleteSectorsStmt.Exec(id); err != nil {
+			return fmt.Errorf("failed to delete contract sector roots: %w", err)
+		}
+	}
+
+	deleteContractAccountFundingStmt, err := tx.Prepare(`DELETE FROM contract_account_funding WHERE contract_id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare delete statement: %w", err)
+	}
+	defer deleteContractAccountFundingStmt.Close()
+
+	deleteContractsStmt, err := tx.Prepare(`DELETE FROM contracts WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare delete statement: %w", err)
+	}
+	defer deleteContractsStmt.Close()
+
+	for _, id := range contractIDs {
+		if _, err := deleteContractsStmt.Exec(id); err != nil {
+			return fmt.Errorf("failed to delete contracts: %w", err)
+		}
+	}
+
+	if err := recalcContractAccountFunding(tx, log); err != nil {
+		return fmt.Errorf("failed to recalculate contract account funding: %w", err)
+	} else if err := recalcContractRevenueCollateralMetrics(tx, log); err != nil {
+		return fmt.Errorf("failed to recalculate contract metrics: %w", err)
+	} else if err := recalcContractCountMetrics(tx); err != nil {
+		return fmt.Errorf("failed to recalculate contract count metrics: %w", err)
+	} else if err := recalcContractSectorsMetrics(tx); err != nil {
+		return fmt.Errorf("failed to recalculate contract sectors metrics: %w", err)
+	} else if err := recalcVolumeMetrics(tx, log); err != nil {
+		return fmt.Errorf("failed to recalculate volume metrics: %w", err)
+	}
+	return nil
+}
+
 func migrateVersion44(tx *txn, log *zap.Logger) error {
 	_, err := tx.Exec(`
 ALTER TABLE contracts_v2 ADD COLUMN resolution_block_id BLOB;
@@ -68,7 +137,7 @@ CREATE INDEX contracts_v2_resolution_height ON contracts_v2(resolution_height);`
 }
 
 func migrateVersion43(tx *txn, log *zap.Logger) error {
-	return recalcContractMetrics(tx, log)
+	return recalcContractRevenueCollateralMetrics(tx, log)
 }
 
 func migrateVersion42(tx *txn, _ *zap.Logger) error {
@@ -107,19 +176,19 @@ func migrateVersion39(tx *txn, _ *zap.Logger) error {
 // migrateVersion38 recalculates the contract metrics to fix an issue where metrics
 // were being mishandled during rescan
 func migrateVersion38(tx *txn, log *zap.Logger) error {
-	return recalcContractMetrics(tx, log)
+	return recalcContractRevenueCollateralMetrics(tx, log)
 }
 
 // migrateVersion37 recalculates the contract metrics to remove the pending contract
 // values from the metrics.
 func migrateVersion37(tx *txn, log *zap.Logger) error {
-	return recalcContractMetrics(tx, log)
+	return recalcContractRevenueCollateralMetrics(tx, log)
 }
 
 // migrateVersion36 recalculates the contract metrics to remove the pending contract
 // values from the metrics.
 func migrateVersion36(tx *txn, log *zap.Logger) error {
-	return recalcContractMetrics(tx, log)
+	return recalcContractRevenueCollateralMetrics(tx, log)
 }
 
 // migrateVersion35 trims the port from the net_address in the host settings
@@ -350,7 +419,7 @@ ALTER TABLE global_settings_v2 RENAME TO global_settings;
 DELETE FROM host_stats WHERE stat='pendingContracts';`)
 	if err != nil {
 		return fmt.Errorf("failed to migrate to version 28: %w", err)
-	} else if err := recalcContractMetrics(tx, log); err != nil {
+	} else if err := recalcContractRevenueCollateralMetrics(tx, log); err != nil {
 		// recalculate contract revenue to remove pending from the metrics
 		return fmt.Errorf("failed to recalculate contract metrics: %w", err)
 	}
@@ -1128,4 +1197,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion42,
 	migrateVersion43,
 	migrateVersion44,
+	migrateVersion45,
 }

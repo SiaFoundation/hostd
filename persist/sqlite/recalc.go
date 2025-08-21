@@ -134,7 +134,73 @@ GROUP BY volume_id`
 	return nil
 }
 
-func recalcContractMetrics(tx *txn, log *zap.Logger) error {
+func recalcContractSectorsMetrics(tx *txn) error {
+	var v1Count uint64
+	err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&v1Count)
+	if err != nil {
+		return fmt.Errorf("failed to query v1 contract sector count: %w", err)
+	}
+
+	var v2Count uint64
+	err = tx.QueryRow(`SELECT COUNT(*) FROM contract_v2_sector_roots`).Scan(&v2Count)
+	if err != nil {
+		return fmt.Errorf("failed to query v2 contract sector count: %w", err)
+	}
+
+	setNumericStat(tx, metricContractSectors, v1Count+v2Count, time.Now())
+	return nil
+}
+
+func recalcContractCountMetrics(tx *txn) error {
+	rows, err := tx.Query(`SELECT contract_status, COUNT(*) FROM contracts GROUP BY contract_status`)
+	if err != nil {
+		return fmt.Errorf("failed to query contract counts: %w", err)
+	}
+	defer rows.Close()
+
+	statuses := make(map[contracts.ContractStatus]uint64)
+	for rows.Next() {
+		var status contracts.ContractStatus
+		var count uint64
+		if err := rows.Scan(&status, &count); err != nil {
+			return fmt.Errorf("failed to scan contract count: %w", err)
+		}
+		statuses[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate contract counts: %w", err)
+	} else if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close contract counts: %w", err)
+	}
+
+	rowsV2, err := tx.Query(`SELECT contract_status, COUNT(*) FROM contracts_v2 GROUP BY contract_status`)
+	if err != nil {
+		return fmt.Errorf("failed to query contract counts v2: %w", err)
+	}
+	defer rowsV2.Close()
+
+	statusesV2 := make(map[contracts.V2ContractStatus]uint64)
+	for rowsV2.Next() {
+		var status contracts.V2ContractStatus
+		var count uint64
+		if err := rowsV2.Scan(&status, &count); err != nil {
+			return fmt.Errorf("failed to scan contract count v2: %w", err)
+		}
+		statusesV2[status] = count
+	}
+
+	active := statuses[contracts.ContractStatusActive] + statusesV2[contracts.V2ContractStatusActive]
+	successful := statuses[contracts.ContractStatusSuccessful] + statusesV2[contracts.V2ContractStatusSuccessful]
+	failed := statuses[contracts.ContractStatusFailed] + statusesV2[contracts.V2ContractStatusFailed]
+
+	setNumericStat(tx, metricActiveContracts, active, time.Now())
+	setNumericStat(tx, metricSuccessfulContracts, successful, time.Now())
+	setNumericStat(tx, metricFailedContracts, failed, time.Now())
+	setNumericStat(tx, metricRenewedContracts, statusesV2[contracts.V2ContractStatusRenewed], time.Now())
+	return nil
+}
+
+func recalcContractRevenueCollateralMetrics(tx *txn, log *zap.Logger) error {
 	var totalLocked types.Currency
 	var totalPending, totalEarned contracts.Usage
 
@@ -248,7 +314,7 @@ func (s *Store) RecalcContractAccountFunding() error {
 // RecalcContractMetrics recalculates the contract metrics.
 func (s *Store) RecalcContractMetrics() error {
 	return s.transaction(func(tx *txn) error {
-		return recalcContractMetrics(tx, s.log)
+		return recalcContractRevenueCollateralMetrics(tx, s.log)
 	})
 }
 
