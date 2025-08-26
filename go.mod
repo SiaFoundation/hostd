@@ -10,7 +10,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.17.3
-	go.sia.tech/coreutils v0.18.1
+	go.sia.tech/coreutils v0.18.2
 	go.sia.tech/jape v0.14.0
 	go.sia.tech/web/hostd v0.66.0
 	go.uber.org/zap v1.27.0
@@ -32,7 +32,7 @@ require (
 	github.com/quic-go/quic-go v0.54.0 // indirect
 	github.com/quic-go/webtransport-go v0.9.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
-	go.etcd.io/bbolt v1.4.2 // indirect
+	go.etcd.io/bbolt v1.4.3 // indirect
 	go.sia.tech/mux v1.4.0 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/mock v0.5.2 // indirect
