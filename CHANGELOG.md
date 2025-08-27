@@ -1,3 +1,21 @@
+## 2.4.0 (2025-08-27)
+
+### Features
+
+- Added `[GET] /wallet/events/:id`
+- Contracts that have been rejected can now be retried by renters.
+- Remove RHP2 and RHP3 support
+- Removed V1 support
+
+### Fixes
+
+- Added alert for expiring local certificates
+- Added a 6 block buffer before storage is reclaimed to ensure small reorgs do not cause unnecessary contract failures.
+- Fix integrity checks for v2 contracts
+- Fixed connectivity check overflow causing immediate retries after many failures.
+- Fixed an issue where renewed contracts that are rejected will cause the original contract to fail.
+- Updated coreutils to v0.18.2 and core to v0.17.4
+
 ## 2.3.7 (2025-08-10)
 
 ### Fixes
