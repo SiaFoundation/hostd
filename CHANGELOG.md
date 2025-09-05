@@ -1,3 +1,9 @@
+## 2.4.1 (2025-09-05)
+
+### Fixes
+
+- Update core dependency from 0.17.4 to 0.17.5 and coreutils dependency from 0.18.2 to 0.18.4.
+
 ## 2.4.0 (2025-08-27)
 
 ### Features
