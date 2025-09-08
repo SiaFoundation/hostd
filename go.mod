@@ -4,7 +4,7 @@ go 1.24.3
 
 require (
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/cloudflare/cloudflare-go v0.115.0
+	github.com/cloudflare/cloudflare-go v0.116.0
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.32
@@ -12,11 +12,11 @@ require (
 	go.sia.tech/core v0.17.5
 	go.sia.tech/coreutils v0.18.4
 	go.sia.tech/jape v0.14.0
-	go.sia.tech/web/hostd v0.66.0
+	go.sia.tech/web/hostd v0.66.1
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.35.0
-	golang.org/x/term v0.34.0
-	golang.org/x/time v0.12.0
+	golang.org/x/sys v0.36.0
+	golang.org/x/term v0.35.0
+	golang.org/x/time v0.13.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.5.1
