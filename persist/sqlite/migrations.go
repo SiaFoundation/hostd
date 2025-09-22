@@ -64,6 +64,8 @@ func migrateVersion45(tx *txn, log *zap.Logger) error {
 	for _, id := range contractIDs {
 		if _, err := deleteContractsStmt.Exec(id); err != nil {
 			return fmt.Errorf("failed to delete contracts: %w", err)
+		} else if _, err := deleteContractAccountFundingStmt.Exec(id); err != nil {
+			return fmt.Errorf("failed to delete contract account funding: %w", err)
 		}
 	}
 
