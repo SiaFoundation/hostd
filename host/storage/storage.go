@@ -1009,6 +1009,7 @@ func (vm *VolumeManager) ProcessActions(index types.ChainIndex) error {
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManager, error) {
 	vm := &VolumeManager{
+		cacheSize:     32, // 128 MiB
 		pruneInterval: 5 * time.Minute,
 		vs:            vs,
 

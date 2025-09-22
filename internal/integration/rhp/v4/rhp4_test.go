@@ -1682,6 +1682,18 @@ func TestMaxSectorBatchSize(t *testing.T) {
 		roots[i] = writeResult.Root
 	}
 
+	// RPC free sectors does a swap and trim rather than in place deletion, this
+	// helper generates the expected roots after a free operation
+	freeSectorRoots := func(t *testing.T, indices []uint64, roots []types.Hash256) []types.Hash256 {
+		t.Helper()
+
+		roots = slices.Clone(roots)
+		for i, n := range indices {
+			roots[n] = roots[len(roots)-i-1]
+		}
+		return roots[:len(roots)-len(indices)]
+	}
+
 	assertRevision := func(t *testing.T, revision types.V2FileContract, roots []types.Hash256) {
 		t.Helper()
 
@@ -1707,39 +1719,70 @@ func TestMaxSectorBatchSize(t *testing.T) {
 	}
 
 	// append all the sector roots to the contract
-	appendRoots = appendRoots[:proto4.MaxSectorBatchSize]
-	appendResult, err := rhp4.RPCAppendSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, appendRoots)
+	appendResult, err := rhp4.RPCAppendSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, appendRoots[:proto4.MaxSectorBatchSize])
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRevision(t, appendResult.Revision, appendRoots[:proto4.MaxSectorBatchSize])
+	revision.Revision = appendResult.Revision
+
+	appendResult, err = rhp4.RPCAppendSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, appendRoots[proto4.MaxSectorBatchSize:])
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertRevision(t, appendResult.Revision, appendRoots)
 	revision.Revision = appendResult.Revision
 
-	rootsResp, err := rhp4.RPCSectorRoots(context.Background(), transport, cs, settings.Prices, renterKey, revision, 0, uint64(len(appendRoots)))
+	// return the first batch of sector roots
+	rootsResp, err := rhp4.RPCSectorRoots(context.Background(), transport, cs, settings.Prices, renterKey, revision, 0, proto4.MaxSectorBatchSize)
 	if err != nil {
 		t.Fatal(err)
-	} else if !slices.Equal(rootsResp.Roots, appendRoots) {
+	} else if !slices.Equal(rootsResp.Roots, appendRoots[:proto4.MaxSectorBatchSize]) {
+		t.Fatal("expected roots to match")
+	}
+	assertRevision(t, rootsResp.Revision, appendRoots)
+	revision.Revision = rootsResp.Revision
+
+	// return a chunk of sector roots in the middle
+	rootsResp, err = rhp4.RPCSectorRoots(context.Background(), transport, cs, settings.Prices, renterKey, revision, proto4.MaxSectorBatchSize/3, proto4.MaxSectorBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	} else if !slices.Equal(rootsResp.Roots, appendRoots[proto4.MaxSectorBatchSize/3:][:proto4.MaxSectorBatchSize]) {
 		t.Fatal("expected roots to match")
 	}
 	assertRevision(t, rootsResp.Revision, appendRoots)
 	revision.Revision = rootsResp.Revision
 
 	// try to remove too many indices
-	indices := make([]uint64, len(appendRoots)*10)
+	indices := make([]uint64, len(appendRoots))
 	_, err = rhp4.RPCFreeSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, indices)
-	if code := proto4.ErrorCode(err); code != proto4.ErrorCodeDecoding {
+	if code := proto4.ErrorCode(err); code != proto4.ErrorCodeBadRequest {
 		t.Fatalf("expected decoding error, got %q", err)
 	}
 
-	indices = indices[:len(appendRoots)]
+	// remove a chunk of sectors in the middle
+	indices = indices[:proto4.MaxSectorBatchSize]
+	offset := proto4.MaxSectorBatchSize / 3
 	for i := range indices {
-		indices[i] = uint64(i)
+		indices[i] = uint64(offset + i)
 	}
 	removeResult, err := rhp4.RPCFreeSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, indices)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRevision(t, removeResult.Revision, []types.Hash256{})
+	afterRoots := freeSectorRoots(t, indices, appendRoots)
+	assertRevision(t, removeResult.Revision, afterRoots)
+	revision.Revision = removeResult.Revision
+
+	// remove the remaining sectors
+	for i := range indices {
+		indices[i] = uint64(i)
+	}
+	removeResult, err = rhp4.RPCFreeSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, indices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRevision(t, removeResult.Revision, nil)
 }
 
 func BenchmarkWrite(b *testing.B) {
