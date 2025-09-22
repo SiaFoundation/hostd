@@ -536,21 +536,3 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 		t.Fatalf("unexpected resolution index: got %v, want %v", contract.ResolutionIndex, resolutionIndex)
 	}
 }
-
-func TestMigrationV45(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
-	store := initDBVersion(t, fp, 44, log)
-
-	contractID := types.FileContractID(frand.Entropy256())
-	resolutionIndex := types.ChainIndex{
-		ID:     frand.Entropy256(),
-		Height: frand.Uint64n(math.MaxUint32), // SQLite only supports int64
-	}
-
-	contracts.SignedRevision{
-		
-	}
-
-	store.AddContract()
-}
