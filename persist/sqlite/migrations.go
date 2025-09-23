@@ -43,12 +43,6 @@ func migrateVersion45(tx *txn, log *zap.Logger) error {
 	}
 	defer deleteSectorsStmt.Close()
 
-	for _, id := range contractIDs {
-		if _, err := deleteSectorsStmt.Exec(id); err != nil {
-			return fmt.Errorf("failed to delete contract sector roots: %w", err)
-		}
-	}
-
 	deleteContractAccountFundingStmt, err := tx.Prepare(`DELETE FROM contract_account_funding WHERE contract_id = ?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare delete statement: %w", err)
@@ -62,10 +56,12 @@ func migrateVersion45(tx *txn, log *zap.Logger) error {
 	defer deleteContractsStmt.Close()
 
 	for _, id := range contractIDs {
-		if _, err := deleteContractsStmt.Exec(id); err != nil {
-			return fmt.Errorf("failed to delete contracts: %w", err)
+		if _, err := deleteSectorsStmt.Exec(id); err != nil {
+			return fmt.Errorf("failed to delete contract sector roots: %w", err)
 		} else if _, err := deleteContractAccountFundingStmt.Exec(id); err != nil {
 			return fmt.Errorf("failed to delete contract account funding: %w", err)
+		} else if _, err := deleteContractsStmt.Exec(id); err != nil {
+			return fmt.Errorf("failed to delete contracts: %w", err)
 		}
 	}
 
