@@ -15,7 +15,7 @@ import (
 // migrateVersion45 cleans up unresolved v1 contracts since they will never complete
 // and v1 support has been removed.
 func migrateVersion45(tx *txn, log *zap.Logger) error {
-	rows, err := tx.Query(`SELECT id FROM contracts WHERE status IN ($1, $2)`, contracts.ContractStatusActive, contracts.ContractStatusPending)
+	rows, err := tx.Query(`SELECT id FROM contracts WHERE contract_status IN ($1, $2)`, contracts.ContractStatusActive, contracts.ContractStatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to query active and pending contracts: %w", err)
 	}
