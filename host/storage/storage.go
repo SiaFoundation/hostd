@@ -849,8 +849,33 @@ func (vm *VolumeManager) readLocation(loc SectorLocation) (*[proto2.SectorSize]b
 	return sector, nil
 }
 
+// VerifySector verifies that the sector with the given root
+// is not corrupt by reading it from disk and recalculating its
+// root. This differs from ReadSector in that it does not use the cache.
+//
+// If the sector is not found, [ErrSectorNotFound] is returned.
+// If the sector is corrupt, [ErrSectorCorrupt] is returned along with the
+// calculated root.
+func (vm *VolumeManager) VerifySector(root types.Hash256) (types.Hash256, error) {
+	loc, err := vm.vs.SectorLocation(root)
+	if err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to locate sector: %w", err)
+	}
+
+	sector, err := vm.readLocation(loc)
+	if err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to read sector: %w", err)
+	}
+
+	calculatedRoot := proto2.SectorRoot(sector)
+	if calculatedRoot != root {
+		return calculatedRoot, ErrSectorCorrupt
+	}
+	return calculatedRoot, nil
+}
+
 // ReadSector reads the sector with the given root from disk
-func (vm *VolumeManager) ReadSector(root types.Hash256) (*[proto2.SectorSize]byte, error) {
+func (vm *VolumeManager) ReadSector(root types.Hash256) (*[proto4.SectorSize]byte, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
 		return nil, err
