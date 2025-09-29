@@ -12,7 +12,7 @@ require (
 	go.sia.tech/core v0.17.5
 	go.sia.tech/coreutils v0.18.5
 	go.sia.tech/jape v0.14.1
-	go.sia.tech/web/hostd v0.66.1
+	go.sia.tech/web/hostd v0.66.2
 	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.36.0
 	golang.org/x/term v0.35.0
