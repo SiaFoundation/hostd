@@ -15,54 +15,19 @@ import (
 // migrateVersion45 cleans up unresolved v1 contracts since they will never complete
 // and v1 support has been removed.
 func migrateVersion45(tx *txn, log *zap.Logger) error {
-	rows, err := tx.Query(`SELECT id FROM contracts WHERE contract_status IN ($1, $2)`, contracts.ContractStatusActive, contracts.ContractStatusPending)
+	_, err := tx.Exec(`DELETE FROM contract_sector_roots`) // this table only stores v1 roots, clearing it is fine
 	if err != nil {
-		return fmt.Errorf("failed to query active and pending contracts: %w", err)
-	}
-	defer rows.Close()
-
-	var contractIDs []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("failed to scan contract ID: %w", err)
-		}
-		contractIDs = append(contractIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate contract IDs: %w", err)
-	} else if err := rows.Close(); err != nil {
-		return fmt.Errorf("failed to close rows: %w", err)
-	} else if len(contractIDs) == 0 {
-		return nil
+		return fmt.Errorf("failed to clear contract sector roots: %w", err)
 	}
 
-	deleteSectorsStmt, err := tx.Prepare(`DELETE FROM contract_sector_roots WHERE contract_id = ?`)
+	_, err = tx.Exec(`DELETE FROM contract_account_funding`) // this table only stores v1 funding, clearing it is fine
 	if err != nil {
-		return fmt.Errorf("failed to prepare delete statement: %w", err)
+		return fmt.Errorf("failed to clear contract account funding: %w", err)
 	}
-	defer deleteSectorsStmt.Close()
 
-	deleteContractAccountFundingStmt, err := tx.Prepare(`DELETE FROM contract_account_funding WHERE contract_id = ?`)
+	_, err = tx.Exec(`DELETE FROM contracts WHERE contract_status IN ($1, $2)`, contracts.ContractStatusActive, contracts.ContractStatusPending)
 	if err != nil {
-		return fmt.Errorf("failed to prepare delete statement: %w", err)
-	}
-	defer deleteContractAccountFundingStmt.Close()
-
-	deleteContractsStmt, err := tx.Prepare(`DELETE FROM contracts WHERE id = ?`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare delete statement: %w", err)
-	}
-	defer deleteContractsStmt.Close()
-
-	for _, id := range contractIDs {
-		if _, err := deleteSectorsStmt.Exec(id); err != nil {
-			return fmt.Errorf("failed to delete contract sector roots: %w", err)
-		} else if _, err := deleteContractAccountFundingStmt.Exec(id); err != nil {
-			return fmt.Errorf("failed to delete contract account funding: %w", err)
-		} else if _, err := deleteContractsStmt.Exec(id); err != nil {
-			return fmt.Errorf("failed to delete contracts: %w", err)
-		}
+		return fmt.Errorf("failed to clear active and pending contracts: %w", err)
 	}
 
 	if err := recalcContractAccountFunding(tx, log); err != nil {
