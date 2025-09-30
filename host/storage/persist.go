@@ -69,8 +69,7 @@ type (
 		// HasSector returns true if the sector is stored by the host.
 		HasSector(root types.Hash256) (bool, error)
 		// SectorLocation returns the location of a sector or an error if the
-		// sector is not found. The location is locked until release is
-		// called.
+		// sector is not found.
 		SectorLocation(root types.Hash256) (loc SectorLocation, err error)
 		// AddTempSector adds a sector to temporary storage. The sectors will be deleted
 		// after the expiration height
@@ -100,6 +99,8 @@ var (
 	ErrNotEnoughStorage = errors.New("not enough storage")
 	// ErrSectorNotFound is returned when a sector is not found.
 	ErrSectorNotFound = errors.New("sector not found")
+	// ErrSectorCorrupt is returned when a sector is found to be corrupt.
+	ErrSectorCorrupt = errors.New("sector is corrupt")
 	// ErrVolumeNotEmpty is returned when trying to remove or shrink a volume
 	// that has not been emptied.
 	ErrVolumeNotEmpty = errors.New("volume is not empty")

@@ -43,8 +43,16 @@ type (
 
 	// A StorageManager stores and retrieves sectors.
 	StorageManager interface {
-		// Read reads a sector from the store
+		// ReadSector reads the sector with the given root from disk
 		ReadSector(root types.Hash256) (*[proto4.SectorSize]byte, error)
+
+		// VerifySector verifies that the sector with the given root
+		// is not corrupt by reading it from disk and recalculating its
+		// root. This differs from ReadSector in that it does not use the cache.
+		//
+		// If the sector is not found, [storage.ErrSectorNotFound] is returned.
+		// If the sector is corrupt, [storage.ErrSectorCorrupt] is returned along with the calculated root.
+		VerifySector(root types.Hash256) (types.Hash256, error)
 	}
 
 	// Alerts registers and dismisses global alerts.

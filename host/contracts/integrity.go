@@ -11,6 +11,7 @@ import (
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/alerts"
+	"go.sia.tech/hostd/v2/host/storage"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -114,7 +115,7 @@ func (cm *Manager) CheckIntegrity(ctx context.Context, contractID types.FileCont
 		defer done()
 
 		var missing, corrupt int
-		log := cm.log.Named("integrityCheck").With(zap.String("contractID", contractID.String()))
+		log := cm.log.Named("integrityCheck").With(zap.Stringer("contractID", contractID))
 		for i, root := range roots {
 			select {
 			case <-ctx.Done():
@@ -122,17 +123,17 @@ func (cm *Manager) CheckIntegrity(ctx context.Context, contractID types.FileCont
 			default:
 			}
 			// read each sector from disk and verify its Merkle root
-			sector, err := cm.storage.ReadSector(root)
-			if err != nil { // sector read failed
-				log.Error("missing sector", zap.String("root", root.String()), zap.Error(err))
-				missing++
-				results <- IntegrityResult{ExpectedRoot: root, Error: err}
-			} else if calculated := proto4.SectorRoot(sector); root != calculated { // sector data corrupt
-				log.Error("corrupt sector", zap.String("root", root.String()), zap.String("actual", calculated.String()))
-				corrupt++
-				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculated, Error: errors.New("sector data corrupt")}
-			} else { // sector is valid
-				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculated}
+			if calculatedRoot, err := cm.storage.VerifySector(root); err != nil {
+				if errors.Is(err, storage.ErrSectorCorrupt) {
+					corrupt++
+				} else {
+					// other error is either a DB or IO error, count as missing
+					missing++
+				}
+				log.Error("integrity check failed", zap.Stringer("root", root), zap.Stringer("calculatedRoot", calculatedRoot), zap.Error(err))
+				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculatedRoot, Error: err}
+			} else {
+				results <- IntegrityResult{ExpectedRoot: root, ActualRoot: calculatedRoot}
 			}
 
 			// update alert
