@@ -857,6 +857,12 @@ func (vm *VolumeManager) readLocation(loc SectorLocation) (*[proto2.SectorSize]b
 // If the sector is corrupt, [ErrSectorCorrupt] is returned along with the
 // calculated root.
 func (vm *VolumeManager) VerifySector(root types.Hash256) (types.Hash256, error) {
+	done, err := vm.tg.Add()
+	if err != nil {
+		return types.Hash256{}, err
+	}
+	defer done()
+
 	loc, err := vm.vs.SectorLocation(root)
 	if err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to locate sector: %w", err)
