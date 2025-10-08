@@ -1,0 +1,1801 @@
+openapi: "3.0.0"
+info:
+  title: hostd API
+  description: >
+    hostd exposes endpoints for configuring and operating a Sia storage host.
+    It covers consensus access, host settings, storage management, contract queries,
+    metrics, alerts, and webhook notifications.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:9980/api
+
+security:
+  - basicAuth: []
+
+tags:
+  - name: state
+    description: Host status, announcements, and build metadata.
+  - name: consensus
+    description: Read-only access to blockchain state and checkpoints.
+  - name: syncer
+    description: Manage peer connections and Siamux addresses.
+  - name: index
+    description: View host index synchronization.
+  - name: alerts
+    description: Retrieve and dismiss host alerts.
+  - name: settings
+    description: Host configuration, pinned settings, and dynamic DNS control.
+  - name: metrics
+    description: Metrics endpoints for Prometheus and historical analysis.
+  - name: contracts
+    description: Contract queries and integrity checks (v1 and v2).
+  - name: sectors
+    description: Inspect and remove individual sectors.
+  - name: volumes
+    description: Storage volume lifecycle management.
+  - name: txpool
+    description: Transaction pool fee estimation.
+  - name: wallet
+    description: Wallet balances, events, and outgoing payments.
+  - name: system
+    description: System utilities, backups, and connectivity tests.
+  - name: webhooks
+    description: Configure outbound webhook integrations.
+
+paths:
+  /state:
+    get:
+      tags:
+        - state
+      summary: Get host state
+      description: Returns general metadata about the hostd instance.
+      operationId: getState
+      responses:
+        "200":
+          description: Current host state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/State"
+  /settings/announce:
+    post:
+      tags:
+        - settings
+      summary: Broadcast host announcement
+      description: Queues a host announcement transaction on the Sia network.
+      operationId: postSettingsAnnounce
+      responses:
+        "200":
+          description: Announcement submitted.
+  /consensus/tip:
+    get:
+      tags:
+        - consensus
+      summary: Current chain tip index
+      operationId: getConsensusTip
+      responses:
+        "200":
+          description: Current consensus tip index.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainIndex"
+  /consensus/tipstate:
+    get:
+      tags:
+        - consensus
+      summary: Current consensus state
+      operationId: getConsensusTipState
+      responses:
+        "200":
+          description: Consensus state at the tip.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsensusState"
+  /consensus/checkpoint/{id}:
+    get:
+      tags:
+        - consensus
+      summary: Retrieve checkpoint
+      description: Returns the consensus state and block for a given block ID.
+      operationId: getConsensusCheckpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Block ID in hexadecimal.
+          schema:
+            $ref: "#/components/schemas/BlockID"
+      responses:
+        "200":
+          description: Matching checkpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsensusCheckpointResponse"
+        "404":
+          description: Block not found.
+  /consensus/network:
+    get:
+      tags:
+        - consensus
+      summary: Network parameters
+      operationId: getConsensusNetwork
+      responses:
+        "200":
+          description: Consensus network configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsensusNetwork"
+  /syncer/address:
+    get:
+      tags:
+        - syncer
+      summary: Siamux listener address
+      operationId: getSyncerAddress
+      responses:
+        "200":
+          description: Siamux listener information.
+          content:
+            application/json:
+              schema:
+                type: string
+  /syncer/peers:
+    get:
+      tags:
+        - syncer
+      summary: List peers
+      operationId: getSyncerPeers
+      responses:
+        "200":
+          description: Current syncer peers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Peer"
+    put:
+      tags:
+        - syncer
+      summary: Connect to peer
+      operationId: putSyncerPeer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncerConnectRequest"
+      responses:
+        "200":
+          description: Peer connection requested.
+  /index/tip:
+    get:
+      tags:
+        - index
+      summary: Index tip
+      operationId: getIndexTip
+      responses:
+        "200":
+          description: Current index synchronization tip.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainIndex"
+  /alerts:
+    get:
+      tags:
+        - alerts
+      summary: List active alerts
+      operationId: getAlerts
+      responses:
+        "200":
+          description: Active alerts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alert"
+  /alerts/dismiss:
+    post:
+      tags:
+        - alerts
+      summary: Dismiss alerts
+      operationId: postAlertsDismiss
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Hash256"
+      responses:
+        "200":
+          description: Alerts dismissed.
+  /settings:
+    get:
+      tags:
+        - settings
+      summary: Current host settings
+      operationId: getSettings
+      responses:
+        "200":
+          description: Host configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostSettings"
+    patch:
+      tags:
+        - settings
+      summary: Update host settings
+      operationId: patchSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Updated host settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostSettings"
+  /settings/pinned:
+    get:
+      tags:
+        - settings
+      summary: Pinned settings
+      operationId: getPinnedSettings
+      responses:
+        "200":
+          description: Pinned settings response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PinnedSettings"
+    put:
+      tags:
+        - settings
+      summary: Update pinned settings
+      operationId: putPinnedSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinnedSettings"
+      responses:
+        "200":
+          description: Settings updated.
+  /settings/ddns/update:
+    put:
+      tags:
+        - settings
+      summary: Trigger DDNS update
+      operationId: putSettingsDDNSUpdate
+      responses:
+        "200":
+          description: Dynamic DNS updated.
+  /metrics:
+    get:
+      tags:
+        - metrics
+      summary: Current metrics snapshot
+      operationId: getMetrics
+      parameters:
+        - name: timestamp
+          in: query
+          required: false
+          description: Optional ISO8601 timestamp. Defaults to now when omitted.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Metrics as of the requested timestamp.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Metrics"
+  /metrics/{period}:
+    get:
+      tags:
+        - metrics
+      summary: Metrics over an interval
+      operationId: getMetricsPeriod
+      parameters:
+        - name: period
+          in: path
+          required: true
+          description: Interval identifier (e.g. 5m, 15m, hourly, daily).
+          schema:
+            type: string
+            enum: ["5m", "15m", "hourly", "daily", "weekly", "monthly", "yearly"]
+        - name: start
+          in: query
+          required: true
+          description: Start timestamp for the first period.
+          schema:
+            type: string
+            format: date-time
+        - name: periods
+          in: query
+          required: false
+          description: Number of periods to include. Defaults to cover up to current time when zero.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Metrics for each requested period.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Metrics"
+  /contracts:
+    post:
+      tags:
+        - contracts
+      summary: Query contracts
+      operationId: postContracts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContractFilter"
+      responses:
+        "200":
+          description: Contracts matching filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractsResponse"
+  /contracts/{id}:
+    get:
+      tags:
+        - contracts
+      summary: Get contract
+      operationId: getContract
+      parameters:
+        - $ref: "#/components/parameters/FileContractIDParam"
+      responses:
+        "200":
+          description: Contract details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+        "404":
+          description: Contract not found.
+  /contracts/{id}/integrity:
+    get:
+      tags:
+        - contracts
+      summary: Get contract integrity result
+      operationId: getContractIntegrity
+      parameters:
+        - $ref: "#/components/parameters/FileContractIDParam"
+      responses:
+        "200":
+          description: Latest integrity check result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrityCheckResult"
+        "404":
+          description: Integrity check not found.
+    put:
+      tags:
+        - contracts
+      summary: Start integrity check
+      operationId: putContractIntegrity
+      parameters:
+        - $ref: "#/components/parameters/FileContractIDParam"
+      responses:
+        "202":
+          description: Integrity check started.
+    delete:
+      tags:
+        - contracts
+      summary: Delete integrity result
+      operationId: deleteContractIntegrity
+      parameters:
+        - $ref: "#/components/parameters/FileContractIDParam"
+      responses:
+        "200":
+          description: Integrity result cleared.
+        "404":
+          description: Integrity check not found.
+  /v2/contracts:
+    post:
+      tags:
+        - contracts
+      summary: Query v2 contracts
+      operationId: postV2Contracts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/V2ContractFilter"
+      responses:
+        "200":
+          description: V2 contracts matching filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V2ContractsResponse"
+  /v2/contracts/{id}:
+    get:
+      tags:
+        - contracts
+      summary: Get v2 contract
+      operationId: getV2Contract
+      parameters:
+        - $ref: "#/components/parameters/FileContractIDParam"
+      responses:
+        "200":
+          description: V2 contract details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V2Contract"
+        "404":
+          description: Contract not found.
+  /sectors/{root}:
+    delete:
+      tags:
+        - sectors
+      summary: Delete sector
+      operationId: deleteSector
+      parameters:
+        - $ref: "#/components/parameters/SectorRootParam"
+      responses:
+        "200":
+          description: Sector queued for deletion.
+  /sectors/{root}/verify:
+    get:
+      tags:
+        - sectors
+      summary: Verify sector location
+      operationId: getSectorVerification
+      parameters:
+        - $ref: "#/components/parameters/SectorRootParam"
+      responses:
+        "200":
+          description: Sector reference details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifySectorResponse"
+  /volumes:
+    get:
+      tags:
+        - volumes
+      summary: List volumes
+      operationId: getVolumes
+      responses:
+        "200":
+          description: Storage volumes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VolumeMeta"
+    post:
+      tags:
+        - volumes
+      summary: Add volume
+      operationId: postVolume
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddVolumeRequest"
+      responses:
+        "200":
+          description: Volume added.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Volume"
+  /volumes/{id}:
+    get:
+      tags:
+        - volumes
+      summary: Get volume
+      operationId: getVolume
+      parameters:
+        - $ref: "#/components/parameters/VolumeIDParam"
+      responses:
+        "200":
+          description: Volume metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolumeMeta"
+        "404":
+          description: Volume not found.
+    put:
+      tags:
+        - volumes
+      summary: Set volume read-only
+      operationId: putVolume
+      parameters:
+        - $ref: "#/components/parameters/VolumeIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVolumeRequest"
+      responses:
+        "200":
+          description: Volume updated.
+    delete:
+      tags:
+        - volumes
+      summary: Remove volume
+      operationId: deleteVolume
+      parameters:
+        - $ref: "#/components/parameters/VolumeIDParam"
+        - name: force
+          in: query
+          required: false
+          description: Force removal when true.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Volume removal requested.
+  /volumes/{id}/cancel:
+    delete:
+      tags:
+        - volumes
+      summary: Cancel volume operation
+      operationId: deleteVolumeCancel
+      parameters:
+        - $ref: "#/components/parameters/VolumeIDParam"
+      responses:
+        "200":
+          description: Volume operation cancelled.
+  /volumes/{id}/resize:
+    put:
+      tags:
+        - volumes
+      summary: Resize volume
+      operationId: putVolumeResize
+      parameters:
+        - $ref: "#/components/parameters/VolumeIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResizeVolumeRequest"
+      responses:
+        "200":
+          description: Resize initiated.
+  /tpool/fee:
+    get:
+      tags:
+        - txpool
+      summary: Recommended transaction fee
+      operationId: getTPoolFee
+      responses:
+        "200":
+          description: Recommended fee per byte.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Currency"
+  /wallet:
+    get:
+      tags:
+        - wallet
+      summary: Wallet state
+      operationId: getWallet
+      responses:
+        "200":
+          description: Wallet balance and address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletResponse"
+  /wallet/events:
+    get:
+      tags:
+        - wallet
+      summary: Wallet events
+      operationId: getWalletEvents
+      parameters:
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Wallet events ordered by time.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletEvent"
+  /wallet/events/{id}:
+    get:
+      tags:
+        - wallet
+      summary: Get wallet event
+      operationId: getWalletEvent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Hash256"
+      responses:
+        "200":
+          description: Wallet event details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletEvent"
+        "404":
+          description: Event not found.
+  /wallet/pending:
+    get:
+      tags:
+        - wallet
+      summary: Pending wallet events
+      operationId: getWalletPending
+      responses:
+        "200":
+          description: Pending wallet events.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletEvent"
+  /wallet/send:
+    post:
+      tags:
+        - wallet
+      summary: Send Siacoins
+      operationId: postWalletSend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletSendSiacoinsRequest"
+      responses:
+        "200":
+          description: Transaction broadcasted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Hash256"
+  /system/dir:
+    get:
+      tags:
+        - system
+      summary: Inspect system directory
+      operationId: getSystemDir
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: Absolute path to inspect. Defaults to the daemon working directory.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Directory contents and metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemDirResponse"
+    put:
+      tags:
+        - system
+      summary: Create directory
+      operationId: putSystemDir
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDirRequest"
+      responses:
+        "200":
+          description: Directory created.
+  /system/sqlite3/backup:
+    post:
+      tags:
+        - system
+      summary: Create SQLite backup
+      operationId: postSystemSQLite3Backup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupRequest"
+      responses:
+        "200":
+          description: Backup started.
+  /system/connect/test:
+    put:
+      tags:
+        - system
+      summary: Run connectivity test
+      operationId: putSystemConnectTest
+      responses:
+        "200":
+          description: Connectivity test result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestResult"
+        "400":
+          description: Connectivity test not enabled.
+  /webhooks:
+    get:
+      tags:
+        - webhooks
+      summary: List webhooks
+      operationId: getWebhooks
+      responses:
+        "200":
+          description: Registered webhooks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Webhook"
+    post:
+      tags:
+        - webhooks
+      summary: Register webhook
+      operationId: postWebhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterWebHookRequest"
+      responses:
+        "200":
+          description: Webhook registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+  /webhooks/{id}:
+    put:
+      tags:
+        - webhooks
+      summary: Update webhook
+      operationId: putWebhooks
+      parameters:
+        - $ref: "#/components/parameters/WebhookIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterWebHookRequest"
+      responses:
+        "200":
+          description: Webhook updated.
+    delete:
+      tags:
+        - webhooks
+      summary: Delete webhook
+      operationId: deleteWebhooks
+      parameters:
+        - $ref: "#/components/parameters/WebhookIDParam"
+      responses:
+        "200":
+          description: Webhook removed.
+  /webhooks/{id}/test:
+    post:
+      tags:
+        - webhooks
+      summary: Broadcast test event to webhook
+      operationId: postWebhookTest
+      parameters:
+        - $ref: "#/components/parameters/WebhookIDParam"
+      responses:
+        "200":
+          description: Test event dispatched.
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+  parameters:
+    FileContractIDParam:
+      name: id
+      in: path
+      required: true
+      description: File contract identifier.
+      schema:
+        type: string
+        pattern: "^fcid:[0-9a-fA-F]{64}$"
+    VolumeIDParam:
+      name: id
+      in: path
+      required: true
+      description: Volume identifier.
+      schema:
+        type: integer
+        format: int64
+    SectorRootParam:
+      name: root
+      in: path
+      required: true
+      description: Sector root hash.
+      schema:
+        $ref: "#/components/schemas/Hash256"
+    WebhookIDParam:
+      name: id
+      in: path
+      required: true
+      description: Webhook identifier.
+      schema:
+        type: integer
+        format: int64
+  schemas:
+    Hash256:
+      type: string
+      pattern: "^[0-9a-fA-F]{64}$"
+      description: 256-bit blake2b hash.
+    BlockID:
+      allOf:
+        - $ref: "#/components/schemas/Hash256"
+      description: Unique identifier for a block.
+    Currency:
+      type: string
+      pattern: "^\\d+$"
+      maxLength: 39
+      description: Hastings (1 Siacoin = 10^24 Hastings).
+    Address:
+      type: string
+      description: Human-readable Sia address.
+    PublicKey:
+      type: string
+      pattern: "^ed25519:[0-9a-fA-F]{64}$"
+      description: Ed25519 public key with prefix.
+    Signature:
+      type: string
+      pattern: "^[0-9a-fA-F]{128}$"
+      description: Hex-encoded Ed25519 signature.
+    ChainIndex:
+      type: object
+      properties:
+        height:
+          type: integer
+          format: int64
+        id:
+          $ref: "#/components/schemas/BlockID"
+      required:
+        - height
+        - id
+    BuildState:
+      type: object
+      properties:
+        version:
+          type: string
+        commit:
+          type: string
+        os:
+          type: string
+        buildTime:
+          type: string
+          format: date-time
+      required:
+        - version
+        - commit
+        - os
+        - buildTime
+    ExplorerState:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        url:
+          type: string
+          nullable: true
+      required:
+        - enabled
+    Announcement:
+      type: object
+      properties:
+        index:
+          $ref: "#/components/schemas/ChainIndex"
+        address:
+          type: string
+      required:
+        - index
+        - address
+    State:
+      allOf:
+        - $ref: "#/components/schemas/BuildState"
+        - type: object
+          properties:
+            name:
+              type: string
+              nullable: true
+            publicKey:
+              $ref: "#/components/schemas/PublicKey"
+            lastAnnouncement:
+              $ref: "#/components/schemas/Announcement"
+            startTime:
+              type: string
+              format: date-time
+            explorer:
+              $ref: "#/components/schemas/ExplorerState"
+          required:
+            - publicKey
+            - lastAnnouncement
+            - startTime
+            - explorer
+    ConsensusNetwork:
+      type: object
+      description: Parameters defining consensus behavior for the active network.
+      additionalProperties: true
+    ConsensusState:
+      type: object
+      description: Snapshot of consensus state at a given tip.
+      additionalProperties: true
+    ConsensusCheckpointResponse:
+      type: object
+      properties:
+        state:
+          $ref: "#/components/schemas/ConsensusState"
+        block:
+          type: object
+          additionalProperties: true
+      required:
+        - state
+        - block
+    SyncerConnectRequest:
+      type: object
+      properties:
+        address:
+          type: string
+          description: Peer address in host:port form.
+      required:
+        - address
+    Peer:
+      type: object
+      properties:
+        address:
+          type: string
+        inbound:
+          type: boolean
+        version:
+          type: string
+        firstSeen:
+          type: string
+          format: date-time
+          nullable: true
+        connectedSince:
+          type: string
+          format: date-time
+          nullable: true
+        syncedBlocks:
+          type: integer
+          format: int64
+          nullable: true
+        syncDuration:
+          type: string
+          nullable: true
+      required:
+        - address
+        - inbound
+        - version
+    Alert:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Hash256"
+        category:
+          type: string
+        severity:
+          type: string
+          enum: ["info", "warning", "error", "critical"]
+        message:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - id
+        - category
+        - severity
+        - message
+        - timestamp
+    HostSettings:
+      type: object
+      properties:
+        acceptingContracts:
+          type: boolean
+        netAddress:
+          type: string
+        maxContractDuration:
+          type: integer
+          format: int64
+        windowSize:
+          type: integer
+          format: int64
+        contractPrice:
+          $ref: "#/components/schemas/Currency"
+        baseRPCPrice:
+          $ref: "#/components/schemas/Currency"
+        sectorAccessPrice:
+          $ref: "#/components/schemas/Currency"
+        collateralMultiplier:
+          type: number
+          format: double
+        maxCollateral:
+          $ref: "#/components/schemas/Currency"
+        storagePrice:
+          $ref: "#/components/schemas/Currency"
+        egressPrice:
+          $ref: "#/components/schemas/Currency"
+        ingressPrice:
+          $ref: "#/components/schemas/Currency"
+        priceTableValidity:
+          type: string
+          description: Duration formatted string (e.g. "30m0s").
+        maxRegistryEntries:
+          type: integer
+          format: int64
+        accountExpiry:
+          type: string
+          description: Duration formatted string.
+        maxAccountBalance:
+          $ref: "#/components/schemas/Currency"
+        ingressLimit:
+          type: integer
+          format: int64
+        egressLimit:
+          type: integer
+          format: int64
+        ddns:
+          $ref: "#/components/schemas/DNSSettings"
+        sectorCacheSize:
+          type: integer
+          format: int64
+        revision:
+          type: integer
+          format: int64
+      additionalProperties: false
+    DNSSettings:
+      type: object
+      properties:
+        provider:
+          type: string
+        ipv4:
+          type: boolean
+        ipv6:
+          type: boolean
+        options:
+          type: object
+          nullable: true
+          additionalProperties: true
+      additionalProperties: false
+    Pin:
+      type: object
+      properties:
+        pinned:
+          type: boolean
+        value:
+          type: number
+          format: double
+      required:
+        - pinned
+        - value
+    PinnedSettings:
+      type: object
+      properties:
+        currency:
+          type: string
+        threshold:
+          type: number
+          format: double
+        storage:
+          $ref: "#/components/schemas/Pin"
+        ingress:
+          $ref: "#/components/schemas/Pin"
+        egress:
+          $ref: "#/components/schemas/Pin"
+        maxCollateral:
+          $ref: "#/components/schemas/Pin"
+      required:
+        - currency
+        - threshold
+        - storage
+        - ingress
+        - egress
+        - maxCollateral
+    Revenue:
+      type: object
+      properties:
+        rpc:
+          $ref: "#/components/schemas/Currency"
+        storage:
+          $ref: "#/components/schemas/Currency"
+        ingress:
+          $ref: "#/components/schemas/Currency"
+        egress:
+          $ref: "#/components/schemas/Currency"
+        registryRead:
+          $ref: "#/components/schemas/Currency"
+        registryWrite:
+          $ref: "#/components/schemas/Currency"
+      required:
+        - rpc
+        - storage
+        - ingress
+        - egress
+        - registryRead
+        - registryWrite
+    RevenueMetrics:
+      type: object
+      properties:
+        potential:
+          $ref: "#/components/schemas/Revenue"
+        earned:
+          $ref: "#/components/schemas/Revenue"
+      required:
+        - potential
+        - earned
+    AccountsMetrics:
+      type: object
+      properties:
+        active:
+          type: integer
+          format: int64
+        balance:
+          $ref: "#/components/schemas/Currency"
+      required:
+        - active
+        - balance
+    PricingMetrics:
+      type: object
+      properties:
+        contractPrice:
+          $ref: "#/components/schemas/Currency"
+        ingressPrice:
+          $ref: "#/components/schemas/Currency"
+        egressPrice:
+          $ref: "#/components/schemas/Currency"
+        baseRPCPrice:
+          $ref: "#/components/schemas/Currency"
+        sectorAccessPrice:
+          $ref: "#/components/schemas/Currency"
+        storagePrice:
+          $ref: "#/components/schemas/Currency"
+        collateralMultiplier:
+          type: number
+          format: double
+      required:
+        - contractPrice
+        - ingressPrice
+        - egressPrice
+        - baseRPCPrice
+        - sectorAccessPrice
+        - storagePrice
+        - collateralMultiplier
+    ContractsMetrics:
+      type: object
+      properties:
+        active:
+          type: integer
+          format: int64
+        rejected:
+          type: integer
+          format: int64
+        failed:
+          type: integer
+          format: int64
+        renewed:
+          type: integer
+          format: int64
+        successful:
+          type: integer
+          format: int64
+        lockedCollateral:
+          $ref: "#/components/schemas/Currency"
+        riskedCollateral:
+          $ref: "#/components/schemas/Currency"
+      required:
+        - active
+        - rejected
+        - failed
+        - renewed
+        - successful
+        - lockedCollateral
+        - riskedCollateral
+    RegistryMetrics:
+      type: object
+      properties:
+        entries:
+          type: integer
+          format: int64
+        maxEntries:
+          type: integer
+          format: int64
+        reads:
+          type: integer
+          format: int64
+        writes:
+          type: integer
+          format: int64
+      required:
+        - entries
+        - maxEntries
+        - reads
+        - writes
+    StorageMetrics:
+      type: object
+      properties:
+        totalSectors:
+          type: integer
+          format: int64
+        physicalSectors:
+          type: integer
+          format: int64
+        lostSectors:
+          type: integer
+          format: int64
+        contractSectors:
+          type: integer
+          format: int64
+        tempSectors:
+          type: integer
+          format: int64
+        reads:
+          type: integer
+          format: int64
+        writes:
+          type: integer
+          format: int64
+        sectorCacheHits:
+          type: integer
+          format: int64
+        sectorCacheMisses:
+          type: integer
+          format: int64
+      required:
+        - totalSectors
+        - physicalSectors
+        - lostSectors
+        - contractSectors
+        - tempSectors
+        - reads
+        - writes
+        - sectorCacheHits
+        - sectorCacheMisses
+    RHPData:
+      type: object
+      properties:
+        ingress:
+          type: integer
+          format: int64
+        egress:
+          type: integer
+          format: int64
+      required:
+        - ingress
+        - egress
+    DataMetrics:
+      type: object
+      properties:
+        rhp:
+          $ref: "#/components/schemas/RHPData"
+      required:
+        - rhp
+    WalletMetrics:
+      type: object
+      properties:
+        balance:
+          $ref: "#/components/schemas/Currency"
+        immatureBalance:
+          $ref: "#/components/schemas/Currency"
+      required:
+        - balance
+        - immatureBalance
+    Metrics:
+      type: object
+      properties:
+        accounts:
+          $ref: "#/components/schemas/AccountsMetrics"
+        revenue:
+          $ref: "#/components/schemas/RevenueMetrics"
+        pricing:
+          $ref: "#/components/schemas/PricingMetrics"
+        contracts:
+          $ref: "#/components/schemas/ContractsMetrics"
+        storage:
+          $ref: "#/components/schemas/StorageMetrics"
+        registry:
+          $ref: "#/components/schemas/RegistryMetrics"
+        data:
+          $ref: "#/components/schemas/DataMetrics"
+        wallet:
+          $ref: "#/components/schemas/WalletMetrics"
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - accounts
+        - revenue
+        - pricing
+        - contracts
+        - storage
+        - registry
+        - data
+        - wallet
+        - timestamp
+    ContractFilter:
+      type: object
+      properties:
+        statuses:
+          type: array
+          items:
+            type: string
+            enum: ["pending", "rejected", "active", "successful", "failed"]
+        contractIDs:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractID"
+        renewedFrom:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractID"
+        renewedTo:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractID"
+        renterKey:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicKey"
+        minNegotiationHeight:
+          type: integer
+          format: int64
+        maxNegotiationHeight:
+          type: integer
+          format: int64
+        minExpirationHeight:
+          type: integer
+          format: int64
+        maxExpirationHeight:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+        offset:
+          type: integer
+          minimum: 0
+        sortField:
+          type: string
+        sortDesc:
+          type: boolean
+      additionalProperties: false
+    FileContractID:
+      type: string
+      pattern: "^fcid:[0-9a-fA-F]{64}$"
+      description: File contract identifier.
+    V2ContractFilter:
+      type: object
+      properties:
+        statuses:
+          type: array
+          items:
+            type: string
+            enum: ["pending", "rejected", "active", "renewed", "successful", "failed"]
+        contractIDs:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractID"
+        renewedFrom:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractID"
+        renewedTo:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractID"
+        renterKey:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicKey"
+        minNegotiationHeight:
+          type: integer
+          format: int64
+        maxNegotiationHeight:
+          type: integer
+          format: int64
+        minExpirationHeight:
+          type: integer
+          format: int64
+        maxExpirationHeight:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+        offset:
+          type: integer
+          minimum: 0
+        sortField:
+          type: string
+        sortDesc:
+          type: boolean
+      additionalProperties: false
+    ContractsResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        contracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contract"
+      required:
+        - count
+        - contracts
+    V2ContractsResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        contracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2Contract"
+      required:
+        - count
+        - contracts
+    Contract:
+      type: object
+      description: Host contract metadata.
+      additionalProperties: true
+    V2Contract:
+      type: object
+      description: Host v2 contract metadata.
+      additionalProperties: true
+    IntegritySectorResult:
+      type: object
+      properties:
+        expectedRoot:
+          $ref: "#/components/schemas/Hash256"
+        actualRoot:
+          $ref: "#/components/schemas/Hash256"
+        error:
+          type: string
+          nullable: true
+      required:
+        - expectedRoot
+        - actualRoot
+    IntegrityCheckResult:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+          nullable: true
+        checkedSectors:
+          type: integer
+          format: int64
+        totalSectors:
+          type: integer
+          format: int64
+        badSectors:
+          type: array
+          items:
+            $ref: "#/components/schemas/IntegritySectorResult"
+      required:
+        - start
+        - checkedSectors
+        - totalSectors
+        - badSectors
+    AddVolumeRequest:
+      type: object
+      properties:
+        localPath:
+          type: string
+        maxSectors:
+          type: integer
+          format: int64
+      required:
+        - localPath
+        - maxSectors
+    UpdateVolumeRequest:
+      type: object
+      properties:
+        readOnly:
+          type: boolean
+      required:
+        - readOnly
+    ResizeVolumeRequest:
+      type: object
+      properties:
+        maxSectors:
+          type: integer
+          format: int64
+      required:
+        - maxSectors
+    Volume:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        localPath:
+          type: string
+        usedSectors:
+          type: integer
+          format: int64
+        totalSectors:
+          type: integer
+          format: int64
+        readOnly:
+          type: boolean
+        available:
+          type: boolean
+      required:
+        - id
+        - localPath
+        - usedSectors
+        - totalSectors
+        - readOnly
+        - available
+    VolumeStats:
+      type: object
+      properties:
+        failedReads:
+          type: integer
+          format: int64
+        failedWrites:
+          type: integer
+          format: int64
+        successfulReads:
+          type: integer
+          format: int64
+        successfulWrites:
+          type: integer
+          format: int64
+        status:
+          type: string
+        errors:
+          type: array
+          items:
+            type: string
+          nullable: true
+    VolumeMeta:
+      allOf:
+        - $ref: "#/components/schemas/Volume"
+        - $ref: "#/components/schemas/VolumeStats"
+    SectorReference:
+      type: object
+      properties:
+        contracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractID"
+        tempStorage:
+          type: integer
+          format: int64
+      required:
+        - contracts
+        - tempStorage
+    VerifySectorResponse:
+      allOf:
+        - $ref: "#/components/schemas/SectorReference"
+        - type: object
+          properties:
+            error:
+              type: string
+              nullable: true
+    WalletResponse:
+      type: object
+      properties:
+        spendable:
+          $ref: "#/components/schemas/Currency"
+        confirmed:
+          $ref: "#/components/schemas/Currency"
+        unconfirmed:
+          $ref: "#/components/schemas/Currency"
+        immature:
+          $ref: "#/components/schemas/Currency"
+        address:
+          $ref: "#/components/schemas/Address"
+      required:
+        - spendable
+        - confirmed
+        - unconfirmed
+        - immature
+        - address
+    WalletEvent:
+      type: object
+      description: Wallet event record with type-specific payload.
+      additionalProperties: true
+    WalletSendSiacoinsRequest:
+      type: object
+      properties:
+        address:
+          $ref: "#/components/schemas/Address"
+        amount:
+          $ref: "#/components/schemas/Currency"
+        subtractMinerFee:
+          type: boolean
+      required:
+        - address
+        - amount
+    SystemDirResponse:
+      type: object
+      properties:
+        path:
+          type: string
+        totalBytes:
+          type: integer
+          format: int64
+        freeBytes:
+          type: integer
+          format: int64
+        directories:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - directories
+    CreateDirRequest:
+      type: object
+      properties:
+        path:
+          type: string
+      required:
+        - path
+    BackupRequest:
+      type: object
+      properties:
+        path:
+          type: string
+      required:
+        - path
+    RHP4Result:
+      type: object
+      properties:
+        netAddress:
+          type: string
+        resolvedAddresses:
+          type: array
+          items:
+            type: string
+        connected:
+          type: boolean
+        dialTime:
+          type: string
+          description: Duration string (e.g. "150ms").
+        handshake:
+          type: boolean
+        handshakeTime:
+          type: string
+          description: Duration string.
+        scanned:
+          type: boolean
+        scanTime:
+          type: string
+          description: Duration string.
+        settings:
+          type: object
+          nullable: true
+          additionalProperties: true
+        errors:
+          type: array
+          items:
+            type: string
+          nullable: true
+        warnings:
+          type: array
+          items:
+            type: string
+          nullable: true
+      required:
+        - netAddress
+        - resolvedAddresses
+        - connected
+        - handshake
+        - scanned
+    TestResult:
+      type: object
+      properties:
+        publicKey:
+          $ref: "#/components/schemas/PublicKey"
+        version:
+          type: string
+        rhp4:
+          type: array
+          items:
+            $ref: "#/components/schemas/RHP4Result"
+      required:
+        - publicKey
+        - version
+        - rhp4
+    RegisterWebHookRequest:
+      type: object
+      properties:
+        callbackURL:
+          type: string
+          format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+      required:
+        - callbackURL
+        - scopes
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        callbackURL:
+          type: string
+          format: uri
+        secretKey:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - callbackURL
+        - secretKey
+        - scopes
