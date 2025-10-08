@@ -16,5 +16,6 @@ jobs:
     with:
       slug: hostd
       spec_path: openapi.yml
+      docs_slug: hostd
     secrets:
       SCALAR_API_KEY: ${{ secrets.SCALAR_API_KEY }}
