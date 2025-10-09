@@ -1017,7 +1017,9 @@ components:
           format: int64
           nullable: true
         syncDuration:
-          type: string
+          type: integer
+          format: int64
+          description: Duration in nanoseconds.
           nullable: true
       required:
         - address
@@ -1079,14 +1081,16 @@ components:
         ingressPrice:
           $ref: "#/components/schemas/Currency"
         priceTableValidity:
-          type: string
-          description: Duration formatted string (e.g. "30m0s").
+          type: integer
+          format: int64
+          description: Duration in nanoseconds.
         maxRegistryEntries:
           type: integer
           format: int64
         accountExpiry:
-          type: string
-          description: Duration formatted string.
+          type: integer
+          format: int64
+          description: Duration in nanoseconds.
         maxAccountBalance:
           $ref: "#/components/schemas/Currency"
         ingressLimit:
@@ -1719,18 +1723,21 @@ components:
         connected:
           type: boolean
         dialTime:
-          type: string
-          description: Duration string (e.g. "150ms").
+          type: integer
+          format: int64
+          description: Duration in nanoseconds.
         handshake:
           type: boolean
         handshakeTime:
-          type: string
-          description: Duration string.
+          type: integer
+          format: int64
+          description: Duration in nanoseconds.
         scanned:
           type: boolean
         scanTime:
-          type: string
-          description: Duration string.
+          type: integer
+          format: int64
+          description: Duration in nanoseconds.
         settings:
           type: object
           nullable: true
