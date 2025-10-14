@@ -9,14 +9,14 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.17.5
+	go.sia.tech/core v0.18.0
 	go.sia.tech/coreutils v0.18.5
 	go.sia.tech/jape v0.14.1
 	go.sia.tech/web/hostd v0.66.3
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.36.0
-	golang.org/x/term v0.35.0
-	golang.org/x/time v0.13.0
+	golang.org/x/sys v0.37.0
+	golang.org/x/term v0.36.0
+	golang.org/x/time v0.14.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.5.1
