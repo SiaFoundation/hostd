@@ -307,6 +307,18 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer wm.Close()
 
+	walletHash := types.HashBytes(walletKey[:])
+	if err := store.VerifyWalletKey(walletHash); errors.Is(err, wallet.ErrDifferentSeed) {
+		if err := store.ResetChainState(); err != nil {
+			return fmt.Errorf("failed to reset chain state: %w", err)
+		} else if err := store.UpdateWalletHash(walletHash); err != nil {
+			return fmt.Errorf("failed to update wallet hash: %w", err)
+		}
+		log.Info("chain state reset due to wallet seed change")
+	} else if err != nil {
+		return fmt.Errorf("failed to verify wallet key: %w", err)
+	}
+
 	wr, err := webhooks.NewManager(store, log.Named("webhooks"))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook reporter: %w", err)
