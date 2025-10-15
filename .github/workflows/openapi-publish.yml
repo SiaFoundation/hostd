@@ -19,3 +19,4 @@ jobs:
       docs_slug: hostd
     secrets:
       SCALAR_API_KEY: ${{ secrets.SCALAR_API_KEY }}
+      SCALAR_ACCESS_TOKEN: ${{ secrets.SCALAR_ACCESS_TOKEN }}
