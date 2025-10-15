@@ -21,6 +21,7 @@ import (
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/index"
 	"go.sia.tech/hostd/v2/persist/sqlite"
+	wrapper "go.sia.tech/hostd/v2/wallet"
 	"go.uber.org/zap"
 )
 
@@ -170,7 +171,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 
 	cn := NewConsensusNode(t, network, genesis, log)
 
-	wm, err := wallet.NewSingleAddressWallet(pk, cn.Chain, cn.Store, &MockSyncer{})
+	wm, err := wrapper.NewSingleAddressWallet(pk, cn.Chain, cn.Store, &MockSyncer{})
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)
 	}
@@ -214,7 +215,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 
 		Certs:     certs,
 		Settings:  sm,
-		Wallet:    wm,
+		Wallet:    wm.SingleAddressWallet,
 		Contracts: contracts,
 		Volumes:   vm,
 		Indexer:   idx,

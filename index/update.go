@@ -37,7 +37,7 @@ func (m *Manager) syncDB(ctx context.Context) error {
 			log.Warn("resetting chain state due to error", zap.Stringer("index", index), zap.Error(err))
 			// reset the consensus state. Should delete all chain related
 			// state from the store
-			if err := m.store.ResetChainState(); err != nil {
+			if err := m.store.ResetChainState(m.wallet.WalletHash()); err != nil {
 				return fmt.Errorf("failed to reset consensus state: %w", err)
 			}
 			// zero out the index to force a full resync
