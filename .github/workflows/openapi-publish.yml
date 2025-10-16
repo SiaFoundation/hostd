@@ -1,0 +1,22 @@
+name: Publish OpenAPI to Scalar Registry
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - "openapi.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    uses: SiaFoundation/workflows/.github/workflows/publish-openapi.yml@master
+    with:
+      slug: hostd
+      spec_path: openapi.yml
+      docs_slug: hostd
+    secrets:
+      SCALAR_API_KEY: ${{ secrets.SCALAR_API_KEY }}
+      SCALAR_ACCESS_TOKEN: ${{ secrets.SCALAR_ACCESS_TOKEN }}
