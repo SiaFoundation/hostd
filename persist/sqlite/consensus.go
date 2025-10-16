@@ -51,10 +51,10 @@ type (
 
 var _ index.UpdateTx = (*updateTx)(nil)
 
-// ResetChainState resets the consensus state of the store. This
-// should only occur if the user has reset their consensus database to
-// sync from scratch.
-func (s *Store) ResetChainState() error {
+// ResetChainState resets the consensus state of the store. This occurs when the
+// user changes their wallet seed or has reset their consensus database to sync
+// from scratch.
+func (s *Store) ResetChainState(walletHash types.Hash256) error {
 	return s.transaction(func(tx *txn) error {
 		_, err := tx.Exec(`
 -- v2 contracts
@@ -65,7 +65,7 @@ DELETE FROM wallet_siacoin_elements;
 DELETE FROM wallet_events;
 DELETE FROM host_stats WHERE stat IN (?,?); -- reset wallet stats since they are derived from the chain
 -- settings
-UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, last_announce_address=NULL`, metricWalletBalance, metricWalletImmatureBalance)
+UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, last_announce_address=NULL, wallet_hash=?`, metricWalletBalance, metricWalletImmatureBalance, encode(walletHash))
 		return err
 	})
 }

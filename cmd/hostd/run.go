@@ -38,6 +38,7 @@ import (
 	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.sia.tech/hostd/v2/rhp"
 	"go.sia.tech/hostd/v2/version"
+	wrapper "go.sia.tech/hostd/v2/wallet"
 	"go.sia.tech/hostd/v2/webhooks"
 	"go.sia.tech/jape"
 	"go.sia.tech/web/hostd"
@@ -301,11 +302,20 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	go s.Run()
 	defer s.Close()
 
-	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, s, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
+	wm, err := wrapper.NewSingleAddressWallet(walletKey, cm, store, s, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to create wallet: %w", err)
 	}
 	defer wm.Close()
+
+	if err := store.VerifyWalletKey(wm.WalletHash()); errors.Is(err, wallet.ErrDifferentSeed) {
+		if err := store.ResetChainState(wm.WalletHash()); err != nil {
+			return fmt.Errorf("failed to reset chain state: %w", err)
+		}
+		log.Info("chain state reset due to wallet seed change")
+	} else if err != nil {
+		return fmt.Errorf("failed to verify wallet key: %w", err)
+	}
 
 	wr, err := webhooks.NewManager(store, log.Named("webhooks"))
 	if err != nil {

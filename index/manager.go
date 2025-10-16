@@ -18,10 +18,10 @@ import (
 type (
 	// A Store is a persistent store for the index manager.
 	Store interface {
-		// ResetChainState resets the consensus state of the store. This
-		// should only occur if the user has reset their consensus database to
-		// sync from scratch.
-		ResetChainState() error
+		// ResetChainState resets the consensus state of the store. This occurs
+		// when the user reset their consensus database to sync from scratch or
+		// if it changed wallet seed.
+		ResetChainState(types.Hash256) error
 		UpdateChainState(func(UpdateTx) error) error
 		Tip() (types.ChainIndex, error)
 	}
@@ -55,6 +55,9 @@ type (
 		// UpdateChainState atomically updates the blockchain state of the
 		// wallet manager.
 		UpdateChainState(tx wallet.UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error
+		// WalletHash returns the hash of the wallet seed. This is used to
+		// detect if the wallet seed has changed and a rescan is required.
+		WalletHash() types.Hash256
 	}
 
 	// A VolumeManager manages the host's storage volumes
