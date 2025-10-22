@@ -301,6 +301,18 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	go s.Run()
 	defer s.Close()
 
+	walletHash := types.HashBytes(walletKey[:])
+	if err := store.VerifyWalletKey(walletHash); errors.Is(err, wallet.ErrDifferentSeed) {
+		if err := store.ResetChainState(); err != nil {
+			return fmt.Errorf("failed to reset chain state: %w", err)
+		} else if err := store.UpdateWalletHash(walletHash); err != nil {
+			return fmt.Errorf("failed to update wallet hash: %w", err)
+		}
+		log.Info("chain state reset due to wallet seed change")
+	} else if err != nil {
+		return fmt.Errorf("failed to verify wallet key: %w", err)
+	}
+
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, s, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {
 		return fmt.Errorf("failed to create wallet: %w", err)

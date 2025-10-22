@@ -211,3 +211,11 @@ func (s *Store) RevertLastAnnouncement() error {
 		return err
 	})
 }
+
+// UpdateWalletHash updates the stored wallet hash.
+func (s *Store) UpdateWalletHash(walletHash types.Hash256) error {
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`UPDATE global_settings SET wallet_hash=?`, encode(walletHash))
+		return err
+	})
+}
