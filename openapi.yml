@@ -887,6 +887,10 @@ components:
       pattern: "^\\d+$"
       maxLength: 39
       description: Hastings (1 Siacoin = 10^24 Hastings).
+    Work:
+      type: string
+      pattern: "^\\d+$"
+      description: Quantity of work encoded as a decimal string.
     Address:
       type: string
       description: Human-readable Sia address.
@@ -909,6 +913,22 @@ components:
       required:
         - height
         - id
+    ElementAccumulator:
+      type: object
+      description: Sparse Merkle forest tracking consensus elements.
+      properties:
+        numLeaves:
+          type: integer
+          format: int64
+          description: Number of leaves represented by the accumulator.
+        trees:
+          type: array
+          description: Merkle roots for the populated accumulator trees in ascending height order.
+          items:
+            $ref: "#/components/schemas/Hash256"
+      required:
+        - numLeaves
+        - trees
     BuildState:
       type: object
       properties:
@@ -971,11 +991,186 @@ components:
     ConsensusNetwork:
       type: object
       description: Parameters defining consensus behavior for the active network.
-      additionalProperties: true
+      properties:
+        name:
+          type: string
+        initialCoinbase:
+          $ref: "#/components/schemas/Currency"
+        minimumCoinbase:
+          $ref: "#/components/schemas/Currency"
+        initialTarget:
+          $ref: "#/components/schemas/BlockID"
+        blockInterval:
+          type: integer
+          format: int64
+          description: Target time between blocks as an integer number of nanoseconds.
+        maturityDelay:
+          type: integer
+          format: int64
+        hardforkDevAddr:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: int64
+            oldAddress:
+              $ref: "#/components/schemas/Address"
+            newAddress:
+              $ref: "#/components/schemas/Address"
+          required:
+            - height
+            - oldAddress
+            - newAddress
+        hardforkTax:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: int64
+          required:
+            - height
+        hardforkStorageProof:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: int64
+          required:
+            - height
+        hardforkOak:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: int64
+            fixHeight:
+              type: integer
+              format: int64
+            genesisTimestamp:
+              type: string
+              format: date-time
+          required:
+            - height
+            - fixHeight
+            - genesisTimestamp
+        hardforkASIC:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: int64
+            oakTime:
+              type: integer
+              format: int64
+              description: Difficulty adjustment window as an integer number of nanoseconds.
+            oakTarget:
+              $ref: "#/components/schemas/BlockID"
+            nonceFactor:
+              type: integer
+              format: int64
+          required:
+            - height
+            - oakTime
+            - oakTarget
+            - nonceFactor
+        hardforkFoundation:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: int64
+            primaryAddress:
+              $ref: "#/components/schemas/Address"
+            failsafeAddress:
+              $ref: "#/components/schemas/Address"
+          required:
+            - height
+            - primaryAddress
+            - failsafeAddress
+        hardforkV2:
+          type: object
+          properties:
+            allowHeight:
+              type: integer
+              format: int64
+            requireHeight:
+              type: integer
+              format: int64
+            finalCutHeight:
+              type: integer
+              format: int64
+          required:
+            - allowHeight
+            - requireHeight
+            - finalCutHeight
+      required:
+        - name
+        - initialCoinbase
+        - minimumCoinbase
+        - initialTarget
+        - blockInterval
+        - maturityDelay
+        - hardforkDevAddr
+        - hardforkTax
+        - hardforkStorageProof
+        - hardforkOak
+        - hardforkASIC
+        - hardforkFoundation
+        - hardforkV2
     ConsensusState:
       type: object
       description: Snapshot of consensus state at a given tip.
-      additionalProperties: true
+      properties:
+        index:
+          $ref: "#/components/schemas/ChainIndex"
+        prevTimestamps:
+          type: array
+          description: Recent block timestamps from newest to oldest.
+          items:
+            type: string
+            format: date-time
+          maxItems: 11
+        depth:
+          $ref: "#/components/schemas/BlockID"
+        childTarget:
+          $ref: "#/components/schemas/BlockID"
+        siafundTaxRevenue:
+          $ref: "#/components/schemas/Currency"
+        oakTime:
+          type: string
+          description: Oak target window as a Go duration string.
+        oakTarget:
+          $ref: "#/components/schemas/BlockID"
+        foundationSubsidyAddress:
+          $ref: "#/components/schemas/Address"
+        foundationManagementAddress:
+          $ref: "#/components/schemas/Address"
+        totalWork:
+          $ref: "#/components/schemas/Work"
+        difficulty:
+          $ref: "#/components/schemas/Work"
+        oakWork:
+          $ref: "#/components/schemas/Work"
+        elements:
+          $ref: "#/components/schemas/ElementAccumulator"
+        attestations:
+          type: integer
+          format: int64
+      required:
+        - index
+        - prevTimestamps
+        - depth
+        - childTarget
+        - siafundTaxRevenue
+        - oakTime
+        - oakTarget
+        - foundationSubsidyAddress
+        - foundationManagementAddress
+        - totalWork
+        - difficulty
+        - oakWork
+        - elements
+        - attestations
     ConsensusCheckpointResponse:
       type: object
       properties:
