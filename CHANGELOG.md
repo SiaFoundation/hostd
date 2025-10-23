@@ -1,3 +1,17 @@
+## 2.5.0 (2025-10-23)
+
+### Features
+
+- Trigger rescan when wallet seed changes
+
+### Fixes
+
+- Add OpenAPI spec
+- Archive V1 contracts with proof window after require height.
+- Fix integrity checks using cache
+- Fixed RPCFreeSectors NDFs.
+- Update coreutils to v0.18.5
+
 ## 2.4.1 (2025-09-05)
 
 ### Fixes
