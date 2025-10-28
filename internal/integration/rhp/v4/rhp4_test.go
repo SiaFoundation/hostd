@@ -1620,6 +1620,7 @@ func TestPrune(t *testing.T) {
 }
 
 func TestMaxSectorBatchSize(t *testing.T) {
+	log := zap.NewNop()
 	n, genesis := testutil.V2Network()
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 
@@ -1636,7 +1637,20 @@ func TestMaxSectorBatchSize(t *testing.T) {
 
 	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
 
-	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(10*time.Minute))
+
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go siamux.Serve(l, rs, log.Named("siamux"))
+
+	transport, err := siamux.Dial(context.Background(), l.Addr().String(), hostKey.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.Close()
 
 	settings, err := rhp4.RPCSettings(context.Background(), transport)
 	if err != nil {
