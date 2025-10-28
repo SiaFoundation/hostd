@@ -146,8 +146,9 @@ func (s *Store) VerifyWalletKey(seedHash types.Hash256) error {
 	var buf []byte
 	return s.transaction(func(tx *txn) error {
 		err := tx.QueryRow(`SELECT wallet_hash FROM global_settings`).Scan(&buf)
-		if errors.Is(err, sql.ErrNoRows) {
-			_, err := tx.Exec(`UPDATE global_settings SET wallet_hash=?`, encode(seedHash)) // wallet not initialized, set seed hash
+		if (err == nil && len(buf) != len(seedHash)) || errors.Is(err, sql.ErrNoRows) {
+			// wallet not initialized, set seed hash
+			_, err := tx.Exec(`UPDATE global_settings SET wallet_hash=?`, encode(seedHash))
 			return err
 		} else if err != nil {
 			return fmt.Errorf("failed to query wallet seed hash: %w", err)
