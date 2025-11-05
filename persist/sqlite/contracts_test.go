@@ -541,6 +541,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 			appended = append(appended, root)
 		}
 		newRoots := append(append([]types.Hash256(nil), roots...), appended...)
+		contract.V2FileContract.RevisionNumber++
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
 		}
@@ -558,6 +559,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 		newRoots := append([]types.Hash256(nil), roots...)
 		newRoots[a], newRoots[b] = newRoots[b], newRoots[a]
 
+		contract.V2FileContract.RevisionNumber++
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
 		}
@@ -575,6 +577,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 			newRoots = append(newRoots[:j], newRoots[j+1:]...)
 		}
 
+		contract.V2FileContract.RevisionNumber++
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
 		}
@@ -590,6 +593,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 		newRoots := append([]types.Hash256(nil), roots...)
 		newRoots = newRoots[:len(newRoots)-n]
 
+		contract.V2FileContract.RevisionNumber++
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
 		}
@@ -662,6 +666,7 @@ func BenchmarkV2AppendSectors(b *testing.B) {
 	b.ReportAllocs()
 	b.ReportMetric(float64(b.N), "sectors")
 
+	contract.V2FileContract.RevisionNumber++
 	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
 		b.Fatal(err)
 	}
@@ -710,6 +715,7 @@ func BenchmarkV2TrimSectors(b *testing.B) {
 		}
 	}
 
+	contract.V2FileContract.RevisionNumber++
 	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
 		b.Fatal(err)
 	}
@@ -718,6 +724,7 @@ func BenchmarkV2TrimSectors(b *testing.B) {
 	b.ReportAllocs()
 	b.ReportMetric(float64(b.N), "sectors")
 
+	contract.V2FileContract.RevisionNumber++
 	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, nil, proto4.Usage{}); err != nil {
 		b.Fatal(err)
 	}
