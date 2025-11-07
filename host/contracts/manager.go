@@ -294,21 +294,17 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	}
 	defer done()
 
-	badRequest := func(format string, args ...any) error {
-		return proto4.NewRPCError(proto4.ErrorCodeBadRequest, fmt.Sprintf(format, args...))
-	}
-
 	renewalSet := renewal.Transactions
 	if len(renewalSet) == 0 {
-		return badRequest("no renewal transactions provided")
+		return errors.New("no renewal transactions provided")
 	} else if len(renewalSet[len(renewalSet)-1].FileContractResolutions) != 1 {
-		return badRequest("last transaction must contain one file contract resolution")
+		return errors.New("last transaction must contain one file contract resolution")
 	}
 
 	resolutionTxn := renewalSet[len(renewalSet)-1]
 	resolution, ok := resolutionTxn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
 	if !ok {
-		return badRequest("unexpected resolution type %T", resolutionTxn.FileContractResolutions[0].Resolution)
+		return fmt.Errorf("unexpected resolution type %T", resolutionTxn.FileContractResolutions[0].Resolution)
 	}
 
 	parentID := resolutionTxn.FileContractResolutions[0].Parent.ID
@@ -321,7 +317,7 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	existingID := types.FileContractID(existing.ID)
 	existingRoots := cm.getSectorRoots(existingID)
 	if fc.FileMerkleRoot != proto4.MetaRoot(existingRoots) {
-		return badRequest("renewal root does not match existing roots")
+		return errors.New("renewal root does not match existing roots")
 	}
 
 	contract := V2Contract{
