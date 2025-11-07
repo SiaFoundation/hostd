@@ -51,15 +51,19 @@ const (
 	metricDataRHPEgress  = "dataEgress"
 
 	// metricRHP2Ingress
+	//
 	// Deprecated: combined into metricDataRHPIngress
 	metricRHP2Ingress = "rhp2Ingress"
 	// metricRHP2Egress
+	//
 	// Deprecated: combined into metricDataRHPEgress
 	metricRHP2Egress = "rhp2Egress"
 	// metricRHP3Ingress
+	//
 	// Deprecated: combined into metricDataRHPIngress
 	metricRHP3Ingress = "rhp3Ingress"
 	// metricRHP3Egress
+	//
 	// Deprecated: combined into metricDataRHPEgress
 	metricRHP3Egress = "rhp3Egress"
 

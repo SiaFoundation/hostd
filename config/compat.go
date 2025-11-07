@@ -97,6 +97,7 @@ type configV112 struct {
 	} `yaml:"rhp3,omitempty"`
 	Log struct {
 		// Path is the directory to store the hostd.log file.
+		//
 		// Deprecated: use File.Path instead.
 		Path   string `yaml:"path,omitempty"`
 		Level  string `yaml:"level,omitempty"` // global log level
