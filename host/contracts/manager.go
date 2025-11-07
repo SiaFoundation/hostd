@@ -199,6 +199,9 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 	if existing.RenewedTo != (types.FileContractID{}) {
 		return ErrAlreadyRenewed
 	}
+	if revision.RevisionNumber <= existing.RevisionNumber {
+		return fmt.Errorf("revision number went backwards: existing=%d revised=%d", existing.RevisionNumber, revision.RevisionNumber)
+	}
 
 	oldRoots := cm.getSectorRoots(contractID)
 
@@ -239,7 +242,10 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 	}
 	// update the sector roots cache
 	cm.setSectorRoots(contractID, newRoots)
-	cm.log.Debug("contract revised", zap.Stringer("contractID", contractID), zap.Uint64("revisionNumber", revision.RevisionNumber))
+	cm.log.Debug("contract revised",
+		zap.Stringer("contractID", contractID),
+		zap.Uint64("previousRevisionNumber", existing.RevisionNumber),
+		zap.Uint64("revisionNumber", revision.RevisionNumber))
 	return nil
 }
 

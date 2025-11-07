@@ -1366,6 +1366,7 @@ func TestV2SectorRoots(t *testing.T) {
 		rev.FileMerkleRoot = proto4.MetaRoot(roots)
 		rev.Filesize += proto4.SectorSize
 		rev.Capacity += proto4.SectorSize
+		rev.RevisionNumber++
 		sigHash := cs.ContractSigHash(rev)
 		rev.RenterSignature = renterKey.SignHash(sigHash)
 		rev.HostSignature = hostKey.SignHash(sigHash)

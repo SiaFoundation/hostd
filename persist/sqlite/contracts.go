@@ -1040,11 +1040,21 @@ func updateV2ContractUsage(tx *txn, contractDBID int64, usage proto4.Usage) erro
 }
 
 func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileContract, usage proto4.Usage) (int64, error) {
-	const updateQuery = `UPDATE contracts_v2 SET raw_revision=?, revision_number=? WHERE contract_id=? RETURNING id`
-
 	var contractDBID int64
-	err := tx.QueryRow(updateQuery, encode(revision), encode(revision.RevisionNumber), encode(id)).Scan(&contractDBID)
-	if err != nil {
+	var existingRevision uint64
+	if err := tx.
+		QueryRow(`SELECT id, revision_number FROM contracts_v2 WHERE contract_id=?`, encode(id)).
+		Scan(&contractDBID, decode(&existingRevision)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("contract %q: %w", id, contracts.ErrNotFound)
+		}
+		return 0, fmt.Errorf("failed to fetch contract: %w", err)
+	}
+	if revision.RevisionNumber <= existingRevision {
+		return 0, fmt.Errorf("revision number went backwards: existing=%d revised=%d", existingRevision, revision.RevisionNumber)
+	}
+
+	if _, err := tx.Exec(`UPDATE contracts_v2 SET raw_revision=?, revision_number=? WHERE id=?`, encode(revision), encode(revision.RevisionNumber), contractDBID); err != nil {
 		return 0, fmt.Errorf("failed to update contract: %w", err)
 	} else if err := updateV2ContractUsage(tx, contractDBID, usage); err != nil {
 		return 0, fmt.Errorf("failed to update contract usage: %w", err)

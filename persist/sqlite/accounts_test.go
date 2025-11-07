@@ -85,6 +85,7 @@ func TestRHP4Accounts(t *testing.T) {
 	}
 
 	// deposit funds
+	contract.V2FileContract.RevisionNumber++
 	balances, err := db.RHP4CreditAccounts([]proto4.AccountDeposit{
 		{Account: account, Amount: types.Siacoins(10)},
 	}, contract.ID, contract.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(10)})
@@ -314,6 +315,7 @@ func TestRHP4AccountsDistribution(t *testing.T) {
 	sk := types.GeneratePrivateKey()
 	account := proto4.Account(sk.PublicKey())
 
+	c1.V2FileContract.RevisionNumber++
 	balances, err := db.RHP4CreditAccounts([]proto4.AccountDeposit{
 		{Account: account, Amount: types.Siacoins(3)},
 	}, c1.ID, c1.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(3)})
@@ -329,6 +331,7 @@ func TestRHP4AccountsDistribution(t *testing.T) {
 		AccountFunding: types.Siacoins(3),
 	})
 
+	c2.V2FileContract.RevisionNumber++
 	balances, err = db.RHP4CreditAccounts([]proto4.AccountDeposit{
 		{Account: account, Amount: types.Siacoins(3)},
 	}, c2.ID, c2.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(3)})
