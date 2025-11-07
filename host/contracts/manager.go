@@ -294,17 +294,21 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	}
 	defer done()
 
+	badRequest := func(format string, args ...any) error {
+		return proto4.NewRPCError(proto4.ErrorCodeBadRequest, fmt.Sprintf(format, args...))
+	}
+
 	renewalSet := renewal.Transactions
 	if len(renewalSet) == 0 {
-		return errors.New("no renewal transactions provided")
+		return badRequest("no renewal transactions provided")
 	} else if len(renewalSet[len(renewalSet)-1].FileContractResolutions) != 1 {
-		return errors.New("last transaction must contain one file contract resolution")
+		return badRequest("last transaction must contain one file contract resolution")
 	}
 
 	resolutionTxn := renewalSet[len(renewalSet)-1]
 	resolution, ok := resolutionTxn.FileContractResolutions[0].Resolution.(*types.V2FileContractRenewal)
 	if !ok {
-		return fmt.Errorf("unexpected resolution type %T", resolutionTxn.FileContractResolutions[0].Resolution)
+		return badRequest("unexpected resolution type %T", resolutionTxn.FileContractResolutions[0].Resolution)
 	}
 
 	parentID := resolutionTxn.FileContractResolutions[0].Parent.ID
@@ -317,19 +321,19 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	// sanity checks
 	refresh := fc.ExpirationHeight == existing.ExpirationHeight
 	if fc.Filesize != existing.Filesize {
-		return errors.New("renewal contract must have same file size as existing contract")
+		return badRequest("renewal contract file size does not match existing contract")
 	} else if refresh && fc.Capacity != existing.Capacity {
-		return errors.New("refreshed contract must have same capacity as existing contract")
+		return badRequest("refreshed contract must have same capacity as existing contract")
 	} else if !refresh && fc.Capacity != existing.Filesize {
-		return errors.New("renewal contract capacity must equal existing contract's file size")
+		return badRequest("renewal contract capacity must equal existing contract's file size")
 	} else if fc.FileMerkleRoot != existing.FileMerkleRoot {
-		return errors.New("renewal root does not match existing roots")
+		return badRequest("renewal root does not match existing roots")
 	}
 
 	existingID := types.FileContractID(existing.ID)
 	existingRoots := cm.getSectorRoots(existingID)
 	if fc.FileMerkleRoot != proto4.MetaRoot(existingRoots) {
-		return errors.New("renewal root does not match existing roots")
+		return badRequest("renewal root does not match existing roots")
 	}
 
 	contract := V2Contract{
