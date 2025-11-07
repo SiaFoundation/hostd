@@ -954,9 +954,13 @@ func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSiz
 	}
 	defer done()
 
-	if err := vm.writeSector(root, data); err != nil {
+	if err := vm.writeSector(root, data); errors.Is(err, ErrNotEnoughStorage) {
+		return proto4.ErrNotEnoughStorage
+	} else if err != nil {
 		return fmt.Errorf("failed to store sector: %w", err)
-	} else if err := vm.vs.AddTempSector(root, expiration); err != nil {
+	} else if err := vm.vs.AddTempSector(root, expiration); errors.Is(err, ErrNotEnoughStorage) {
+		return proto4.ErrNotEnoughStorage
+	} else if err != nil {
 		return fmt.Errorf("failed to reference temporary sector: %w", err)
 	}
 	return nil
