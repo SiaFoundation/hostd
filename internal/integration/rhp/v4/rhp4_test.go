@@ -479,6 +479,54 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 			t.Fatal("expected contract to not be revisable")
 		}
 	})
+
+	t.Run("valid refresh - capacity greater size", func(t *testing.T) {
+		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
+
+		// prune sector
+		res, err := rhp4.RPCFreeSectors(context.Background(), transport, fundAndSign, cm.TipState(), settings.Prices, revision, []uint64{0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision.Revision = res.Revision
+
+		newAllowance := types.Siacoins(10)
+		newCollateral := types.Siacoins(20)
+		// refresh the contract
+		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+			ContractID: revision.ID,
+			Allowance:  newAllowance,
+			Collateral: newCollateral,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRefreshValues(t, settings.Prices, revision.Revision, refreshResult.Contract.Revision, newAllowance, newCollateral)
+		assertRollover(t, settings.Prices, revision.Revision, refreshResult.RenewalSet.Transactions, newAllowance, newCollateral)
+
+		// verify the transaction set is valid
+		if known, err := cm.AddV2PoolTransactions(refreshResult.RenewalSet.Basis, refreshResult.RenewalSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if !known {
+			t.Fatal("expected transaction set to be known")
+		}
+
+		sigHash := cm.TipState().ContractSigHash(refreshResult.Contract.Revision)
+		if !renterKey.PublicKey().VerifyHash(sigHash, refreshResult.Contract.Revision.RenterSignature) {
+			t.Fatal("renter signature verification failed")
+		} else if !hostKey.PublicKey().VerifyHash(sigHash, refreshResult.Contract.Revision.HostSignature) {
+			t.Fatal("host signature verification failed")
+		}
+
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		if err != nil {
+			t.Fatal(err)
+		} else if !rs.Renewed {
+			t.Fatal("expected contract to be renewed")
+		} else if rs.Revisable {
+			t.Fatal("expected contract to not be revisable")
+		}
+	})
 }
 
 func TestRPCRefreshFullRollover(t *testing.T) {
@@ -800,6 +848,50 @@ func TestRPCRenew(t *testing.T) {
 			ContractID:  revision.ID,
 			Allowance:   types.Siacoins(150),
 			Collateral:  types.Siacoins(300),
+			ProofHeight: revision.Revision.ProofHeight + 10,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// verify the transaction set is valid
+		if known, err := cm.AddV2PoolTransactions(renewResult.RenewalSet.Basis, renewResult.RenewalSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if !known {
+			t.Fatal("expected transaction set to be known")
+		}
+
+		sigHash := cm.TipState().ContractSigHash(renewResult.Contract.Revision)
+		if !renterKey.PublicKey().VerifyHash(sigHash, renewResult.Contract.Revision.RenterSignature) {
+			t.Fatal("renter signature verification failed")
+		} else if !hostKey.PublicKey().VerifyHash(sigHash, renewResult.Contract.Revision.HostSignature) {
+			t.Fatal("host signature verification failed")
+		}
+
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		if err != nil {
+			t.Fatal(err)
+		} else if !rs.Renewed {
+			t.Fatal("expected contract to be renewed")
+		} else if rs.Revisable {
+			t.Fatal("expected contract to not be revisable")
+		}
+	})
+	t.Run("full rollover - capacity > size", func(t *testing.T) {
+		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
+
+		// prune sector
+		res, err := rhp4.RPCFreeSectors(context.Background(), transport, fundAndSign, cm.TipState(), settings.Prices, revision, []uint64{0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision.Revision = res.Revision
+
+		// renew the contract
+		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRenewContractParams{
+			ContractID:  revision.ID,
+			Allowance:   types.Siacoins(50),
+			Collateral:  types.Siacoins(100),
 			ProofHeight: revision.Revision.ProofHeight + 10,
 		})
 		if err != nil {
