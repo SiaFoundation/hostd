@@ -314,15 +314,6 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	}
 	fc := resolution.NewContract
 
-	// sanity checks
-	if fc.Filesize != existing.Filesize {
-		return errors.New("renewal contract must have same file size as existing contract")
-	} else if fc.Capacity != existing.Capacity {
-		return errors.New("renewal contract must have same capacity as existing contract")
-	} else if fc.FileMerkleRoot != existing.FileMerkleRoot {
-		return errors.New("renewal root does not match existing roots")
-	}
-
 	existingID := types.FileContractID(existing.ID)
 	existingRoots := cm.getSectorRoots(existingID)
 	if fc.FileMerkleRoot != proto4.MetaRoot(existingRoots) {
