@@ -1,3 +1,20 @@
+## 2.5.0 (2025-11-10)
+
+### Features
+
+- Trigger rescan when wallet seed changes
+
+### Fixes
+
+- Add OpenAPI spec
+- Archive V1 contracts with proof window after require height.
+- Fix host not renewing V2 contracts that have a capacity > size.
+- Fix integrity checks using cache
+- Fixed RPCFreeSectors NDFs.
+- Prevent overwriting an existing revision with an older one.
+- Return proto4.ErrNotEnoughStorage instead of internal error in StoreSector.
+- Update coreutils to v0.18.5
+
 ## 2.4.1 (2025-09-05)
 
 ### Fixes
