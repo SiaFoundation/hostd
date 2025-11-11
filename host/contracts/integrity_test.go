@@ -98,17 +98,18 @@ func TestCheckIntegrity(t *testing.T) {
 	}
 
 	var roots []types.Hash256
+	expiration := host.Chain.Tip().Height + 10
 	for range 5 {
 		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := proto4.SectorRoot(&sector)
-		err := host.Volumes.Write(root, &sector)
-		if err != nil {
+		if err := host.Volumes.StoreSector(root, &sector, expiration); err != nil {
 			t.Fatal(err)
 		}
 		roots = append(roots, root)
 	}
 
+	// add sectors to contract
 	cs := host.Chain.TipState()
 	contract.V2FileContract.RevisionNumber++
 	contract.V2FileContract.Filesize = uint64(len(roots)) * proto4.SectorSize
