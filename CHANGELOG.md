@@ -1,3 +1,9 @@
+## 2.5.1 (2025-11-12)
+
+### Fixes
+
+- Fix TestIntegrityCheck NDF
+
 ## 2.5.0 (2025-11-10)
 
 ### Features
