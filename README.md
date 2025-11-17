@@ -77,21 +77,16 @@ syncer:
 consensus:
   network: mainnet
   indexBatchSize: 100
-rhp2:
-  address: :9982
-rhp3:
-  tcp: :9983
 rhp4:
   listenAddresses:
-    - protocol: tcp # tcp,tcp4 or tcp6
+    - protocol: tcp # tcp, tcp4 or tcp6
       address: :9984
-    - protocol: quic # quic, quic4, quic6
+    - protocol: quic # quic, quic4 or quic6
       address: :9984
   quic:
     certPath: '/path/certs/certchain.crt' # Certificate chain file (optional)
     keyPath: '/path/private/keyfile.key' # Certificate private keyfile (optional)
 log:
-  level: info # global log level
   stdout:
     enabled: true # enable logging to stdout
     level: info # log level for console logger
