@@ -21,6 +21,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 	network, genesisBlock := testutil.V2Network()
 	network.HardforkV2.AllowHeight = 2
 	network.HardforkV2.RequireHeight = 3
+	network.HardforkV2.FinalCutHeight = 4
 	hostKey := types.GeneratePrivateKey()
 
 	node := testutil.NewConsensusNode(t, network, genesisBlock, log)
