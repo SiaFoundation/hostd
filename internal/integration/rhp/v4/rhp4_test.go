@@ -60,7 +60,9 @@ func (fs *fundAndSign) Address() types.Address {
 func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
 	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
 
-	l, err := rhp.Listen("tcp", ":0")
+	dr := rhp.NewDataRecorder(hn.Store, log.Named("data"))
+	rl, wl := hn.Settings.RHPBandwidthLimiters()
+	l, err := rhp.Listen("tcp", ":0", rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl), rhp.WithDataMonitor(dr))
 	if err != nil {
 		tb.Fatal(err)
 	}
