@@ -464,7 +464,8 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			ql, err := quic.Listen(l, certificates.NewQUICCertManager(certProvider))
+			pc := rhp.NewRHPPacketConn(l, rl, wl, dr)
+			ql, err := quic.Listen(pc, certificates.NewQUICCertManager(certProvider))
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}

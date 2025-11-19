@@ -3,6 +3,7 @@ package rhp
 import (
 	"context"
 	"net"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -124,4 +125,61 @@ func Listen(network, address string, opts ...Option) (net.Listener, error) {
 		opt(rhp)
 	}
 	return rhp, nil
+}
+
+type rhpPacketConn struct {
+	inner   net.PacketConn
+	rl, wl  *rate.Limiter
+	monitor DataMonitor
+}
+
+// NewRHPPacketConn wraps a net.PacketConn with optional rate limiting and
+// monitoring.
+func NewRHPPacketConn(conn net.PacketConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) net.PacketConn {
+	return &rhpPacketConn{
+		inner:   conn,
+		rl:      readLimiter,
+		wl:      writeLimiter,
+		monitor: monitor,
+	}
+}
+
+func (c *rhpPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	n, addr, err := c.inner.ReadFrom(b)
+	c.monitor.ReadBytes(n)
+	if err != nil {
+		return n, addr, err
+	}
+	c.rl.WaitN(context.Background(), len(b))
+	return n, addr, err
+}
+
+func (c *rhpPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	n, err := c.inner.WriteTo(b, addr)
+	c.monitor.WriteBytes(n)
+	if err != nil {
+		return n, err
+	}
+	c.wl.WaitN(context.Background(), len(b))
+	return n, err
+}
+
+func (c *rhpPacketConn) Close() error {
+	return c.inner.Close()
+}
+
+func (c *rhpPacketConn) LocalAddr() net.Addr {
+	return c.inner.LocalAddr()
+}
+
+func (c *rhpPacketConn) SetDeadline(t time.Time) error {
+	return c.inner.SetDeadline(t)
+}
+
+func (c *rhpPacketConn) SetReadDeadline(t time.Time) error {
+	return c.inner.SetReadDeadline(t)
+}
+
+func (c *rhpPacketConn) SetWriteDeadline(t time.Time) error {
+	return c.inner.SetWriteDeadline(t)
 }
