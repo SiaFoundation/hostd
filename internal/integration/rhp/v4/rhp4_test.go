@@ -22,6 +22,7 @@ import (
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/certificates"
 	"go.sia.tech/hostd/v2/internal/testutil"
+	"go.sia.tech/hostd/v2/rhp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -59,7 +60,7 @@ func (fs *fundAndSign) Address() types.Address {
 func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
 	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
 
-	l, err := net.Listen("tcp", ":0")
+	l, err := rhp.Listen("tcp", ":0")
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -89,7 +90,10 @@ func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testuti
 	}
 	tb.Cleanup(func() { l.Close() })
 
-	ql, err := quic.Listen(l, certificates.NewQUICCertManager(hn.Certs))
+	dr := rhp.NewDataRecorder(hn.Store, log.Named("data"))
+	rl, wl := hn.Settings.RHPBandwidthLimiters()
+	pc := rhp.NewRHPPacketConn(l, rl, wl, dr)
+	ql, err := quic.Listen(pc, certificates.NewQUICCertManager(hn.Certs))
 	if err != nil {
 		tb.Fatal(err)
 	}
