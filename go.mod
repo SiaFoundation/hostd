@@ -15,7 +15,7 @@ require (
 	go.sia.tech/web/hostd v0.66.3
 	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.38.0
-	golang.org/x/term v0.36.0
+	golang.org/x/term v0.37.0
 	golang.org/x/time v0.14.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
