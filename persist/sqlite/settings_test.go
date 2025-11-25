@@ -19,34 +19,33 @@ import (
 
 func randomSettings() settings.Settings {
 	return settings.Settings{
-		AcceptingContracts:   frand.Intn(1) == 1,
-		NetAddress:           hex.EncodeToString(frand.Bytes(64)),
-		MaxContractDuration:  uint64(frand.Intn(math.MaxInt)),
-		ContractPrice:        types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
-		BaseRPCPrice:         types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
-		SectorAccessPrice:    types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
-		CollateralMultiplier: frand.Float64(),
-		MaxCollateral:        types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
-		StoragePrice:         types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
-		EgressPrice:          types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
-		IngressPrice:         types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
-		IngressLimit:         uint64(frand.Intn(math.MaxInt)),
-		EgressLimit:          uint64(frand.Intn(math.MaxInt)),
-		MaxRegistryEntries:   uint64(frand.Intn(math.MaxInt)),
-		AccountExpiry:        time.Duration(frand.Intn(math.MaxInt)),
-		PriceTableValidity:   time.Duration(frand.Intn(math.MaxInt)),
-		MaxAccountBalance:    types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
+		AcceptingContracts:      frand.Intn(1) == 1,
+		NetAddress:              hex.EncodeToString(frand.Bytes(64)),
+		MaxContractDuration:     uint64(frand.Intn(math.MaxInt)),
+		ContractPrice:           types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
+		BaseRPCPrice:            types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
+		SectorAccessPrice:       types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
+		CollateralMultiplier:    frand.Float64(),
+		MaxCollateralMultiplier: frand.Float64(),
+		StoragePrice:            types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
+		EgressPrice:             types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
+		IngressPrice:            types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
+		IngressLimit:            uint64(frand.Intn(math.MaxInt)),
+		EgressLimit:             uint64(frand.Intn(math.MaxInt)),
+		MaxRegistryEntries:      uint64(frand.Intn(math.MaxInt)),
+		AccountExpiry:           time.Duration(frand.Intn(math.MaxInt)),
+		PriceTableValidity:      time.Duration(frand.Intn(math.MaxInt)),
+		MaxAccountBalance:       types.NewCurrency(frand.Uint64n(math.MaxUint64), frand.Uint64n(math.MaxUint64)),
 	}
 }
 
 func randomPinnedSettings() pin.PinnedSettings {
 	return pin.PinnedSettings{
-		Currency:      hex.EncodeToString(frand.Bytes(3)),
-		Threshold:     frand.Float64(),
-		Storage:       pin.Pin{Pinned: frand.Intn(1) == 1, Value: frand.Float64()},
-		Ingress:       pin.Pin{Pinned: frand.Intn(1) == 1, Value: frand.Float64()},
-		Egress:        pin.Pin{Pinned: frand.Intn(1) == 1, Value: frand.Float64()},
-		MaxCollateral: pin.Pin{Pinned: frand.Intn(1) == 1, Value: frand.Float64()},
+		Currency:  hex.EncodeToString(frand.Bytes(3)),
+		Threshold: frand.Float64(),
+		Storage:   pin.Pin{Pinned: frand.Intn(1) == 1, Value: frand.Float64()},
+		Ingress:   pin.Pin{Pinned: frand.Intn(1) == 1, Value: frand.Float64()},
+		Egress:    pin.Pin{Pinned: frand.Intn(1) == 1, Value: frand.Float64()},
 	}
 }
 

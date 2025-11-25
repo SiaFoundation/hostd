@@ -67,15 +67,6 @@ func checkSettings(settings settings.Settings, pinned pin.PinnedSettings, expect
 			return fmt.Errorf("expected egress price %d, got %d", egressPrice, settings.EgressPrice)
 		}
 	}
-
-	if pinned.MaxCollateral.IsPinned() {
-		maxCollateral, err := pin.ConvertCurrencyToSC(decimal.NewFromFloat(pinned.MaxCollateral.Value), rate)
-		if err != nil {
-			return fmt.Errorf("failed to convert max collateral: %w", err)
-		} else if !maxCollateral.Equals(settings.MaxCollateral) {
-			return fmt.Errorf("expected max collateral %d, got %d", maxCollateral, settings.MaxCollateral)
-		}
-	}
 	return nil
 }
 
@@ -150,10 +141,6 @@ func TestPinnedFields(t *testing.T) {
 			Pinned: false,
 			Value:  1.0,
 		},
-		MaxCollateral: pin.Pin{
-			Pinned: false,
-			Value:  1.0,
-		},
 	}
 
 	// only storage is pinned
@@ -164,8 +151,6 @@ func TestPinnedFields(t *testing.T) {
 	currentSettings := sm.Settings()
 	if err := checkSettings(currentSettings, pin, 1); err != nil {
 		t.Fatal(err)
-	} else if !currentSettings.MaxCollateral.Equals(initialSettings.MaxCollateral) {
-		t.Fatalf("expected max collateral to be %d, got %d", initialSettings.MaxCollateral, currentSettings.MaxCollateral)
 	} else if !currentSettings.IngressPrice.Equals(initialSettings.IngressPrice) {
 		t.Fatalf("expected ingress price to be %d, got %d", initialSettings.IngressPrice, currentSettings.IngressPrice)
 	} else if !currentSettings.EgressPrice.Equals(initialSettings.EgressPrice) {
@@ -181,8 +166,6 @@ func TestPinnedFields(t *testing.T) {
 	currentSettings = sm.Settings()
 	if err := checkSettings(currentSettings, pin, 1); err != nil {
 		t.Fatal(err)
-	} else if !currentSettings.MaxCollateral.Equals(initialSettings.MaxCollateral) {
-		t.Fatalf("expected max collateral to be %d, got %d", initialSettings.MaxCollateral, currentSettings.MaxCollateral)
 	} else if !currentSettings.EgressPrice.Equals(initialSettings.EgressPrice) {
 		t.Fatalf("expected egress price to be %d, got %d", initialSettings.EgressPrice, currentSettings.EgressPrice)
 	}
@@ -195,16 +178,6 @@ func TestPinnedFields(t *testing.T) {
 
 	currentSettings = sm.Settings()
 	if err := checkSettings(currentSettings, pin, 1); err != nil {
-		t.Fatal(err)
-	} else if !currentSettings.MaxCollateral.Equals(initialSettings.MaxCollateral) {
-		t.Fatalf("expected max collateral to be %d, got %d", initialSettings.MaxCollateral, currentSettings.MaxCollateral)
-	}
-
-	// pin max collateral
-	pin.MaxCollateral.Pinned = true
-	if err := pm.Update(context.Background(), pin); err != nil {
-		t.Fatal(err)
-	} else if err := checkSettings(sm.Settings(), pin, 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -248,10 +221,6 @@ func TestAutomaticUpdate(t *testing.T) {
 			Value:  1.0,
 		},
 		Egress: pin.Pin{
-			Pinned: true,
-			Value:  1.0,
-		},
-		MaxCollateral: pin.Pin{
 			Pinned: true,
 			Value:  1.0,
 		},

@@ -12,6 +12,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion46 changes max collateral to be a multiplier of collateral
+// instead of a fixed value.
+func migrateVersion46(tx *txn, _ *zap.Logger) error {
+	const query = `ALTER TABLE host_settings ADD COLUMN max_collateral_multiplier REAL NOT NULL DEFAULT 10.0;
+ALTER TABLE host_settings DROP COLUMN max_collateral;
+ALTER TABLE host_pinned_settings DROP COLUMN max_collateral;
+ALTER TABLE host_pinned_settings DROP COLUMN max_collateral_pinned;`
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion45 cleans up unresolved v1 contracts since they will never complete
 // and v1 support has been removed.
 func migrateVersion45(tx *txn, log *zap.Logger) error {
@@ -1161,4 +1172,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion43,
 	migrateVersion44,
 	migrateVersion45,
+	migrateVersion46,
 }
