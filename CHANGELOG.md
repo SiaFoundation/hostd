@@ -1,3 +1,10 @@
+## 2.5.2 (2025-11-25)
+
+### Fixes
+
+- Add monitoring and rate limiting for quic.
+- Update core and coreutils dependencies to v0.18.1 and v0.18.7 respectively.
+
 ## 2.5.1 (2025-11-12)
 
 ### Fixes
