@@ -43,10 +43,6 @@ type (
 		Storage Pin `json:"storage"`
 		Ingress Pin `json:"ingress"`
 		Egress  Pin `json:"egress"`
-
-		// MaxCollateral is the maximum collateral that the host will
-		// accept in the external currency.
-		MaxCollateral Pin `json:"maxCollateral"`
 	}
 
 	// Alerts registers global alerts.
@@ -162,7 +158,7 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 	}
 
 	// skip updating prices if the pinned settings are zero
-	if !m.settings.Storage.IsPinned() && !m.settings.Ingress.IsPinned() && !m.settings.Egress.IsPinned() && !m.settings.MaxCollateral.IsPinned() {
+	if !m.settings.Storage.IsPinned() && !m.settings.Ingress.IsPinned() && !m.settings.Egress.IsPinned() {
 		return nil
 	}
 
@@ -201,14 +197,6 @@ func (m *Manager) updatePrices(ctx context.Context, force bool) error {
 		settings.EgressPrice = value.Div64(1e12)
 	}
 
-	if m.settings.MaxCollateral.IsPinned() {
-		value, err := ConvertCurrencyToSC(decimal.NewFromFloat(m.settings.MaxCollateral.Value), avgRate)
-		if err != nil {
-			return fmt.Errorf("failed to convert max collateral: %w", err)
-		}
-		settings.MaxCollateral = value
-	}
-
 	if err := m.sm.UpdateSettings(settings); err != nil {
 		return fmt.Errorf("failed to update settings: %w", err)
 	}
@@ -236,8 +224,6 @@ func (m *Manager) Update(ctx context.Context, p PinnedSettings) error {
 		return fmt.Errorf("ingress price must be greater than 0")
 	case p.Egress.Pinned && p.Egress.Value <= 0:
 		return fmt.Errorf("egress price must be greater than 0")
-	case p.MaxCollateral.Pinned && p.MaxCollateral.Value <= 0:
-		return fmt.Errorf("max collateral must be greater than 0")
 	}
 
 	m.mu.Lock()

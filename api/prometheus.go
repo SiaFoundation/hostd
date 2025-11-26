@@ -121,8 +121,8 @@ func (hs HostSettings) PrometheusMetric() []prometheus.Metric {
 			Value: hs.CollateralMultiplier,
 		},
 		{
-			Name:  "hostd_settings_max_collateral",
-			Value: hs.MaxCollateral.Siacoins(),
+			Name:  "hostd_settings_max_collateral_multiplier",
+			Value: hs.MaxCollateralMultiplier,
 		},
 		{
 			Name:  "hostd_settings_pricetable_validity",

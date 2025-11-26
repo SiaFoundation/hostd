@@ -242,12 +242,12 @@ CREATE TABLE host_settings (
 	contract_price BLOB NOT NULL,
 	base_rpc_price BLOB NOT NULL,
 	sector_access_price BLOB NOT NULL,
-	max_collateral BLOB NOT NULL,
 	storage_price BLOB NOT NULL,
 	egress_price BLOB NOT NULL,
 	ingress_price BLOB NOT NULL,
 	max_account_balance BLOB NOT NULL,
 	collateral_multiplier REAL NOT NULL,
+	max_collateral_multiplier REAL NOT NULL DEFAULT 10.0,
 	max_account_age INTEGER NOT NULL,
 	price_table_validity INTEGER NOT NULL,
 	max_contract_duration INTEGER NOT NULL,
@@ -271,9 +271,7 @@ CREATE TABLE host_pinned_settings (
 	ingress_pinned BOOLEAN NOT NULL,
 	ingress_price REAL NOT NULL,
 	egress_pinned BOOLEAN NOT NULL,
-	egress_price REAL NOT NULL,
-	max_collateral_pinned BOOLEAN NOT NULL,
-	max_collateral REAL NOT NULL
+	egress_price REAL NOT NULL
 );
 
 CREATE TABLE webhooks (

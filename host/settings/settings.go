@@ -103,8 +103,8 @@ type (
 		BaseRPCPrice      types.Currency `json:"baseRPCPrice"`
 		SectorAccessPrice types.Currency `json:"sectorAccessPrice"`
 
-		CollateralMultiplier float64        `json:"collateralMultiplier"`
-		MaxCollateral        types.Currency `json:"maxCollateral"`
+		CollateralMultiplier    float64 `json:"collateralMultiplier"`
+		MaxCollateralMultiplier float64 `json:"maxCollateralMultiplier"`
 
 		StoragePrice types.Currency `json:"storagePrice"`
 		EgressPrice  types.Currency `json:"egressPrice"`
@@ -175,8 +175,8 @@ var (
 		BaseRPCPrice:      types.Siacoins(1).Div64(1e6), // 1 SC / million RPCs
 		SectorAccessPrice: types.Siacoins(1).Div64(1e6), // 1 SC / million sectors
 
-		CollateralMultiplier: 2.0, // 2x storage price
-		MaxCollateral:        types.Siacoins(1000),
+		CollateralMultiplier:    2.0,  // 2x storage price
+		MaxCollateralMultiplier: 10.0, // 10x collateral
 
 		StoragePrice: types.Siacoins(150).Div64(1 << 40).Div64(blocksPerMonth), // 150 SC / TB / month
 		EgressPrice:  types.Siacoins(500).Div64(1 << 40),                       // 500 SC / TB
@@ -291,18 +291,21 @@ func (m *ConfigManager) RHP4Settings() proto4.HostSettings {
 		return proto4.HostSettings{}
 	}
 
+	collateral := settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000)
+	maxCollateral := collateral.Mul64(uint64(settings.MaxCollateralMultiplier * 1000)).Div64(1000)
+
 	hs := proto4.HostSettings{
 		Release:             "hostd " + build.Version(),
 		WalletAddress:       m.wallet.Address(),
 		AcceptingContracts:  settings.AcceptingContracts,
-		MaxCollateral:       settings.MaxCollateral,
+		MaxCollateral:       maxCollateral,
 		MaxContractDuration: settings.MaxContractDuration,
 		RemainingStorage:    total - used,
 		TotalStorage:        total,
 		Prices: proto4.HostPrices{
 			ContractPrice:   settings.ContractPrice,
 			StoragePrice:    settings.StoragePrice,
-			Collateral:      settings.StoragePrice.Mul64(uint64(settings.CollateralMultiplier * 1000)).Div64(1000),
+			Collateral:      collateral,
 			IngressPrice:    settings.IngressPrice,
 			EgressPrice:     settings.EgressPrice,
 			FreeSectorPrice: types.Siacoins(1).Div64((1 << 40) / proto4.SectorSize), // 1 SC / TB

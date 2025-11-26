@@ -176,19 +176,22 @@ func TestFormContract(t *testing.T) {
 	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
 
 	withTransports(t, hostKey, hn, func(t *testing.T, transport rhp4.TransportClient) {
+		const duration = 50
 		settings, err := rhp4.RPCSettings(context.Background(), transport)
 		if err != nil {
 			t.Fatal(err)
 		}
 
+		renterAllowance := types.Siacoins(100)
+		hostCollateral := settings.Prices.Collateral.Mul64(1 << 40).Mul64(duration) // ensure the host has collateral for 1 TB
+
 		fundAndSign := &fundAndSign{w, renterKey}
-		renterAllowance, hostCollateral := types.Siacoins(100), types.Siacoins(200)
 		result, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
 			RenterPublicKey: renterKey.PublicKey(),
 			RenterAddress:   w.Address(),
 			Allowance:       renterAllowance,
 			Collateral:      hostCollateral,
-			ProofHeight:     cm.Tip().Height + 50,
+			ProofHeight:     cm.Tip().Height + duration,
 		})
 		if err != nil {
 			t.Fatal(err)

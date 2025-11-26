@@ -114,7 +114,7 @@ func (m *ConfigManager) Announce() error {
 	if err != nil {
 		m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 		return fmt.Errorf("failed to create transaction set: %w", err)
-	} else if err := m.wallet.BroadcastV2TransactionSet(cs.Index, txnset); err != nil {
+	} else if err := m.wallet.BroadcastV2TransactionSet(basis, txnset); err != nil {
 		m.wallet.ReleaseInputs(nil, []types.V2Transaction{txn})
 		return fmt.Errorf("failed to add transaction to pool: %w", err)
 	}

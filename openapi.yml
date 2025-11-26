@@ -1267,8 +1267,9 @@ components:
         collateralMultiplier:
           type: number
           format: double
-        maxCollateral:
-          $ref: "#/components/schemas/Currency"
+        maxCollateralMultiplier:
+          type: number
+          format: double
         storagePrice:
           $ref: "#/components/schemas/Currency"
         egressPrice:
