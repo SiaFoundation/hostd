@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"math"
 	"net"
 	"path/filepath"
@@ -1217,6 +1218,110 @@ func TestReadWriteSector(t *testing.T) {
 	}
 }
 
+func TestReadSectorPartial(t *testing.T) {
+	n, genesis := testutil.V2Network()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+
+	hn := testutil.NewHostNode(t, hostKey, n, genesis, zap.NewNop())
+	cm := hn.Chain
+	w := hn.Wallet
+
+	results := make(chan error, 1)
+	if _, err := hn.Volumes.AddVolume(context.Background(), filepath.Join(t.TempDir(), "test.dat"), 10, results); err != nil {
+		t.Fatal(err)
+	} else if err := <-results; err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
+
+	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+
+	settings, err := rhp4.RPCSettings(context.Background(), transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fundAndSign := &fundAndSign{w, renterKey}
+	renterAllowance, hostCollateral := types.Siacoins(100), types.Siacoins(200)
+	formResult, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
+		RenterPublicKey: renterKey.PublicKey(),
+		RenterAddress:   w.Address(),
+		Allowance:       renterAllowance,
+		Collateral:      hostCollateral,
+		ProofHeight:     cm.Tip().Height + 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := formResult.Contract
+
+	cs := cm.TipState()
+	account := proto4.Account(renterKey.PublicKey())
+
+	accountFundAmount := types.Siacoins(25)
+	fundResult, err := rhp4.RPCFundAccounts(context.Background(), transport, cs, renterKey, revision, []proto4.AccountDeposit{
+		{Account: account, Amount: accountFundAmount},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.Revision = fundResult.Revision
+
+	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
+	var sector [proto4.SectorSize]byte
+	frand.Read(sector[:])
+
+	// store the sector
+	writeResult, err := rhp4.RPCWriteSector(context.Background(), transport, settings.Prices, token, bytes.NewReader(sector[:]), uint64(len(sector)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// verify the sector root
+	if writeResult.Root != proto4.SectorRoot(&sector) {
+		t.Fatal("root mismatch")
+	}
+
+	// try to read an unaligned range
+	if _, err = rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, nil, writeResult.Root, 1, 100); err == nil {
+		t.Fatal("expected error for unaligned read")
+	}
+
+	// random range generates a random leaf-aligned offset and length
+	randomRange := func() [2]uint64 {
+		offset := frand.Uint64n(uint64(proto4.LeavesPerSector))
+		length := frand.Uint64n(proto4.LeavesPerSector - offset)
+		return [2]uint64{offset * proto4.LeafSize, length * proto4.LeafSize}
+	}
+	tests := [][2]uint64{
+		{0, 64},                    // one leaf
+		{0, 4096},                  // full subtree
+		{0, 8192},                  // two full subtrees
+		{0, proto4.SectorSize / 2}, // first half
+		{proto4.SectorSize / 2, proto4.SectorSize / 2}, // last half
+		{0, proto4.SectorSize},                         // full sector
+		{proto4.SectorSize / 2, 64},                    // middle leaf
+		{proto4.SectorSize - 64, 64},                   // last leaf
+		{proto4.SectorSize - 4096, 4096},               // last subtree
+	}
+	for range 10 {
+		tests = append(tests, randomRange())
+	}
+
+	buf := bytes.NewBuffer(make([]byte, 0, proto4.SectorSize))
+	for _, test := range tests {
+		buf.Reset()
+		offset, length := test[0], test[1]
+		_, err = rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, buf, writeResult.Root, offset, length)
+		if err != nil {
+			t.Fatalf("offset %v length %v: %v", offset, length, err)
+		} else if !bytes.Equal(buf.Bytes(), sector[offset:][:length]) {
+			t.Fatalf("offset %v length %v: data mismatch", offset, length)
+		}
+	}
+}
+
 func TestAppendSectors(t *testing.T) {
 	const sectors = 10
 	n, genesis := testutil.V2Network()
@@ -1607,10 +1712,11 @@ func TestRPCSectorRoots(t *testing.T) {
 }
 
 func TestPrune(t *testing.T) {
+	log := zaptest.NewLogger(t)
 	n, genesis := testutil.V2Network()
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 
-	hn := testutil.NewHostNode(t, hostKey, n, genesis, zap.NewNop())
+	hn := testutil.NewHostNode(t, hostKey, n, genesis, log.Named("host"))
 	cm := hn.Chain
 	w := hn.Wallet
 
@@ -1623,7 +1729,7 @@ func TestPrune(t *testing.T) {
 
 	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
 
-	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+	transport := testRenterHostPair(t, hostKey, hn, log.Named("transport"))
 
 	settings, err := rhp4.RPCSettings(context.Background(), transport)
 	if err != nil {
@@ -1689,7 +1795,7 @@ func TestPrune(t *testing.T) {
 			buf.Reset()
 
 			_, err := rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, buf, root, 0, proto4.SectorSize)
-			if err == nil || !strings.Contains(err.Error(), "sector not found") {
+			if !errors.Is(err, proto4.ErrSectorNotFound) {
 				t.Fatalf("expected err %q, got %q", proto4.ErrSectorNotFound, err)
 			}
 		}

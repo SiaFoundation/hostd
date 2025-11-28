@@ -141,21 +141,18 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, ele V2ProofElement, l
 	}
 
 	sectorRoot := roots[sectorIndex]
-	sector, err := cm.storage.ReadSector(sectorRoot)
+	segment, proof, err := cm.storage.ReadSector(sectorRoot, segmentIndex*proto4.LeafSize, proto4.LeafSize)
 	if err != nil {
 		log.Error("failed to read sector data", zap.Error(err), zap.Stringer("sectorRoot", sectorRoot))
 		return types.V2StorageProof{}, fmt.Errorf("failed to read sector data")
-	} else if proto4.SectorRoot(sector) != sectorRoot {
-		log.Error("sector data corrupt", zap.Stringer("expectedRoot", sectorRoot), zap.Stringer("actualRoot", proto4.SectorRoot(sector)))
-		return types.V2StorageProof{}, fmt.Errorf("invalid sector root")
 	}
-	segmentProof := rhp2.ConvertProofOrdering(rhp2.BuildProof(sector, segmentIndex, segmentIndex+1, nil), segmentIndex)
+	segmentProof := rhp2.ConvertProofOrdering(proof, segmentIndex)
 	sectorProof := rhp2.ConvertProofOrdering(rhp2.BuildSectorRangeProof(roots, sectorIndex, sectorIndex+1), sectorIndex)
 	sp := types.V2StorageProof{
 		ProofIndex: ele.ChainIndexElement,
+		Leaf:       ([64]byte)(segment),
 		Proof:      append(segmentProof, sectorProof...),
 	}
-	copy(sp.Leaf[:], sector[segmentIndex*proto4.LeafSize:])
 	return sp, nil
 }
 
