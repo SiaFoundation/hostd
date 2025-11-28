@@ -71,6 +71,12 @@ type (
 		// SectorLocation returns the location of a sector or an error if the
 		// sector is not found.
 		SectorLocation(root types.Hash256) (loc SectorLocation, err error)
+
+		// CacheSubtrees stores the cached subtree roots for a sector
+		CacheSubtrees(root types.Hash256, subtrees []types.Hash256) error
+		// SectorMetadata returns the metadata of a sector or an error if the
+		// sector is not found.
+		SectorMetadata(types.Hash256) (SectorMetadata, error)
 		// AddTempSector adds a sector to temporary storage. The sectors will be deleted
 		// after the expiration height
 		AddTempSector(root types.Hash256, expiration uint64) error
