@@ -79,6 +79,38 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 	})
 }
 
+// CacheSubtrees stores the cached subtree roots for a sector
+func (s *Store) CacheSubtrees(root types.Hash256, subtrees []types.Hash256) error {
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`UPDATE stored_sectors SET cached_subtree_roots=$1 WHERE sector_root=$2;`, encode(subtrees), encode(root))
+		return err
+	})
+}
+
+// SectorMetadata returns the location of a sector or an error if the
+// sector is not found.
+func (s *Store) SectorMetadata(root types.Hash256) (meta storage.SectorMetadata, err error) {
+	err = s.transaction(func(tx *txn) error {
+		sectorID, err := sectorDBID(tx, root)
+		if errors.Is(err, sql.ErrNoRows) {
+			return storage.ErrSectorNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to get sector id: %w", err)
+		}
+		meta.Location, err = sectorLocation(tx, sectorID, root)
+		if err != nil {
+			return fmt.Errorf("failed to get sector location: %w", err)
+		}
+
+		err = tx.QueryRow(`SELECT cached_subtree_roots FROM stored_sectors WHERE id=$1;`, sectorID).Scan(decodeNullable(&meta.CachedSubtrees))
+		if err != nil {
+			return fmt.Errorf("failed to get cached subtrees: %w", err)
+		}
+		return nil
+	})
+	return
+}
+
 // SectorLocation returns the location of a sector or an error if the
 // sector is not found.
 func (s *Store) SectorLocation(root types.Hash256) (location storage.SectorLocation, err error) {

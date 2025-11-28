@@ -162,8 +162,8 @@ func (v *volume) Status() string {
 	return v.stats.Status
 }
 
-// ReadSector reads the sector at index from the volume
-func (v *volume) ReadSector(index uint64) (*[proto4.SectorSize]byte, error) {
+// ReadSector reads a chunk of data from the volume at index
+func (v *volume) ReadSector(index, offset, length uint64) ([]byte, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
@@ -171,13 +171,15 @@ func (v *volume) ReadSector(index uint64) (*[proto4.SectorSize]byte, error) {
 		return nil, ErrVolumeNotAvailable
 	}
 
-	var sector [proto4.SectorSize]byte
-	_, err := v.data.ReadAt(sector[:], int64(index*proto4.SectorSize))
+	data := make([]byte, length)
+	n, err := v.data.ReadAt(data, int64(index*proto4.SectorSize+offset))
 	if err != nil {
-		err = fmt.Errorf("failed to read sector at index %v: %w", index, err)
+		return nil, fmt.Errorf("failed to read sector at index %v: %w", index, err)
+	} else if uint64(n) != length {
+		return nil, fmt.Errorf("short read at index %v: expected %v, got %v", index, length, n)
 	}
 	go v.incrementReadStats(err)
-	return &sector, err
+	return data, nil
 }
 
 // WriteSector writes a sector to the volume at index

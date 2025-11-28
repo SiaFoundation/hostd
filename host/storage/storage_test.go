@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -90,10 +91,10 @@ func TestVolumeLoad(t *testing.T) {
 	}
 
 	// check that the sector is still there
-	sector2, err := vm.ReadSector(root)
+	sector2, _, err := vm.ReadSector(root, 0, proto4.SectorSize)
 	if err != nil {
 		t.Fatal(err)
-	} else if *sector2 != sector {
+	} else if !bytes.Equal(sector[:], sector2) {
 		t.Fatal("sector was corrupted")
 	}
 
@@ -197,10 +198,10 @@ func TestRemoveVolume(t *testing.T) {
 
 	checkRoots := func(roots []types.Hash256) error {
 		for _, root := range roots {
-			sector, err := vm.ReadSector(root)
+			sector, _, err := vm.ReadSector(root, 0, proto4.SectorSize)
 			if err != nil {
 				return fmt.Errorf("failed to read sector: %w", err)
-			} else if proto4.SectorRoot(sector) != root {
+			} else if proto4.SectorRoot((*[proto4.SectorSize]byte)(sector)) != root {
 				return errors.New("sector was corrupted")
 			}
 		}
@@ -631,10 +632,10 @@ func TestVolumeConcurrency(t *testing.T) {
 
 	// read the sectors back
 	for _, root := range roots {
-		sector, err := vm.ReadSector(root)
+		sector, _, err := vm.ReadSector(root, 0, proto4.SectorSize)
 		if err != nil {
 			t.Fatal(err)
-		} else if proto4.SectorRoot(sector) != root {
+		} else if proto4.SectorRoot((*[proto4.SectorSize]byte)(sector)) != root {
 			t.Fatal("sector was corrupted")
 		}
 	}
@@ -646,10 +647,10 @@ func TestVolumeConcurrency(t *testing.T) {
 
 	// read the sectors back
 	for _, root := range roots {
-		sector, err := vm.ReadSector(root)
+		sector, _, err := vm.ReadSector(root, 0, proto4.SectorSize)
 		if err != nil {
 			t.Fatal(err)
-		} else if proto4.SectorRoot(sector) != root {
+		} else if proto4.SectorRoot((*[proto4.SectorSize]byte)(sector)) != root {
 			t.Fatal("sector was corrupted")
 		}
 	}
@@ -1003,11 +1004,11 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 	// read the sectors back
 	frand.Shuffle(len(roots), func(i, j int) { roots[i], roots[j] = roots[j], roots[i] })
 	for _, root := range roots {
-		sector, err := vm.ReadSector(root)
+		sector, _, err := vm.ReadSector(root, 0, proto4.SectorSize)
 		if err != nil {
 			t.Fatal(err)
 		}
-		retrievedRoot := proto4.SectorRoot(sector)
+		retrievedRoot := proto4.SectorRoot((*[proto4.SectorSize]byte)(sector))
 		if retrievedRoot != root {
 			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
 		}
@@ -1030,112 +1031,6 @@ func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash
 		return types.Hash256{}, fmt.Errorf("failed to add temporary sector: %w", err)
 	}
 	return root, nil
-}
-
-func TestSectorCache(t *testing.T) {
-	const sectors = 10
-	dir := t.TempDir()
-
-	// create the database
-	log := zaptest.NewLogger(t)
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(sectors/2)) // cache half the sectors
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer vm.Close()
-
-	result := make(chan error, 1)
-	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
-	vol, err := vm.AddVolume(context.Background(), volumeFilePath, sectors, result)
-	if err != nil {
-		t.Fatal(err)
-	} else if err := <-result; err != nil {
-		t.Fatal(err)
-	}
-
-	volume, err := vm.Volume(vol.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := checkFileSize(volumeFilePath, int64(sectors*proto4.SectorSize)); err != nil {
-		t.Fatal(err)
-	} else if volume.TotalSectors != sectors {
-		t.Fatalf("expected %v total sectors, got %v", sectors, volume.TotalSectors)
-	} else if volume.UsedSectors != 0 {
-		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
-	}
-
-	roots := make([]types.Hash256, 0, sectors)
-	// fill the volume
-	for i := 0; i < cap(roots); i++ {
-		root, err := storeRandomSector(vm, uint64(i))
-		if err != nil {
-			t.Fatal(err)
-		}
-		roots = append(roots, root)
-
-		// validate the volume stats are correct
-		volumes, err := vm.Volumes()
-		if err != nil {
-			t.Fatal(err)
-		} else if volumes[0].UsedSectors != uint64(i+1) {
-			t.Fatalf("expected %v used sectors, got %v", i+1, volumes[0].UsedSectors)
-		}
-	}
-
-	// read the last 5 sectors all sectors should be cached
-	for i, root := range roots[5:] {
-		_, err := vm.ReadSector(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		hits, misses := vm.CacheStats()
-		if hits != uint64(i+1) {
-			t.Fatalf("expected %v cache hits, got %v", i+1, hits)
-		} else if misses != 0 {
-			t.Fatalf("expected 0 cache misses, got %v", misses)
-		}
-	}
-
-	// read the first 5 sectors all sectors should be missed
-	for i, root := range roots[:5] {
-		_, err := vm.ReadSector(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		hits, misses := vm.CacheStats()
-		if hits != 5 {
-			t.Fatalf("expected 5 cache hits, got %v", hits) // existing 5 cache hits
-		} else if misses != uint64(i+1) {
-			t.Fatalf("expected %v cache misses, got %v", i+1, misses)
-		}
-	}
-
-	// read the first 5 sectors again all sectors should be cached
-	for i, root := range roots[:5] {
-		_, err := vm.ReadSector(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		expectedHits := 5 + (uint64(i) + 1) // 5 original hits, plus the new hit
-		hits, misses := vm.CacheStats()
-		if hits != expectedHits {
-			t.Fatalf("expected %d cache hits, got %v", expectedHits, hits)
-		} else if misses != 5 {
-			t.Fatalf("expected %v cache misses, got %v", 5, misses) // existing 5 cache misses
-		}
-	}
 }
 
 func TestStoragePrune(t *testing.T) {
@@ -1351,7 +1246,7 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 	b.SetBytes(proto4.SectorSize)
 	// read the sectors back
 	for _, root := range written {
-		if _, err := vm.ReadSector(root); err != nil {
+		if _, _, err := vm.ReadSector(root, 0, proto4.SectorSize); err != nil {
 			b.Fatal(err)
 		}
 	}

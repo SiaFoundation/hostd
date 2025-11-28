@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"math"
 	"net"
 	"path/filepath"
@@ -1607,10 +1608,11 @@ func TestRPCSectorRoots(t *testing.T) {
 }
 
 func TestPrune(t *testing.T) {
+	log := zaptest.NewLogger(t)
 	n, genesis := testutil.V2Network()
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
 
-	hn := testutil.NewHostNode(t, hostKey, n, genesis, zap.NewNop())
+	hn := testutil.NewHostNode(t, hostKey, n, genesis, log.Named("host"))
 	cm := hn.Chain
 	w := hn.Wallet
 
@@ -1623,7 +1625,7 @@ func TestPrune(t *testing.T) {
 
 	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
 
-	transport := testRenterHostPair(t, hostKey, hn, zap.NewNop())
+	transport := testRenterHostPair(t, hostKey, hn, log.Named("transport"))
 
 	settings, err := rhp4.RPCSettings(context.Background(), transport)
 	if err != nil {
@@ -1689,7 +1691,7 @@ func TestPrune(t *testing.T) {
 			buf.Reset()
 
 			_, err := rhp4.RPCReadSector(context.Background(), transport, settings.Prices, token, buf, root, 0, proto4.SectorSize)
-			if err == nil || !strings.Contains(err.Error(), "sector not found") {
+			if !errors.Is(err, proto4.ErrSectorNotFound) {
 				t.Fatalf("expected err %q, got %q", proto4.ErrSectorNotFound, err)
 			}
 		}

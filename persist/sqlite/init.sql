@@ -33,6 +33,7 @@ CREATE INDEX wallet_events_maturity_height ON wallet_events(maturity_height DESC
 CREATE TABLE stored_sectors (
 	id INTEGER PRIMARY KEY,
 	sector_root BLOB UNIQUE NOT NULL,
+	cached_subtree_roots BLOB,
 	last_access_timestamp INTEGER NOT NULL
 );
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
