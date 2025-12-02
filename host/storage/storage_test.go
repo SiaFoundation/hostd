@@ -1290,12 +1290,11 @@ func BenchmarkNewVolume(b *testing.B) {
 	}
 	defer vm.Close()
 
-	b.ResetTimer()
 	b.ReportMetric(float64(sectors), "sectors")
 	b.SetBytes(sectors * proto4.SectorSize)
 
 	result := make(chan error, 1)
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		volumeFilePath := filepath.Join(b.TempDir(), "hostdata.dat")
 		_, err = vm.AddVolume(context.Background(), volumeFilePath, sectors, result)
 		if err != nil {
