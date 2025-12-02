@@ -269,6 +269,7 @@ func runRecalcCommand(srcPath string, log *zap.Logger) error {
 }
 
 func main() {
+	var instantSync bool
 	// attempt to load the config file, command line flags will override any
 	// values set in the config file
 	configPath := tryLoadConfig()
@@ -282,6 +283,7 @@ func main() {
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store hostd metadata")
 	rootCmd.BoolVar(&disableStdin, "env", false, "disable stdin prompts for environment variables (default false)")
 	rootCmd.BoolVar(&cfg.AutoOpenWebUI, "openui", cfg.AutoOpenWebUI, "automatically open the web UI on startup")
+	rootCmd.BoolVar(&instantSync, "instant", false, "enable instant sync mode for faster initial sync")
 	// syncer
 	rootCmd.StringVar(&cfg.Syncer.Address, "syncer.address", cfg.Syncer.Address, "address to listen on for peer connections")
 	rootCmd.BoolVar(&cfg.Syncer.Bootstrap, "syncer.bootstrap", cfg.Syncer.Bootstrap, "bootstrap the gateway and consensus modules")
@@ -494,6 +496,6 @@ func main() {
 		checkFatalError("failed to load wallet seed", wallet.SeedFromPhrase(&seed, cfg.RecoveryPhrase))
 		walletKey := wallet.KeyFromSeed(&seed, 0)
 
-		checkFatalError("daemon startup failed", runRootCmd(ctx, cfg, walletKey, log))
+		checkFatalError("daemon startup failed", runRootCmd(ctx, cfg, walletKey, instantSync, log))
 	}
 }

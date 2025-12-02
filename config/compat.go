@@ -185,7 +185,8 @@ func updateConfigV235(fp string, r io.Reader, cfg *Config) error {
 	cfg.AutoOpenWebUI = old.AutoOpenWebUI
 	cfg.HTTP = old.HTTP
 	cfg.Syncer = old.Syncer
-	cfg.Consensus = old.Consensus
+	cfg.Consensus.IndexBatchSize = old.Consensus.IndexBatchSize
+	cfg.Consensus.Network = old.Consensus.Network
 	cfg.Explorer = old.Explorer
 	cfg.RHP4.QUIC = old.RHP4.QUIC
 	if len(old.RHP4.ListenAddresses) > 0 {

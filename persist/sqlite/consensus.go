@@ -70,6 +70,14 @@ UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, la
 	})
 }
 
+// SetCheckpoint sets the consensus checkpoint index for the store.
+func (s *Store) SetCheckpoint(index types.ChainIndex) error {
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`UPDATE global_settings SET last_scanned_index=?`, encode(index))
+		return err
+	})
+}
+
 func getSiacoinStateElements(tx *txn) (elements []stateElement, err error) {
 	const query = `SELECT id, leaf_index, merkle_proof FROM wallet_siacoin_elements`
 	rows, err := tx.Query(query)
