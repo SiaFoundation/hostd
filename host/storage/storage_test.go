@@ -29,6 +29,24 @@ func checkFileSize(fp string, expectedSize int64) error {
 	return nil
 }
 
+func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash256, error) {
+	var sector [proto4.SectorSize]byte
+	if _, err := frand.Read(sector[:256]); err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to generate random sector: %w", err)
+	}
+	root := proto4.SectorRoot(&sector)
+	err := vm.Write(root, &sector)
+	if err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to write sector: %w", err)
+	}
+
+	err = vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: expiration}})
+	if err != nil {
+		return types.Hash256{}, fmt.Errorf("failed to add temporary sector: %w", err)
+	}
+	return root, nil
+}
+
 func TestVolumeLoad(t *testing.T) {
 	const expectedSectors = 150
 	dir := t.TempDir()
@@ -991,6 +1009,14 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		}
 		roots = append(roots, root)
 
+		vm.FlushMetrics()
+		metrics, err := db.Metrics(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		} else if metrics.Storage.WriteBytes != uint64((i+1)*proto4.SectorSize) {
+			t.Fatalf("expected %v write bytes, got %v", (i+1)*proto4.SectorSize, metrics.Storage.WriteBytes)
+		}
+
 		// validate the volume stats are correct
 		volumes, err := vm.Volumes()
 		if err != nil {
@@ -1003,7 +1029,7 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 
 	// read the sectors back
 	frand.Shuffle(len(roots), func(i, j int) { roots[i], roots[j] = roots[j], roots[i] })
-	for _, root := range roots {
+	for i, root := range roots {
 		sector, _, err := vm.ReadSector(root, 0, proto4.SectorSize)
 		if err != nil {
 			t.Fatal(err)
@@ -1012,25 +1038,125 @@ func TestVolumeManagerReadWrite(t *testing.T) {
 		if retrievedRoot != root {
 			t.Fatalf("expected root %v, got %v", root, retrievedRoot)
 		}
+
+		vm.FlushMetrics()
+		metrics, err := db.Metrics(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		} else if metrics.Storage.ReadBytes != uint64((i+1)*proto4.SectorSize) {
+			t.Fatalf("expected %v read bytes, got %v", (i+1)*proto4.SectorSize, metrics.Storage.ReadBytes)
+		}
 	}
 }
 
-func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash256, error) {
-	var sector [proto4.SectorSize]byte
-	if _, err := frand.Read(sector[:256]); err != nil {
-		return types.Hash256{}, fmt.Errorf("failed to generate random sector: %w", err)
-	}
-	root := proto4.SectorRoot(&sector)
-	err := vm.Write(root, &sector)
+func TestMetricsReadBytes(t *testing.T) {
+	const volumeSectors = 5
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
 	if err != nil {
-		return types.Hash256{}, fmt.Errorf("failed to write sector: %w", err)
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	result := make(chan error, 1)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	vol, err := vm.AddVolume(context.Background(), volumeFilePath, volumeSectors, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
 	}
 
-	err = vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: expiration}})
+	volume, err := vm.Volume(vol.ID)
 	if err != nil {
-		return types.Hash256{}, fmt.Errorf("failed to add temporary sector: %w", err)
+		t.Fatal(err)
 	}
-	return root, nil
+
+	if err := checkFileSize(volumeFilePath, int64(volumeSectors*proto4.SectorSize)); err != nil {
+		t.Fatal(err)
+	} else if volume.TotalSectors != volumeSectors {
+		t.Fatalf("expected %v total sectors, got %v", volumeSectors, volume.TotalSectors)
+	} else if volume.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", volume.UsedSectors)
+	}
+
+	root, err := storeRandomSector(vm, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// first read is the full sector to populate
+	// the root cache
+	_, _, err = vm.ReadSector(root, 0, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var totalRead uint64 = proto4.SectorSize
+
+	vm.FlushMetrics()
+	metrics, err := db.Metrics(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	} else if metrics.Storage.ReadBytes != totalRead {
+		t.Fatalf("expected %v read bytes, got %v", totalRead, metrics.Storage.ReadBytes)
+	}
+
+	// the minimum read size is a full 4KiB subtree. Test various
+	// offsets and lengths to ensure the correct amount of data is
+	// added to the metrics.
+	//
+	// tuple of (offset, length, expected bytes read)
+	tests := [][3]uint64{
+		{0, proto4.LeafSize, 4096},                        // one leaf
+		{0, proto4.LeafSize * 2, 4096},                    // two leaves
+		{0, 4096, 4096},                                   // one subtree
+		{0, 8192, 8192},                                   // two subtrees
+		{512, 4096, 8192},                                 // two unaligned subtrees
+		{0, proto4.SectorSize / 2, proto4.SectorSize / 2}, // first half sector
+		{proto4.SectorSize / 2, proto4.SectorSize / 2, proto4.SectorSize / 2}, // last half sector
+		{proto4.SectorSize / 2, 4096, 4096},                                   // last half sector first subtree
+		{proto4.SectorSize - 4096, 4096, 4096},                                // last subtree
+		{proto4.SectorSize - proto4.LeafSize, proto4.LeafSize, 4096},          // last leaf
+	}
+
+	randomRange := func() [3]uint64 {
+		start := frand.Uint64n(proto4.LeavesPerSector)
+		end := start + frand.Uint64n(proto4.LeavesPerSector-start)
+		rangeStart, rangeEnd := proto4.SectorSubtreeRange(start, end)
+		return [3]uint64{start * proto4.LeafSize, (end - start) * proto4.LeafSize, (rangeEnd - rangeStart) * proto4.LeafSize}
+	}
+	for range 10 {
+		tests = append(tests, randomRange())
+	}
+
+	for _, test := range tests {
+		offset, length, expectedRead := test[0], test[1], test[2]
+		sector, _, err := vm.ReadSector(root, offset, length)
+		if err != nil {
+			t.Fatal(err)
+		} else if uint64(len(sector)) != length {
+			t.Fatalf("expected %v bytes, got %v", length, len(sector))
+		}
+		totalRead += expectedRead
+
+		vm.FlushMetrics()
+		metrics, err := db.Metrics(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		} else if metrics.Storage.ReadBytes != totalRead {
+			t.Fatalf("(%d, %d): expected %v read bytes, got %v", offset, length, totalRead, metrics.Storage.ReadBytes)
+		}
+	}
 }
 
 func TestStoragePrune(t *testing.T) {

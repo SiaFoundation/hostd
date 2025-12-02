@@ -91,6 +91,9 @@ type (
 		Reads  uint64 `json:"reads"`
 		Writes uint64 `json:"writes"`
 
+		ReadBytes  uint64 `json:"readBytes"`
+		WriteBytes uint64 `json:"writeBytes"`
+
 		SectorCacheHits   uint64 `json:"sectorCacheHits"`
 		SectorCacheMisses uint64 `json:"sectorCacheMisses"`
 	}

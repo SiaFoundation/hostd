@@ -89,8 +89,8 @@ type (
 		// ExpireTempSectors removes all temporary sectors that expired before
 		// the given height.
 		ExpireTempSectors(height uint64) error
-		// IncrementSectorStats increments sector stats
-		IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) error
+		// IncrementSectorMetrics increments sector metrics
+		IncrementSectorMetrics(SectorMetrics) error
 		// SectorReferences returns the references to a sector
 		SectorReferences(types.Hash256) (SectorReference, error)
 	}

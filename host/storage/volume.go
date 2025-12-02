@@ -67,28 +67,28 @@ type (
 // ErrVolumeNotAvailable is returned when a volume is not available
 var ErrVolumeNotAvailable = errors.New("volume not available")
 
-func (v *volume) incrementReadStats(err error) {
+func (v *volume) incrementReadStats(n uint64, err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if err != nil {
 		v.stats.FailedReads++
 		v.appendError(err)
-	} else {
-		v.recorder.AddRead()
-		v.stats.SuccessfulReads++
+		return
 	}
+	v.recorder.AddRead(n)
+	v.stats.SuccessfulReads++
 }
 
-func (v *volume) incrementWriteStats(err error) {
+func (v *volume) incrementWriteStats(n uint64, err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if err != nil {
 		v.stats.FailedWrites++
 		v.appendError(err)
-	} else {
-		v.recorder.AddWrite()
-		v.stats.SuccessfulWrites++
+		return
 	}
+	v.recorder.AddWrite(n)
+	v.stats.SuccessfulWrites++
 }
 
 func (v *volume) appendError(err error) {
@@ -178,7 +178,7 @@ func (v *volume) ReadSector(index, offset, length uint64) ([]byte, error) {
 	} else if uint64(n) != length {
 		return nil, fmt.Errorf("short read at index %v: expected %v, got %v", index, length, n)
 	}
-	go v.incrementReadStats(err)
+	go v.incrementReadStats(uint64(n), err)
 	return data, nil
 }
 
@@ -190,15 +190,17 @@ func (v *volume) WriteSector(data *[proto4.SectorSize]byte, index uint64) error 
 	if v.data == nil {
 		panic("volume not open") // developer error
 	}
-	_, err := v.data.WriteAt(data[:], int64(index*proto4.SectorSize))
+	n, err := v.data.WriteAt(data[:], int64(index*proto4.SectorSize))
 	if err != nil {
 		if isNotEnoughStorageErr(err) {
 			err = ErrNotEnoughStorage
 		} else {
 			err = fmt.Errorf("failed to write sector to index %v: %w", index, err)
 		}
+	} else if n != proto4.SectorSize {
+		err = fmt.Errorf("short write at index %v: expected %v, got %v", index, proto4.SectorSize, n)
 	}
-	go v.incrementWriteStats(err)
+	go v.incrementWriteStats(uint64(n), err)
 	return err
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/metrics"
+	"go.sia.tech/hostd/v2/host/storage"
 )
 
 const (
@@ -30,15 +31,17 @@ const (
 	metricAccountBalance = "accountBalance"
 
 	// storage
-	metricTotalSectors    = "totalSectors"
-	metricPhysicalSectors = "physicalSectors"
-	metricLostSectors     = "lostSectors"
-	metricContractSectors = "contractSectors"
-	metricTempSectors     = "tempSectors"
-	metricSectorReads     = "sectorReads"
-	metricSectorWrites    = "sectorWrites"
-	metricSectorCacheHit  = "sectorCacheHit"
-	metricSectorCacheMiss = "sectorCacheMiss"
+	metricTotalSectors     = "totalSectors"
+	metricPhysicalSectors  = "physicalSectors"
+	metricLostSectors      = "lostSectors"
+	metricContractSectors  = "contractSectors"
+	metricTempSectors      = "tempSectors"
+	metricSectorReads      = "sectorReads"
+	metricSectorWrites     = "sectorWrites"
+	metricSectorReadBytes  = "sectorReadBytes"
+	metricSectorWriteBytes = "sectorWriteBytes"
+	metricSectorCacheHit   = "sectorCacheHit"
+	metricSectorCacheMiss  = "sectorCacheMiss"
 
 	// registry
 	metricMaxRegistryEntries = "maxRegistryEntries"
@@ -269,30 +272,35 @@ func (s *Store) IncrementRHPDataUsage(ingress, egress uint64) error {
 	})
 }
 
-// IncrementSectorStats increments the sector read, write and cache metrics.
-func (s *Store) IncrementSectorStats(reads, writes, cacheHit, cacheMiss uint64) error {
+// IncrementSectorMetrics increments sector access metrics.
+func (s *Store) IncrementSectorMetrics(metrics storage.SectorMetrics) error {
 	return s.transaction(func(tx *txn) error {
-		if reads > 0 {
-			if err := incrementNumericStat(tx, metricSectorReads, int(reads), time.Now()); err != nil {
-				return fmt.Errorf("failed to track reads: %w", err)
-			}
+		incrementStmt, done, err := incrementNumericStatStmt(tx)
+		if err != nil {
+			return fmt.Errorf("failed to prepare increment stmt: %w", err)
 		}
-		if writes > 0 {
-			if err := incrementNumericStat(tx, metricSectorWrites, int(writes), time.Now()); err != nil {
-				return fmt.Errorf("failed to track writes: %w", err)
+		defer done()
+
+		increment := func(stat string, delta int) error {
+			if delta == 0 {
+				return nil
 			}
+
+			return incrementStmt(stat, int64(delta), time.Now())
 		}
 
-		if cacheHit > 0 {
-			if err := incrementNumericStat(tx, metricSectorCacheHit, int(cacheHit), time.Now()); err != nil {
-				return fmt.Errorf("failed to track cache hits: %w", err)
-			}
-		}
-
-		if cacheMiss > 0 {
-			if err := incrementNumericStat(tx, metricSectorCacheMiss, int(cacheMiss), time.Now()); err != nil {
-				return fmt.Errorf("failed to track cache misses: %w", err)
-			}
+		if err := increment(metricSectorReads, int(metrics.ReadCount)); err != nil {
+			return fmt.Errorf("failed to track reads: %w", err)
+		} else if err := increment(metricSectorWrites, int(metrics.WriteCount)); err != nil {
+			return fmt.Errorf("failed to track writes: %w", err)
+		} else if err := increment(metricSectorCacheHit, int(metrics.CacheHit)); err != nil {
+			return fmt.Errorf("failed to track cache hits: %w", err)
+		} else if err := increment(metricSectorCacheMiss, int(metrics.CacheMiss)); err != nil {
+			return fmt.Errorf("failed to track cache misses: %w", err)
+		} else if err := increment(metricSectorReadBytes, int(metrics.ReadBytes)); err != nil {
+			return fmt.Errorf("failed to track read bytes: %w", err)
+		} else if err := increment(metricSectorWriteBytes, int(metrics.WriteBytes)); err != nil {
+			return fmt.Errorf("failed to track write bytes: %w", err)
 		}
 		return nil
 	})
@@ -383,6 +391,10 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Storage.Reads = mustScanUint64(buf)
 	case metricSectorWrites:
 		m.Storage.Writes = mustScanUint64(buf)
+	case metricSectorReadBytes:
+		m.Storage.ReadBytes = mustScanUint64(buf)
+	case metricSectorWriteBytes:
+		m.Storage.WriteBytes = mustScanUint64(buf)
 	case metricSectorCacheHit:
 		m.Storage.SectorCacheHits = mustScanUint64(buf)
 	case metricSectorCacheMiss:
