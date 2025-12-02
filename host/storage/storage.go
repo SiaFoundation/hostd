@@ -408,6 +408,12 @@ func (vm *VolumeManager) Close() error {
 	return nil
 }
 
+// FlushMetrics flushes the recorded sector access metrics to the database.
+// This is normally called automatically at regular intervals.
+func (vm *VolumeManager) FlushMetrics() {
+	vm.recorder.Flush()
+}
+
 // SectorReferences returns the references to a sector.
 func (vm *VolumeManager) SectorReferences(root types.Hash256) (SectorReference, error) {
 	return vm.vs.SectorReferences(root)
@@ -837,7 +843,7 @@ func (vm *VolumeManager) readLocation(loc SectorLocation, offset, length uint64)
 			ID:       v.alertID("read"),
 			Severity: alerts.SeverityError,
 			Message:  "Failed to read sector",
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"volume":       v.Location(),
 				"failedReads":  stats.FailedReads,
 				"failedWrites": stats.FailedWrites,
