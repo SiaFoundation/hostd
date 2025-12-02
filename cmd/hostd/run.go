@@ -201,7 +201,12 @@ func explorerURL() string {
 	}
 }
 
-func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, log *zap.Logger) error {
+func consensusExists(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "consensus.db"))
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateKey, instantSync bool, log *zap.Logger) error {
 	if err := deleteSiadData(cfg.Directory); err != nil {
 		return fmt.Errorf("failed to migrate v1 consensus database: %w", err)
 	}
@@ -232,22 +237,79 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
 	}
 
+	walletHash := types.HashBytes(walletKey[:])
+	if err := store.VerifyWalletKey(walletHash); errors.Is(err, wallet.ErrDifferentSeed) {
+		if err := store.ResetChainState(); err != nil {
+			return fmt.Errorf("failed to reset chain state: %w", err)
+		} else if err := store.UpdateWalletHash(walletHash); err != nil {
+			return fmt.Errorf("failed to update wallet hash: %w", err)
+		}
+		log.Info("chain state reset due to wallet seed change")
+	} else if err != nil {
+		return fmt.Errorf("failed to verify wallet key: %w", err)
+	}
+
 	var exp *explorer.Explorer
 	if !cfg.Explorer.Disable {
 		exp = explorer.New(explorerURL())
 	}
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
-	if err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
-	}
-	defer bdb.Close()
+	consensusExists := consensusExists(cfg.Directory)
 
-	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chain")))
-	if err != nil {
-		return fmt.Errorf("failed to create chain store: %w", err)
+	var dbstore *chain.DBStore
+	var tipState consensus.State
+	walletAddress := types.StandardUnlockHash(walletKey.PublicKey())
+	if !cfg.Explorer.Disable && instantSync && !consensusExists {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		log.Debug("wallet address for checkpoint", zap.Stringer("address", walletAddress))
+		checkpoint, err := exp.AddressCheckpoint(ctx, walletAddress)
+		if err != nil {
+			return fmt.Errorf("failed to get address checkpoint from explorer: %w", err)
+		} else if checkpoint.Height < network.HardforkV2.AllowHeight {
+			return fmt.Errorf("unable to instant sync: wallet checkpoint height %d is before hardfork v2 allow height %d", checkpoint.Height, network.HardforkV2.AllowHeight)
+		}
+
+		log := log.With(zap.Stringer("checkpoint", checkpoint))
+		log.Info("starting instant sync from checkpoint")
+
+		cs, b, err := syncer.RetrieveCheckpoint(ctx, cfg.Syncer.Peers, checkpoint, network, genesisBlock.ID())
+		if err != nil {
+			return fmt.Errorf("failed to retrieve checkpoint: %w", err)
+		}
+		log.Debug("retrieved checkpoint")
+
+		if err := store.SetCheckpoint(checkpoint); err != nil {
+			return fmt.Errorf("failed to set checkpoint in store: %w", err)
+		}
+
+		bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
+		if err != nil {
+			return fmt.Errorf("failed to open consensus database: %w", err)
+		}
+		defer bdb.Close()
+
+		dbstore, tipState, err = chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chain")))
+		if err != nil {
+			return fmt.Errorf("failed to create chain store from checkpoint: %w", err)
+		}
+
+		log.Info("synced to checkpoint")
+	} else {
+		bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
+		if err != nil {
+			return fmt.Errorf("failed to open consensus database: %w", err)
+		}
+		defer bdb.Close()
+
+		dbstore, tipState, err = chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chain")))
+		if err != nil {
+			return fmt.Errorf("failed to create chain store: %w", err)
+		}
 	}
-	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
+
+	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")), chain.WithPruneTarget(cfg.Consensus.MaxBlocks))
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {
@@ -300,18 +362,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}, syncer.WithLogger(log.Named("syncer")))
 	go s.Run()
 	defer s.Close()
-
-	walletHash := types.HashBytes(walletKey[:])
-	if err := store.VerifyWalletKey(walletHash); errors.Is(err, wallet.ErrDifferentSeed) {
-		if err := store.ResetChainState(); err != nil {
-			return fmt.Errorf("failed to reset chain state: %w", err)
-		} else if err := store.UpdateWalletHash(walletHash); err != nil {
-			return fmt.Errorf("failed to update wallet hash: %w", err)
-		}
-		log.Info("chain state reset due to wallet seed change")
-	} else if err != nil {
-		return fmt.Errorf("failed to verify wallet key: %w", err)
-	}
 
 	wm, err := wallet.NewSingleAddressWallet(walletKey, cm, store, s, wallet.WithLogger(log.Named("wallet")), wallet.WithReservationDuration(3*time.Hour))
 	if err != nil {

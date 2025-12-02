@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"go.sia.tech/core/types"
 )
 
 // An Explorer retrieves data about the Sia network from an external source.
@@ -66,6 +68,13 @@ func (e *Explorer) BaseURL() string {
 // SiacoinExchangeRate returns the exchange rate for the given currency.
 func (e *Explorer) SiacoinExchangeRate(ctx context.Context, currency string) (rate float64, err error) {
 	err = makeRequest(ctx, http.MethodGet, fmt.Sprintf("%s/exchange-rate/siacoin/%s", e.url, currency), nil, &rate)
+	return
+}
+
+// AddressCheckpoint returns the chain index at which the given address was first seen or
+// the current tip if the address is not found.
+func (e *Explorer) AddressCheckpoint(ctx context.Context, address types.Address) (index types.ChainIndex, err error) {
+	err = makeRequest(ctx, http.MethodGet, fmt.Sprintf("%s/addresses/%s/checkpoint", e.url, address.String()), nil, &index)
 	return
 }
 
