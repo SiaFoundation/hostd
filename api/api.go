@@ -8,7 +8,6 @@ import (
 
 	"go.sia.tech/core/consensus"
 	rhp3 "go.sia.tech/core/rhp/v3"
-	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/wallet"
@@ -89,7 +88,7 @@ type (
 		SetReadOnly(id int64, readOnly bool) error
 		RemoveSector(root types.Hash256) error
 		ResizeCache(size uint32)
-		ReadSector(types.Hash256) (*[proto4.SectorSize]byte, error)
+		ReadSector(root types.Hash256, offset, length uint64) ([]byte, []types.Hash256, error)
 
 		// SectorReferences returns the references to a sector
 		SectorReferences(root types.Hash256) (storage.SectorReference, error)

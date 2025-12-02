@@ -49,6 +49,12 @@ type (
 		Root   types.Hash256
 	}
 
+	// SectorMetadata contains the metadata of a sector.
+	SectorMetadata struct {
+		Location       SectorLocation
+		CachedSubtrees []types.Hash256
+	}
+
 	// A TempSector is a stored sector that is not attached to a contract. It
 	// will be deleted after the expiration height unless it is appended to a
 	// contract.
@@ -159,10 +165,11 @@ func (vm *VolumeManager) loadVolumes() error {
 // immediately synced after the sector is written.
 func (vm *VolumeManager) migrateSector(from, to SectorLocation) error {
 	// read the sector from the old location
-	sector, err := vm.readLocation(from)
+	data, err := vm.readLocation(from, 0, proto4.SectorSize)
 	if err != nil {
 		return fmt.Errorf("failed to read sector: %w", err)
 	}
+	sector := (*[proto4.SectorSize]byte)(data)
 	// calculate the returned root
 	root := proto2.SectorRoot(sector)
 	// verify the the sector is not corrupt
@@ -815,7 +822,7 @@ func (vm *VolumeManager) CacheStats() (hits, misses uint64) {
 	return atomic.LoadUint64(&vm.cacheHits), atomic.LoadUint64(&vm.cacheMisses)
 }
 
-func (vm *VolumeManager) readLocation(loc SectorLocation) (*[proto2.SectorSize]byte, error) {
+func (vm *VolumeManager) readLocation(loc SectorLocation, offset, length uint64) ([]byte, error) {
 	vm.mu.Lock()
 	v, ok := vm.volumes[loc.Volume]
 	if !ok {
@@ -823,7 +830,7 @@ func (vm *VolumeManager) readLocation(loc SectorLocation) (*[proto2.SectorSize]b
 		return nil, fmt.Errorf("volume %v not found", loc.Volume)
 	}
 	vm.mu.Unlock()
-	sector, err := v.ReadSector(loc.Index)
+	sector, err := v.ReadSector(loc.Index, offset, length)
 	if err != nil {
 		stats := v.Stats()
 		vm.alerts.Register(alerts.Alert{
@@ -842,10 +849,12 @@ func (vm *VolumeManager) readLocation(loc SectorLocation) (*[proto2.SectorSize]b
 		return nil, fmt.Errorf("failed to read sector data: %w", err)
 	}
 
-	// Add sector to cache
-	vm.cache.Add(loc.Root, sector)
-	vm.recorder.AddCacheMiss()
-	atomic.AddUint64(&vm.cacheMisses, 1)
+	if length == proto4.SectorSize {
+		// only add full sectors to the cache
+		vm.cache.Add(loc.Root, (*[proto4.SectorSize]byte)(sector))
+		atomic.AddUint64(&vm.cacheMisses, 1)
+		vm.recorder.AddCacheMiss()
+	}
 	return sector, nil
 }
 
@@ -868,12 +877,12 @@ func (vm *VolumeManager) VerifySector(root types.Hash256) (types.Hash256, error)
 		return types.Hash256{}, fmt.Errorf("failed to locate sector: %w", err)
 	}
 
-	sector, err := vm.readLocation(loc)
+	sector, err := vm.readLocation(loc, 0, proto4.SectorSize)
 	if err != nil {
 		return types.Hash256{}, fmt.Errorf("failed to read sector: %w", err)
 	}
 
-	calculatedRoot := proto2.SectorRoot(sector)
+	calculatedRoot := proto4.SectorRoot((*[proto4.SectorSize]byte)(sector))
 	if calculatedRoot != root {
 		return calculatedRoot, ErrSectorCorrupt
 	}
@@ -881,26 +890,60 @@ func (vm *VolumeManager) VerifySector(root types.Hash256) (types.Hash256, error)
 }
 
 // ReadSector reads the sector with the given root from disk
-func (vm *VolumeManager) ReadSector(root types.Hash256) (*[proto4.SectorSize]byte, error) {
+func (vm *VolumeManager) ReadSector(root types.Hash256, offset, length uint64) ([]byte, []types.Hash256, error) {
 	done, err := vm.tg.Add()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer done()
 
-	// Check the cache first
-	if sector, ok := vm.cache.Get(root); ok {
-		vm.recorder.AddCacheHit()
-		atomic.AddUint64(&vm.cacheHits, 1)
-		return sector, nil
+	switch {
+	case offset >= proto4.SectorSize:
+		return nil, nil, fmt.Errorf("offset exceeds sector bounds")
+	case length > proto4.SectorSize-offset:
+		return nil, nil, fmt.Errorf("length exceeds sector bounds")
+	case offset%proto4.LeafSize != 0:
+		return nil, nil, fmt.Errorf("offset must be a multiple of leaf size (%d bytes)", proto4.LeafSize)
+	case length%proto4.LeafSize != 0:
+		return nil, nil, fmt.Errorf("length must be a multiple of leaf size (%d bytes)", proto4.LeafSize)
 	}
 
-	// Cache miss, read from disk
-	loc, err := vm.vs.SectorLocation(root)
+	// get the location of the sector
+	meta, err := vm.vs.SectorMetadata(root)
 	if err != nil {
-		return nil, fmt.Errorf("failed to locate sector: %w", err)
+		return nil, nil, fmt.Errorf("failed to locate sector: %w", err)
 	}
-	return vm.readLocation(loc)
+
+	leafStart, leafEnd := offset/proto4.LeafSize, (offset+length+proto4.LeafSize-1)/proto4.LeafSize
+	segmentStart, segmentEnd := proto4.SectorSubtreeRange(leafStart, leafEnd)
+	segmentOffset := segmentStart * proto4.LeafSize
+	segmentLength := (segmentEnd - segmentStart) * proto4.LeafSize
+
+	if len(meta.CachedSubtrees) == 0 {
+		// roots are not in cache, read the full sector
+		sector, err := vm.readLocation(meta.Location, 0, proto4.SectorSize)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read full sector data: %w", err)
+		} else if uint64(len(sector)) != proto4.SectorSize {
+			return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", proto4.SectorSize, len(sector))
+		}
+		cachedSubtrees := proto4.CachedSectorSubtrees((*[proto4.SectorSize]byte)(sector))
+		proof := proto4.BuildSectorProof(sector[segmentOffset:][:segmentLength], leafStart, leafEnd, cachedSubtrees)
+		if err := vm.vs.CacheSubtrees(root, cachedSubtrees); err != nil {
+			return nil, nil, fmt.Errorf("failed to update sector cache: %w", err)
+		}
+		return sector[offset:][:length], proof, nil
+	}
+
+	// roots are already in cache, read only the necessary data
+
+	buf, err := vm.readLocation(meta.Location, segmentOffset, segmentLength)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read sector segment: %w", err)
+	} else if uint64(len(buf)) != segmentLength {
+		return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", segmentLength, len(buf))
+	}
+	return buf[(offset - segmentOffset):][:length], proto4.BuildSectorProof(buf, leafStart, leafEnd, meta.CachedSubtrees), nil
 }
 
 // Sync syncs the data files of changed volumes.

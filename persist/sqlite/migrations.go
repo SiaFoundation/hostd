@@ -12,6 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion46(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+ALTER TABLE stored_sectors ADD COLUMN cached_subtree_roots BLOB;`)
+	return err
+}
+
 // migrateVersion45 cleans up unresolved v1 contracts since they will never complete
 // and v1 support has been removed.
 func migrateVersion45(tx *txn, log *zap.Logger) error {
@@ -1161,4 +1167,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion43,
 	migrateVersion44,
 	migrateVersion45,
+	migrateVersion46,
 }
