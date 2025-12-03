@@ -237,6 +237,11 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
 	}
 
+	minMaxBlocks := min(network.MaturityDelay, uint64((30*24*time.Hour)/network.BlockInterval))
+	if cfg.Consensus.MaxBlocks > 0 && cfg.Consensus.MaxBlocks < minMaxBlocks {
+		return fmt.Errorf("max blocks must be at least %d to avoid consensus issues", minMaxBlocks)
+	}
+
 	walletHash := types.HashBytes(walletKey[:])
 	if err := store.VerifyWalletKey(walletHash); errors.Is(err, wallet.ErrDifferentSeed) {
 		if err := store.ResetChainState(); err != nil {
