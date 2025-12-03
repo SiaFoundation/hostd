@@ -47,7 +47,6 @@ var (
 		Consensus: config.Consensus{
 			Network:        "mainnet",
 			IndexBatchSize: 1000,
-			MaxBlocks:      4320, // default to 1 month at 10 minute block times
 		},
 		RHP4: config.RHP4{
 			ListenAddresses: []config.RHP4ListenAddress{

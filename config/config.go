@@ -40,11 +40,6 @@ type (
 	Consensus struct {
 		Network        string `yaml:"network,omitempty"`
 		IndexBatchSize int    `yaml:"indexBatchSize,omitempty"`
-
-		// MaxBlocks is the maximum number of blocks to store on
-		// disk. Blocks above this limit will be
-		// pruned. If 0, there is no limit.
-		MaxBlocks uint64 `yaml:"maxBlocks,omitempty"`
 	}
 
 	// ExplorerData contains the configuration for using an external explorer.
