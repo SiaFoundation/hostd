@@ -50,8 +50,10 @@ const (
 	metricRegistryWrites     = "registryWrites"
 
 	// bandwidth
-	metricDataRHPIngress = "dataIngress"
-	metricDataRHPEgress  = "dataEgress"
+	metricDataRHPIngress    = "dataIngress"
+	metricDataRHPEgress     = "dataEgress"
+	metricDataSyncerIngress = "syncerIngress"
+	metricDataSyncerEgress  = "syncerEgress"
 
 	// metricRHP2Ingress
 	//
@@ -255,17 +257,26 @@ JOIN (
 	return
 }
 
-// IncrementRHPDataUsage increments the RHP3 ingress and egress metrics.
+// IncrementRHPDataUsage increments the RHP ingress and egress metrics.
 func (s *Store) IncrementRHPDataUsage(ingress, egress uint64) error {
+	return s.incrementDataUsage(metricDataRHPIngress, metricDataRHPEgress, ingress, egress)
+}
+
+// IncrementSyncerDataUsage increments the syncer ingress and egress metrics.
+func (s *Store) IncrementSyncerDataUsage(ingress, egress uint64) error {
+	return s.incrementDataUsage(metricDataSyncerIngress, metricDataSyncerEgress, ingress, egress)
+}
+
+func (s *Store) incrementDataUsage(ingressStat, egressStat string, ingress, egress uint64) error {
 	return s.transaction(func(tx *txn) error {
 		if ingress > 0 {
-			if err := incrementNumericStat(tx, metricDataRHPIngress, int(ingress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track ingress: %w", err)
+			if err := incrementNumericStat(tx, ingressStat, int(ingress), time.Now()); err != nil {
+				return fmt.Errorf("failed to track ingress stat %q: %w", ingressStat, err)
 			}
 		}
 		if egress > 0 {
-			if err := incrementNumericStat(tx, metricDataRHPEgress, int(egress), time.Now()); err != nil {
-				return fmt.Errorf("failed to track egress: %w", err)
+			if err := incrementNumericStat(tx, egressStat, int(egress), time.Now()); err != nil {
+				return fmt.Errorf("failed to track egress stat %q: %w", egressStat, err)
 			}
 		}
 		return nil

@@ -35,8 +35,8 @@ import (
 	"go.sia.tech/hostd/v2/host/settings/pin"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/index"
+	"go.sia.tech/hostd/v2/monitoring"
 	"go.sia.tech/hostd/v2/persist/sqlite"
-	"go.sia.tech/hostd/v2/rhp"
 	"go.sia.tech/hostd/v2/version"
 	"go.sia.tech/hostd/v2/webhooks"
 	"go.sia.tech/jape"
@@ -479,7 +479,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer index.Close()
 
-	dr := rhp.NewDataRecorder(store, log.Named("data"))
+	dr := monitoring.NewDataRecorder(store, log.Named("data"))
 	rl, wl := sm.RHPBandwidthLimiters()
 
 	rhp4 := rhp4.NewServer(hostKey, cm, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
@@ -495,7 +495,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	for _, addr := range cfg.RHP4.ListenAddresses {
 		switch addr.Protocol {
 		case config.RHP4ProtoTCP, config.RHP4ProtoTCP4, config.RHP4ProtoTCP6:
-			l, err := rhp.Listen(string(addr.Protocol), addr.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+			l, err := monitoring.Listen(string(addr.Protocol), addr.Address, monitoring.WithDataMonitor(dr), monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl))
 			if err != nil {
 				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
 			}
@@ -521,7 +521,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			pc := rhp.NewRHPPacketConn(l, rl, wl, dr)
+			pc := monitoring.NewRHPPacketConn(l, rl, wl, dr)
 			ql, err := quic.Listen(pc, certificates.NewQUICCertManager(certProvider))
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)

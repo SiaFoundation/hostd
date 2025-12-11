@@ -1,4 +1,4 @@
-package rhp
+package monitoring
 
 import (
 	"sync"
