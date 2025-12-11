@@ -324,7 +324,9 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer httpListener.Close()
 
-	syncerListener, err := net.Listen("tcp", cfg.Syncer.Address)
+	syncerRecorder := monitoring.NewDataRecorder(store.IncrementSyncerDataUsage, log.Named("syncer-data"))
+	defer syncerRecorder.Close()
+	syncerListener, err := monitoring.Listen("tcp", cfg.Syncer.Address, monitoring.WithDataMonitor(syncerRecorder))
 	if err != nil {
 		return fmt.Errorf("failed to listen on syncer address: %w", err)
 	}
@@ -362,11 +364,14 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 
 	log.Debug("starting syncer", zap.String("syncer address", syncerAddr))
+	syncerDialer := monitoring.NewDialer(monitoring.WithDataMonitor(syncerRecorder))
 	s := syncer.New(syncerListener, cm, ps, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
-	}, syncer.WithLogger(log.Named("syncer")))
+	},
+		syncer.WithDialer(syncerDialer),
+		syncer.WithLogger(log.Named("syncer")))
 	go s.Run()
 	defer s.Close()
 
@@ -479,7 +484,8 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer index.Close()
 
-	dr := monitoring.NewDataRecorder(store, log.Named("data"))
+	dr := monitoring.NewDataRecorder(store.IncrementRHPDataUsage, log.Named("data"))
+	defer dr.Close()
 	rl, wl := sm.RHPBandwidthLimiters()
 
 	rhp4 := rhp4.NewServer(hostKey, cm, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
@@ -521,7 +527,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			pc := monitoring.NewRHPPacketConn(l, rl, wl, dr)
+			pc := monitoring.NewPacketConn(l, rl, wl, dr)
 			ql, err := quic.Listen(pc, certificates.NewQUICCertManager(certProvider))
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)

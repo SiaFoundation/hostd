@@ -61,7 +61,7 @@ func (fs *fundAndSign) Address() types.Address {
 func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
 	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
 
-	dr := monitoring.NewDataRecorder(hn.Store, log.Named("data"))
+	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
 	rl, wl := hn.Settings.RHPBandwidthLimiters()
 	l, err := monitoring.Listen("tcp", ":0", monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl), monitoring.WithDataMonitor(dr))
 	if err != nil {
@@ -93,9 +93,9 @@ func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testuti
 	}
 	tb.Cleanup(func() { l.Close() })
 
-	dr := monitoring.NewDataRecorder(hn.Store, log.Named("data"))
+	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
 	rl, wl := hn.Settings.RHPBandwidthLimiters()
-	pc := monitoring.NewRHPPacketConn(l, rl, wl, dr)
+	pc := monitoring.NewPacketConn(l, rl, wl, dr)
 	ql, err := quic.Listen(pc, certificates.NewQUICCertManager(hn.Certs))
 	if err != nil {
 		tb.Fatal(err)

@@ -14,8 +14,8 @@ func (noOpMonitor) ReadBytes(n int)  {}
 func (noOpMonitor) WriteBytes(n int) {}
 
 type (
-	// An Option configures a listener.
-	Option func(*listener)
+	// An Option configures a listener or dialer.
+	Option func(*options)
 
 	// DataMonitor records the amount of data read and written across
 	// all connections.
@@ -42,24 +42,30 @@ type (
 var _ net.Listener = &listener{}
 var _ net.Conn = &conn{}
 
+type options struct {
+	readLimiter  *rate.Limiter
+	writeLimiter *rate.Limiter
+	monitor      DataMonitor
+}
+
 // WithReadLimit sets the read rate limit for the listener.
 func WithReadLimit(r *rate.Limiter) Option {
-	return func(l *listener) {
-		l.readLimiter = r
+	return func(o *options) {
+		o.readLimiter = r
 	}
 }
 
 // WithWriteLimit sets the write rate limit for the listener.
 func WithWriteLimit(w *rate.Limiter) Option {
-	return func(l *listener) {
-		l.writeLimiter = w
+	return func(o *options) {
+		o.writeLimiter = w
 	}
 }
 
 // WithDataMonitor sets the data monitor for the listener.
 func WithDataMonitor(m DataMonitor) Option {
-	return func(l *listener) {
-		l.monitor = m
+	return func(o *options) {
+		o.monitor = m
 	}
 }
 
@@ -108,6 +114,14 @@ func (l *listener) Addr() net.Addr {
 	return l.l.Addr()
 }
 
+func defaultOptions() *options {
+	return &options{
+		readLimiter:  rate.NewLimiter(rate.Inf, 0),
+		writeLimiter: rate.NewLimiter(rate.Inf, 0),
+		monitor:      noOpMonitor{},
+	}
+}
+
 // Listen returns a new listener with optional rate limiting and monitoring.
 func Listen(network, address string, opts ...Option) (net.Listener, error) {
 	l, err := net.Listen(network, address)
@@ -115,16 +129,17 @@ func Listen(network, address string, opts ...Option) (net.Listener, error) {
 		return nil, err
 	}
 
-	rhp := &listener{
-		l:            l,
-		readLimiter:  rate.NewLimiter(rate.Inf, 0),
-		writeLimiter: rate.NewLimiter(rate.Inf, 0),
-		monitor:      noOpMonitor{},
-	}
+	options := defaultOptions()
 	for _, opt := range opts {
-		opt(rhp)
+		opt(options)
 	}
-	return rhp, nil
+	listener := &listener{
+		l:            l,
+		readLimiter:  options.readLimiter,
+		writeLimiter: options.writeLimiter,
+		monitor:      options.monitor,
+	}
+	return listener, nil
 }
 
 type packetConn struct {
@@ -133,9 +148,9 @@ type packetConn struct {
 	monitor DataMonitor
 }
 
-// NewRHPPacketConn wraps a net.PacketConn with optional rate limiting and
+// NewPacketConn wraps a net.PacketConn with optional rate limiting and
 // monitoring.
-func NewRHPPacketConn(conn net.PacketConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) net.PacketConn {
+func NewPacketConn(conn net.PacketConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) net.PacketConn {
 	return &packetConn{
 		inner:   conn,
 		rl:      readLimiter,
@@ -182,4 +197,38 @@ func (c *packetConn) SetReadDeadline(t time.Time) error {
 
 func (c *packetConn) SetWriteDeadline(t time.Time) error {
 	return c.inner.SetWriteDeadline(t)
+}
+
+// Dialer is a net.Dialer with optional rate limiting and monitoring.
+type Dialer struct {
+	readLimiter  *rate.Limiter
+	writeLimiter *rate.Limiter
+	monitor      DataMonitor
+}
+
+// NewDialer returns a new Dialer with optional rate limiting and monitoring.
+func NewDialer(opts ...Option) *Dialer {
+	options := defaultOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+	return &Dialer{
+		readLimiter:  options.readLimiter,
+		writeLimiter: options.writeLimiter,
+		monitor:      options.monitor,
+	}
+}
+
+// DialContext dials a new, optionally rate limited and monitored connection.
+func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	c, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return &conn{
+		Conn:    c,
+		rl:      d.readLimiter,
+		wl:      d.writeLimiter,
+		monitor: d.monitor,
+	}, nil
 }
