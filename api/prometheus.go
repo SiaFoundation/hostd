@@ -275,6 +275,14 @@ func (m Metrics) PrometheusMetric() []prometheus.Metric {
 			Value: float64(m.Storage.Writes),
 		},
 		{
+			Name:  "hostd_metrics_storage_read_bytes",
+			Value: float64(m.Storage.ReadBytes),
+		},
+		{
+			Name:  "hostd_metrics_storage_write_bytes",
+			Value: float64(m.Storage.WriteBytes),
+		},
+		{
 			Name:  "hostd_metrics_storage_sector_cache_hits",
 			Value: float64(m.Storage.SectorCacheHits),
 		},
