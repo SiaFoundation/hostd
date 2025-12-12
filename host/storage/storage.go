@@ -1012,6 +1012,14 @@ func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSiz
 	} else if err != nil {
 		return fmt.Errorf("failed to reference temporary sector: %w", err)
 	}
+	go func() {
+		// optimistically cache the sector subtrees after storing
+		// the sector to avoid blocking the RPC response
+		subtrees := proto4.CachedSectorSubtrees(data)
+		if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
+			vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
+		}
+	}()
 	return nil
 }
 
