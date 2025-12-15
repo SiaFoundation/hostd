@@ -77,7 +77,7 @@ func (c *conn) Read(b []byte) (int, error) {
 	if err != nil {
 		return n, err
 	}
-	c.rl.WaitN(context.Background(), len(b)) // error can be ignored since context will never be cancelled and len(b) should never exceed burst size
+	c.rl.WaitN(context.Background(), n) // error can be ignored since context will never be cancelled and n should never exceed burst size
 	return n, err
 }
 
@@ -89,7 +89,7 @@ func (c *conn) Write(b []byte) (int, error) {
 	if err != nil {
 		return n, err
 	}
-	c.wl.WaitN(context.Background(), len(b)) // error can be ignored since context will never be cancelled and len(b) should never exceed burst size
+	c.wl.WaitN(context.Background(), n) // error can be ignored since context will never be cancelled and n should never exceed burst size
 	return n, err
 }
 
@@ -165,7 +165,7 @@ func (c *packetConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	if err != nil {
 		return n, addr, err
 	}
-	c.rl.WaitN(context.Background(), len(b))
+	c.rl.WaitN(context.Background(), n)
 	return n, addr, err
 }
 
@@ -175,7 +175,7 @@ func (c *packetConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	if err != nil {
 		return n, err
 	}
-	c.wl.WaitN(context.Background(), len(b))
+	c.wl.WaitN(context.Background(), n)
 	return n, err
 }
 
