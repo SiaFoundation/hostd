@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -15,6 +16,9 @@ var alertID = frand.Entropy256()
 type rhpWallet struct {
 	am  *alerts.Manager
 	saw *wallet.SingleAddressWallet
+
+	mu               sync.Mutex
+	lastBalanceAlert time.Time
 }
 
 func newRHPWallet(saw *wallet.SingleAddressWallet, am *alerts.Manager) *rhpWallet {
@@ -36,6 +40,14 @@ func (w *rhpWallet) Address() types.Address {
 func (w *rhpWallet) FundV2Transaction(txn *types.V2Transaction, amount types.Currency, useUnconfirmed bool) (types.ChainIndex, []int, error) {
 	ci, toSign, err := w.saw.FundV2Transaction(txn, amount, useUnconfirmed)
 	if errors.Is(err, wallet.ErrNotEnoughFunds) {
+		// avoid spamming the alert
+		w.mu.Lock()
+		if time.Since(w.lastBalanceAlert) > time.Hour {
+			w.lastBalanceAlert = time.Now()
+		}
+		w.mu.Unlock()
+
+		// register alert
 		w.am.Register(alerts.Alert{
 			ID:       alertID,
 			Severity: alerts.SeverityWarning,
@@ -45,6 +57,7 @@ func (w *rhpWallet) FundV2Transaction(txn *types.V2Transaction, amount types.Cur
 			},
 			Timestamp: time.Now(),
 		})
+		w.lastBalanceAlert = time.Now()
 	}
 	return ci, toSign, err
 }
