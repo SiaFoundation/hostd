@@ -144,15 +144,17 @@ func Listen(network, address string, opts ...Option) (net.Listener, error) {
 	return listener, nil
 }
 
+var _ net.Conn = &packetConn{} // required for quic interface conversion
+
 type packetConn struct {
-	inner   quic.OOBCapablePacketConn
+	inner   *net.UDPConn
 	rl, wl  *rate.Limiter
 	monitor DataMonitor
 }
 
 // NewPacketConn wraps a net.PacketConn with optional rate limiting and
 // monitoring.
-func NewPacketConn(conn quic.OOBCapablePacketConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) quic.OOBCapablePacketConn {
+func NewPacketConn(conn *net.UDPConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) quic.OOBCapablePacketConn {
 	return &packetConn{
 		inner:   conn,
 		rl:      readLimiter,
@@ -215,6 +217,30 @@ func (c *packetConn) Close() error {
 
 func (c *packetConn) LocalAddr() net.Addr {
 	return c.inner.LocalAddr()
+}
+
+func (c *packetConn) RemoteAddr() net.Addr {
+	return c.inner.RemoteAddr()
+}
+
+func (c *packetConn) Read(b []byte) (int, error) {
+	n, err := c.inner.Read(b)
+	c.monitor.ReadBytes(n)
+	if err != nil {
+		return n, err
+	}
+	c.rl.WaitN(context.Background(), len(b)) // error can be ignored since context will never be cancelled and len(b) should never exceed burst size
+	return n, err
+}
+
+func (c *packetConn) Write(b []byte) (int, error) {
+	n, err := c.inner.Write(b)
+	c.monitor.WriteBytes(n)
+	if err != nil {
+		return n, err
+	}
+	c.wl.WaitN(context.Background(), len(b)) // error can be ignored since context will never be cancelled and len(b) should never exceed burst size
+	return n, err
 }
 
 func (c *packetConn) SetDeadline(t time.Time) error {
