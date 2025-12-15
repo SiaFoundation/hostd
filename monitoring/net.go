@@ -3,7 +3,6 @@ package monitoring
 import (
 	"context"
 	"net"
-	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -140,63 +139,6 @@ func Listen(network, address string, opts ...Option) (net.Listener, error) {
 		monitor:      options.monitor,
 	}
 	return listener, nil
-}
-
-type packetConn struct {
-	inner   net.PacketConn
-	rl, wl  *rate.Limiter
-	monitor DataMonitor
-}
-
-// NewPacketConn wraps a net.PacketConn with optional rate limiting and
-// monitoring.
-func NewPacketConn(conn net.PacketConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) net.PacketConn {
-	return &packetConn{
-		inner:   conn,
-		rl:      readLimiter,
-		wl:      writeLimiter,
-		monitor: monitor,
-	}
-}
-
-func (c *packetConn) ReadFrom(b []byte) (int, net.Addr, error) {
-	n, addr, err := c.inner.ReadFrom(b)
-	c.monitor.ReadBytes(n)
-	if err != nil {
-		return n, addr, err
-	}
-	c.rl.WaitN(context.Background(), n)
-	return n, addr, err
-}
-
-func (c *packetConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	n, err := c.inner.WriteTo(b, addr)
-	c.monitor.WriteBytes(n)
-	if err != nil {
-		return n, err
-	}
-	c.wl.WaitN(context.Background(), n)
-	return n, err
-}
-
-func (c *packetConn) Close() error {
-	return c.inner.Close()
-}
-
-func (c *packetConn) LocalAddr() net.Addr {
-	return c.inner.LocalAddr()
-}
-
-func (c *packetConn) SetDeadline(t time.Time) error {
-	return c.inner.SetDeadline(t)
-}
-
-func (c *packetConn) SetReadDeadline(t time.Time) error {
-	return c.inner.SetReadDeadline(t)
-}
-
-func (c *packetConn) SetWriteDeadline(t time.Time) error {
-	return c.inner.SetWriteDeadline(t)
 }
 
 // Dialer is a net.Dialer with optional rate limiting and monitoring.

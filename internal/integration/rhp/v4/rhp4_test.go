@@ -93,10 +93,9 @@ func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testuti
 	}
 	tb.Cleanup(func() { l.Close() })
 
-	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
-	rl, wl := hn.Settings.RHPBandwidthLimiters()
-	pc := monitoring.NewPacketConn(l, rl, wl, dr)
-	ql, err := quic.Listen(pc, certificates.NewQUICCertManager(hn.Certs))
+	//	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
+	//	rl, wl := hn.Settings.RHPBandwidthLimiters()
+	ql, err := quic.Listen(l, certificates.NewQUICCertManager(hn.Certs))
 	if err != nil {
 		tb.Fatal(err)
 	}
