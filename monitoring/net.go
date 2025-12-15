@@ -3,8 +3,10 @@ package monitoring
 import (
 	"context"
 	"net"
+	"syscall"
 	"time"
 
+	"github.com/quic-go/quic-go"
 	"golang.org/x/time/rate"
 )
 
@@ -143,20 +145,48 @@ func Listen(network, address string, opts ...Option) (net.Listener, error) {
 }
 
 type packetConn struct {
-	inner   net.PacketConn
+	inner   quic.OOBCapablePacketConn
 	rl, wl  *rate.Limiter
 	monitor DataMonitor
 }
 
 // NewPacketConn wraps a net.PacketConn with optional rate limiting and
 // monitoring.
-func NewPacketConn(conn net.PacketConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) net.PacketConn {
+func NewPacketConn(conn quic.OOBCapablePacketConn, readLimiter, writeLimiter *rate.Limiter, monitor DataMonitor) quic.OOBCapablePacketConn {
 	return &packetConn{
 		inner:   conn,
 		rl:      readLimiter,
 		wl:      writeLimiter,
 		monitor: monitor,
 	}
+}
+
+func (c *packetConn) SyscallConn() (syscall.RawConn, error) {
+	return c.inner.SyscallConn()
+}
+
+func (c *packetConn) SetReadBuffer(int) error {
+	return c.inner.SetReadBuffer(0)
+}
+
+func (c *packetConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAddr, err error) {
+	n, oobn, flags, addr, err = c.inner.ReadMsgUDP(b, oob)
+	c.monitor.ReadBytes(n)
+	if err != nil {
+		return n, oobn, flags, addr, err
+	}
+	c.rl.WaitN(context.Background(), len(b))
+	return n, oobn, flags, addr, err
+}
+
+func (c *packetConn) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr) (n, oobn int, err error) {
+	n, oobn, err = c.inner.WriteMsgUDP(b, oob, addr)
+	c.monitor.WriteBytes(n)
+	if err != nil {
+		return n, oobn, err
+	}
+	c.wl.WaitN(context.Background(), len(b))
+	return n, oobn, err
 }
 
 func (c *packetConn) ReadFrom(b []byte) (int, net.Addr, error) {
