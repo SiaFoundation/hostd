@@ -42,22 +42,24 @@ func (w *rhpWallet) FundV2Transaction(txn *types.V2Transaction, amount types.Cur
 	if errors.Is(err, wallet.ErrNotEnoughFunds) {
 		// avoid spamming the alert
 		w.mu.Lock()
-		if time.Since(w.lastBalanceAlert) > time.Hour {
-			w.lastBalanceAlert = time.Now()
+		if time.Since(w.lastBalanceAlert) < time.Hour {
+			w.mu.Unlock()
+			return ci, toSign, err
 		}
+		w.lastBalanceAlert = time.Now()
 		w.mu.Unlock()
 
 		// register alert
 		w.am.Register(alerts.Alert{
 			ID:       alertID,
 			Severity: alerts.SeverityWarning,
-			Message:  "Wallet failed to fund a contract formation, renewal or refresh due to insufficient funds",
+			Category: "wallet",
+			Message:  "At least one RPC failed due to insufficient wallet balance.",
 			Data: map[string]any{
 				"amount": amount.String(),
 			},
 			Timestamp: time.Now(),
 		})
-		w.lastBalanceAlert = time.Now()
 	}
 	return ci, toSign, err
 }
