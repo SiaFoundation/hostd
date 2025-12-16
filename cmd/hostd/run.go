@@ -259,7 +259,11 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	var dbstore *chain.DBStore
 	var tipState consensus.State
 	walletAddress := types.StandardUnlockHash(walletKey.PublicKey())
-	if !cfg.Explorer.Disable && instantSync && !consensusExists {
+	if instantSync && !consensusExists {
+		if exp == nil {
+			return errors.New("instant sync requires the explorer to be enabled")
+		}
+
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 
@@ -267,8 +271,8 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		checkpoint, err := exp.AddressCheckpoint(ctx, walletAddress)
 		if err != nil {
 			return fmt.Errorf("failed to get address checkpoint from explorer: %w", err)
-		} else if checkpoint.Height < network.HardforkV2.AllowHeight {
-			return fmt.Errorf("unable to instant sync: wallet checkpoint height %d is before hardfork v2 allow height %d", checkpoint.Height, network.HardforkV2.AllowHeight)
+		} else if checkpoint.Height < network.HardforkV2.RequireHeight {
+			return fmt.Errorf("unable to instant sync: wallet checkpoint height %d is before hardfork v2 require height %d", checkpoint.Height, network.HardforkV2.RequireHeight)
 		}
 
 		log := log.With(zap.Stringer("checkpoint", checkpoint))
@@ -297,6 +301,9 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 		log.Info("synced to checkpoint")
 	} else {
+		if instantSync {
+			log.Warn("instant sync skipped: consensus database already exists")
+		}
 		bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
 		if err != nil {
 			return fmt.Errorf("failed to open consensus database: %w", err)
