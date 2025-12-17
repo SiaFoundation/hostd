@@ -527,14 +527,16 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			// pc := monitoring.NewPacketConn(l, rl, wl, dr)
 			ql, err := quic.Listen(l, certificates.NewQUICCertManager(certProvider))
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			log.Info("started RHP4 QUIC listener", zap.String("address", l.LocalAddr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, ql.Close)
-			go quic.Serve(ql, rhp4, log.Named("rhp4.quic"))
+			go quic.Serve(ql, rhp4, quic.WithServeLogger(log.Named("rhp4.quic")),
+				quic.WithServeStreamMiddleware(func(c net.Conn) net.Conn {
+					return monitoring.NewConn(c, monitoring.WithDataMonitor(dr), monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl))
+				}))
 		default:
 			return fmt.Errorf("unsupported protocol: %s", addr.Protocol)
 		}

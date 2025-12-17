@@ -68,6 +68,20 @@ func WithDataMonitor(m DataMonitor) Option {
 	}
 }
 
+// NewConn wraps an existing net.Conn with optional rate limiting and monitoring.
+func NewConn(c net.Conn, opts ...Option) net.Conn {
+	options := defaultOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+	return &conn{
+		Conn:    c,
+		rl:      options.readLimiter,
+		wl:      options.writeLimiter,
+		monitor: options.monitor,
+	}
+}
+
 // Read reads data from the connection. Read can be made to time out and return
 // an error after a fixed time limit; see SetDeadline and SetReadDeadline.
 func (c *conn) Read(b []byte) (int, error) {

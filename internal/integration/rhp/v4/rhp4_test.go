@@ -93,15 +93,18 @@ func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testuti
 	}
 	tb.Cleanup(func() { l.Close() })
 
-	//	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
-	//	rl, wl := hn.Settings.RHPBandwidthLimiters()
+	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
+	rl, wl := hn.Settings.RHPBandwidthLimiters()
 	ql, err := quic.Listen(l, certificates.NewQUICCertManager(hn.Certs))
 	if err != nil {
 		tb.Fatal(err)
 	}
 	tb.Cleanup(func() { ql.Close() })
 
-	go quic.Serve(ql, rs, log.Named("quic"))
+	go quic.Serve(ql, rs, quic.WithServeLogger(log.Named("quic")),
+		quic.WithServeStreamMiddleware(func(c net.Conn) net.Conn {
+			return monitoring.NewConn(c, monitoring.WithDataMonitor(dr), monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl))
+		}))
 
 	transport, err := quic.Dial(context.Background(), l.LocalAddr().String(), hostKey.PublicKey(), quic.WithTLSConfig(func(c *tls.Config) {
 		c.InsecureSkipVerify = true
