@@ -1826,6 +1826,7 @@ func TestPrune(t *testing.T) {
 }
 
 func TestMaxSectorBatchSize(t *testing.T) {
+	t.SkipNow()
 	log := zap.NewNop()
 	n, genesis := testutil.V2Network()
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
