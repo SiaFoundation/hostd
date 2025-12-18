@@ -17,6 +17,14 @@ ensuring a smooth user experience across a diverse range of devices.
 - A project roadmap is available on [GitHub](https://github.com/orgs/SiaFoundation/projects/3)
 - Setup guides are available at [https://docs.sia.tech](https://docs.sia.tech/hosting/hostd/about-hosting-on-sia)
 
+### Instant Syncing (Experimental)
+
+New users can sync instantly using `hostd --instant`. When instant syncing, the `hostd` node initializes using a Utreexo-based checkpoint and can immediately validate blocks from that point forward without replaying the whole chain state. The state is extremely compact and committed in block headers, making this initialization both quick and secure. 
+
+[Learn more](https://sia.tech/learn/instant-syncing)
+
+**The wallet is required to only have v2 history to use instant syncing.**
+
 ### RHP4
 
 RHP4 is the latest version of the renter–host protocol, delivering major performance improvements over RHP2 and RHP3. It supports 
