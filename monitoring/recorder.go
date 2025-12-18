@@ -1,4 +1,4 @@
-package rhp
+package monitoring
 
 import (
 	"sync"
@@ -10,17 +10,16 @@ import (
 const persistInterval = time.Minute
 
 type (
-	// A DataRecorderStore persists data usage
-	DataRecorderStore interface {
-		IncrementRHPDataUsage(ingress, egress uint64) error
-	}
+	// IncrementUsageFunc is a function that increments the data usage
+	// by the given amounts of ingress and egress.
+	IncrementUsageFunc func(ingress, egress uint64) error
 
 	// A DataRecorder records the amount of data read and written across
 	// connections.
 	DataRecorder struct {
-		store DataRecorderStore
-		log   *zap.Logger
-		t     *time.Timer
+		usageFn IncrementUsageFunc
+		log     *zap.Logger
+		t       *time.Timer
 
 		mu   sync.Mutex // guards the following fields
 		r, w uint64
@@ -59,7 +58,7 @@ func (dr *DataRecorder) persistUsage() {
 		return
 	}
 
-	if err := dr.store.IncrementRHPDataUsage(r, w); err != nil {
+	if err := dr.usageFn(r, w); err != nil {
 		dr.log.Error("failed to persist data usage", zap.Error(err))
 		return
 	}
@@ -75,10 +74,10 @@ func (dr *DataRecorder) Close() error {
 }
 
 // NewDataRecorder initializes a new DataRecorder
-func NewDataRecorder(store DataRecorderStore, log *zap.Logger) *DataRecorder {
+func NewDataRecorder(usageFn IncrementUsageFunc, log *zap.Logger) *DataRecorder {
 	recorder := &DataRecorder{
-		store: store,
-		log:   log,
+		usageFn: usageFn,
+		log:     log,
 	}
 	recorder.t = time.AfterFunc(persistInterval, func() {
 		recorder.persistUsage()

@@ -35,8 +35,8 @@ import (
 	"go.sia.tech/hostd/v2/host/settings/pin"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/index"
+	"go.sia.tech/hostd/v2/monitoring"
 	"go.sia.tech/hostd/v2/persist/sqlite"
-	"go.sia.tech/hostd/v2/rhp"
 	"go.sia.tech/hostd/v2/version"
 	"go.sia.tech/hostd/v2/webhooks"
 	"go.sia.tech/jape"
@@ -324,7 +324,9 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer httpListener.Close()
 
-	syncerListener, err := net.Listen("tcp", cfg.Syncer.Address)
+	syncerRecorder := monitoring.NewDataRecorder(store.IncrementSyncerDataUsage, log.Named("syncer-data"))
+	defer syncerRecorder.Close()
+	syncerListener, err := monitoring.Listen("tcp", cfg.Syncer.Address, monitoring.WithDataMonitor(syncerRecorder))
 	if err != nil {
 		return fmt.Errorf("failed to listen on syncer address: %w", err)
 	}
@@ -362,11 +364,14 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 
 	log.Debug("starting syncer", zap.String("syncer address", syncerAddr))
+	syncerDialer := monitoring.NewDialer(monitoring.WithDataMonitor(syncerRecorder))
 	s := syncer.New(syncerListener, cm, ps, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
-	}, syncer.WithLogger(log.Named("syncer")))
+	},
+		syncer.WithDialer(syncerDialer),
+		syncer.WithLogger(log.Named("syncer")))
 	go s.Run()
 	defer s.Close()
 
@@ -479,7 +484,8 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer index.Close()
 
-	dr := rhp.NewDataRecorder(store, log.Named("data"))
+	dr := monitoring.NewDataRecorder(store.IncrementRHPDataUsage, log.Named("data"))
+	defer dr.Close()
 	rl, wl := sm.RHPBandwidthLimiters()
 
 	rhp4 := rhp4.NewServer(hostKey, cm, contractManager, wm, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
@@ -495,7 +501,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	for _, addr := range cfg.RHP4.ListenAddresses {
 		switch addr.Protocol {
 		case config.RHP4ProtoTCP, config.RHP4ProtoTCP4, config.RHP4ProtoTCP6:
-			l, err := rhp.Listen(string(addr.Protocol), addr.Address, rhp.WithDataMonitor(dr), rhp.WithReadLimit(rl), rhp.WithWriteLimit(wl))
+			l, err := monitoring.Listen(string(addr.Protocol), addr.Address, monitoring.WithDataMonitor(dr), monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl))
 			if err != nil {
 				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
 			}
@@ -521,14 +527,16 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			stopListenerFuncs = append(stopListenerFuncs, l.Close)
-			pc := rhp.NewRHPPacketConn(l, rl, wl, dr)
-			ql, err := quic.Listen(pc, certificates.NewQUICCertManager(certProvider))
+			ql, err := quic.Listen(l, certificates.NewQUICCertManager(certProvider))
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			log.Info("started RHP4 QUIC listener", zap.String("address", l.LocalAddr().String()))
 			stopListenerFuncs = append(stopListenerFuncs, ql.Close)
-			go quic.Serve(ql, rhp4, log.Named("rhp4.quic"))
+			go quic.Serve(ql, rhp4, quic.WithServeLogger(log.Named("rhp4.quic")),
+				quic.WithServeStreamMiddleware(func(c net.Conn) net.Conn {
+					return monitoring.NewConn(c, monitoring.WithDataMonitor(dr), monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl))
+				}))
 		default:
 			return fmt.Errorf("unsupported protocol: %s", addr.Protocol)
 		}
