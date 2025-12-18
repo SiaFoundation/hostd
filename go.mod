@@ -10,9 +10,9 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.19.0
-	go.sia.tech/coreutils v0.19.1-0.20251217161900-92f8baf34e98
+	go.sia.tech/coreutils v0.20.0
 	go.sia.tech/jape v0.14.1
-	go.sia.tech/web/hostd v0.66.4
+	go.sia.tech/web/hostd v0.67.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/sys v0.39.0
 	golang.org/x/term v0.38.0
