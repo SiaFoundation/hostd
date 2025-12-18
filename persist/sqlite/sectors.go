@@ -244,6 +244,25 @@ type volumeSectorRef struct {
 	VolumeSectorID int64
 }
 
+func pruneStoredSectors(tx *txn) (int64, error) {
+	const query = `
+DELETE FROM stored_sectors WHERE id IN (
+	SELECT ss.id FROM stored_sectors ss
+	LEFT JOIN volume_sectors vs ON vs.sector_id = ss.id
+	LEFT JOIN contract_sector_roots csr ON ss.id = csr.sector_id
+	LEFT JOIN contract_v2_sector_roots csr2 ON ss.id = csr2.sector_id
+	LEFT JOIN temp_storage_sector_roots tsr ON ss.id = tsr.sector_id
+	WHERE vs.sector_id IS NULL AND csr.sector_id IS NULL AND csr2.sector_id IS NULL AND tsr.sector_id IS NULL
+	LIMIT $1
+);`
+
+	result, err := tx.Exec(query, sqlSectorBatchSize)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prune stored sectors: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 func updatePruneableVolumeSectors(tx *txn, lastAccess time.Time) (refs []volumeSectorRef, err error) {
 	const query = `
 UPDATE volume_sectors SET sector_id=null
@@ -275,10 +294,11 @@ WHERE id IN (
 }
 
 // PruneSectors removes volume references for sectors that have not been accessed since the provided
-// timestamp and are no longer referenced by a contract or temp storage.
+// timestamp and are no longer referenced by a contract or temp storage. It also removes orphaned
+// rows from stored_sectors that are no longer referenced by any volume, contract, or temp storage.
 func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 	// note: last access can be removed after v2 when sectors are immediately committed to temp storage
-	for i := 0; ; i++ {
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -310,10 +330,33 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		} else if done {
-			return nil
+			break
 		}
 		jitterSleep(50 * time.Millisecond)
 	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		var pruned int64
+		err := s.transaction(func(tx *txn) error {
+			var err error
+			pruned, err = pruneStoredSectors(tx)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("failed to prune stored sectors: %w", err)
+		} else if pruned == 0 {
+			break
+		}
+		jitterSleep(50 * time.Millisecond)
+	}
+
+	return nil
 }
 
 func contractSectorRefs(tx *txn, sectorID int64) (contractIDs []types.FileContractID, err error) {

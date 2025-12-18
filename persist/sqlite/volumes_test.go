@@ -825,6 +825,18 @@ func TestPrune(t *testing.T) {
 		} else if m.Storage.TempSectors != temp {
 			t.Fatalf("expected %v temporary sectors, got %v", temp, m.Storage.TempSectors)
 		}
+
+		// verify stored_sectors table is also pruned
+		var stored int
+		err = db.transaction(func(tx *txn) error {
+			return tx.QueryRow(`SELECT COUNT(*) FROM stored_sectors;`).Scan(&stored)
+		})
+		if err != nil {
+			t.Fatalf("failed to count stored sectors: %v", err)
+		}
+		if stored != len(available) {
+			t.Fatalf("expected %v stored sectors, got %v", len(available), stored)
+		}
 	}
 	assertSectors(t, 25, 25, roots, nil)
 
