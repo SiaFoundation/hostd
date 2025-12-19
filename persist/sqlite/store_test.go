@@ -174,7 +174,7 @@ func TestBackup(t *testing.T) {
 
 	t.Run("Store.Backup", func(t *testing.T) {
 		destPath := filepath.Join(t.TempDir(), "backup.db")
-		if err := Backup(context.Background(), srcPath, destPath); err != nil {
+		if err := db.Backup(context.Background(), destPath); err != nil {
 			t.Fatal(err)
 		}
 
@@ -183,7 +183,7 @@ func TestBackup(t *testing.T) {
 
 	t.Run("Backup", func(t *testing.T) {
 		destPath := filepath.Join(t.TempDir(), "backup.db")
-		if err := db.Backup(context.Background(), destPath); err != nil {
+		if err := Backup(context.Background(), srcPath, destPath); err != nil {
 			t.Fatal(err)
 		}
 

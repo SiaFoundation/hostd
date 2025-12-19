@@ -23,6 +23,8 @@ import (
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
+		path string
+
 		db  *sql.DB
 		log *zap.Logger
 	}
@@ -67,14 +69,10 @@ func (s *Store) transaction(fn func(*txn) error) error {
 	return fmt.Errorf("transaction failed (attempt %d): %w", attempt, err)
 }
 
-// Backup creates a backup of the database at the specified path. The backup is
-// created using the SQLite backup API, which is safe to use with a
-// live database.
-//
-// This function should be used if the database is already open in the current
-// process. If the database is not already open, use Backup.
+// Backup creates a backup of the open database. The backup is created using
+// the SQLite backup API, which is safe to use with a live database.
 func (s *Store) Backup(ctx context.Context, destPath string) error {
-	return backupDB(ctx, s.db, destPath)
+	return Backup(ctx, s.path, destPath)
 }
 
 func sqliteFilepath(fp string) string {
@@ -327,8 +325,9 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	db.SetMaxOpenConns(1)
 
 	store := &Store{
-		db:  db,
-		log: log,
+		path: fp, // used for backups
+		db:   db,
+		log:  log,
 	}
 	if err := store.init(int64(len(migrations) + 1)); err != nil {
 		return nil, err
