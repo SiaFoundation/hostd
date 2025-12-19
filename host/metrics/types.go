@@ -31,11 +31,12 @@ type (
 
 	// DataMetrics is a collection of metrics related to data usage.
 	DataMetrics struct {
-		RHP RHPData `json:"rhp"`
+		RHP    Data `json:"rhp"`
+		Syncer Data `json:"syncer"`
 	}
 
-	// RHPData is a collection of data metrics related to the RHP.
-	RHPData struct {
+	// Data is a collection of data metrics related to the RHP and Syncer.
+	Data struct {
 		// Ingress returns the number of bytes received by the host.
 		Ingress uint64 `json:"ingress"`
 		// Egress returns the number of bytes sent by the host.

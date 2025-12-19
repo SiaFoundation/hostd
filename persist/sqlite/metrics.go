@@ -424,6 +424,10 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 		m.Data.RHP.Ingress = mustScanUint64(buf)
 	case metricDataRHPEgress:
 		m.Data.RHP.Egress = mustScanUint64(buf)
+	case metricDataSyncerEgress:
+		m.Data.Syncer.Egress = mustScanUint64(buf)
+	case metricDataSyncerIngress:
+		m.Data.Syncer.Ingress = mustScanUint64(buf)
 	// potential revenue
 	case metricPotentialRPCRevenue:
 		m.Revenue.Potential.RPC = mustScanCurrency(buf)
