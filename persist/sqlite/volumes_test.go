@@ -1151,3 +1151,79 @@ func BenchmarkReadSectorParallel(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkPruneStoredSectors(b *testing.B) {
+	const (
+		sectorsPerTiB   = (1 << 40) / proto4.SectorSize // 262,144 sectors per TiB
+		sectors         = sectorsPerTiB
+		prunableSectors = sectors / 10
+	)
+
+	log := zap.NewNop()
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = addTestVolume(db, "test", sectors)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// store all sectors and add 90% to temp storage
+	for i := uint64(0); i < sectors; i++ {
+		if i%1000 == 0 {
+			b.Log(i)
+		}
+
+		root := frand.Entropy256()
+		if err := db.StoreSector(root, func(_ storage.SectorLocation) error { return nil }); err != nil {
+			b.Fatal(err)
+		}
+		// add 90% of sectors to temp storage so they remain referenced
+		if i >= prunableSectors {
+			if err := db.AddTempSector(root, 1000); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+
+	// unlink volume refs for unreferenced sectors
+	if err := db.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
+		b.Fatal(err)
+	}
+
+	// insert orphaned stored_sectors entries for the benchmark
+	err = db.transaction(func(tx *txn) error {
+		for i := uint64(0); i < prunableSectors; i++ {
+			root := types.Hash256(frand.Entropy256())
+			_, err := tx.Exec(`INSERT INTO stored_sectors (sector_root, last_access_timestamp) VALUES (?, ?)`,
+				encode(root), encode(time.Now()))
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.SetBytes(proto4.SectorSize)
+	b.ReportMetric(sqlSectorBatchSize, "sectors")
+
+	err = db.transaction(func(tx *txn) error {
+		for b.Loop() {
+			_, err := pruneStoredSectors(tx)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+}
