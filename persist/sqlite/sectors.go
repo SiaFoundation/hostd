@@ -248,11 +248,10 @@ func pruneStoredSectors(tx *txn) (int64, error) {
 	const query = `
 DELETE FROM stored_sectors WHERE id IN (
 	SELECT ss.id FROM stored_sectors ss
-	LEFT JOIN volume_sectors vs ON vs.sector_id = ss.id
-	LEFT JOIN contract_sector_roots csr ON ss.id = csr.sector_id
-	LEFT JOIN contract_v2_sector_roots csr2 ON ss.id = csr2.sector_id
-	LEFT JOIN temp_storage_sector_roots tsr ON ss.id = tsr.sector_id
-	WHERE vs.sector_id IS NULL AND csr.sector_id IS NULL AND csr2.sector_id IS NULL AND tsr.sector_id IS NULL
+	WHERE NOT EXISTS (SELECT 1 FROM volume_sectors vs WHERE vs.sector_id = ss.id)
+	  AND NOT EXISTS (SELECT 1 FROM contract_sector_roots csr WHERE csr.sector_id = ss.id)
+	  AND NOT EXISTS (SELECT 1 FROM contract_v2_sector_roots csr2 WHERE csr2.sector_id = ss.id)
+	  AND NOT EXISTS (SELECT 1 FROM temp_storage_sector_roots tsr WHERE tsr.sector_id = ss.id)
 	LIMIT $1
 );`
 

@@ -1211,8 +1211,8 @@ func BenchmarkPruneStoredSectors(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	b.SetBytes(proto4.SectorSize)
-	b.ReportMetric(sqlSectorBatchSize, "sectors")
+	b.SetBytes(proto4.SectorSize * sqlSectorBatchSize)
+	b.ReportMetric(float64(sqlSectorBatchSize), "sectors")
 
 	err = db.transaction(func(tx *txn) error {
 		for b.Loop() {
