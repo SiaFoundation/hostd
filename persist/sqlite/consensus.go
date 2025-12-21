@@ -1948,7 +1948,7 @@ func resetRejectedContractAccountFunding(tx *txn, contractDBID int64, log *zap.L
 			if _, err := updateAccountFundingStmt.Exec(encode(newBalance), source.accountDBID); err != nil {
 				return fmt.Errorf("failed to update account funding: %w", err)
 			}
-			balanceDelta = balanceDelta.Sub(source.amount)
+			balanceDelta = balanceDelta.Add(source.amount)
 			log.Debug("reverted account funding", zap.Int64("accountID", source.accountDBID), zap.Stringer("delta", source.amount), zap.Stringer("balance", newBalance))
 		}
 	}
