@@ -66,6 +66,97 @@ func rootsEqual(a, b []types.Hash256) error {
 	return nil
 }
 
+func TestFirstContractHeight(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	height, exists, err := db.FirstContractHeight()
+	if err != nil {
+		t.Fatal(err)
+	} else if height != 0 {
+		t.Fatalf("expected height 0, got %d", height)
+	} else if exists {
+		t.Fatal("expected no contracts")
+	}
+
+	err = db.AddV2Contract(contracts.V2Contract{
+		ID:                frand.Entropy256(),
+		NegotiationHeight: 100,
+	}, rhp4.TransactionSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	height, exists, err = db.FirstContractHeight()
+	if err != nil {
+		t.Fatal(err)
+	} else if height != 100 {
+		t.Fatalf("expected height 100, got %d", height)
+	} else if !exists {
+		t.Fatal("expected contract to exist")
+	}
+
+	_, err = db.db.Exec(`UPDATE contracts_v2 SET contract_status=$1`, contracts.V2ContractStatusActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	height, exists, err = db.FirstContractHeight()
+	if err != nil {
+		t.Fatal(err)
+	} else if height != 100 {
+		t.Fatalf("expected height 100, got %d", height)
+	} else if !exists {
+		t.Fatal("expected contract to exist")
+	}
+
+	_, err = db.db.Exec(`UPDATE contracts_v2 SET contract_status=$1`, contracts.V2ContractStatusSuccessful)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// successful contracts should be ignored
+	height, exists, err = db.FirstContractHeight()
+	if err != nil {
+		t.Fatal(err)
+	} else if height != 0 {
+		t.Fatalf("expected height 0, got %d", height)
+	} else if exists {
+		t.Fatal("expected no contracts")
+	}
+
+	// add multiple contracts
+	err = db.AddV2Contract(contracts.V2Contract{
+		ID:                frand.Entropy256(),
+		NegotiationHeight: 50,
+	}, rhp4.TransactionSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = db.AddV2Contract(contracts.V2Contract{
+		ID:                frand.Entropy256(),
+		NegotiationHeight: 10,
+	}, rhp4.TransactionSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// minimum height should be returned
+	height, exists, err = db.FirstContractHeight()
+	if err != nil {
+		t.Fatal(err)
+	} else if height != 10 {
+		t.Fatalf("expected height 10, got %d", height)
+	} else if !exists {
+		t.Fatal("expected contract to exist")
+	}
+}
+
 func TestReviseContract(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)

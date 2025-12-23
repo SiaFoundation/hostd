@@ -271,10 +271,29 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		checkpoint, err := exp.AddressCheckpoint(ctx, walletAddress)
 		if err != nil {
 			return fmt.Errorf("failed to get address checkpoint from explorer: %w", err)
-		} else if checkpoint.Height < network.HardforkV2.RequireHeight {
-			return fmt.Errorf("unable to instant sync: wallet checkpoint height %d is before hardfork v2 require height %d", checkpoint.Height, network.HardforkV2.RequireHeight)
+		}
+		checkpointHeight := checkpoint.Height
+
+		if contractHeight, hasContracts, err := store.FirstContractHeight(); err != nil {
+			return fmt.Errorf("failed to get first contract height: %w", err)
+		} else if hasContracts && contractHeight < checkpointHeight {
+			checkpointHeight = contractHeight
+			log.Debug("using earlier checkpoint height from contracts", zap.Uint64("height", checkpointHeight))
 		}
 
+		blocksPerDay := uint64(24 * time.Hour / network.BlockInterval)
+		if checkpointHeight > blocksPerDay {
+			checkpointHeight -= blocksPerDay
+		} else {
+			checkpointHeight = 0
+		}
+
+		checkpoint, err = exp.TipHeight(ctx, checkpointHeight)
+		if err != nil {
+			return fmt.Errorf("failed to get tip height from explorer: %w", err)
+		} else if checkpoint.Height < network.HardforkV2.RequireHeight {
+			return fmt.Errorf("unable to instant sync: checkpoint height %d is before hardfork v2 require height %d", checkpoint.Height, network.HardforkV2.RequireHeight)
+		}
 		log := log.With(zap.Stringer("checkpoint", checkpoint))
 		log.Info("starting instant sync from checkpoint")
 
@@ -299,7 +318,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			return fmt.Errorf("failed to create chain store from checkpoint: %w", err)
 		}
 
-		log.Info("synced to checkpoint")
+		log.Info("instant sync complete")
 	} else {
 		if instantSync {
 			log.Warn("instant sync skipped: consensus database already exists")
