@@ -51,6 +51,20 @@ func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int, err er
 	return
 }
 
+// FirstContractHeight returns the height of the first active or pending
+// contract. This is used to determine the earliest checkpoint for instant sync.
+func (s *Store) FirstContractHeight() (height uint64, exists bool, err error) {
+	err = s.transaction(func(tx *txn) error {
+		var nullHeight sql.Null[uint64]
+		const query = `SELECT MIN(negotiation_height) FROM contracts_v2 WHERE contract_status IN ($1, $2);`
+		err := tx.QueryRow(query, contracts.V2ContractStatusActive, contracts.V2ContractStatusPending).Scan(&nullHeight)
+		exists = nullHeight.Valid
+		height = nullHeight.V
+		return err
+	})
+	return
+}
+
 // Contracts returns a paginated list of contracts.
 func (s *Store) Contracts(filter contracts.ContractFilter) (contracts []contracts.Contract, count int, err error) {
 	if filter.Limit <= 0 || filter.Limit > 100 {
