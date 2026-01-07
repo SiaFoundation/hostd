@@ -66,9 +66,9 @@ func WithCertificates(certs Certificates) Option {
 }
 
 // WithSyncerLimits sets the optional rate limiters for the syncer
-func WithSyncerLimits(rl, wl *rate.Limiter) Option {
+func WithSyncerLimits(ingressLimit, egressLimit *rate.Limiter) Option {
 	return func(c *ConfigManager) {
-		c.syncerEgressLimit = rl
-		c.syncerIngressLimit = wl
+		c.syncerEgressLimit = egressLimit
+		c.syncerIngressLimit = ingressLimit
 	}
 }
