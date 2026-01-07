@@ -2,6 +2,7 @@ package settings
 
 import (
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 // An Option is a functional option that can be used to configure a config
@@ -61,5 +62,13 @@ func WithRHP4Port(port uint16) Option {
 func WithCertificates(certs Certificates) Option {
 	return func(c *ConfigManager) {
 		c.certs = certs
+	}
+}
+
+// WithSyncerLimits sets the optional rate limiters for the syncer
+func WithSyncerLimits(rl, wl *rate.Limiter) Option {
+	return func(c *ConfigManager) {
+		c.syncerEgressLimit = rl
+		c.syncerIngressLimit = wl
 	}
 }

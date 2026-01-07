@@ -120,8 +120,10 @@ type (
 		MaxAccountBalance types.Currency `json:"maxAccountBalance"`
 
 		// Bandwidth limiter settings
-		IngressLimit uint64 `json:"ingressLimit"`
-		EgressLimit  uint64 `json:"egressLimit"`
+		IngressLimit       uint64 `json:"ingressLimit"`
+		EgressLimit        uint64 `json:"egressLimit"`
+		SyncerIngressLimit uint64 `json:"syncerIngressLimit"`
+		SyncerEgressLimit  uint64 `json:"syncerEgressLimit"`
 
 		// DNS settings
 		DDNS DNSSettings `json:"ddns"`
@@ -151,8 +153,10 @@ type (
 		settings   Settings   // in-memory cache of the host's settings
 		scanHeight uint64     // track the last block height that was scanned for announcements
 
-		ingressLimit *rate.Limiter
-		egressLimit  *rate.Limiter
+		ingressLimit       *rate.Limiter
+		egressLimit        *rate.Limiter
+		syncerIngressLimit *rate.Limiter
+		syncerEgressLimit  *rate.Limiter
 
 		ddnsUpdateTimer *time.Timer
 		lastIPv4        net.IP
@@ -195,7 +199,7 @@ var (
 )
 
 // setRateLimit sets the bandwidth rate limit for the host
-func (m *ConfigManager) setRateLimit(ingress, egress uint64) {
+func (m *ConfigManager) setRateLimit(ingress, egress, syncerIngress, syncerEgress uint64) {
 	var ingressLimit rate.Limit
 	if ingress == 0 {
 		ingressLimit = rate.Inf
@@ -210,8 +214,29 @@ func (m *ConfigManager) setRateLimit(ingress, egress uint64) {
 		egressLimit = rate.Limit(egress)
 	}
 
+	var syncerIngressLimit rate.Limit
+	if syncerIngress == 0 {
+		syncerIngressLimit = rate.Inf
+	} else {
+		syncerIngressLimit = rate.Limit(syncerIngress)
+	}
+
+	var syncerEgressLimit rate.Limit
+	if syncerEgress == 0 {
+		syncerEgressLimit = rate.Inf
+	} else {
+		syncerEgressLimit = rate.Limit(syncerEgress)
+	}
+
 	m.ingressLimit.SetLimit(rate.Limit(ingressLimit))
 	m.egressLimit.SetLimit(rate.Limit(egressLimit))
+	m.syncerIngressLimit.SetLimit(rate.Limit(syncerIngressLimit))
+	m.syncerEgressLimit.SetLimit(rate.Limit(syncerEgressLimit))
+
+	m.ingressLimit.SetBurst(defaultBurstSize)
+	m.egressLimit.SetBurst(defaultBurstSize)
+	m.syncerIngressLimit.SetBurst(defaultBurstSize)
+	m.syncerEgressLimit.SetBurst(defaultBurstSize)
 }
 
 // Close closes the config manager
@@ -254,7 +279,7 @@ func (m *ConfigManager) UpdateSettings(s Settings) error {
 
 	m.mu.Lock()
 	m.settings = s
-	m.setRateLimit(s.IngressLimit, s.EgressLimit)
+	m.setRateLimit(s.IngressLimit, s.EgressLimit, s.SyncerIngressLimit, s.SyncerEgressLimit)
 	m.resetDDNS()
 	m.mu.Unlock()
 	return m.store.UpdateSettings(s)
@@ -329,8 +354,10 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, sm
 		tg:  threadgroup.New(),
 
 		// initialize the rate limiters
-		ingressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
-		egressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
+		ingressLimit:       rate.NewLimiter(rate.Inf, defaultBurstSize),
+		egressLimit:        rate.NewLimiter(rate.Inf, defaultBurstSize),
+		syncerIngressLimit: rate.NewLimiter(rate.Inf, defaultBurstSize),
+		syncerEgressLimit:  rate.NewLimiter(rate.Inf, defaultBurstSize),
 
 		rhp4Port: 9984,
 	}
@@ -351,7 +378,7 @@ func NewConfigManager(hostKey types.PrivateKey, store Store, cm ChainManager, sm
 
 	m.settings = settings
 	// update the global rate limiters from settings
-	m.setRateLimit(settings.IngressLimit, settings.EgressLimit)
+	m.setRateLimit(settings.IngressLimit, settings.EgressLimit, settings.SyncerIngressLimit, settings.SyncerEgressLimit)
 	// initialize the DDNS update timer
 	m.resetDDNS()
 
