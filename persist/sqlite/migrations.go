@@ -12,6 +12,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion47 deletes stored_sectors that are no longer referenced by any
+// volume_sectors, contracts, or temp storage.
+func migrateVersion47(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+DELETE FROM stored_sectors WHERE
+	NOT EXISTS (SELECT 1 FROM volume_sectors vs WHERE vs.sector_id = stored_sectors.id)
+	AND NOT EXISTS (SELECT 1 FROM contract_sector_roots csr WHERE csr.sector_id = stored_sectors.id)
+	AND NOT EXISTS (SELECT 1 FROM contract_v2_sector_roots csr2 WHERE csr2.sector_id = stored_sectors.id)
+	AND NOT EXISTS (SELECT 1 FROM temp_storage_sector_roots tsr WHERE tsr.sector_id = stored_sectors.id);`)
+	return err
+}
+
 func migrateVersion46(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 ALTER TABLE stored_sectors ADD COLUMN cached_subtree_roots BLOB;`)
@@ -1168,4 +1180,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion44,
 	migrateVersion45,
 	migrateVersion46,
+	migrateVersion47,
 }
