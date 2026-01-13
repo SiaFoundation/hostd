@@ -20,8 +20,10 @@ import (
 	"go.sia.tech/hostd/v2/host/settings"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/index"
+	"go.sia.tech/hostd/v2/monitoring"
 	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 type (
@@ -31,9 +33,11 @@ type (
 
 	// A ConsensusNode is a node with the core consensus components
 	ConsensusNode struct {
-		Store  *sqlite.Store
-		Chain  *chain.Manager
-		Syncer *syncer.Syncer
+		Store                *sqlite.Store
+		Chain                *chain.Manager
+		Syncer               *syncer.Syncer
+		SyncerIngressLimiter *rate.Limiter
+		SyncerEgressLimiter  *rate.Limiter
 	}
 
 	// A HostNode is a node with the core wallet components and the host
@@ -148,18 +152,27 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 		t.Fatal("failed to create peer store:", err)
 	}
 
+	syncerRecorder := monitoring.NewDataRecorder(db.IncrementSyncerDataUsage, log.Named("syncer-data"))
+	defer syncerRecorder.Close()
+
+	srl := rate.NewLimiter(rate.Inf, 0)
+	swl := rate.NewLimiter(rate.Inf, 0)
+	syncerDialer := monitoring.NewDialer(monitoring.WithDataMonitor(syncerRecorder),
+		monitoring.WithReadLimit(srl), monitoring.WithWriteLimit(swl))
 	syncer := syncer.New(syncerListener, cm, ps, gateway.Header{
 		GenesisID:  genesis.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerListener.Addr().String(),
-	})
+	}, syncer.WithDialer(syncerDialer))
 	go syncer.Run()
 	t.Cleanup(func() { syncer.Close() })
 
 	return &ConsensusNode{
-		Store:  db,
-		Chain:  cm,
-		Syncer: syncer,
+		Store:                db,
+		Chain:                cm,
+		Syncer:               syncer,
+		SyncerIngressLimiter: srl,
+		SyncerEgressLimiter:  swl,
 	}
 }
 
@@ -197,7 +210,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	initialSettings.AcceptingContracts = true
 	initialSettings.NetAddress = "127.0.0.1"
 	initialSettings.WindowSize = 10
-	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings), settings.WithCertificates(certs))
+	sm, err := settings.NewConfigManager(pk, cn.Store, cn.Chain, vm, wm, settings.WithAnnounceInterval(10), settings.WithValidateNetAddress(false), settings.WithInitialSettings(initialSettings), settings.WithCertificates(certs), settings.WithSyncerLimits(cn.SyncerIngressLimiter, cn.SyncerEgressLimiter))
 	if err != nil {
 		t.Fatal(err)
 	}

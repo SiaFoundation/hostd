@@ -1294,6 +1294,12 @@ components:
         egressLimit:
           type: integer
           format: int64
+        syncerIngressLimit:
+          type: integer
+          format: int64
+        syncerEgressLimit:
+          type: integer
+          format: int64
         ddns:
           $ref: "#/components/schemas/DNSSettings"
         sectorCacheSize:

@@ -255,6 +255,8 @@ CREATE TABLE host_settings (
 	window_size INTEGER NOT NULL,
 	ingress_limit INTEGER NOT NULL,
 	egress_limit INTEGER NOT NULL,
+	syncer_ingress_limit INTEGER NOT NULL,
+	syncer_egress_limit INTEGER NOT NULL,
 	ddns_provider TEXT NOT NULL,
 	ddns_update_v4 BOOLEAN NOT NULL,
 	ddns_update_v6 BOOLEAN NOT NULL,
