@@ -42,6 +42,7 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/web/hostd"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 	"lukechampine.com/upnp"
 )
 
@@ -383,7 +384,10 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 
 	log.Debug("starting syncer", zap.String("syncer address", syncerAddr))
-	syncerDialer := monitoring.NewDialer(monitoring.WithDataMonitor(syncerRecorder))
+	srl := rate.NewLimiter(rate.Inf, 0)
+	swl := rate.NewLimiter(rate.Inf, 0)
+	syncerDialer := monitoring.NewDialer(monitoring.WithDataMonitor(syncerRecorder),
+		monitoring.WithReadLimit(srl), monitoring.WithWriteLimit(swl))
 	s := syncer.New(syncerListener, cm, ps, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
@@ -483,6 +487,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		settings.WithRHP4Port(uint16(rhp4Port)),
 		settings.WithLog(log.Named("settings")),
 		settings.WithCertificates(certProvider),
+		settings.WithSyncerLimits(srl, swl),
 	}
 
 	sm, err := settings.NewConfigManager(hostKey, store, cm, vm, wm, settingsOpts...)

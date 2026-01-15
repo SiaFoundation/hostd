@@ -12,15 +12,66 @@ import (
 	"go.uber.org/zap"
 )
 
-// migrateVersion47 deletes stored_sectors that are no longer referenced by any
+// migrateVersion48 deletes stored_sectors that are no longer referenced by any
 // volume_sectors, contracts, or temp storage.
-func migrateVersion47(tx *txn, _ *zap.Logger) error {
+func migrateVersion48(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 DELETE FROM stored_sectors WHERE
 	NOT EXISTS (SELECT 1 FROM volume_sectors vs WHERE vs.sector_id = stored_sectors.id)
 	AND NOT EXISTS (SELECT 1 FROM contract_sector_roots csr WHERE csr.sector_id = stored_sectors.id)
 	AND NOT EXISTS (SELECT 1 FROM contract_v2_sector_roots csr2 WHERE csr2.sector_id = stored_sectors.id)
 	AND NOT EXISTS (SELECT 1 FROM temp_storage_sector_roots tsr WHERE tsr.sector_id = stored_sectors.id);`)
+	return err
+}
+
+// migrateVersion47 adds the syncer_ingress_limit and syncer_egress_limit
+// columns to the host_settings table.
+func migrateVersion47(tx *txn, _ *zap.Logger) error {
+	const query = `CREATE TABLE host_settings_new (
+	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+	settings_revision INTEGER NOT NULL,
+	accepting_contracts BOOLEAN NOT NULL,
+	net_address TEXT NOT NULL,
+	contract_price BLOB NOT NULL,
+	base_rpc_price BLOB NOT NULL,
+	sector_access_price BLOB NOT NULL,
+	max_collateral BLOB NOT NULL,
+	storage_price BLOB NOT NULL,
+	egress_price BLOB NOT NULL,
+	ingress_price BLOB NOT NULL,
+	max_account_balance BLOB NOT NULL,
+	collateral_multiplier REAL NOT NULL,
+	max_account_age INTEGER NOT NULL,
+	price_table_validity INTEGER NOT NULL,
+	max_contract_duration INTEGER NOT NULL,
+	window_size INTEGER NOT NULL,
+	ingress_limit INTEGER NOT NULL,
+	egress_limit INTEGER NOT NULL,
+	syncer_ingress_limit INTEGER NOT NULL,
+	syncer_egress_limit INTEGER NOT NULL,
+	ddns_provider TEXT NOT NULL,
+	ddns_update_v4 BOOLEAN NOT NULL,
+	ddns_update_v6 BOOLEAN NOT NULL,
+	ddns_opts BLOB,
+	registry_limit INTEGER NOT NULL,
+	sector_cache_size INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO host_settings_new (id, settings_revision, accepting_contracts, net_address,
+	contract_price, base_rpc_price, sector_access_price, max_collateral, storage_price, egress_price,
+	ingress_price, max_account_balance, collateral_multiplier, max_account_age, price_table_validity,
+	max_contract_duration, window_size, ingress_limit, egress_limit, syncer_ingress_limit, syncer_egress_limit,
+	ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, registry_limit, sector_cache_size)
+SELECT id, settings_revision, accepting_contracts, net_address, contract_price, base_rpc_price,
+	sector_access_price, max_collateral, storage_price, egress_price, ingress_price, max_account_balance,
+	collateral_multiplier, max_account_age, price_table_validity, max_contract_duration, window_size,
+	ingress_limit, egress_limit, 0, 0, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts,
+	registry_limit, sector_cache_size FROM host_settings;
+
+DROP TABLE host_settings;
+ALTER TABLE host_settings_new RENAME TO host_settings;`
+
+	_, err := tx.Exec(query)
 	return err
 }
 
@@ -1181,4 +1232,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion45,
 	migrateVersion46,
 	migrateVersion47,
+	migrateVersion48,
 }

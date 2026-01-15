@@ -56,7 +56,8 @@ func (s *Store) Settings() (config settings.Settings, err error) {
 	contract_price, base_rpc_price, sector_access_price, collateral_multiplier,
 	max_collateral, storage_price, egress_price, ingress_price,
 	max_account_balance, max_account_age, price_table_validity, max_contract_duration, window_size,
-	ingress_limit, egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size
+	ingress_limit, egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size,
+	syncer_ingress_limit, syncer_egress_limit
 FROM host_settings;`
 
 	err = s.transaction(func(tx *txn) error {
@@ -68,7 +69,8 @@ FROM host_settings;`
 			decode(&config.IngressPrice), decode(&config.MaxAccountBalance),
 			&config.AccountExpiry, &config.PriceTableValidity, &config.MaxContractDuration, &config.WindowSize,
 			&config.IngressLimit, &config.EgressLimit, &config.MaxRegistryEntries,
-			&config.DDNS.Provider, &config.DDNS.IPv4, &config.DDNS.IPv6, &dyndnsBuf, &config.SectorCacheSize)
+			&config.DDNS.Provider, &config.DDNS.IPv4, &config.DDNS.IPv6, &dyndnsBuf, &config.SectorCacheSize,
+			&config.SyncerIngressLimit, &config.SyncerEgressLimit)
 		if errors.Is(err, sql.ErrNoRows) {
 			return settings.ErrNoSettings
 		}
@@ -90,21 +92,24 @@ func (s *Store) UpdateSettings(settings settings.Settings) error {
 		sector_access_price, collateral_multiplier, max_collateral, storage_price,
 		egress_price, ingress_price, max_account_balance,
 		max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit,
-		egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size)
-		VALUES (0, 0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+		egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size,
+		syncer_ingress_limit, syncer_egress_limit)
+		VALUES (0, 0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 ON CONFLICT (id) DO UPDATE SET (settings_revision,
 	accepting_contracts, net_address, contract_price, base_rpc_price,
 	sector_access_price, collateral_multiplier, max_collateral, storage_price,
 	egress_price, ingress_price, max_account_balance,
 	max_account_age, price_table_validity, max_contract_duration, window_size, ingress_limit,
-	egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size) = (
+	egress_limit, registry_limit, ddns_provider, ddns_update_v4, ddns_update_v6, ddns_opts, sector_cache_size,
+	syncer_ingress_limit, syncer_egress_limit) = (
 	settings_revision + 1, EXCLUDED.accepting_contracts, EXCLUDED.net_address,
 	EXCLUDED.contract_price, EXCLUDED.base_rpc_price, EXCLUDED.sector_access_price,
 	EXCLUDED.collateral_multiplier, EXCLUDED.max_collateral, EXCLUDED.storage_price,
 	EXCLUDED.egress_price, EXCLUDED.ingress_price, EXCLUDED.max_account_balance,
 	EXCLUDED.max_account_age, EXCLUDED.price_table_validity, EXCLUDED.max_contract_duration, EXCLUDED.window_size,
 	EXCLUDED.ingress_limit, EXCLUDED.egress_limit, EXCLUDED.registry_limit, EXCLUDED.ddns_provider,
-	EXCLUDED.ddns_update_v4, EXCLUDED.ddns_update_v6, EXCLUDED.ddns_opts, EXCLUDED.sector_cache_size);`
+	EXCLUDED.ddns_update_v4, EXCLUDED.ddns_update_v6, EXCLUDED.ddns_opts, EXCLUDED.sector_cache_size,
+	EXCLUDED.syncer_ingress_limit, EXCLUDED.syncer_egress_limit);`
 	var dnsOptsBuf []byte
 	if settings.DDNS.Provider != "" {
 		var err error
@@ -123,7 +128,8 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 			encode(settings.IngressPrice), encode(settings.MaxAccountBalance),
 			settings.AccountExpiry, settings.PriceTableValidity, settings.MaxContractDuration, settings.WindowSize,
 			settings.IngressLimit, settings.EgressLimit, settings.MaxRegistryEntries,
-			settings.DDNS.Provider, settings.DDNS.IPv4, settings.DDNS.IPv6, dnsOptsBuf, settings.SectorCacheSize)
+			settings.DDNS.Provider, settings.DDNS.IPv4, settings.DDNS.IPv6, dnsOptsBuf, settings.SectorCacheSize,
+			settings.SyncerIngressLimit, settings.SyncerEgressLimit)
 		if err != nil {
 			return fmt.Errorf("failed to update settings: %w", err)
 		}
