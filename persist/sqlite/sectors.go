@@ -242,36 +242,47 @@ WHERE ss.sector_root=$1 AND (EXISTS (SELECT 1 FROM contract_sector_roots csr WHE
 type volumeSectorRef struct {
 	VolumeID       int64
 	VolumeSectorID int64
+	SectorID       int64
 }
 
 func updatePruneableVolumeSectors(tx *txn, lastAccess time.Time) (refs []volumeSectorRef, err error) {
-	const query = `
-UPDATE volume_sectors SET sector_id=null
-WHERE id IN (
-	SELECT vs.id FROM volume_sectors vs
-	INNER JOIN stored_sectors ss ON vs.sector_id=ss.id
-	LEFT JOIN contract_sector_roots csr ON ss.id=csr.sector_id
-	LEFT JOIN contract_v2_sector_roots csr2 ON ss.id=csr2.sector_id
-	LEFT JOIN temp_storage_sector_roots tsr ON ss.id=tsr.sector_id
-	WHERE ss.last_access_timestamp < $1 AND csr.sector_id IS NULL AND csr2.sector_id IS NULL AND tsr.sector_id IS NULL
-	LIMIT $2
-) RETURNING id, volume_id;
-`
+	const selectQuery = `
+SELECT vs.id, vs.volume_id, vs.sector_id
+FROM volume_sectors vs
+INNER JOIN stored_sectors ss ON vs.sector_id=ss.id
+LEFT JOIN contract_sector_roots csr ON ss.id=csr.sector_id
+LEFT JOIN contract_v2_sector_roots csr2 ON ss.id=csr2.sector_id
+LEFT JOIN temp_storage_sector_roots tsr ON ss.id=tsr.sector_id
+WHERE ss.last_access_timestamp < $1 AND csr.sector_id IS NULL AND csr2.sector_id IS NULL AND tsr.sector_id IS NULL
+LIMIT $2;`
 
-	rows, err := tx.Query(query, encode(lastAccess), sqlSectorBatchSize)
+	rows, err := tx.Query(selectQuery, encode(lastAccess), sqlSectorBatchSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select volume sectors: %w", err)
 	}
 	defer rows.Close()
 
+	var volumeSectorIDs []any
 	for rows.Next() {
 		var ref volumeSectorRef
-		if err := rows.Scan(&ref.VolumeSectorID, &ref.VolumeID); err != nil {
+		if err := rows.Scan(&ref.VolumeSectorID, &ref.VolumeID, &ref.SectorID); err != nil {
 			return nil, fmt.Errorf("failed to scan volume sector: %w", err)
 		}
 		refs = append(refs, ref)
+		volumeSectorIDs = append(volumeSectorIDs, ref.VolumeSectorID)
 	}
-	return
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to get volume sectors: %w", err)
+	} else if len(refs) == 0 {
+		return nil, nil
+	}
+
+	// update the volume_sectors table to null out the sector_id
+	updateQuery := `UPDATE volume_sectors SET sector_id=null WHERE id IN (` + queryPlaceHolders(len(refs)) + `)`
+	if _, err := tx.Exec(updateQuery, volumeSectorIDs...); err != nil {
+		return nil, fmt.Errorf("failed to update volume sectors: %w", err)
+	}
+	return refs, nil
 }
 
 // PruneSectors removes volume references for sectors that have not been accessed since the provided
@@ -296,14 +307,22 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 			}
 
 			volumeDeltas := make(map[int64]int)
+			sectorIDs := make([]any, 0, len(refs))
 			for _, ref := range refs {
 				volumeDeltas[ref.VolumeID]--
+				sectorIDs = append(sectorIDs, ref.SectorID)
 			}
 
 			for volumeID, delta := range volumeDeltas {
 				if err := incrementVolumeUsage(tx, volumeID, delta); err != nil {
 					return fmt.Errorf("failed to update volume %d usage: %w", volumeID, err)
 				}
+			}
+
+			// delete the orphaned stored_sectors entries
+			deleteQuery := `DELETE FROM stored_sectors WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `)`
+			if _, err := tx.Exec(deleteQuery, sectorIDs...); err != nil {
+				return fmt.Errorf("failed to delete stored sectors: %w", err)
 			}
 			return nil
 		})
