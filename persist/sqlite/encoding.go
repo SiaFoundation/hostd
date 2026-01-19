@@ -117,6 +117,7 @@ func (d *decodable) Scan(src any) error {
 		case *[]types.Hash256:
 			dec := types.NewBufDecoder(src)
 			types.DecodeSlice(dec, v)
+			return dec.Err()
 		default:
 			return fmt.Errorf("cannot scan %T to %T", src, d.v)
 		}
