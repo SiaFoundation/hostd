@@ -304,7 +304,9 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 		log.Debug("retrieved checkpoint")
 
-		if err := store.SetCheckpoint(checkpoint); err != nil {
+		if err := store.ResetChainState(); err != nil {
+			return fmt.Errorf("failed to reset chain state: %w", err)
+		} else if err := store.SetCheckpoint(checkpoint); err != nil {
 			return fmt.Errorf("failed to set checkpoint in store: %w", err)
 		}
 
