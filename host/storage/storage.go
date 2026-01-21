@@ -85,9 +85,7 @@ type (
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int64]*volume
-		// changedVolumes tracks volumes that need to be fsynced
-		changedVolumes map[int64]bool
-		cache          *lru.Cache[types.Hash256, *[proto2.SectorSize]byte] // Added cache
+		cache   *lru.Cache[types.Hash256, *[proto2.SectorSize]byte] // Added cache
 	}
 )
 
@@ -366,12 +364,7 @@ func (vm *VolumeManager) writeSector(root types.Hash256, data *[proto4.SectorSiz
 
 		// Add newly written sector to cache
 		vm.cache.Add(root, data)
-
-		// mark the volume as changed
-		vm.mu.Lock()
-		vm.changedVolumes[loc.Volume] = true
-		vm.mu.Unlock()
-		return nil
+		return vol.Sync()
 	})
 }
 
@@ -952,38 +945,6 @@ func (vm *VolumeManager) ReadSector(root types.Hash256, offset, length uint64) (
 	return buf[(offset - segmentOffset):][:length], proto4.BuildSectorProof(buf, leafStart, leafEnd, meta.CachedSubtrees), nil
 }
 
-// Sync syncs the data files of changed volumes.
-func (vm *VolumeManager) Sync() error {
-	done, err := vm.tg.Add()
-	if err != nil {
-		return err
-	}
-	defer done()
-
-	vm.mu.Lock()
-	var toSync []int64
-	for id := range vm.changedVolumes {
-		toSync = append(toSync, id)
-	}
-	vm.mu.Unlock()
-
-	for _, id := range toSync {
-		vm.mu.Lock()
-		vol, ok := vm.volumes[id]
-		vm.mu.Unlock()
-		if !ok {
-			continue
-		}
-		if err := vol.Sync(); err != nil {
-			return fmt.Errorf("failed to sync volume %v: %w", id, err)
-		}
-		vm.mu.Lock()
-		delete(vm.changedVolumes, id)
-		vm.mu.Unlock()
-	}
-	return nil
-}
-
 // HasSector returns true if the host is storing a sector
 func (vm *VolumeManager) HasSector(root types.Hash256) (bool, error) {
 	done, err := vm.tg.Add()
@@ -1078,8 +1039,7 @@ func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManag
 		alerts: alerts.NewNop(),
 		tg:     threadgroup.New(),
 
-		volumes:        make(map[int64]*volume),
-		changedVolumes: make(map[int64]bool),
+		volumes: make(map[int64]*volume),
 	}
 
 	for _, opt := range opts {
