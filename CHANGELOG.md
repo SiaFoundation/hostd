@@ -1,3 +1,32 @@
+## 2.6.0 (2026-01-22)
+
+### Features
+
+- Extend settings with syncerIngressLimit and syncerEgressLimit to set bandwidth rate limits on the syncer.
+- Record syncer bandwidth stats.
+- Register an alert if funding a contract formation, renewal or refresh fails.
+- Track disk I/O in metrics.
+
+#### Cache sector subtrees to reduce disk IO for partial reads.
+
+This change reduces the minimum read size from 4MiB to 4KiB when reading segments of a sector
+
+#### Add support for instant sync
+
+New users can sync instantly using `hostd --instant`. When instant syncing, the `hostd` node initializes using a Utreexo-based checkpoint and can immediately validate blocks from that point forward without replaying the whole chain state. The state is extremely compact and committed in block headers, making this initialization both quick and secure. [Learn more](https://sia.tech/learn/instant-syncing)
+
+**The wallet is required to only have v2 history to use instant syncing.**
+
+### Fixes
+
+- Add monitoring and rate limiting for quic.
+- Fixed a panic when contracts are rejected.
+- Fixed an issue with the backup endpoint locking up the host.
+- Periodically prune `stored_sectors` table
+- Properly return decoding error when decoding slice in decodable.Scan.
+- Sync sector to disk after writing instead of tracking changed volumes.
+- Update core dependency to v0.19.0 and coreutils dependency v0.20.0.
+
 ## 2.5.1 (2025-11-12)
 
 ### Fixes
