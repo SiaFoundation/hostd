@@ -397,11 +397,12 @@ func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDi
 			continue
 		}
 
-		switch {
-		case created:
+		if created {
 			state.ConfirmedV2 = append(state.ConfirmedV2, fce)
-			log.Debug("confirmed v2 contract", zap.Stringer("contractID", fce.ID))
-		case rev != nil:
+			log.Debug("confirmed v2 contract")
+		}
+
+		if rev != nil {
 			if revert {
 				state.RevisedV2 = append(state.RevisedV2, RevisedV2Contract{
 					ID:             fce.ID,
@@ -415,7 +416,9 @@ func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDi
 					V2FileContract: *rev,
 				})
 			}
-		case res != nil:
+		}
+
+		if res != nil {
 			switch res := res.(type) {
 			case *types.V2FileContractRenewal:
 				state.RenewedV2 = append(state.RenewedV2, types.FileContractID(fce.ID))
@@ -435,8 +438,6 @@ func buildContractState(tx UpdateStateTx, fces []consensus.FileContractElementDi
 			default:
 				return StateChanges{}, fmt.Errorf("unexpected contract resolution type: %T", res)
 			}
-		default:
-			return StateChanges{}, fmt.Errorf("unexpected v2 contract state (resolved: %v) (created: %v) (revised: %v) (contractID: %v)", res != nil, created, rev != nil, fce.ID)
 		}
 	}
 	return
