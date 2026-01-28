@@ -41,7 +41,7 @@ type (
 		Network        string `yaml:"network,omitempty"`
 		IndexBatchSize int    `yaml:"indexBatchSize,omitempty"`
 		// PruneTarget is the target number of blocks to keep when pruning
-		// the consenssu database. This should be at least one day worth of
+		// the consensus database. This should be at least one day worth of
 		// blocks to ensure proper operation during deep reorgs (144 blocks on mainnet).
 		//
 		// `0` means pruning is disabled.
