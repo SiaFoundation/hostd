@@ -71,10 +71,11 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
-		cacheHits     uint64 // ensure 64-bit alignment on 32-bit systems
-		cacheMisses   uint64
-		cacheSize     int
-		pruneInterval time.Duration
+		cacheHits          uint64 // ensure 64-bit alignment on 32-bit systems
+		cacheMisses        uint64
+		merkleCacheEnabled bool
+		cacheSize          int
+		pruneInterval      time.Duration
 
 		vs       VolumeStore
 		recorder *sectorAccessRecorder
@@ -926,16 +927,20 @@ func (vm *VolumeManager) ReadSector(root types.Hash256, offset, length uint64) (
 		} else if uint64(len(sector)) != proto4.SectorSize {
 			return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", proto4.SectorSize, len(sector))
 		}
-		cachedSubtrees := proto4.CachedSectorSubtrees((*[proto4.SectorSize]byte)(sector))
-		proof := proto4.BuildSectorProof(sector[segmentOffset:][:segmentLength], leafStart, leafEnd, cachedSubtrees)
-		if err := vm.vs.CacheSubtrees(root, cachedSubtrees); err != nil {
-			return nil, nil, fmt.Errorf("failed to update sector cache: %w", err)
+
+		subtrees := proto4.CachedSectorSubtrees((*[proto4.SectorSize]byte)(sector))
+		proof := proto4.BuildSectorProof(sector[segmentOffset:][:segmentLength], leafStart, leafEnd, subtrees)
+		if vm.merkleCacheEnabled {
+			go func() {
+				if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
+					vm.log.Debug("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
+				}
+			}()
 		}
 		return sector[offset:][:length], proof, nil
 	}
 
 	// roots are already in cache, read only the necessary data
-
 	buf, err := vm.readLocation(meta.Location, segmentOffset, segmentLength)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read sector segment: %w", err)
@@ -973,14 +978,16 @@ func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSiz
 	} else if err != nil {
 		return fmt.Errorf("failed to reference temporary sector: %w", err)
 	}
-	go func() {
-		// optimistically cache the sector subtrees after storing
-		// the sector to avoid blocking the RPC response
-		subtrees := proto4.CachedSectorSubtrees(data)
-		if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
-			vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
-		}
-	}()
+	if vm.merkleCacheEnabled {
+		go func() {
+			// optimistically cache the sector subtrees after storing
+			// the sector to avoid blocking the RPC response
+			subtrees := proto4.CachedSectorSubtrees(data)
+			if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
+				vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
+			}
+		}()
+	}
 	return nil
 }
 
@@ -1031,9 +1038,10 @@ func (vm *VolumeManager) ProcessActions(index types.ChainIndex) error {
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManager, error) {
 	vm := &VolumeManager{
-		cacheSize:     32, // 128 MiB
-		pruneInterval: 5 * time.Minute,
-		vs:            vs,
+		cacheSize:          32, // 128 MiB
+		pruneInterval:      5 * time.Minute,
+		merkleCacheEnabled: true,
+		vs:                 vs,
 
 		log:    zap.NewNop(),
 		alerts: alerts.NewNop(),

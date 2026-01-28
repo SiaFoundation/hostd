@@ -1244,6 +1244,71 @@ func TestStoragePrune(t *testing.T) {
 	assertUsedSectors(t, 0)
 }
 
+func TestMerkleCacheDisable(t *testing.T) {
+	const sectors = 10
+	dir := t.TempDir()
+
+	// create the database
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// initialize the storage manager
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(0), storage.WithMerkleCacheEnabled(false), storage.WithPruneInterval(500*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	result := make(chan error, 1)
+	volumeFilePath := filepath.Join(t.TempDir(), "hostdata.dat")
+	_, err = vm.AddVolume(context.Background(), volumeFilePath, sectors, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	var sector [proto4.SectorSize]byte
+	if _, err := frand.Read(sector[:256]); err != nil {
+		t.Fatal("failed to generate random sector:", err)
+	}
+	root := proto4.SectorRoot(&sector)
+	if err = vm.StoreSector(root, &sector, 100); err != nil {
+		t.Fatal("failed to store sector:", err)
+	}
+
+	meta, err := db.SectorMetadata(root)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(meta.CachedSubtrees) != 0 {
+		t.Fatalf("expected 0 cached subtrees, got %v", len(meta.CachedSubtrees))
+	}
+
+	const (
+		start = 1
+		end   = 4
+
+		offset = start * proto4.LeafSize
+		length = (end - start) * proto4.LeafSize
+	)
+
+	data, proof, err := vm.ReadSector(root, offset, length)
+	if err != nil {
+		t.Fatal("failed to read sector:", err)
+	}
+
+	verifier := proto4.NewRangeProofVerifier(start, end)
+	if _, err := verifier.ReadFrom(bytes.NewReader(data)); err != nil {
+		t.Fatal("failed to read data from verifier:", err)
+	} else if !verifier.Verify(proof, root) {
+		t.Fatal("failed to verify proof")
+	}
+}
+
 func BenchmarkVolumeManagerWrite(b *testing.B) {
 	dir := b.TempDir()
 

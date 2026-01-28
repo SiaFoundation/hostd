@@ -37,3 +37,18 @@ func WithPruneInterval(d time.Duration) VolumeManagerOption {
 		vm.pruneInterval = d
 	}
 }
+
+// WithMerkleCacheEnabled sets whether the merkle root cache is enabled (default true).
+// When enabled, the merkle root cache will store the Merkle subtree roots
+// for all sectors in the database to reduce disk IO for partial sector reads.
+//
+// This reduces the amount of disk IO required to serve partial sector reads,
+// at the cost of database size.
+//
+// The overhead is ~8GiB per TiB of stored data (~0.8% overhead), but reduces
+// disk IO by 1000x for random partial sector reads.
+func WithMerkleCacheEnabled(enabled bool) VolumeManagerOption {
+	return func(vm *VolumeManager) {
+		vm.merkleCacheEnabled = enabled
+	}
+}

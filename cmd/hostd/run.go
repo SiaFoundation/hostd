@@ -413,7 +413,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	defer wr.Close()
 
 	am := alerts.NewManager(alerts.WithEventReporter(wr), alerts.WithLog(log.Named("alerts")))
-	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
+	vm, err := storage.NewVolumeManager(store, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am), storage.WithMerkleCacheEnabled(cfg.Storage.EnableMerkleCache))
 	if err != nil {
 		return fmt.Errorf("failed to create storage manager: %w", err)
 	}
