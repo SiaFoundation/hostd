@@ -272,7 +272,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		roots = append(roots, root)
 
-		if err := node.Volumes.Write(root, &sector); err != nil {
+		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -707,7 +707,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		root := proto4.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
-		if err := node.Volumes.Write(root, &sector); err != nil {
+		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1239,7 +1239,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		root := proto4.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
-		if err := node.Volumes.Write(root, &sector); err != nil {
+		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
 			t.Fatal(err)
 		}
 

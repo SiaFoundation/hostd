@@ -35,16 +35,8 @@ func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash
 		return types.Hash256{}, fmt.Errorf("failed to generate random sector: %w", err)
 	}
 	root := proto4.SectorRoot(&sector)
-	err := vm.Write(root, &sector)
-	if err != nil {
-		return types.Hash256{}, fmt.Errorf("failed to write sector: %w", err)
-	}
-
-	err = vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: expiration}})
-	if err != nil {
-		return types.Hash256{}, fmt.Errorf("failed to add temporary sector: %w", err)
-	}
-	return root, nil
+	err := vm.StoreSector(root, &sector, expiration)
+	return root, err
 }
 
 func TestVolumeLoad(t *testing.T) {
@@ -76,9 +68,7 @@ func TestVolumeLoad(t *testing.T) {
 	var sector [proto4.SectorSize]byte
 	frand.Read(sector[:])
 	root := proto4.SectorRoot(&sector)
-	if err = vm.Write(root, &sector); err != nil {
-		t.Fatal(err)
-	} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
+	if err = vm.StoreSector(root, &sector, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,7 +109,7 @@ func TestVolumeLoad(t *testing.T) {
 	// write a new sector
 	frand.Read(sector[:])
 	root = proto4.SectorRoot(&sector)
-	if err = vm.Write(root, &sector); err != nil {
+	if err = vm.StoreSector(root, &sector, 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -205,11 +195,7 @@ func TestRemoveVolume(t *testing.T) {
 		}
 		roots[i] = proto4.SectorRoot(&sector)
 
-		// write the sector
-
-		if err := vm.Write(roots[i], &sector); err != nil {
-			t.Fatal(err)
-		} else if err := vm.AddTemporarySectors([]storage.TempSector{{Root: roots[i], Expiration: 1}}); err != nil { // must add a temp sector to prevent pruning
+		if err := vm.StoreSector(roots[i], &sector, 1); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -702,7 +688,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 
 	// try to write a sector to the volume, which should fail
-	if err := vm.Write(root, &sector); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.StoreSector(root, &sector, 1); !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected %v, got %v", storage.ErrNotEnoughStorage, err)
 	}
 
@@ -728,7 +714,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 
 	// write the sector again, which should succeed
-	if err := vm.Write(root, &sector); err != nil {
+	if err := vm.StoreSector(root, &sector, 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1095,14 +1081,18 @@ func TestMetricsReadBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// first read is the full sector to populate
-	// the root cache
-	_, _, err = vm.ReadSector(root, 0, 64)
-	if err != nil {
-		t.Fatal(err)
+	// wait for subtrees to be cached
+	for range 100 {
+		meta, err := db.SectorMetadata(root)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(meta.CachedSubtrees) != 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	var totalRead uint64 = proto4.SectorSize
 
+	var totalRead uint64
 	vm.FlushMetrics()
 	metrics, err := db.Metrics(time.Now())
 	if err != nil {
@@ -1309,7 +1299,7 @@ func TestMerkleCacheDisable(t *testing.T) {
 	}
 }
 
-func BenchmarkVolumeManagerWrite(b *testing.B) {
+func BenchmarkStoreSector(b *testing.B) {
 	dir := b.TempDir()
 
 	// create the database
@@ -1348,9 +1338,9 @@ func BenchmarkVolumeManagerWrite(b *testing.B) {
 	b.SetBytes(proto4.SectorSize)
 
 	// fill the volume
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		root, sector := roots[i], sectors[i]
-		err := vm.Write(root, &sector)
+		err := vm.StoreSector(root, &sector, 1)
 		if err != nil {
 			b.Fatal(i, err)
 		}
@@ -1421,11 +1411,11 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 
 	// fill the volume
 	written := make([]types.Hash256, 0, b.N)
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := proto4.SectorRoot(&sector)
-		err := vm.Write(root, &sector)
+		err := vm.StoreSector(root, &sector, 1)
 		if err != nil {
 			b.Fatal(i, err)
 		}
@@ -1471,11 +1461,11 @@ func BenchmarkVolumeRemove(b *testing.B) {
 	}
 
 	// fill the volume
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := proto4.SectorRoot(&sector)
-		err := vm.Write(root, &sector)
+		err := vm.StoreSector(root, &sector, 1)
 		if err != nil {
 			b.Fatal(i, err)
 		}

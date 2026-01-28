@@ -991,33 +991,6 @@ func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSiz
 	return nil
 }
 
-// Write writes a sector to a volume.
-func (vm *VolumeManager) Write(root types.Hash256, data *[proto2.SectorSize]byte) error {
-	done, err := vm.tg.Add()
-	if err != nil {
-		return err
-	}
-	defer done()
-
-	return vm.writeSector(root, data)
-}
-
-// AddTemporarySectors adds sectors to the temporary store. The sectors are not
-// referenced by a contract and will be removed at the expiration height.
-func (vm *VolumeManager) AddTemporarySectors(sectors []TempSector) error {
-	if len(sectors) == 0 {
-		return nil
-	}
-
-	done, err := vm.tg.Add()
-	if err != nil {
-		return err
-	}
-	defer done()
-
-	return vm.vs.AddTemporarySectors(sectors)
-}
-
 // ResizeCache resizes the cache to the given size.
 func (vm *VolumeManager) ResizeCache(size uint32) {
 	// Resize the underlying cache data structure
