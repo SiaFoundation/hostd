@@ -338,7 +338,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}
 
-	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
+	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")), chain.WithPruneTarget(cfg.Consensus.PruneTarget))
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {
