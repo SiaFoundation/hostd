@@ -933,7 +933,7 @@ func (vm *VolumeManager) ReadSector(root types.Hash256, offset, length uint64) (
 		if vm.merkleCacheEnabled {
 			go func() {
 				if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
-					vm.log.Debug("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
+					vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
 				}
 			}()
 		}

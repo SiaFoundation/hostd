@@ -92,7 +92,7 @@ type (
 		// This will cache the Merkle subtree roots for all sectors in the
 		// database to reduce disk IO for partial sector reads.
 		//
-		// Enable this cache will increase the SQLite database by
+		// Enabling the cache increases the SQLite database size by
 		// 8GiB per TiB of stored data (~0.8% overhead), but will
 		// reduce disk IO by 1000x for random partial sector reads.
 		//
