@@ -60,6 +60,9 @@ var (
 				},
 			},
 		},
+		Storage: config.Storage{
+			EnableMerkleCache: true,
+		},
 		Log: config.Log{
 			File: config.LogFile{
 				Enabled: true,

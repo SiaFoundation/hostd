@@ -86,6 +86,20 @@ type (
 		EnableANSI bool            `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
 	}
 
+	// Storage contains the configuration for the storage subsystem.
+	Storage struct {
+		// EnableMerkleCache indicates whether to enable the merkle root cache.
+		// This will cache the Merkle subtree roots for all sectors in the
+		// database to reduce disk IO for partial sector reads.
+		//
+		// Enabling the cache increases the SQLite database size by
+		// 8GiB per TiB of stored data (~0.8% overhead), but will
+		// reduce disk IO by 1000x for random partial sector reads.
+		//
+		// Disable only if SSD storage space is extremely constrained.
+		EnableMerkleCache bool `yaml:"enableMerkleCache,omitempty"`
+	}
+
 	// Log contains the configuration for the logger.
 	Log struct {
 		StdOut StdOut  `yaml:"stdout,omitempty"`
@@ -103,6 +117,7 @@ type (
 		Syncer    Syncer       `yaml:"syncer,omitempty"`
 		Consensus Consensus    `yaml:"consensus,omitempty"`
 		Explorer  ExplorerData `yaml:"explorer,omitempty"`
+		Storage   Storage      `yaml:"storage,omitempty"`
 		RHP4      RHP4         `yaml:"rhp4,omitempty"`
 		Log       Log          `yaml:"log,omitempty"`
 	}
