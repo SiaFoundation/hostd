@@ -189,14 +189,11 @@ func backupDB(ctx context.Context, src *sql.DB, destPath string) (err error) {
 		default:
 		}
 
-		if done, err := backup.Step(100); err != nil {
+		if done, err := backup.Step(-1); err != nil {
 			return fmt.Errorf("backup step %d failed: %w", step, err)
 		} else if done {
 			break
 		}
-	}
-	if _, err := dest.Exec("VACUUM"); err != nil {
-		return fmt.Errorf("failed to vacuum destination database: %w", err)
 	}
 	return nil
 }
