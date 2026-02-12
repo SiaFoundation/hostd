@@ -344,14 +344,13 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			return // disabled
 		}
 		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				var targetHeight uint64
-				if cm.Tip().Height > cfg.Consensus.PruneTarget {
-					targetHeight = cm.Tip().Height - cfg.Consensus.PruneTarget
+				if tip := cm.Tip(); tip.Height > cfg.Consensus.PruneTarget {
+					cm.PruneBlocks(tip.Height - cfg.Consensus.PruneTarget)
 				}
-				cm.PruneBlocks(targetHeight)
 			case <-ctx.Done():
 				return
 			}
