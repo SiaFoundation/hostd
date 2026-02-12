@@ -338,7 +338,25 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}
 
-	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")), chain.WithPruneTarget(cfg.Consensus.PruneTarget))
+	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
+	go func() {
+		if cfg.Consensus.PruneTarget == 0 {
+			return // disabled
+		}
+		ticker := time.NewTicker(time.Hour)
+		for {
+			select {
+			case <-ticker.C:
+				var targetHeight uint64
+				if cm.Tip().Height > cfg.Consensus.PruneTarget {
+					targetHeight = cm.Tip().Height - cfg.Consensus.PruneTarget
+				}
+				cm.PruneBlocks(targetHeight)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {
