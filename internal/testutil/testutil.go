@@ -178,7 +178,7 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 
 // NewHostNode initializes all of the hostd components and returns them. The function
 // will clean up all resources when the test is done.
-func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, genesis types.Block, log *zap.Logger) *HostNode {
+func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, genesis types.Block, log *zap.Logger, indexOpts ...index.Option) *HostNode {
 	t.Helper()
 
 	cn := NewConsensusNode(t, network, genesis, log)
@@ -216,7 +216,7 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 	}
 	t.Cleanup(func() { sm.Close() })
 
-	idx, err := index.NewManager(cn.Store, cn.Chain, contracts, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(1))
+	idx, err := index.NewManager(cn.Store, cn.Chain, contracts, wm, sm, vm, append([]index.Option{index.WithLog(log.Named("index")), index.WithBatchSize(1)}, indexOpts...)...)
 	if err != nil {
 		t.Fatal("failed to create index manager:", err)
 	}
