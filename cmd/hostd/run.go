@@ -504,7 +504,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer contractManager.Close()
 
-	index, err := index.NewManager(store, cm, contractManager, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
+	index, err := index.NewManager(store, cm, contractManager, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize), index.WithPruneTarget(cfg.Consensus.PruneTarget))
 	if err != nil {
 		return fmt.Errorf("failed to create index manager: %w", err)
 	}
