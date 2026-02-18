@@ -89,7 +89,14 @@ func (m *Manager) syncDB(ctx context.Context) error {
 		m.mu.Lock()
 		m.index = index
 		m.mu.Unlock()
+
 		log.Debug("synced to new chain index", zap.Stringer("index", index))
 	}
+
+	// prune old blocks if pruning is enabled
+	if m.pruneTarget > 0 && index.Height > m.pruneTarget {
+		m.chain.PruneBlocks(index.Height - m.pruneTarget)
+	}
+
 	return nil
 }

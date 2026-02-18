@@ -339,23 +339,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 
 	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
-	go func() {
-		if cfg.Consensus.PruneTarget == 0 {
-			return // disabled
-		}
-		ticker := time.NewTicker(time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if tip := cm.Tip(); tip.Height > cfg.Consensus.PruneTarget {
-					cm.PruneBlocks(tip.Height - cfg.Consensus.PruneTarget)
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {

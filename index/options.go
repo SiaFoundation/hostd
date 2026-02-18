@@ -18,3 +18,9 @@ func WithBatchSize(bs int) Option {
 		m.updateBatchSize = bs
 	}
 }
+
+func WithPruneTarget(target uint64) Option {
+	return func(m *Manager) {
+		m.pruneTarget = target
+	}
+}
