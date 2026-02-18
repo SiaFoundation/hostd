@@ -18,3 +18,12 @@ func WithBatchSize(bs int) Option {
 		m.updateBatchSize = bs
 	}
 }
+
+// WithPruneTarget sets the prune target of the manager. A prune target of 0
+// means pruning is diabled. A target n > 0 means that only the last n blocks
+// will be kept. On mainnet this should be set to at least 144.
+func WithPruneTarget(target uint64) Option {
+	return func(m *Manager) {
+		m.pruneTarget = target
+	}
+}

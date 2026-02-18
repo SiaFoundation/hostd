@@ -338,7 +338,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 	}
 
-	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")), chain.WithPruneTarget(cfg.Consensus.PruneTarget))
+	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {
@@ -504,7 +504,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 	defer contractManager.Close()
 
-	index, err := index.NewManager(store, cm, contractManager, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize))
+	index, err := index.NewManager(store, cm, contractManager, wm, sm, vm, index.WithLog(log.Named("index")), index.WithBatchSize(cfg.Consensus.IndexBatchSize), index.WithPruneTarget(cfg.Consensus.PruneTarget))
 	if err != nil {
 		return fmt.Errorf("failed to create index manager: %w", err)
 	}

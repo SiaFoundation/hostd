@@ -69,6 +69,7 @@ type (
 	// A Manager manages the state of the blockchain and indexes consensus
 	// changes.
 	Manager struct {
+		pruneTarget     uint64
 		updateBatchSize int
 
 		chain *chain.Manager
@@ -107,6 +108,7 @@ func NewManager(store Store, chain *chain.Manager, contracts ContractManager, wa
 	}
 
 	m := &Manager{
+		pruneTarget:     0, // disabled
 		updateBatchSize: 100,
 
 		chain: chain,
