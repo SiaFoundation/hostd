@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"testing"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/index"
@@ -21,7 +22,7 @@ func TestPruneTarget(t *testing.T) {
 	// mine enough blocks to trigger pruning
 	totalBlocks := pruneTarget + 20
 	testutil.MineAndSync(t, hn, types.VoidAddress, int(totalBlocks))
-
+	time.Sleep(time.Second) // allow time for pruning to occur
 	tip := hn.Chain.Tip()
 
 	// blocks below (tip.Height - pruneTarget) should be pruned
