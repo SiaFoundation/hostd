@@ -9,9 +9,9 @@ import (
 
 	"github.com/shopspring/decimal"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/hostd/v2/host/settings"
-	"go.sia.tech/coreutils/threadgroup"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

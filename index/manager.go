@@ -8,10 +8,10 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/settings"
-	"go.sia.tech/coreutils/threadgroup"
 	"go.uber.org/zap"
 )
 

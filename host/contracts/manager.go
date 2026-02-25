@@ -12,8 +12,8 @@ import (
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
-	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/coreutils/threadgroup"
+	"go.sia.tech/hostd/v2/alerts"
 	"go.uber.org/zap"
 )
 
