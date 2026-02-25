@@ -60,7 +60,7 @@ func TestPinned(t *testing.T) {
 	}
 	defer db.Close()
 
-	for i := 0; i < 10000; i++ {
+	for range 10000 {
 		p := randomPinnedSettings()
 		if err := db.UpdatePinnedSettings(context.Background(), p); err != nil {
 			t.Fatal(err)

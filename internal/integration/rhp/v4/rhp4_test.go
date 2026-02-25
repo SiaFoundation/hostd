@@ -968,7 +968,7 @@ func TestReplenishAccounts(t *testing.T) {
 
 	var balances []rhp4.AccountBalance
 	// add some random unknown accounts
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		balances = append(balances, rhp4.AccountBalance{
 			Account: proto4.Account(frand.Entropy256()),
 			Balance: types.ZeroCurrency,
@@ -976,7 +976,7 @@ func TestReplenishAccounts(t *testing.T) {
 	}
 
 	var deposits []proto4.AccountDeposit
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		// fund an account with random values below 1SC
 		account1 := frand.Entropy256()
 		deposits = append(deposits, proto4.AccountDeposit{
@@ -1402,7 +1402,7 @@ func TestAppendSectors(t *testing.T) {
 	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	// store random sectors
 	roots := make([]types.Hash256, 0, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:])
 		root := proto4.SectorRoot(&sector)
@@ -1767,7 +1767,7 @@ func TestPrune(t *testing.T) {
 	token := proto4.NewAccountToken(renterKey, hostKey.PublicKey())
 	tempExpirationHeight := cm.Tip().Height + proto4.TempSectorDuration
 	roots := make([]types.Hash256, 10)
-	for i := 0; i < len(roots); i++ {
+	for i := range roots {
 		data := frand.Bytes(1024)
 
 		// store the sector

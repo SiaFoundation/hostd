@@ -264,7 +264,7 @@ func (c ContractStatus) String() string {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (c ContractStatus) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`%q`, c.String())), nil
+	return fmt.Appendf(nil, `%q`, c.String()), nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.

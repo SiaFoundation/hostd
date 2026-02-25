@@ -3,6 +3,7 @@ package contracts
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"sync"
 	"time"
@@ -396,9 +397,7 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		return nil, fmt.Errorf("failed to get v2 sector roots: %w", err)
 	}
 
-	for id, contractRoots := range v2Roots {
-		roots[id] = contractRoots
-	}
+	maps.Copy(roots, v2Roots)
 
 	cm.sectorRoots = roots
 	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))

@@ -153,7 +153,7 @@ type (
 		RegisterWebhook(callbackURL string, scopes []string) (webhooks.Webhook, error)
 		UpdateWebhook(id int64, callbackURL string, scopes []string) (webhooks.Webhook, error)
 		RemoveWebhook(id int64) error
-		BroadcastToWebhook(id int64, event, scope string, data interface{}) error
+		BroadcastToWebhook(id int64, event, scope string, data any) error
 	}
 
 	// An api provides an HTTP API for the host

@@ -40,12 +40,12 @@ func (p *Provider) buildChange(ip, recordType string) *route53.Change {
 	return &route53.Change{
 		Action: aws.String(route53.ChangeActionUpsert),
 		ResourceRecordSet: &route53.ResourceRecordSet{
-			Name: aws.String(p.options.Hostname),
-			Type: aws.String(recordType),
+			Name: new(p.options.Hostname),
+			Type: new(recordType),
 			TTL:  aws.Int64(300),
 			ResourceRecords: []*route53.ResourceRecord{
 				{
-					Value: aws.String(ip),
+					Value: new(ip),
 				},
 			},
 		},
@@ -75,7 +75,7 @@ func (p *Provider) Update(ipv4, ipv6 net.IP) error {
 	}
 
 	_, err = svc.ChangeResourceRecordSets(&route53.ChangeResourceRecordSetsInput{
-		HostedZoneId: aws.String(p.options.ZoneID),
+		HostedZoneId: new(p.options.ZoneID),
 		ChangeBatch: &route53.ChangeBatch{
 			Changes: changes,
 		},

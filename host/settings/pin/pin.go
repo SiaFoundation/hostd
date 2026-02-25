@@ -119,7 +119,7 @@ func (m *Manager) registerPinFailureAlert(err error) {
 			Severity:  alerts.SeverityError,
 			Message:   "failed to update prices",
 			Timestamp: time.Now(),
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"error": err.Error(),
 			},
 		})

@@ -91,7 +91,7 @@ func (s Severity) String() string {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (s Severity) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`%q`, s.String())), nil
+	return fmt.Appendf(nil, `%q`, s.String()), nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.

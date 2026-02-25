@@ -227,10 +227,7 @@ func (vm *VolumeManager) growVolume(ctx context.Context, id int64, volume *volum
 		default:
 		}
 
-		target := current + resizeBatchSize
-		if target > newMaxSectors {
-			target = newMaxSectors
-		}
+		target := min(current+resizeBatchSize, newMaxSectors)
 
 		// truncate the file and add the indices to the volume store. resize is
 		// done in chunks to prevent holding a lock for too long and to allow
@@ -305,10 +302,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 		}
 		var target uint64
 		if current > resizeBatchSize {
-			target = current - resizeBatchSize
-			if target < newMaxSectors {
-				target = newMaxSectors
-			}
+			target = max(current-resizeBatchSize, newMaxSectors)
 		} else {
 			target = newMaxSectors
 		}
@@ -350,7 +344,7 @@ func (vm *VolumeManager) writeSector(root types.Hash256, data *[proto4.SectorSiz
 				ID:       vol.alertID("write"),
 				Severity: alerts.SeverityError,
 				Message:  "Failed to write sector",
-				Data: map[string]interface{}{
+				Data: map[string]any{
 					"volume":       vol.Location(),
 					"failedReads":  stats.FailedReads,
 					"failedWrites": stats.FailedWrites,
@@ -515,7 +509,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 		err := vm.growVolume(ctx, volumeID, vol, 0, maxSectors)
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"volumeID": volumeID,
 				"elapsed":  time.Since(start),
 				"target":   maxSectors,
@@ -600,7 +594,7 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 		ID:       frand.Entropy256(),
 		Message:  "Removing volume",
 		Severity: alerts.SeverityInfo,
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"volumeID": id,
 			"sectors":  stat.TotalSectors,
 			"used":     stat.UsedSectors,
@@ -743,7 +737,7 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 
 		alert := alerts.Alert{
 			ID: frand.Entropy256(),
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"volumeID":      id,
 				"elapsed":       time.Since(start),
 				"targetSectors": maxSectors,

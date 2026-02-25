@@ -59,10 +59,7 @@ func (s *Store) transaction(fn func(*txn) error) error {
 			break
 		}
 		// exponential backoff
-		sleep := time.Duration(math.Pow(factor, float64(attempt))) * time.Millisecond
-		if sleep > maxBackoff {
-			sleep = maxBackoff
-		}
+		sleep := min(time.Duration(math.Pow(factor, float64(attempt)))*time.Millisecond, maxBackoff)
 		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"), zap.Duration("retry", sleep))
 		jitterSleep(sleep)
 	}

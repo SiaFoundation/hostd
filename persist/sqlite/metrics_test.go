@@ -25,7 +25,7 @@ func TestWalletMetrics(t *testing.T) {
 	mineAndSync := func(t *testing.T, cn *testutil.ConsensusNode, addr types.Address, n int) {
 		t.Helper()
 
-		for i := 0; i < n; i++ {
+		for range n {
 			testutil.MineBlocks(t, cn, addr, 1)
 			testutil.WaitForSync(t, cn.Chain, h1.Indexer)
 		}

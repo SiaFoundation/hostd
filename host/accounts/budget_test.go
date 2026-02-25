@@ -20,10 +20,10 @@ func TestUsageTotal(t *testing.T) {
 	uv := reflect.ValueOf(&u).Elem()
 
 	var total types.Currency
-	for i := 0; i < uv.NumField(); i++ {
+	for _, field := range uv.Fields() {
 		v := types.NewCurrency(frand.Uint64n(math.MaxUint64), 0)
 		total = total.Add(v)
-		uv.Field(i).Set(reflect.ValueOf(v))
+		field.Set(reflect.ValueOf(v))
 	}
 
 	if u.Total() != total {

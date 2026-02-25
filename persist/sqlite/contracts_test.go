@@ -256,7 +256,7 @@ func TestReviseContract(t *testing.T) {
 		t.Helper()
 
 		var appended []types.Hash256
-		for i := 0; i < n; i++ {
+		for range n {
 			root := frand.Entropy256()
 			err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 			if err != nil {
@@ -292,7 +292,7 @@ func TestReviseContract(t *testing.T) {
 		t.Helper()
 
 		newRoots := append([]types.Hash256(nil), roots...)
-		for i := 0; i < n; i++ {
+		for range n {
 			j := frand.Intn(len(newRoots))
 			newRoots = append(newRoots[:j], newRoots[j+1:]...)
 		}
@@ -325,10 +325,10 @@ func TestReviseContract(t *testing.T) {
 	trimSectors(t, 5)
 
 	appendSectors(t, frand.Intn(49)+1)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		swapSectors(t)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		appendSectors(t, 1)
 		deleteSectors(t, frand.Intn(len(roots)/4)+1)
 	}
@@ -623,7 +623,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 		t.Helper()
 
 		var appended []types.Hash256
-		for i := 0; i < n; i++ {
+		for range n {
 			root := frand.Entropy256()
 			err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
 			if err != nil {
@@ -663,7 +663,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 		t.Helper()
 
 		newRoots := append([]types.Hash256(nil), roots...)
-		for i := 0; i < n; i++ {
+		for range n {
 			j := frand.Intn(len(newRoots))
 			newRoots = append(newRoots[:j], newRoots[j+1:]...)
 		}
@@ -700,10 +700,10 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 	trimSectors(t, 5)
 
 	appendSectors(t, frand.Intn(49)+1)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		swapSectors(t)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		appendSectors(t, 1)
 		deleteSectors(t, frand.Intn(len(roots)/4)+1)
 	}
