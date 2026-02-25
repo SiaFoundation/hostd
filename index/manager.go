@@ -11,7 +11,7 @@ import (
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/settings"
-	"go.sia.tech/hostd/v2/internal/threadgroup"
+	"go.sia.tech/coreutils/threadgroup"
 	"go.uber.org/zap"
 )
 
