@@ -13,8 +13,8 @@ import (
 	proto2 "go.sia.tech/core/rhp/v2"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/coreutils/threadgroup"
+	"go.sia.tech/hostd/v2/alerts"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

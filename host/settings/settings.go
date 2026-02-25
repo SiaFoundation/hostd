@@ -14,9 +14,9 @@ import (
 	"go.sia.tech/core/consensus"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/threadgroup"
 	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/hostd/v2/build"
-	"go.sia.tech/coreutils/threadgroup"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
