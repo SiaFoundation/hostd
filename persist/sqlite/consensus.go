@@ -112,7 +112,7 @@ func updateSiacoinStateElements(tx *txn, elements []stateElement) error {
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
-			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+			return fmt.Errorf("failed to update siacoin element %v: not found", se.ID)
 		}
 	}
 	return nil
@@ -152,7 +152,7 @@ func updateContractStateElements(tx *txn, elements []contractStateElement) error
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
-			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+			return fmt.Errorf("failed to update siacoin element %v: not found", se.ID)
 		}
 	}
 	return nil
@@ -192,7 +192,7 @@ func updateChainStateElements(tx *txn, elements []stateElement) error {
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
-			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+			return fmt.Errorf("failed to update siacoin element %v: not found", se.ID)
 		}
 	}
 	return nil
