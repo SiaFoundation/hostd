@@ -574,6 +574,59 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("renewal with revision in same block", func(t *testing.T) {
+		// form a contract
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		expectedStatuses[contracts.V2ContractStatusActive]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
+
+		// revise the contract off-chain to have a valid revision
+		fc, _, _ = appendSector(t, contractID, fc, nil, false)
+
+		// build a revision transaction and add it to the pool
+		basis, fce, err := node.Contracts.V2FileContractElement(contractID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revisionTxn := types.V2Transaction{
+			FileContractRevisions: []types.V2FileContractRevision{
+				{Parent: fce, Revision: fc},
+			},
+		}
+		if _, err := node.Chain.AddV2PoolTransactions(basis, []types.V2Transaction{revisionTxn}); err != nil {
+			t.Fatal("failed to add revision to pool:", err)
+		}
+
+		// build the renewal and add it to the pool as well
+		renewalID, renewal, renewalTxnSet, _ := renewContract(t, contractID, fc, types.ZeroCurrency, types.Siacoins(2))
+		if _, err := node.Chain.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
+			t.Fatal("failed to add renewal to pool:", err)
+		}
+
+		// renew the contract
+		if err := node.Contracts.RenewV2Contract(renewalTxnSet, proto4.Usage{
+			RiskedCollateral: renewal.RiskedCollateral(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		// mine a block to confirm the revision and renewal
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+
+		// the old contract should be renewed
+		expectedStatuses[contracts.V2ContractStatusRenewed]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusRenewed)
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusActive)
+
+		// mine until the renewed contract expires
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.ExpirationHeight-node.Chain.Tip().Height)+1)
+		expectedStatuses[contracts.V2ContractStatusActive]--
+		expectedStatuses[contracts.V2ContractStatusSuccessful]++
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
+	})
+
 	t.Run("rejected no storage", func(t *testing.T) {
 		cm := node.Chain
 		c := node.Contracts
