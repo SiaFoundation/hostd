@@ -10,7 +10,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.19.0
-	go.sia.tech/coreutils v0.21.1-0.20260218210936-16ee0158d195
+	go.sia.tech/coreutils v0.21.1
 	go.sia.tech/jape v0.14.1
 	go.sia.tech/web/hostd v0.68.0
 	go.uber.org/zap v1.27.1
