@@ -13,7 +13,7 @@ import (
 	"go.sia.tech/core/types"
 	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/hostd/v2/alerts"
-	"go.sia.tech/hostd/v2/internal/threadgroup"
+	"go.sia.tech/coreutils/threadgroup"
 	"go.uber.org/zap"
 )
 
