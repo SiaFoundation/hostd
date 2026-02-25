@@ -92,7 +92,7 @@ func WaitForSync(t testing.TB, cm *chain.Manager, idx *index.Manager) {
 func MineBlocks(t testing.TB, cn *ConsensusNode, addr types.Address, n int) {
 	t.Helper()
 
-	for i := 0; i < n; i++ {
+	for range n {
 		b, ok := coreutils.MineBlock(cn.Chain, addr, 5*time.Second)
 		if !ok {
 			t.Fatal("failed to mine block")
@@ -111,7 +111,7 @@ func MineBlocks(t testing.TB, cn *ConsensusNode, addr types.Address, n int) {
 func MineAndSync(t testing.TB, hn *HostNode, addr types.Address, n int) {
 	t.Helper()
 
-	for i := 0; i < n; i++ {
+	for range n {
 		MineBlocks(t, &hn.ConsensusNode, addr, 1)
 		WaitForSync(t, hn.Chain, hn.Indexer)
 	}

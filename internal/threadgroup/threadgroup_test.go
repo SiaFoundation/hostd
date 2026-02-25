@@ -10,7 +10,7 @@ import (
 func TestThreadgroup(t *testing.T) {
 	tg := New()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		done, err := tg.Add()
 		if err != nil {
 			t.Fatal(err)
@@ -72,7 +72,7 @@ func TestThreadgroupContext(t *testing.T) {
 	})
 
 	t.Run("stop", func(t *testing.T) {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			_, cancel, err := tg.AddContext(context.Background())
 			if err != nil {
 				t.Fatal(err)

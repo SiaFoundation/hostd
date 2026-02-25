@@ -192,7 +192,7 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 	// fill in any missing periods
 	periods := []metrics.Metrics{}
 	current := start
-	for i := 0; i < n; i++ {
+	for range n {
 		if len(stats) != 0 && stats[0].Timestamp.Equal(current) {
 			periods = append(periods, stats[0])
 			stats = stats[1:]

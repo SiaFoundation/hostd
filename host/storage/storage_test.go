@@ -354,7 +354,7 @@ func TestRemoveCorrupt(t *testing.T) {
 	assertVolume(t, volume.ID, 0, expectedSectors)
 	assertMetrics(t, 0, 0, expectedSectors)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if _, err := storeRandomSector(vm, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -498,7 +498,7 @@ func TestRemoveMissing(t *testing.T) {
 	assertVolume(t, volume.ID, 0, expectedSectors)
 	assertMetrics(t, 0, 0, expectedSectors)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if _, err := storeRandomSector(vm, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -765,7 +765,7 @@ func TestVolumeGrow(t *testing.T) {
 
 	// fill the volume
 	roots := make([]types.Hash256, 0, initialSectors)
-	for i := 0; i < int(initialSectors); i++ {
+	for range int(initialSectors) {
 		root, err := storeRandomSector(vm, 1)
 		if err != nil {
 			t.Fatal(err)

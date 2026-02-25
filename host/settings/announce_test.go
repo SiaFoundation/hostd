@@ -72,7 +72,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 		t.Helper()
 
 		// waits for each block to be processed before mining the next one
-		for i := uint64(0); i < numBlocks; i++ {
+		for range numBlocks {
 			testutil.MineBlocks(t, node, wm.Address(), 1)
 			testutil.WaitForSync(t, node.Chain, idx)
 		}

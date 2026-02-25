@@ -134,7 +134,7 @@ func TestRegistryPut(t *testing.T) {
 	}
 
 	// fill the registry
-	for i := 0; i < registryCap-1; i++ {
+	for i := range registryCap - 1 {
 		_, err := reg.Put(randomValue(renterPriv), 10)
 		if err != nil {
 			t.Fatalf("failed on entry %d: %s", i, err)

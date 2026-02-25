@@ -139,8 +139,8 @@ type (
 		Inbound bool   `json:"inbound"`
 		Version string `json:"version"`
 
-		FirstSeen      time.Time     `json:"firstSeen,omitempty"`
-		ConnectedSince time.Time     `json:"connectedSince,omitempty"`
+		FirstSeen      time.Time     `json:"firstSeen"`
+		ConnectedSince time.Time     `json:"connectedSince"`
 		SyncedBlocks   uint64        `json:"syncedBlocks,omitempty"`
 		SyncDuration   time.Duration `json:"syncDuration,omitempty"`
 	}

@@ -142,16 +142,14 @@ func TestContractLockUnlock(t *testing.T) {
 	node.Contracts.Unlock(rev.Revision.ParentID)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			if _, err := node.Contracts.Lock(context.Background(), rev.Revision.ParentID); err != nil {
 				t.Error(err)
 			}
 			time.Sleep(100 * time.Millisecond)
 			node.Contracts.Unlock(rev.Revision.ParentID)
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1487,7 +1485,7 @@ func TestChainIndexElementsDeepReorg(t *testing.T) {
 	mineAndSync := func(t *testing.T, cn *testutil.ConsensusNode, addr types.Address, n int) {
 		t.Helper()
 
-		for i := 0; i < n; i++ {
+		for range n {
 			testutil.MineBlocks(t, cn, addr, 1)
 			testutil.WaitForSync(t, cn.Chain, h1.Indexer)
 		}

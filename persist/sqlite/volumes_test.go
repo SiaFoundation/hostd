@@ -388,7 +388,7 @@ func TestShrinkVolume(t *testing.T) {
 	}
 
 	// add a few sectors
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation) error {
 			if loc.Volume != volume.ID {
 				t.Fatalf("expected volume ID %v, got %v", volume.ID, loc.Volume)
@@ -432,7 +432,7 @@ func TestMigrateConcurrency(t *testing.T) {
 	}
 
 	// fill the volume
-	for i := 0; i < initialSectors; i++ {
+	for range initialSectors {
 		root := frand.Entropy256()
 		if err := db.StoreSector(root, func(_ storage.SectorLocation) error { return nil }); err != nil {
 			t.Fatal(err)
@@ -463,9 +463,7 @@ func TestMigrateConcurrency(t *testing.T) {
 
 	// prevent database close panic by waiting until migration has stopped or completed
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _, err := db.MigrateSectors(ctx, v1.ID, 0, func(from, to storage.SectorLocation) error {
 			// simulate disk i/o
 			time.Sleep(50 * time.Millisecond)
@@ -474,10 +472,10 @@ func TestMigrateConcurrency(t *testing.T) {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			panic(err)
 		}
-	}()
+	})
 
 	// fill the second volume
-	for i := 0; i < initialSectors; i++ {
+	for range initialSectors {
 		root := types.Hash256(frand.Entropy256())
 		err := db.StoreSector(root, func(_ storage.SectorLocation) error {
 			// simulate disk i/o
@@ -529,7 +527,7 @@ func TestRemoveVolume(t *testing.T) {
 	}
 
 	// add a few sectors
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		sectorRoot := frand.Entropy256()
 		err := db.StoreSector(sectorRoot, func(loc storage.SectorLocation) error {
 			if loc.Volume != volume.ID {
@@ -719,7 +717,7 @@ func TestPrune(t *testing.T) {
 
 	// store enough sectors to fill the volume
 	roots := make([]types.Hash256, 0, sectors)
-	for i := 0; i < sectors; i++ {
+	for i := range sectors {
 		root := frand.Entropy256()
 		err := db.StoreSector(root, func(loc storage.SectorLocation) error {
 			if loc.Volume != volume.ID {
@@ -971,10 +969,7 @@ func BenchmarkStoreSector(b *testing.B) {
 		minSectors           = 20 * sectorsPerTiB
 	)
 
-	sectors := minSectors
-	if sectors < uint64(b.N) {
-		sectors = uint64(b.N)
-	}
+	sectors := max(minSectors, uint64(b.N))
 
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
@@ -1029,9 +1024,7 @@ func BenchmarkStoreSectorParallel(b *testing.B) {
 			var wg sync.WaitGroup
 			jobs := make(chan struct{})
 			for range nThreads {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					for range jobs {
 						err := db.StoreSector(frand.Entropy256(), func(loc storage.SectorLocation) error { return nil })
 						if err != nil {
@@ -1039,7 +1032,7 @@ func BenchmarkStoreSectorParallel(b *testing.B) {
 							return
 						}
 					}
-				}()
+				})
 			}
 			for i := 0; i < b.N; i++ {
 				jobs <- struct{}{}
@@ -1056,10 +1049,7 @@ func BenchmarkReadSector(b *testing.B) {
 		minSectors           = 20 * sectorsPerTiB
 	)
 
-	sectors := minSectors
-	if sectors < uint64(b.N) {
-		sectors = uint64(b.N)
-	}
+	sectors := max(minSectors, uint64(b.N))
 
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
@@ -1127,9 +1117,7 @@ func BenchmarkReadSectorParallel(b *testing.B) {
 			var wg sync.WaitGroup
 			jobs := make(chan int)
 			for i := range nThreads {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					for range jobs {
 						_, err := db.SectorLocation(roots[i])
 						if err != nil {
@@ -1137,7 +1125,7 @@ func BenchmarkReadSectorParallel(b *testing.B) {
 							return
 						}
 					}
-				}()
+				})
 			}
 			for i := 0; i < b.N; i++ {
 				jobs <- i % len(roots)
