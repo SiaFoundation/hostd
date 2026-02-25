@@ -112,7 +112,7 @@ func updateSiacoinStateElements(tx *txn, elements []stateElement) error {
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
-			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+			return fmt.Errorf("failed to update siacoin element %v: not found", se.ID)
 		}
 	}
 	return nil
@@ -148,11 +148,11 @@ func updateContractStateElements(tx *txn, elements []contractStateElement) error
 
 	for _, se := range elements {
 		if res, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), se.ID); err != nil {
-			return fmt.Errorf("failed to update siacoin element: %w", err)
+			return fmt.Errorf("failed to update contract element: %w", err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
-			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+			return fmt.Errorf("failed to update contract element %v: not found", se.ID)
 		}
 	}
 	return nil
@@ -162,19 +162,19 @@ func getChainStateElements(tx *txn) (elements []stateElement, err error) {
 	const query = `SELECT id, leaf_index, merkle_proof FROM contracts_v2_chain_index_elements`
 	rows, err := tx.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+		return nil, fmt.Errorf("failed to query chain state elements: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var se stateElement
 		if err := rows.Scan(decode(&se.ID), decode(&se.LeafIndex), decode(&se.MerkleProof)); err != nil {
-			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
+			return nil, fmt.Errorf("failed to scan chain state element: %w", err)
 		}
 		elements = append(elements, se)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan siacoin elements: %w", err)
+		return nil, fmt.Errorf("failed to scan chain state elements: %w", err)
 	}
 	return elements, nil
 }
@@ -188,11 +188,11 @@ func updateChainStateElements(tx *txn, elements []stateElement) error {
 
 	for _, se := range elements {
 		if res, err := stmt.Exec(encode(se.MerkleProof), encode(se.LeafIndex), encode(se.ID)); err != nil {
-			return fmt.Errorf("failed to update siacoin element: %w", err)
+			return fmt.Errorf("failed to update chain state element: %w", err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		} else if n != 1 {
-			return fmt.Errorf("failed to update siacoin element %q: not found", se.ID)
+			return fmt.Errorf("failed to update chain state element %v: not found", se.ID)
 		}
 	}
 	return nil
