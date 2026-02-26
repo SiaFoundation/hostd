@@ -1,3 +1,21 @@
+## 2.7.0 (2026-02-26)
+
+### Features
+
+- Update Go to 1.26.0.
+
+#### Added consensus pruning
+
+Adds a new experimental config option to enable consensus pruning. With Utreexo, it is no longer required to store every block to fully validate new blocks. This option limits the number of blocks the host will store in its consensus database reducing the size of the consensus database on disk. It is currently defaulted to off. We recommend no less than one day of blocks to ensure protection for deep reorgs (144 blocks on mainnet).
+
+### Fixes
+
+- Added config option to disable Merkle proof cache for low-resource systems.
+- Fixed revisions and resolutions in the same block causing contracts to be considered "active" forever.
+- Remove backup step size limit and don't vacuum backup to speed it up.
+- Update coreutils from v0.20.1 to v0.21.0.
+- Update coreutils to v0.21.1
+
 ## 2.6.0 (2026-01-22)
 
 ### Features
