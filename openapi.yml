@@ -183,7 +183,7 @@ paths:
       tags:
         - index
       summary: Index tip
-      description: Returns the last indexded tip. It may lag behind the consensus tip if the host is still synchronizing.
+      description: Returns the last indexed tip. It may lag behind the consensus tip if the host is still synchronizing.
       operationId: getIndexTip
       responses:
         "200":
@@ -1009,8 +1009,7 @@ components:
           description: Whether the explorer data source is enabled.
         url:
           type: string
-          nullable: true
-          description: Base URL of the explorer data source. Null if not enabled.
+          description: Base URL of the explorer data source. Empty if not enabled.
       required:
         - enabled
     Announcement:
@@ -1800,9 +1799,9 @@ components:
           description: Maximum contract expiration block height.
         limit:
           type: integer
-          minimum: 0
-          maximum: 500
-          description: Maximum number of contracts to return per page. 0 defaults to 500.
+          minimum: 1
+          maximum: 100
+          description: Maximum number of contracts to return per page. Defaults to 100.
         offset:
           type: integer
           minimum: 0
@@ -1865,9 +1864,9 @@ components:
           description: Maximum contract expiration block height.
         limit:
           type: integer
-          minimum: 0
-          maximum: 500
-          description: Maximum number of v2 contracts to return per page. 0 defaults to 500.
+          minimum: 1
+          maximum: 100
+          description: Maximum number of v2 contracts to return per page. Defaults to 100.
         offset:
           type: integer
           minimum: 0
@@ -1926,8 +1925,7 @@ components:
           description: Actual Merkle root calculated from the sector data on disk.
         error:
           type: string
-          nullable: true
-          description: Error message if the sector could not be read. Null if readable.
+          description: Error message if the sector could not be read. Omitted if readable.
       required:
         - expectedRoot
         - actualRoot
@@ -1941,8 +1939,7 @@ components:
         end:
           type: string
           format: date-time
-          nullable: true
-          description: Time the integrity check completed. Null if the check is still running.
+          description: Time the integrity check completed. Zero value if the check is still running.
         checkedSectors:
           type: integer
           format: int64
