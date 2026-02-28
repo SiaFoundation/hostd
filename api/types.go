@@ -120,14 +120,14 @@ type (
 		Errors JSONErrors `json:"errors"`
 	}
 
-	// UpdateVolumeRequest is the request body for the [PUT] /volume/:id endpoint.
+	// UpdateVolumeRequest is the request body for the [PUT] /volumes/:id endpoint.
 	UpdateVolumeRequest struct {
 		// ReadOnly sets whether the volume is read-only. A read-only
 		// volume will not accept new sectors.
 		ReadOnly bool `json:"readOnly"`
 	}
 
-	// ResizeVolumeRequest is the request body for the [PUT] /volume/:id/resize endpoint.
+	// ResizeVolumeRequest is the request body for the [PUT] /volumes/:id/resize endpoint.
 	ResizeVolumeRequest struct {
 		// MaxSectors is the new maximum number of sectors the volume
 		// can store. Each sector is 4 MiB.
