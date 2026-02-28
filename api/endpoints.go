@@ -142,7 +142,7 @@ func (a *api) handleGETConsensusNetwork(jc jape.Context) {
 }
 
 // handleGETSyncerAddr handles the [GET] /syncer/address endpoint. It returns
-// the syncer's listener address.
+// the syncer's advertised address.
 func (a *api) handleGETSyncerAddr(jc jape.Context) {
 	a.writeResponse(jc, SyncerAddrResp(a.syncer.Addr()))
 }
