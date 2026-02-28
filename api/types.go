@@ -97,7 +97,7 @@ type (
 		TotalSectors uint64 `json:"totalSectors"`
 	}
 
-	// AddVolumeRequest is the request body for the [POST] /volume endpoint.
+	// AddVolumeRequest is the request body for the [POST] /volumes endpoint.
 	AddVolumeRequest struct {
 		// LocalPath is the absolute filesystem path where the volume
 		// data will be stored.
