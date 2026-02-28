@@ -15,12 +15,21 @@ import (
 type (
 	// IntegrityCheckResult tracks the result of an integrity check.
 	IntegrityCheckResult struct {
+		// Start is the time the integrity check started.
 		Start time.Time `json:"start"`
-		End   time.Time `json:"end"`
+		// End is the time the integrity check completed. Zero if the
+		// check is still running.
+		End time.Time `json:"end"`
 
-		CheckedSectors uint64                      `json:"checkedSectors"`
-		TotalSectors   uint64                      `json:"totalSectors"`
-		BadSectors     []contracts.IntegrityResult `json:"badSectors"`
+		// CheckedSectors is the number of sectors that have been
+		// checked so far.
+		CheckedSectors uint64 `json:"checkedSectors"`
+		// TotalSectors is the total number of sectors to check in the
+		// contract.
+		TotalSectors uint64 `json:"totalSectors"`
+		// BadSectors is a list of sectors that failed the integrity
+		// check.
+		BadSectors []contracts.IntegrityResult `json:"badSectors"`
 	}
 
 	// integrityChecks tracks the result of all integrity checks.
@@ -94,6 +103,9 @@ func (ic *integrityCheckJobs) CheckContract(contractID types.FileContractID) (ui
 	return roots, nil
 }
 
+// handleGETContractCheck handles the [GET] /contracts/:id/integrity endpoint.
+// It returns the current or most recent integrity check result for the
+// specified contract.
 func (a *api) handleGETContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {
@@ -108,6 +120,9 @@ func (a *api) handleGETContractCheck(c jape.Context) {
 	c.Encode(result)
 }
 
+// handleDeleteContractCheck handles the [DELETE] /contracts/:id/integrity
+// endpoint. It clears the stored integrity check result for the specified
+// contract.
 func (a *api) handleDeleteContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {
@@ -119,6 +134,9 @@ func (a *api) handleDeleteContractCheck(c jape.Context) {
 	}
 }
 
+// handlePUTContractCheck handles the [PUT] /contracts/:id/integrity endpoint.
+// It starts a background integrity check that reads and verifies every sector
+// in the specified contract.
 func (a *api) handlePUTContractCheck(c jape.Context) {
 	var contractID types.FileContractID
 	if err := c.DecodeParam("id", &contractID); err != nil {

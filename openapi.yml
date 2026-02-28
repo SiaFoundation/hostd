@@ -73,6 +73,7 @@ paths:
       tags:
         - consensus
       summary: Current chain tip index
+      description: Returns the current consensus chain tip index (height and block ID).
       operationId: getConsensusTip
       responses:
         "200":
@@ -86,6 +87,7 @@ paths:
       tags:
         - consensus
       summary: Current consensus state
+      description: Returns the full consensus state at the current chain tip.
       operationId: getConsensusTipState
       responses:
         "200":
@@ -122,6 +124,7 @@ paths:
       tags:
         - consensus
       summary: Network parameters
+      description: Returns the consensus network parameters including hardfork heights.
       operationId: getConsensusNetwork
       responses:
         "200":
@@ -134,11 +137,12 @@ paths:
     get:
       tags:
         - syncer
-      summary: Siamux listener address
+      summary: Syncer address
+      description: Returns the node's public syncer address.
       operationId: getSyncerAddress
       responses:
         "200":
-          description: Siamux listener information.
+          description: The node's public syncer address.
           content:
             application/json:
               schema:
@@ -148,6 +152,7 @@ paths:
       tags:
         - syncer
       summary: List peers
+      description: Returns a list of currently connected peers
       operationId: getSyncerPeers
       responses:
         "200":
@@ -162,6 +167,7 @@ paths:
       tags:
         - syncer
       summary: Connect to peer
+      description: Initiates a connection to the specified peer address.
       operationId: putSyncerPeer
       requestBody:
         required: true
@@ -177,6 +183,7 @@ paths:
       tags:
         - index
       summary: Index tip
+      description: Returns the last indexded tip. It may lag behind the consensus tip if the host is still synchronizing.
       operationId: getIndexTip
       responses:
         "200":
@@ -190,6 +197,7 @@ paths:
       tags:
         - alerts
       summary: List active alerts
+      description: Returns all active host alerts.
       operationId: getAlerts
       responses:
         "200":
@@ -205,6 +213,7 @@ paths:
       tags:
         - alerts
       summary: Dismiss alerts
+      description: Dismisses the alerts with the specified IDs.
       operationId: postAlertsDismiss
       requestBody:
         required: true
@@ -222,6 +231,7 @@ paths:
       tags:
         - settings
       summary: Current host settings
+      description: Returns the host's current configuration settings.
       operationId: getSettings
       responses:
         "200":
@@ -234,6 +244,7 @@ paths:
       tags:
         - settings
       summary: Update host settings
+      description: Partially updates the host's settings by merging the provided fields with the current values.
       operationId: patchSettings
       requestBody:
         required: true
@@ -254,6 +265,7 @@ paths:
       tags:
         - settings
       summary: Pinned settings
+      description: Returns the host's pinned price settings. Requires an explorer.
       operationId: getPinnedSettings
       responses:
         "200":
@@ -266,6 +278,7 @@ paths:
       tags:
         - settings
       summary: Update pinned settings
+      description: Updates the host's pinned price settings. Requires an explorer.
       operationId: putPinnedSettings
       requestBody:
         required: true
@@ -281,6 +294,7 @@ paths:
       tags:
         - settings
       summary: Trigger DDNS update
+      description: Forces an immediate update of the host's dynamic DNS records.
       operationId: putSettingsDDNSUpdate
       responses:
         "200":
@@ -290,6 +304,7 @@ paths:
       tags:
         - metrics
       summary: Current metrics snapshot
+      description: Returns a snapshot of host metrics at the specified or current timestamp.
       operationId: getMetrics
       parameters:
         - name: timestamp
@@ -311,6 +326,7 @@ paths:
       tags:
         - metrics
       summary: Metrics over an interval
+      description: Returns metrics aggregated over the specified interval and number of periods.
       operationId: getMetricsPeriod
       parameters:
         - name: period
@@ -345,9 +361,11 @@ paths:
                   $ref: "#/components/schemas/Metrics"
   /contracts:
     post:
+      deprecated: true
       tags:
         - contracts
       summary: Query contracts
+      description: Queries v1 contracts matching the provided filter and returns a paginated result.
       operationId: postContracts
       requestBody:
         required: true
@@ -364,9 +382,11 @@ paths:
                 $ref: "#/components/schemas/ContractsResponse"
   /contracts/{id}:
     get:
+      deprecated: true
       tags:
         - contracts
       summary: Get contract
+      description: Returns the details of a single v1 contract by its file contract ID.
       operationId: getContract
       parameters:
         - $ref: "#/components/parameters/FileContractIDParam"
@@ -384,6 +404,7 @@ paths:
       tags:
         - contracts
       summary: Get contract integrity result
+      description: Returns the current or most recent integrity check result for the specified contract.
       operationId: getContractIntegrity
       parameters:
         - $ref: "#/components/parameters/FileContractIDParam"
@@ -400,16 +421,18 @@ paths:
       tags:
         - contracts
       summary: Start integrity check
+      description: Starts a background integrity check that reads and verifies every sector in the contract.
       operationId: putContractIntegrity
       parameters:
         - $ref: "#/components/parameters/FileContractIDParam"
       responses:
-        "202":
+        "200":
           description: Integrity check started.
     delete:
       tags:
         - contracts
       summary: Delete integrity result
+      description: Clears the stored integrity check result for the specified contract.
       operationId: deleteContractIntegrity
       parameters:
         - $ref: "#/components/parameters/FileContractIDParam"
@@ -423,6 +446,7 @@ paths:
       tags:
         - contracts
       summary: Query v2 contracts
+      description: Queries v2 contracts matching the provided filter and returns a paginated result.
       operationId: postV2Contracts
       requestBody:
         required: true
@@ -442,6 +466,7 @@ paths:
       tags:
         - contracts
       summary: Get v2 contract
+      description: Returns the details of a single v2 contract by its file contract ID.
       operationId: getV2Contract
       parameters:
         - $ref: "#/components/parameters/FileContractIDParam"
@@ -459,6 +484,7 @@ paths:
       tags:
         - sectors
       summary: Delete sector
+      description: Removes a sector's metadata and zeroes its data on disk.
       operationId: deleteSector
       parameters:
         - $ref: "#/components/parameters/SectorRootParam"
@@ -470,6 +496,7 @@ paths:
       tags:
         - sectors
       summary: Verify sector location
+      description: Returns the sector's references and verifies its data integrity by reading it from disk.
       operationId: getSectorVerification
       parameters:
         - $ref: "#/components/parameters/SectorRootParam"
@@ -485,6 +512,7 @@ paths:
       tags:
         - volumes
       summary: List volumes
+      description: Returns all storage volumes with their metadata and statistics.
       operationId: getVolumes
       responses:
         "200":
@@ -499,6 +527,7 @@ paths:
       tags:
         - volumes
       summary: Add volume
+      description: Creates a new storage volume at the specified path with the given sector capacity.
       operationId: postVolume
       requestBody:
         required: true
@@ -518,6 +547,7 @@ paths:
       tags:
         - volumes
       summary: Get volume
+      description: Returns the metadata and statistics for a single storage volume.
       operationId: getVolume
       parameters:
         - $ref: "#/components/parameters/VolumeIDParam"
@@ -534,6 +564,7 @@ paths:
       tags:
         - volumes
       summary: Set volume read-only
+      description: Updates a volume's read-only status.
       operationId: putVolume
       parameters:
         - $ref: "#/components/parameters/VolumeIDParam"
@@ -550,6 +581,7 @@ paths:
       tags:
         - volumes
       summary: Remove volume
+      description: Initiates removal of a storage volume, migrating sectors to other volumes.
       operationId: deleteVolume
       parameters:
         - $ref: "#/components/parameters/VolumeIDParam"
@@ -567,6 +599,7 @@ paths:
       tags:
         - volumes
       summary: Cancel volume operation
+      description: Cancels an in-progress volume operation such as creation, resize, or removal.
       operationId: deleteVolumeCancel
       parameters:
         - $ref: "#/components/parameters/VolumeIDParam"
@@ -578,6 +611,7 @@ paths:
       tags:
         - volumes
       summary: Resize volume
+      description: Initiates resizing a volume to the specified number of sectors.
       operationId: putVolumeResize
       parameters:
         - $ref: "#/components/parameters/VolumeIDParam"
@@ -595,6 +629,7 @@ paths:
       tags:
         - txpool
       summary: Recommended transaction fee
+      description: Returns the recommended transaction fee per byte in hastings.
       operationId: getTPoolFee
       responses:
         "200":
@@ -608,6 +643,7 @@ paths:
       tags:
         - wallet
       summary: Wallet state
+      description: Returns the wallet's balance and address.
       operationId: getWallet
       responses:
         "200":
@@ -621,6 +657,7 @@ paths:
       tags:
         - wallet
       summary: Wallet events
+      description: Returns a paginated list of wallet events.
       operationId: getWalletEvents
       parameters:
         - name: offset
@@ -650,6 +687,7 @@ paths:
       tags:
         - wallet
       summary: Get wallet event
+      description: Returns a single wallet event by its ID.
       operationId: getWalletEvent
       parameters:
         - name: id
@@ -671,6 +709,7 @@ paths:
       tags:
         - wallet
       summary: Pending wallet events
+      description: Returns unconfirmed wallet events.
       operationId: getWalletPending
       responses:
         "200":
@@ -686,6 +725,7 @@ paths:
       tags:
         - wallet
       summary: Send Siacoins
+      description: Sends Siacoins to the specified address and returns the transaction ID.
       operationId: postWalletSend
       requestBody:
         required: true
@@ -705,6 +745,7 @@ paths:
       tags:
         - system
       summary: Inspect system directory
+      description: Returns the contents and disk usage of the specified directory path.
       operationId: getSystemDir
       parameters:
         - name: path
@@ -724,6 +765,7 @@ paths:
       tags:
         - system
       summary: Create directory
+      description: Creates a directory at the specified path, including any necessary parent directories.
       operationId: putSystemDir
       requestBody:
         required: true
@@ -739,6 +781,7 @@ paths:
       tags:
         - system
       summary: Create SQLite backup
+      description: Creates a backup of the SQLite3 database at the specified path.
       operationId: postSystemSQLite3Backup
       requestBody:
         required: true
@@ -754,6 +797,7 @@ paths:
       tags:
         - system
       summary: Run connectivity test
+      description: Runs a connectivity test to verify the host is reachable from the network.
       operationId: putSystemConnectTest
       responses:
         "200":
@@ -769,6 +813,7 @@ paths:
       tags:
         - webhooks
       summary: List webhooks
+      description: Returns all registered webhooks.
       operationId: getWebhooks
       responses:
         "200":
@@ -783,6 +828,7 @@ paths:
       tags:
         - webhooks
       summary: Register webhook
+      description: Registers a new webhook with the specified callback URL and event scopes.
       operationId: postWebhooks
       requestBody:
         required: true
@@ -802,6 +848,7 @@ paths:
       tags:
         - webhooks
       summary: Update webhook
+      description: Updates the callback URL and scopes of an existing webhook.
       operationId: putWebhooks
       parameters:
         - $ref: "#/components/parameters/WebhookIDParam"
@@ -818,6 +865,7 @@ paths:
       tags:
         - webhooks
       summary: Delete webhook
+      description: Removes a registered webhook.
       operationId: deleteWebhooks
       parameters:
         - $ref: "#/components/parameters/WebhookIDParam"
@@ -829,6 +877,7 @@ paths:
       tags:
         - webhooks
       summary: Broadcast test event to webhook
+      description: Sends a test event to the specified webhook.
       operationId: postWebhookTest
       parameters:
         - $ref: "#/components/parameters/WebhookIDParam"
@@ -908,8 +957,10 @@ components:
         height:
           type: integer
           format: int64
+          description: Block height.
         id:
           $ref: "#/components/schemas/BlockID"
+          description: Block ID at this height.
       required:
         - height
         - id
@@ -934,13 +985,17 @@ components:
       properties:
         version:
           type: string
+          description: Semantic version of the hostd build.
         commit:
           type: string
+          description: Git commit hash of the build.
         os:
           type: string
+          description: Operating system the host is running on.
         buildTime:
           type: string
           format: date-time
+          description: Timestamp when the build was created.
       required:
         - version
         - commit
@@ -951,9 +1006,11 @@ components:
       properties:
         enabled:
           type: boolean
+          description: Whether the explorer data source is enabled.
         url:
           type: string
           nullable: true
+          description: Base URL of the explorer data source. Null if not enabled.
       required:
         - enabled
     Announcement:
@@ -961,8 +1018,10 @@ components:
       properties:
         index:
           $ref: "#/components/schemas/ChainIndex"
+          description: Chain index at which the announcement was confirmed.
         address:
           type: string
+          description: The host's announced network address.
       required:
         - index
         - address
@@ -974,15 +1033,20 @@ components:
             name:
               type: string
               nullable: true
+              description: User-defined name of the host.
             publicKey:
               $ref: "#/components/schemas/PublicKey"
+              description: Ed25519 public key of the host.
             lastAnnouncement:
               $ref: "#/components/schemas/Announcement"
+              description: Most recent host announcement on the blockchain.
             startTime:
               type: string
               format: date-time
+              description: Time the hostd process started.
             explorer:
               $ref: "#/components/schemas/ExplorerState"
+              description: State of the explorer data source.
           required:
             - publicKey
             - lastAnnouncement
@@ -1176,9 +1240,11 @@ components:
       properties:
         state:
           $ref: "#/components/schemas/ConsensusState"
+          description: Consensus state at the specified block.
         block:
           type: object
           additionalProperties: true
+          description: Full block at the specified block ID.
       required:
         - state
         - block
@@ -1195,26 +1261,32 @@ components:
       properties:
         address:
           type: string
+          description: Network address of the connected peer.
         inbound:
           type: boolean
+          description: Whether the peer initiated the connection.
         version:
           type: string
+          description: Protocol version reported by the peer.
         firstSeen:
           type: string
           format: date-time
           nullable: true
+          description: Time the peer was first seen.
         connectedSince:
           type: string
           format: date-time
           nullable: true
+          description: Time the current connection was established.
         syncedBlocks:
           type: integer
           format: int64
           nullable: true
+          description: Number of blocks synced from this peer in the current session.
         syncDuration:
           type: integer
           format: int64
-          description: Duration in nanoseconds.
+          description: Total time spent syncing blocks from this peer in nanoseconds.
           nullable: true
       required:
         - address
@@ -1225,20 +1297,26 @@ components:
       properties:
         id:
           $ref: "#/components/schemas/Hash256"
+          description: Unique identifier for the alert.
         category:
           type: string
+          description: Category used to group related alerts.
         severity:
           type: string
           enum: ["info", "warning", "error", "critical"]
+          description: Severity level of the alert.
         message:
           type: string
+          description: Human-readable message describing the alert.
         data:
           type: object
           additionalProperties: true
           nullable: true
+          description: Arbitrary key-value data providing additional context.
         timestamp:
           type: string
           format: date-time
+          description: Time the alert was registered.
       required:
         - id
         - category
@@ -1250,87 +1328,114 @@ components:
       properties:
         acceptingContracts:
           type: boolean
+          description: Whether the host is accepting new contracts.
         netAddress:
           type: string
+          description: Public hostname or IP address of the host. Must not include a port.
         maxContractDuration:
           type: integer
           format: int64
+          description: Maximum allowed contract duration in blocks.
         windowSize:
           type: integer
           format: int64
+          description: Storage proof window size in blocks.
         contractPrice:
           $ref: "#/components/schemas/Currency"
+          description: One-time fee per contract formation in hastings.
         baseRPCPrice:
           $ref: "#/components/schemas/Currency"
+          description: Base fee per RPC call in hastings.
         sectorAccessPrice:
           $ref: "#/components/schemas/Currency"
+          description: Fee per sector access in hastings.
         collateralMultiplier:
           type: number
           format: double
+          description: Multiplier applied to storage price to calculate collateral per byte per block.
         maxCollateral:
           $ref: "#/components/schemas/Currency"
+          description: Maximum collateral the host will lock per contract in hastings.
         storagePrice:
           $ref: "#/components/schemas/Currency"
+          description: Price per byte per block for storage in hastings.
         egressPrice:
           $ref: "#/components/schemas/Currency"
+          description: Price per byte for download in hastings.
         ingressPrice:
           $ref: "#/components/schemas/Currency"
+          description: Price per byte for upload in hastings.
         priceTableValidity:
           type: integer
           format: int64
-          description: Duration in nanoseconds.
+          description: How long a price table remains valid in nanoseconds.
         maxRegistryEntries:
           type: integer
           format: int64
+          description: Maximum number of registry entries the host will store.
         accountExpiry:
           type: integer
           format: int64
-          description: Duration in nanoseconds.
+          description: Duration before an idle ephemeral account expires in nanoseconds.
         maxAccountBalance:
           $ref: "#/components/schemas/Currency"
+          description: Maximum balance allowed in an ephemeral account in hastings.
         ingressLimit:
           type: integer
           format: int64
+          description: Bandwidth limit for RHP ingress in bytes per second. 0 means unlimited.
         egressLimit:
           type: integer
           format: int64
+          description: Bandwidth limit for RHP egress in bytes per second. 0 means unlimited.
         syncerIngressLimit:
           type: integer
           format: int64
+          description: Bandwidth limit for syncer ingress in bytes per second. 0 means unlimited.
         syncerEgressLimit:
           type: integer
           format: int64
+          description: Bandwidth limit for syncer egress in bytes per second. 0 means unlimited.
         ddns:
           $ref: "#/components/schemas/DNSSettings"
+          description: Dynamic DNS configuration.
         sectorCacheSize:
           type: integer
           format: int64
+          description: Number of sectors to cache in memory for faster reads.
         revision:
           type: integer
           format: int64
+          description: Settings revision number managed by the caller.
       additionalProperties: false
     DNSSettings:
       type: object
       properties:
         provider:
           type: string
+          description: DNS provider name (e.g. "cloudflare", "duckdns", "noip", "route53"). Empty disables DDNS.
         ipv4:
           type: boolean
+          description: Whether to update the IPv4 DNS record.
         ipv6:
           type: boolean
+          description: Whether to update the IPv6 DNS record.
         options:
           type: object
           nullable: true
           additionalProperties: true
+          description: Provider-specific configuration options.
       additionalProperties: false
     Pin:
       type: object
       properties:
         pinned:
           type: boolean
+          description: Whether this price is pinned to the external currency.
         value:
           type: number
           format: double
+          description: Price in the external currency. Only used when pinned is true.
       required:
         - pinned
         - value
@@ -1339,17 +1444,23 @@ components:
       properties:
         currency:
           type: string
+          description: Three-letter external currency code (e.g. "usd"). Required when any pin is enabled.
         threshold:
           type: number
           format: double
+          description: Percentage threshold (0 to 1) that triggers a settings update when the exchange rate changes.
         storage:
           $ref: "#/components/schemas/Pin"
+          description: Pinned storage price in the external currency per TB per month.
         ingress:
           $ref: "#/components/schemas/Pin"
+          description: Pinned ingress price in the external currency per TB.
         egress:
           $ref: "#/components/schemas/Pin"
+          description: Pinned egress price in the external currency per TB.
         maxCollateral:
           $ref: "#/components/schemas/Pin"
+          description: Pinned maximum collateral in the external currency.
       required:
         - currency
         - threshold
@@ -1362,16 +1473,22 @@ components:
       properties:
         rpc:
           $ref: "#/components/schemas/Currency"
+          description: Revenue from RPC fees in hastings.
         storage:
           $ref: "#/components/schemas/Currency"
+          description: Revenue from storage fees in hastings.
         ingress:
           $ref: "#/components/schemas/Currency"
+          description: Revenue from upload fees in hastings.
         egress:
           $ref: "#/components/schemas/Currency"
+          description: Revenue from download fees in hastings.
         registryRead:
           $ref: "#/components/schemas/Currency"
+          description: Revenue from registry read operations in hastings.
         registryWrite:
           $ref: "#/components/schemas/Currency"
+          description: Revenue from registry write operations in hastings.
       required:
         - rpc
         - storage
@@ -1384,8 +1501,10 @@ components:
       properties:
         potential:
           $ref: "#/components/schemas/Revenue"
+          description: Revenue from active contracts that has not yet been confirmed.
         earned:
           $ref: "#/components/schemas/Revenue"
+          description: Revenue that has been confirmed on the blockchain.
       required:
         - potential
         - earned
@@ -1395,8 +1514,10 @@ components:
         active:
           type: integer
           format: int64
+          description: Number of active ephemeral accounts.
         balance:
           $ref: "#/components/schemas/Currency"
+          description: Total balance across all active ephemeral accounts in hastings.
       required:
         - active
         - balance
@@ -1405,19 +1526,26 @@ components:
       properties:
         contractPrice:
           $ref: "#/components/schemas/Currency"
+          description: Current contract formation price in hastings.
         ingressPrice:
           $ref: "#/components/schemas/Currency"
+          description: Current ingress price per byte in hastings.
         egressPrice:
           $ref: "#/components/schemas/Currency"
+          description: Current egress price per byte in hastings.
         baseRPCPrice:
           $ref: "#/components/schemas/Currency"
+          description: Current base RPC fee in hastings.
         sectorAccessPrice:
           $ref: "#/components/schemas/Currency"
+          description: Current sector access fee in hastings.
         storagePrice:
           $ref: "#/components/schemas/Currency"
+          description: Current storage price per byte per block in hastings.
         collateralMultiplier:
           type: number
           format: double
+          description: Current collateral multiplier applied to storage price.
       required:
         - contractPrice
         - ingressPrice
@@ -1432,22 +1560,29 @@ components:
         active:
           type: integer
           format: int64
+          description: Number of active contracts.
         rejected:
           type: integer
           format: int64
+          description: Number of rejected contracts.
         failed:
           type: integer
           format: int64
+          description: Number of failed contracts.
         renewed:
           type: integer
           format: int64
+          description: Number of renewed contracts.
         successful:
           type: integer
           format: int64
+          description: Number of successfully completed contracts.
         lockedCollateral:
           $ref: "#/components/schemas/Currency"
+          description: Total collateral locked in active contracts in hastings.
         riskedCollateral:
           $ref: "#/components/schemas/Currency"
+          description: Total collateral at risk in active contracts in hastings.
       required:
         - active
         - rejected
@@ -1462,15 +1597,19 @@ components:
         entries:
           type: integer
           format: int64
+          description: Current number of registry entries.
         maxEntries:
           type: integer
           format: int64
+          description: Maximum number of registry entries allowed.
         reads:
           type: integer
           format: int64
+          description: Total number of registry read operations.
         writes:
           type: integer
           format: int64
+          description: Total number of registry write operations.
       required:
         - entries
         - maxEntries
@@ -1482,30 +1621,47 @@ components:
         totalSectors:
           type: integer
           format: int64
+          description: Total number of sector slots across all volumes.
         physicalSectors:
           type: integer
           format: int64
+          description: Number of sectors physically stored on disk.
         lostSectors:
           type: integer
           format: int64
+          description: Number of sectors lost due to failed volumes.
         contractSectors:
           type: integer
           format: int64
+          description: Number of sectors associated with contracts.
         tempSectors:
           type: integer
           format: int64
+          description: Number of temporary sectors not yet associated with contracts.
         reads:
           type: integer
           format: int64
+          description: Total number of successful sector reads.
         writes:
           type: integer
           format: int64
+          description: Total number of successful sector writes.
+        readBytes:
+          type: integer
+          format: int64
+          description: Total bytes read from disk.
+        writeBytes:
+          type: integer
+          format: int64
+          description: Total bytes written to disk.
         sectorCacheHits:
           type: integer
           format: int64
+          description: Number of sector reads served from the in-memory cache.
         sectorCacheMisses:
           type: integer
           format: int64
+          description: Number of sector reads that required disk access.
       required:
         - totalSectors
         - physicalSectors
@@ -1514,6 +1670,8 @@ components:
         - tempSectors
         - reads
         - writes
+        - readBytes
+        - writeBytes
         - sectorCacheHits
         - sectorCacheMisses
     RHPData:
@@ -1522,9 +1680,11 @@ components:
         ingress:
           type: integer
           format: int64
+          description: Total bytes received in the period.
         egress:
           type: integer
           format: int64
+          description: Total bytes sent in the period.
       required:
         - ingress
         - egress
@@ -1533,15 +1693,22 @@ components:
       properties:
         rhp:
           $ref: "#/components/schemas/RHPData"
+          description: Data transfer metrics for RHP traffic.
+        syncer:
+          $ref: "#/components/schemas/RHPData"
+          description: Data transfer metrics for syncer traffic.
       required:
         - rhp
+        - syncer
     WalletMetrics:
       type: object
       properties:
         balance:
           $ref: "#/components/schemas/Currency"
+          description: Confirmed spendable wallet balance in hastings.
         immatureBalance:
           $ref: "#/components/schemas/Currency"
+          description: Balance from immature outputs in hastings.
       required:
         - balance
         - immatureBalance
@@ -1550,23 +1717,32 @@ components:
       properties:
         accounts:
           $ref: "#/components/schemas/AccountsMetrics"
+          description: Ephemeral account metrics.
         revenue:
           $ref: "#/components/schemas/RevenueMetrics"
+          description: Revenue metrics split by potential and earned.
         pricing:
           $ref: "#/components/schemas/PricingMetrics"
+          description: Current host pricing settings.
         contracts:
           $ref: "#/components/schemas/ContractsMetrics"
+          description: Contract status counts and collateral metrics.
         storage:
           $ref: "#/components/schemas/StorageMetrics"
+          description: Storage usage and I/O metrics.
         registry:
           $ref: "#/components/schemas/RegistryMetrics"
+          description: Registry usage metrics.
         data:
           $ref: "#/components/schemas/DataMetrics"
+          description: Data transfer metrics.
         wallet:
           $ref: "#/components/schemas/WalletMetrics"
+          description: Wallet balance metrics.
         timestamp:
           type: string
           format: date-time
+          description: Timestamp the metrics were recorded at.
       required:
         - accounts
         - revenue
@@ -1582,48 +1758,61 @@ components:
       properties:
         statuses:
           type: array
+          description: Filter by contract statuses.
           items:
             type: string
             enum: ["pending", "rejected", "active", "successful", "failed"]
         contractIDs:
           type: array
+          description: Filter by specific contract IDs.
           items:
             $ref: "#/components/schemas/FileContractID"
         renewedFrom:
           type: array
+          description: Filter by the contract ID this contract was renewed from.
           items:
             $ref: "#/components/schemas/FileContractID"
         renewedTo:
           type: array
+          description: Filter by the contract ID this contract was renewed to.
           items:
             $ref: "#/components/schemas/FileContractID"
         renterKey:
           type: array
+          description: Filter by renter public keys.
           items:
             $ref: "#/components/schemas/PublicKey"
         minNegotiationHeight:
           type: integer
           format: int64
+          description: Minimum block height at which the contract was negotiated.
         maxNegotiationHeight:
           type: integer
           format: int64
+          description: Maximum block height at which the contract was negotiated.
         minExpirationHeight:
           type: integer
           format: int64
+          description: Minimum contract expiration block height.
         maxExpirationHeight:
           type: integer
           format: int64
+          description: Maximum contract expiration block height.
         limit:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 500
+          description: Maximum number of contracts to return per page. 0 defaults to 500.
         offset:
           type: integer
           minimum: 0
+          description: Number of contracts to skip for pagination.
         sortField:
           type: string
+          description: 'Field to sort results by. Valid values are "status", "negotiationHeight", "expirationHeight".'
         sortDesc:
           type: boolean
+          description: Sort in descending order when true.
       additionalProperties: false
     FileContractID:
       type: string
@@ -1634,56 +1823,71 @@ components:
       properties:
         statuses:
           type: array
+          description: Filter by v2 contract statuses.
           items:
             type: string
             enum: ["pending", "rejected", "active", "renewed", "successful", "failed"]
         contractIDs:
           type: array
+          description: Filter by specific contract IDs.
           items:
             $ref: "#/components/schemas/FileContractID"
         renewedFrom:
           type: array
+          description: Filter by the contract ID this contract was renewed from.
           items:
             $ref: "#/components/schemas/FileContractID"
         renewedTo:
           type: array
+          description: Filter by the contract ID this contract was renewed to.
           items:
             $ref: "#/components/schemas/FileContractID"
         renterKey:
           type: array
+          description: Filter by renter public keys.
           items:
             $ref: "#/components/schemas/PublicKey"
         minNegotiationHeight:
           type: integer
           format: int64
+          description: Minimum block height at which the contract was negotiated.
         maxNegotiationHeight:
           type: integer
           format: int64
+          description: Maximum block height at which the contract was negotiated.
         minExpirationHeight:
           type: integer
           format: int64
+          description: Minimum contract expiration block height.
         maxExpirationHeight:
           type: integer
           format: int64
+          description: Maximum contract expiration block height.
         limit:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 500
+          description: Maximum number of v2 contracts to return per page. 0 defaults to 500.
         offset:
           type: integer
           minimum: 0
+          description: Number of contracts to skip for pagination.
         sortField:
           type: string
+          description: 'Field to sort results by. Valid values are "status", "negotiationHeight", "expirationHeight".'
         sortDesc:
           type: boolean
+          description: Sort in descending order when true.
       additionalProperties: false
     ContractsResponse:
       type: object
       properties:
         count:
           type: integer
+          description: Total number of contracts matching the filter.
         contracts:
           type: array
+          description: Contracts matching the filter for the current page.
           items:
             $ref: "#/components/schemas/Contract"
       required:
@@ -1694,8 +1898,10 @@ components:
       properties:
         count:
           type: integer
+          description: Total number of v2 contracts matching the filter.
         contracts:
           type: array
+          description: V2 contracts matching the filter for the current page.
           items:
             $ref: "#/components/schemas/V2Contract"
       required:
@@ -1714,11 +1920,14 @@ components:
       properties:
         expectedRoot:
           $ref: "#/components/schemas/Hash256"
+          description: Expected Merkle root of the sector from the contract.
         actualRoot:
           $ref: "#/components/schemas/Hash256"
+          description: Actual Merkle root calculated from the sector data on disk.
         error:
           type: string
           nullable: true
+          description: Error message if the sector could not be read. Null if readable.
       required:
         - expectedRoot
         - actualRoot
@@ -1728,18 +1937,23 @@ components:
         start:
           type: string
           format: date-time
+          description: Time the integrity check started.
         end:
           type: string
           format: date-time
           nullable: true
+          description: Time the integrity check completed. Null if the check is still running.
         checkedSectors:
           type: integer
           format: int64
+          description: Number of sectors that have been checked so far.
         totalSectors:
           type: integer
           format: int64
+          description: Total number of sectors to check in the contract.
         badSectors:
           type: array
+          description: List of sectors that failed the integrity check.
           items:
             $ref: "#/components/schemas/IntegritySectorResult"
       required:
@@ -1752,9 +1966,11 @@ components:
       properties:
         localPath:
           type: string
+          description: Absolute filesystem path where the volume data will be stored.
         maxSectors:
           type: integer
           format: int64
+          description: Initial number of sectors the volume can store. Each sector is 4 MiB.
       required:
         - localPath
         - maxSectors
@@ -1763,6 +1979,7 @@ components:
       properties:
         readOnly:
           type: boolean
+          description: Whether the volume should be read-only. A read-only volume will not accept new sectors.
       required:
         - readOnly
     ResizeVolumeRequest:
@@ -1771,6 +1988,7 @@ components:
         maxSectors:
           type: integer
           format: int64
+          description: New maximum number of sectors for the volume. Each sector is 4 MiB.
       required:
         - maxSectors
     Volume:
@@ -1779,18 +1997,24 @@ components:
         id:
           type: integer
           format: int64
+          description: Unique identifier of the volume.
         localPath:
           type: string
+          description: Absolute filesystem path of the volume data.
         usedSectors:
           type: integer
           format: int64
+          description: Number of sectors currently stored in the volume.
         totalSectors:
           type: integer
           format: int64
+          description: Maximum number of sectors the volume can store.
         readOnly:
           type: boolean
+          description: Whether the volume is read-only.
         available:
           type: boolean
+          description: Whether the volume is currently available for I/O operations.
       required:
         - id
         - localPath
@@ -1804,22 +2028,28 @@ components:
         failedReads:
           type: integer
           format: int64
+          description: Number of failed sector read operations.
         failedWrites:
           type: integer
           format: int64
+          description: Number of failed sector write operations.
         successfulReads:
           type: integer
           format: int64
+          description: Number of successful sector read operations.
         successfulWrites:
           type: integer
           format: int64
+          description: Number of successful sector write operations.
         status:
           type: string
+          description: Current volume status (unavailable, creating, resizing, removing, ready).
         errors:
           type: array
           items:
             type: string
           nullable: true
+          description: Recent error messages from volume operations.
     VolumeMeta:
       allOf:
         - $ref: "#/components/schemas/Volume"
@@ -1829,11 +2059,13 @@ components:
       properties:
         contracts:
           type: array
+          description: List of contract IDs that reference this sector.
           items:
             $ref: "#/components/schemas/FileContractID"
         tempStorage:
           type: integer
           format: int64
+          description: Number of temporary storage references to this sector.
       required:
         - contracts
         - tempStorage
@@ -1845,19 +2077,25 @@ components:
             error:
               type: string
               nullable: true
+              description: Error message if the sector data failed verification. Null if valid.
     WalletResponse:
       type: object
       properties:
         spendable:
           $ref: "#/components/schemas/Currency"
+          description: Spendable wallet balance in hastings.
         confirmed:
           $ref: "#/components/schemas/Currency"
+          description: Total confirmed wallet balance in hastings.
         unconfirmed:
           $ref: "#/components/schemas/Currency"
+          description: Unconfirmed wallet balance in hastings.
         immature:
           $ref: "#/components/schemas/Currency"
+          description: Immature wallet balance in hastings.
         address:
           $ref: "#/components/schemas/Address"
+          description: The host wallet's Siacoin address.
       required:
         - spendable
         - confirmed
@@ -1873,10 +2111,13 @@ components:
       properties:
         address:
           $ref: "#/components/schemas/Address"
+          description: Recipient's Siacoin address.
         amount:
           $ref: "#/components/schemas/Currency"
+          description: Amount of hastings to send.
         subtractMinerFee:
           type: boolean
+          description: If true, the estimated miner fee is subtracted from the amount instead of added on top.
       required:
         - address
         - amount
@@ -1885,14 +2126,18 @@ components:
       properties:
         path:
           type: string
+          description: Absolute path of the inspected directory.
         totalBytes:
           type: integer
           format: int64
+          description: Total disk space on the volume containing the path in bytes.
         freeBytes:
           type: integer
           format: int64
+          description: Available disk space on the volume containing the path in bytes.
         directories:
           type: array
+          description: Subdirectory names in the inspected directory.
           items:
             type: string
       required:
@@ -1903,6 +2148,7 @@ components:
       properties:
         path:
           type: string
+          description: Absolute filesystem path of the directory to create.
       required:
         - path
     BackupRequest:
@@ -1910,6 +2156,7 @@ components:
       properties:
         path:
           type: string
+          description: Absolute filesystem path where the backup file will be written.
       required:
         - path
     RHP4Result:
@@ -1917,39 +2164,47 @@ components:
       properties:
         netAddress:
           type: string
+          description: Protocol and address that was tested.
         resolvedAddresses:
           type: array
+          description: IP addresses the hostname resolved to.
           items:
             type: string
         connected:
           type: boolean
+          description: Whether a TCP/UDP connection was established.
         dialTime:
           type: integer
           format: int64
-          description: Duration in nanoseconds.
+          description: Time to establish the connection in nanoseconds.
         handshake:
           type: boolean
+          description: Whether the protocol handshake completed.
         handshakeTime:
           type: integer
           format: int64
-          description: Duration in nanoseconds.
+          description: Time to complete the handshake in nanoseconds.
         scanned:
           type: boolean
+          description: Whether the host settings were successfully retrieved.
         scanTime:
           type: integer
           format: int64
-          description: Duration in nanoseconds.
+          description: Time to retrieve host settings in nanoseconds.
         settings:
           type: object
           nullable: true
           additionalProperties: true
+          description: Host settings returned during the scan. Null if the scan failed.
         errors:
           type: array
+          description: Errors encountered during the connectivity test.
           items:
             type: string
           nullable: true
         warnings:
           type: array
+          description: Warnings encountered during the connectivity test.
           items:
             type: string
           nullable: true
@@ -1964,10 +2219,13 @@ components:
       properties:
         publicKey:
           $ref: "#/components/schemas/PublicKey"
+          description: Public key of the host that was tested.
         version:
           type: string
+          description: Explorer API version used for the test.
         rhp4:
           type: array
+          description: Results for each RHP4 protocol and address tested.
           items:
             $ref: "#/components/schemas/RHP4Result"
       required:
@@ -1980,8 +2238,10 @@ components:
         callbackURL:
           type: string
           format: uri
+          description: URL that will receive webhook event POST requests.
         scopes:
           type: array
+          description: Event scopes to subscribe to.
           items:
             type: string
       required:
@@ -1993,13 +2253,17 @@ components:
         id:
           type: integer
           format: int64
+          description: Unique identifier of the webhook.
         callbackURL:
           type: string
           format: uri
+          description: URL that receives webhook event POST requests.
         secretKey:
           type: string
+          description: Secret key used for webhook request authentication via HTTP Basic Auth.
         scopes:
           type: array
+          description: Event scopes the webhook is subscribed to.
           items:
             type: string
       required:
