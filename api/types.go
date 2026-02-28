@@ -41,30 +41,44 @@ const (
 type (
 	// SyncerConnectRequest is the request body for the [PUT] /syncer/peers endpoint.
 	SyncerConnectRequest struct {
+		// Address is the network address of the peer in host:port format.
 		Address string `json:"address"`
 	}
 
 	// BuildState contains static information about the build.
 	BuildState struct {
-		Version   string    `json:"version"`
-		Commit    string    `json:"commit"`
-		OS        string    `json:"os"`
+		// Version is the semantic version of the hostd build.
+		Version string `json:"version"`
+		// Commit is the git commit hash of the build.
+		Commit string `json:"commit"`
+		// OS is the operating system the host is running on.
+		OS string `json:"os"`
+		// BuildTime is the time the build was created.
 		BuildTime time.Time `json:"buildTime"`
 	}
 
 	// ExplorerState contains static information about explorer data sources.
 	ExplorerState struct {
-		Enabled bool   `json:"enabled"`
-		URL     string `json:"url"`
+		// Enabled indicates whether the explorer data source is enabled.
+		Enabled bool `json:"enabled"`
+		// URL is the base URL of the explorer data source. Empty if
+		// the explorer is not enabled.
+		URL string `json:"url"`
 	}
 
 	// State is the response body for the [GET] /state endpoint.
 	State struct {
-		Name             string                `json:"name,omitempty"`
-		PublicKey        types.PublicKey       `json:"publicKey"`
+		// Name is the user-defined name of the host.
+		Name string `json:"name,omitempty"`
+		// PublicKey is the ed25519 public key of the host.
+		PublicKey types.PublicKey `json:"publicKey"`
+		// LastAnnouncement is the most recent host announcement on the
+		// blockchain.
 		LastAnnouncement settings.Announcement `json:"lastAnnouncement"`
-		StartTime        time.Time             `json:"startTime"`
-		Explorer         ExplorerState         `json:"explorer"`
+		// StartTime is the time the hostd process started.
+		StartTime time.Time `json:"startTime"`
+		// Explorer contains the state of the explorer data source.
+		Explorer ExplorerState `json:"explorer"`
 		BuildState
 	}
 
@@ -74,15 +88,22 @@ type (
 	// Metrics is the response body for the [GET] /metrics endpoint.
 	Metrics metrics.Metrics
 
-	// ContractIntegrityResponse is the response body for the [POST] /contracts/:id/check endpoint.
+	// ContractIntegrityResponse is a legacy response type for contract integrity checks.
 	ContractIntegrityResponse struct {
-		BadSectors   []types.Hash256 `json:"badSectors"`
-		TotalSectors uint64          `json:"totalSectors"`
+		// BadSectors is a list of sector roots that failed integrity
+		// checks.
+		BadSectors []types.Hash256 `json:"badSectors"`
+		// TotalSectors is the total number of sectors in the contract.
+		TotalSectors uint64 `json:"totalSectors"`
 	}
 
-	// AddVolumeRequest is the request body for the [POST] /volume endpoint.
+	// AddVolumeRequest is the request body for the [POST] /volumes endpoint.
 	AddVolumeRequest struct {
-		LocalPath  string `json:"localPath"`
+		// LocalPath is the absolute filesystem path where the volume
+		// data will be stored.
+		LocalPath string `json:"localPath"`
+		// MaxSectors is the initial number of sectors the volume can
+		// store. Each sector is 4 MiB.
 		MaxSectors uint64 `json:"maxSectors"`
 	}
 
@@ -94,28 +115,39 @@ type (
 	// of the storage.VolumeMeta type to handle error messages.
 	VolumeMeta struct {
 		storage.VolumeMeta
+		// Errors contains any errors encountered during volume
+		// operations.
 		Errors JSONErrors `json:"errors"`
 	}
 
-	// UpdateVolumeRequest is the request body for the [PUT] /volume/:id endpoint.
+	// UpdateVolumeRequest is the request body for the [PUT] /volumes/:id endpoint.
 	UpdateVolumeRequest struct {
+		// ReadOnly sets whether the volume is read-only. A read-only
+		// volume will not accept new sectors.
 		ReadOnly bool `json:"readOnly"`
 	}
 
-	// ResizeVolumeRequest is the request body for the [PUT] /volume/:id/resize endpoint.
+	// ResizeVolumeRequest is the request body for the [PUT] /volumes/:id/resize endpoint.
 	ResizeVolumeRequest struct {
+		// MaxSectors is the new maximum number of sectors the volume
+		// can store. Each sector is 4 MiB.
 		MaxSectors uint64 `json:"maxSectors"`
 	}
 
 	// ContractsResponse is the response body for the [POST] /contracts endpoint.
 	ContractsResponse struct {
-		Count     int                  `json:"count"`
+		// Count is the total number of contracts matching the filter.
+		Count int `json:"count"`
+		// Contracts is the list of contracts for the current page.
 		Contracts []contracts.Contract `json:"contracts"`
 	}
 
 	// V2ContractsResponse is the response body for the [POST] /v2/contracts endpoint.
 	V2ContractsResponse struct {
-		Count     int                    `json:"count"`
+		// Count is the total number of v2 contracts matching the
+		// filter.
+		Count int `json:"count"`
+		// Contracts is the list of v2 contracts for the current page.
 		Contracts []contracts.V2Contract `json:"contracts"`
 	}
 
@@ -123,26 +155,41 @@ type (
 	WalletResponse struct {
 		wallet.Balance
 
+		// Address is the host wallet's Siacoin address.
 		Address types.Address `json:"address"`
 	}
 
 	// WalletSendSiacoinsRequest is the request body for the [POST] /wallet/send endpoint.
 	WalletSendSiacoinsRequest struct {
-		Address          types.Address  `json:"address"`
-		Amount           types.Currency `json:"amount"`
-		SubtractMinerFee bool           `json:"subtractMinerFee"`
+		// Address is the recipient's Siacoin address.
+		Address types.Address `json:"address"`
+		// Amount is the amount of hastings to send.
+		Amount types.Currency `json:"amount"`
+		// SubtractMinerFee if true subtracts the miner fee from the
+		// amount instead of adding it.
+		SubtractMinerFee bool `json:"subtractMinerFee"`
 	}
 
 	// A Peer is a currently-connected peer.
 	Peer struct {
+		// Address is the network address of the peer.
 		Address string `json:"address"`
-		Inbound bool   `json:"inbound"`
+		// Inbound indicates whether the peer initiated the connection.
+		Inbound bool `json:"inbound"`
+		// Version is the protocol version of the peer.
 		Version string `json:"version"`
 
-		FirstSeen      time.Time     `json:"firstSeen"`
-		ConnectedSince time.Time     `json:"connectedSince"`
-		SyncedBlocks   uint64        `json:"syncedBlocks,omitempty"`
-		SyncDuration   time.Duration `json:"syncDuration,omitempty"`
+		// FirstSeen is the time the peer was first seen.
+		FirstSeen time.Time `json:"firstSeen"`
+		// ConnectedSince is the time the current connection was
+		// established.
+		ConnectedSince time.Time `json:"connectedSince"`
+		// SyncedBlocks is the number of blocks synced from this peer
+		// in the current session.
+		SyncedBlocks uint64 `json:"syncedBlocks,omitempty"`
+		// SyncDuration is the total time spent syncing blocks from
+		// this peer.
+		SyncDuration time.Duration `json:"syncDuration,omitempty"`
 	}
 
 	// A Setting updates a single setting on the host. It can be combined with
@@ -151,32 +198,48 @@ type (
 
 	// SystemDirResponse is the response body for the [GET] /system/dir endpoint.
 	SystemDirResponse struct {
-		Path        string   `json:"path"`
-		TotalBytes  uint64   `json:"totalBytes"`
-		FreeBytes   uint64   `json:"freeBytes"`
+		// Path is the absolute path of the inspected directory.
+		Path string `json:"path"`
+		// TotalBytes is the total disk space on the volume containing
+		// the path.
+		TotalBytes uint64 `json:"totalBytes"`
+		// FreeBytes is the available disk space on the volume
+		// containing the path.
+		FreeBytes uint64 `json:"freeBytes"`
+		// Directories is a list of subdirectory names in the
+		// inspected directory.
 		Directories []string `json:"directories"`
 	}
 
 	// A CreateDirRequest is the request body for the [POST] /system/dir endpoint.
 	CreateDirRequest struct {
+		// Path is the absolute filesystem path of the directory to
+		// create.
 		Path string `json:"path"`
 	}
 
 	// A BackupRequest is the request body for the [POST] /system/backup endpoint.
 	BackupRequest struct {
+		// Path is the absolute filesystem path where the backup file
+		// will be written.
 		Path string `json:"path"`
 	}
 
 	// VerifySectorResponse is the response body for the [GET] /sectors/:root/verify endpoint.
 	VerifySectorResponse struct {
 		storage.SectorReference
+		// Error contains the error message if sector verification
+		// failed. Empty if the sector is valid.
 		Error string `json:"error,omitempty"`
 	}
 
 	// RegisterWebHookRequest is the request body for the [POST] /webhooks endpoint.
 	RegisterWebHookRequest struct {
-		CallbackURL string   `json:"callbackURL"`
-		Scopes      []string `json:"scopes"`
+		// CallbackURL is the URL that will receive webhook event POST
+		// requests.
+		CallbackURL string `json:"callbackURL"`
+		// Scopes is a list of event scopes to subscribe to.
+		Scopes []string `json:"scopes"`
 	}
 
 	// TPoolResp is the response body for the [GET] /tpool/fee endpoint
@@ -199,8 +262,10 @@ type (
 
 	// ConsensusCheckpointResponse is the response body for the [GET] /consensus/checkpoint/:id endpoint
 	ConsensusCheckpointResponse struct {
+		// State is the consensus state at the specified block.
 		State consensus.State `json:"state"`
-		Block types.Block     `json:"block"`
+		// Block is the full block at the specified block ID.
+		Block types.Block `json:"block"`
 	}
 
 	// IndexTipResp is the response body for the [GET] /index/tip endpoint

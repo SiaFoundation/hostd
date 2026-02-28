@@ -67,6 +67,9 @@ func (a *api) writeResponse(jc jape.Context, resp any) {
 	}
 }
 
+// handleGETState handles the [GET] /state endpoint. It returns general
+// metadata about the hostd instance including its public key, version,
+// last announcement, and uptime.
 func (a *api) handleGETState(jc jape.Context) {
 	announcement, err := a.settings.LastAnnouncement()
 	if err != nil {
@@ -97,13 +100,20 @@ func (a *api) handleGETState(jc jape.Context) {
 	})
 }
 
+// handleGETConsensusTip handles the [GET] /consensus/tip endpoint. It returns
+// the current consensus chain tip index.
 func (a *api) handleGETConsensusTip(jc jape.Context) {
 	a.writeResponse(jc, ConsensusIndexResp(a.chain.Tip()))
 }
+
+// handleGETConsensusTipState handles the [GET] /consensus/tipstate endpoint.
+// It returns the full consensus state at the current chain tip.
 func (a *api) handleGETConsensusTipState(jc jape.Context) {
 	a.writeResponse(jc, ConsensusStateResp(a.chain.TipState()))
 }
 
+// handleGETConsensusCheckpoint handles the [GET] /consensus/checkpoint/:id
+// endpoint. It returns the consensus state and block for the given block ID.
 func (a *api) handleGETConsensusCheckpoint(jc jape.Context) {
 	var id types.BlockID
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -124,14 +134,21 @@ func (a *api) handleGETConsensusCheckpoint(jc jape.Context) {
 		Block: block,
 	})
 }
+
+// handleGETConsensusNetwork handles the [GET] /consensus/network endpoint. It
+// returns the consensus network parameters.
 func (a *api) handleGETConsensusNetwork(jc jape.Context) {
 	jc.Encode(a.chain.TipState().Network)
 }
 
+// handleGETSyncerAddr handles the [GET] /syncer/address endpoint. It returns
+// the syncer's advertised address.
 func (a *api) handleGETSyncerAddr(jc jape.Context) {
 	a.writeResponse(jc, SyncerAddrResp(a.syncer.Addr()))
 }
 
+// handleGETSyncerPeers handles the [GET] /syncer/peers endpoint. It returns a
+// list of currently connected peers with connection metadata.
 func (a *api) handleGETSyncerPeers(jc jape.Context) {
 	var peers []Peer
 	for _, p := range a.syncer.Peers() {
@@ -158,6 +175,8 @@ func (a *api) handleGETSyncerPeers(jc jape.Context) {
 	a.writeResponse(jc, PeerResp(peers))
 }
 
+// handlePUTSyncerPeer handles the [PUT] /syncer/peers endpoint. It initiates a
+// connection to the specified peer address.
 func (a *api) handlePUTSyncerPeer(jc jape.Context) {
 	var req SyncerConnectRequest
 	if err := jc.Decode(&req); err != nil {
@@ -167,14 +186,20 @@ func (a *api) handlePUTSyncerPeer(jc jape.Context) {
 	a.checkServerError(jc, "failed to connect to peer", err)
 }
 
+// handleGETIndexTip handles the [GET] /index/tip endpoint. It returns the
+// current index synchronization tip.
 func (a *api) handleGETIndexTip(jc jape.Context) {
 	a.writeResponse(jc, IndexTipResp(a.index.Tip()))
 }
 
+// handleGETAlerts handles the [GET] /alerts endpoint. It returns all active
+// host alerts.
 func (a *api) handleGETAlerts(jc jape.Context) {
 	a.writeResponse(jc, AlertResp(a.alerts.Active()))
 }
 
+// handlePOSTAlertsDismiss handles the [POST] /alerts/dismiss endpoint. It
+// dismisses the alerts with the specified IDs.
 func (a *api) handlePOSTAlertsDismiss(jc jape.Context) {
 	var ids []types.Hash256
 	if err := jc.Decode(&ids); err != nil {
@@ -186,15 +211,22 @@ func (a *api) handlePOSTAlertsDismiss(jc jape.Context) {
 	a.alerts.Dismiss(ids...)
 }
 
+// handlePOSTAnnounce handles the [POST] /settings/announce endpoint. It
+// broadcasts a host announcement transaction to the Sia network.
 func (a *api) handlePOSTAnnounce(jc jape.Context) {
 	err := a.settings.Announce()
 	a.checkServerError(jc, "failed to announce", err)
 }
 
+// handleGETSettings handles the [GET] /settings endpoint. It returns the
+// host's current configuration settings.
 func (a *api) handleGETSettings(jc jape.Context) {
 	a.writeResponse(jc, HostSettings(a.settings.Settings()))
 }
 
+// handlePATCHSettings handles the [PATCH] /settings endpoint. It partially
+// updates the host's settings by merging the provided fields with the current
+// settings.
 func (a *api) handlePATCHSettings(jc jape.Context) {
 	buf, err := json.Marshal(a.settings.Settings())
 	if !a.checkServerError(jc, "failed to marshal existing settings", err) {
@@ -238,10 +270,14 @@ func (a *api) handlePATCHSettings(jc jape.Context) {
 	jc.Encode(a.settings.Settings())
 }
 
+// handleGETPinnedSettings handles the [GET] /settings/pinned endpoint. It
+// returns the host's pinned price settings.
 func (a *api) handleGETPinnedSettings(jc jape.Context) {
 	jc.Encode(a.pinned.Pinned(jc.Request.Context()))
 }
 
+// handlePUTPinnedSettings handles the [PUT] /settings/pinned endpoint. It
+// updates the host's pinned price settings.
 func (a *api) handlePUTPinnedSettings(jc jape.Context) {
 	var req pin.PinnedSettings
 	if err := jc.Decode(&req); err != nil {
@@ -251,11 +287,15 @@ func (a *api) handlePUTPinnedSettings(jc jape.Context) {
 	a.checkServerError(jc, "failed to update pinned settings", a.pinned.Update(jc.Request.Context(), req))
 }
 
+// handlePUTDDNSUpdate handles the [PUT] /settings/ddns/update endpoint. It
+// triggers a forced update of the host's dynamic DNS records.
 func (a *api) handlePUTDDNSUpdate(jc jape.Context) {
 	err := a.settings.UpdateDDNS(true)
 	a.checkServerError(jc, "failed to update dynamic DNS", err)
 }
 
+// handleGETMetrics handles the [GET] /metrics endpoint. It returns a snapshot
+// of host metrics at the specified or current timestamp.
 func (a *api) handleGETMetrics(jc jape.Context) {
 	var timestamp time.Time
 	if err := jc.DecodeForm("timestamp", &timestamp); err != nil {
@@ -272,6 +312,8 @@ func (a *api) handleGETMetrics(jc jape.Context) {
 	a.writeResponse(jc, Metrics(metrics))
 }
 
+// handleGETPeriodMetrics handles the [GET] /metrics/:period endpoint. It
+// returns metrics aggregated over the specified interval and number of periods.
 func (a *api) handleGETPeriodMetrics(jc jape.Context) {
 	var interval metrics.Interval
 	if err := jc.DecodeParam("period", &interval); err != nil {
@@ -333,6 +375,8 @@ func (a *api) handleGETPeriodMetrics(jc jape.Context) {
 	jc.Encode(period)
 }
 
+// handlePostContracts handles the [POST] /contracts endpoint. It queries v1
+// contracts matching the provided filter and returns a paginated result.
 func (a *api) handlePostContracts(jc jape.Context) {
 	var filter contracts.ContractFilter
 	if err := jc.Decode(&filter); err != nil {
@@ -353,6 +397,8 @@ func (a *api) handlePostContracts(jc jape.Context) {
 	})
 }
 
+// handleGETContract handles the [GET] /contracts/:id endpoint. It returns the
+// details of a single v1 contract by its file contract ID.
 func (a *api) handleGETContract(jc jape.Context) {
 	var id types.FileContractID
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -368,6 +414,8 @@ func (a *api) handleGETContract(jc jape.Context) {
 	jc.Encode(contract)
 }
 
+// handlePOSTV2Contracts handles the [POST] /v2/contracts endpoint. It queries
+// v2 contracts matching the provided filter and returns a paginated result.
 func (a *api) handlePOSTV2Contracts(jc jape.Context) {
 	var filter contracts.V2ContractFilter
 	if err := jc.Decode(&filter); err != nil {
@@ -388,6 +436,8 @@ func (a *api) handlePOSTV2Contracts(jc jape.Context) {
 	})
 }
 
+// handleGETV2Contract handles the [GET] /v2/contracts/:id endpoint. It returns
+// the details of a single v2 contract by its file contract ID.
 func (a *api) handleGETV2Contract(jc jape.Context) {
 	var id types.FileContractID
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -403,6 +453,8 @@ func (a *api) handleGETV2Contract(jc jape.Context) {
 	jc.Encode(contract)
 }
 
+// handleGETVolume handles the [GET] /volumes/:id endpoint. It returns the
+// metadata and statistics for a single storage volume.
 func (a *api) handleGETVolume(jc jape.Context) {
 	var id int64
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -422,6 +474,8 @@ func (a *api) handleGETVolume(jc jape.Context) {
 	jc.Encode(toJSONVolume(volume))
 }
 
+// handlePUTVolume handles the [PUT] /volumes/:id endpoint. It updates a
+// volume's read-only status.
 func (a *api) handlePUTVolume(jc jape.Context) {
 	var id int64
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -444,6 +498,8 @@ func (a *api) handlePUTVolume(jc jape.Context) {
 	a.checkServerError(jc, "failed to update volume", err)
 }
 
+// handleDeleteSector handles the [DELETE] /sectors/:root endpoint. It removes
+// a sector's metadata and zeroes its data on disk.
 func (a *api) handleDeleteSector(jc jape.Context) {
 	var root types.Hash256
 	if err := jc.DecodeParam("root", &root); err != nil {
@@ -453,6 +509,8 @@ func (a *api) handleDeleteSector(jc jape.Context) {
 	a.checkServerError(jc, "failed to remove sector", err)
 }
 
+// handleGETWallet handles the [GET] /wallet endpoint. It returns the wallet's
+// balance and address.
 func (a *api) handleGETWallet(jc jape.Context) {
 	balance, err := a.wallet.Balance()
 	if !a.checkServerError(jc, "failed to get wallet", err) {
@@ -464,6 +522,8 @@ func (a *api) handleGETWallet(jc jape.Context) {
 	})
 }
 
+// handleGETWalletEvents handles the [GET] /wallet/events endpoint. It returns
+// a paginated list of wallet events.
 func (a *api) handleGETWalletEvents(jc jape.Context) {
 	limit, offset := parseLimitParams(jc, 100, 500)
 
@@ -475,6 +535,8 @@ func (a *api) handleGETWalletEvents(jc jape.Context) {
 	a.writeResponse(jc, WalletTransactionsResp(transactions))
 }
 
+// handleGETWalletEvent handles the [GET] /wallet/events/:id endpoint. It
+// returns a single wallet event by its ID.
 func (a *api) handleGETWalletEvent(jc jape.Context) {
 	var id types.Hash256
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -489,6 +551,8 @@ func (a *api) handleGETWalletEvent(jc jape.Context) {
 	a.writeResponse(jc, event)
 }
 
+// handleGETWalletPending handles the [GET] /wallet/pending endpoint. It
+// returns unconfirmed wallet events.
 func (a *api) handleGETWalletPending(jc jape.Context) {
 	pending, err := a.wallet.UnconfirmedEvents()
 	if !a.checkServerError(jc, "failed to get wallet pending", err) {
@@ -497,6 +561,8 @@ func (a *api) handleGETWalletPending(jc jape.Context) {
 	a.writeResponse(jc, WalletPendingResp(pending))
 }
 
+// handlePOSTWalletSend handles the [POST] /wallet/send endpoint. It sends
+// Siacoins to the specified address and returns the transaction ID.
 func (a *api) handlePOSTWalletSend(jc jape.Context) {
 	var req WalletSendSiacoinsRequest
 	if err := jc.Decode(&req); err != nil {
@@ -543,6 +609,8 @@ func (a *api) handlePOSTWalletSend(jc jape.Context) {
 	jc.Encode(txn.ID())
 }
 
+// handleGETSystemDir handles the [GET] /system/dir endpoint. It returns the
+// contents and disk usage of the specified directory path.
 func (a *api) handleGETSystemDir(jc jape.Context) {
 	var path string
 	if err := jc.DecodeForm("path", &path); err != nil {
@@ -624,6 +692,8 @@ func (a *api) handleGETSystemDir(jc jape.Context) {
 	jc.Encode(resp)
 }
 
+// handlePUTSystemDir handles the [PUT] /system/dir endpoint. It creates a
+// directory at the specified path, including any necessary parent directories.
 func (a *api) handlePUTSystemDir(jc jape.Context) {
 	var req CreateDirRequest
 	if err := jc.Decode(&req); err != nil {
@@ -632,6 +702,8 @@ func (a *api) handlePUTSystemDir(jc jape.Context) {
 	a.checkServerError(jc, "failed to create dir", os.MkdirAll(req.Path, 0775))
 }
 
+// handlePOSTSystemSQLite3Backup handles the [POST] /system/sqlite3/backup
+// endpoint. It creates a backup of the SQLite3 database at the specified path.
 func (a *api) handlePOSTSystemSQLite3Backup(jc jape.Context) {
 	if a.sqlite3Store == nil {
 		jc.Error(errors.New("sqlite3 store not available"), http.StatusNotFound)
@@ -645,10 +717,14 @@ func (a *api) handlePOSTSystemSQLite3Backup(jc jape.Context) {
 	a.checkServerError(jc, "failed to backup", a.sqlite3Store.Backup(jc.Request.Context(), req.Path))
 }
 
+// handleGETTPoolFee handles the [GET] /tpool/fee endpoint. It returns the
+// recommended transaction fee per byte.
 func (a *api) handleGETTPoolFee(jc jape.Context) {
 	a.writeResponse(jc, TPoolResp(a.wallet.RecommendedFee()))
 }
 
+// handleGETWebhooks handles the [GET] /webhooks endpoint. It returns all
+// registered webhooks.
 func (a *api) handleGETWebhooks(jc jape.Context) {
 	hooks, err := a.webhooks.Webhooks()
 	if err != nil {
@@ -658,6 +734,8 @@ func (a *api) handleGETWebhooks(jc jape.Context) {
 	jc.Encode(hooks)
 }
 
+// handlePOSTWebhooks handles the [POST] /webhooks endpoint. It registers a
+// new webhook with the specified callback URL and event scopes.
 func (a *api) handlePOSTWebhooks(jc jape.Context) {
 	var req RegisterWebHookRequest
 	if err := jc.Decode(&req); err != nil {
@@ -672,6 +750,8 @@ func (a *api) handlePOSTWebhooks(jc jape.Context) {
 	jc.Encode(hook)
 }
 
+// handlePUTWebhooks handles the [PUT] /webhooks/:id endpoint. It updates the
+// callback URL and scopes of an existing webhook.
 func (a *api) handlePUTWebhooks(jc jape.Context) {
 	var id int64
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -689,6 +769,8 @@ func (a *api) handlePUTWebhooks(jc jape.Context) {
 	}
 }
 
+// handlePOSTWebhooksTest handles the [POST] /webhooks/:id/test endpoint. It
+// sends a test event to the specified webhook.
 func (a *api) handlePOSTWebhooksTest(jc jape.Context) {
 	var id int64
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -701,6 +783,8 @@ func (a *api) handlePOSTWebhooksTest(jc jape.Context) {
 	}
 }
 
+// handleDELETEWebhooks handles the [DELETE] /webhooks/:id endpoint. It
+// removes a registered webhook.
 func (a *api) handleDELETEWebhooks(jc jape.Context) {
 	var id int64
 	if err := jc.DecodeParam("id", &id); err != nil {
@@ -714,6 +798,9 @@ func (a *api) handleDELETEWebhooks(jc jape.Context) {
 	}
 }
 
+// handlePUTSystemConnectTest handles the [PUT] /system/connect/test endpoint.
+// It runs a connectivity test to verify the host is reachable from the
+// network.
 func (a *api) handlePUTSystemConnectTest(jc jape.Context) {
 	if a.connectivity == nil {
 		jc.Error(errors.New("connectivity test not enabled"), http.StatusBadRequest)

@@ -136,6 +136,8 @@ func (c *Client) PeriodMetrics(start time.Time, n int, interval metrics.Interval
 }
 
 // Contracts returns the contracts of the host matching the filter.
+//
+// Deprecated: Use V2Contracts instead.
 func (c *Client) Contracts(filter contracts.ContractFilter) ([]contracts.Contract, int, error) {
 	var resp ContractsResponse
 	err := c.c.POST(context.Background(), "/contracts", filter, &resp)
@@ -143,6 +145,8 @@ func (c *Client) Contracts(filter contracts.ContractFilter) ([]contracts.Contrac
 }
 
 // Contract returns the contract with the specified ID.
+//
+// Deprecated: Use V2Contract instead.
 func (c *Client) Contract(id types.FileContractID) (contract contracts.Contract, err error) {
 	err = c.c.GET(context.Background(), "/contracts/"+id.String(), &contract)
 	return

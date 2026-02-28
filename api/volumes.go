@@ -124,6 +124,8 @@ func (vj *volumeJobs) Cancel(id int64) error {
 	return nil
 }
 
+// handleGETVolumes handles the [GET] /volumes endpoint. It returns a list of
+// all storage volumes with their metadata and statistics.
 func (a *api) handleGETVolumes(c jape.Context) {
 	volumes, err := a.volumes.Volumes()
 	if !a.checkServerError(c, "failed to get volumes", err) {
@@ -136,6 +138,8 @@ func (a *api) handleGETVolumes(c jape.Context) {
 	a.writeResponse(c, VolumeResp(jsonVolumes))
 }
 
+// handlePOSTVolume handles the [POST] /volumes endpoint. It creates a new
+// storage volume at the specified path with the given sector capacity.
 func (a *api) handlePOSTVolume(c jape.Context) {
 	var req AddVolumeRequest
 	if err := c.Decode(&req); err != nil {
@@ -154,6 +158,8 @@ func (a *api) handlePOSTVolume(c jape.Context) {
 	c.Encode(volume)
 }
 
+// handleDeleteVolume handles the [DELETE] /volumes/:id endpoint. It initiates
+// removal of a storage volume, migrating sectors to other volumes.
 func (a *api) handleDeleteVolume(c jape.Context) {
 	var id int64
 	var force bool
@@ -169,6 +175,8 @@ func (a *api) handleDeleteVolume(c jape.Context) {
 	a.checkServerError(c, "failed to remove volume", err)
 }
 
+// handlePUTVolumeResize handles the [PUT] /volumes/:id/resize endpoint. It
+// initiates resizing a volume to the specified number of sectors.
 func (a *api) handlePUTVolumeResize(c jape.Context) {
 	var id int64
 	if err := c.DecodeParam("id", &id); err != nil {
@@ -187,6 +195,8 @@ func (a *api) handlePUTVolumeResize(c jape.Context) {
 	a.checkServerError(c, "failed to resize volume", err)
 }
 
+// handleDELETEVolumeCancelOp handles the [DELETE] /volumes/:id/cancel
+// endpoint. It cancels an in-progress volume operation.
 func (a *api) handleDELETEVolumeCancelOp(c jape.Context) {
 	var id int64
 	if err := c.DecodeParam("id", &id); err != nil {
@@ -200,6 +210,9 @@ func (a *api) handleDELETEVolumeCancelOp(c jape.Context) {
 	a.checkServerError(c, "failed to cancel operation", err)
 }
 
+// handleGETVerifySector handles the [GET] /sectors/:root/verify endpoint. It
+// returns the sector's references and verifies its data integrity by reading
+// it from disk and recalculating its Merkle root.
 func (a *api) handleGETVerifySector(jc jape.Context) {
 	var root types.Hash256
 	if err := jc.DecodeParam("root", &root); err != nil {
