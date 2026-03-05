@@ -1837,6 +1837,67 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		_ = renewalFC
 	})
 
+	t.Run("renewal replaces inherited sector", func(t *testing.T) {
+		// form contract with sectors, renew, then replace an inherited
+		// sector on the renewal. The replaced sector should be returned
+		// correctly, not the old one from the previous revision.
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(10), types.Siacoins(20), 10, true)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+
+		var roots []types.Hash256
+		for range 3 {
+			fc, roots = appendSector(t, contractID, fc, roots)
+		}
+		assertRoots(t, contractID, roots)
+		assertDBRoots(t, contractID, roots)
+
+		renewalID, renewalFC, renewalTxnSet, renewalUsage := renewContract(t, contractID, fc, types.ZeroCurrency, types.Siacoins(2))
+		if _, err := node.Chain.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if err := node.Contracts.RenewV2Contract(renewalTxnSet, renewalUsage); err != nil {
+			t.Fatal(err)
+		}
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+
+		// replace sector at index 0 on the renewal
+		var replacementSector [proto4.SectorSize]byte
+		frand.Read(replacementSector[:])
+		replacementRoot := proto4.SectorRoot(&replacementSector)
+		if err := node.Volumes.StoreSector(replacementRoot, &replacementSector, 1); err != nil {
+			t.Fatal(err)
+		}
+
+		roots[0] = replacementRoot
+		renewalFC.Filesize = proto4.SectorSize * uint64(len(roots))
+		renewalFC.Capacity = proto4.SectorSize * uint64(len(roots))
+		renewalFC.FileMerkleRoot = proto4.MetaRoot(roots)
+		renewalFC.RevisionNumber++
+		cost, collateral := types.Siacoins(1), types.Siacoins(2)
+		renewalFC.RenterOutput.Value = renewalFC.RenterOutput.Value.Sub(cost)
+		renewalFC.HostOutput.Value = renewalFC.HostOutput.Value.Add(cost)
+		renewalFC.MissedHostValue = renewalFC.MissedHostValue.Sub(collateral)
+		sigHash := node.Chain.TipState().ContractSigHash(renewalFC)
+		renewalFC.HostSignature = hostKey.SignHash(sigHash)
+		renewalFC.RenterSignature = renterKey.SignHash(sigHash)
+		if err := node.Contracts.ReviseV2Contract(renewalID, renewalFC, roots, proto4.Usage{
+			Storage:          cost,
+			RiskedCollateral: collateral,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		assertRoots(t, renewalID, roots)
+		assertDBRoots(t, renewalID, roots)
+
+		// expire everything
+		renewal, err := node.Contracts.V2Contract(renewalID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+	})
+
 	t.Run("empty contract no sectors", func(t *testing.T) {
 		// form and confirm a contract with no sectors, then expire it.
 		// Roots should always be empty.
