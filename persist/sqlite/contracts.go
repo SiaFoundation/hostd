@@ -391,11 +391,11 @@ func (s *Store) V2SectorRoots() (roots map[types.FileContractID][]types.Hash256,
 	err = s.transaction(func(tx *txn) error {
 		const contractsQuery = `SELECT contract_id, raw_revision, contract_v2_roots_map_id, contract_v2_roots_map_revision_number FROM contracts_v2
 WHERE contract_status <> $1 AND resolution_height IS NULL;`
-		contractRows, err := tx.Query(contractsQuery, contracts.V2ContractStatusRejected)
+		rows, err := tx.Query(contractsQuery, contracts.V2ContractStatusRejected)
 		if err != nil {
 			return err
 		}
-		defer contractRows.Close()
+		defer rows.Close()
 
 		type contractRef struct {
 			id        types.FileContractID
@@ -404,58 +404,27 @@ WHERE contract_status <> $1 AND resolution_height IS NULL;`
 			mapRevNum int64
 		}
 		var contracts []contractRef
-		for contractRows.Next() {
+		for rows.Next() {
 			var ref contractRef
 			var fc types.V2FileContract
-			if err := contractRows.Scan(decode(&ref.id), decode(&fc), &ref.mapID, &ref.mapRevNum); err != nil {
+			if err := rows.Scan(decode(&ref.id), decode(&fc), &ref.mapID, &ref.mapRevNum); err != nil {
 				return fmt.Errorf("failed to scan contract: %w", err)
 			}
 			ref.sectors = fc.Filesize / proto4.SectorSize
 			contracts = append(contracts, ref)
 		}
-		if err := contractRows.Err(); err != nil {
-			return err
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to iterate contracts: %w", err)
+		} else if err := rows.Close(); err != nil {
+			return fmt.Errorf("failed to close contract rows: %w", err)
 		}
-
-		// for each root_index, select the root from the latest map revision
-		// that is <= the contract map revision number.
-		const rootsQuery = `SELECT sector_root FROM (
-    SELECT s.sector_root, MAX(cr.contract_v2_roots_map_revision_number)
-    FROM contract_v2_sector_roots cr
-    INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
-    WHERE cr.contract_v2_roots_map_id = $1
-    AND cr.contract_v2_roots_map_revision_number <= $2
-    AND cr.root_index < $3
-    GROUP BY cr.root_index
-    ORDER BY cr.root_index ASC
-);`
-
-		rootsStmt, err := tx.Prepare(rootsQuery)
-		if err != nil {
-			return fmt.Errorf("failed to prepare roots query: %w", err)
-		}
-		defer rootsStmt.Close()
 
 		roots = make(map[types.FileContractID][]types.Hash256)
 		for _, ref := range contracts {
-			rows, err := rootsStmt.Query(ref.mapID, ref.mapRevNum, ref.sectors)
+			roots[ref.id], err = v2ContractRoots(tx, ref.mapID, ref.mapRevNum, ref.sectors)
 			if err != nil {
-				return fmt.Errorf("failed to query roots for contract %v: %w", ref.id, err)
+				return fmt.Errorf("failed to get roots for contract %v: %w", ref.id, err)
 			}
-
-			for rows.Next() {
-				var root types.Hash256
-				if err := rows.Scan(decode(&root)); err != nil {
-					rows.Close()
-					return fmt.Errorf("failed to scan sector root: %w", err)
-				}
-				roots[ref.id] = append(roots[ref.id], root)
-			}
-			if err := rows.Err(); err != nil {
-				rows.Close()
-				return err
-			}
-			rows.Close()
 		}
 		return nil
 	})
@@ -1008,6 +977,38 @@ func resetRejectedV2Contract(tx *txn, contractID types.FileContractID) error {
 	return nil
 }
 
+func v2ContractRoots(tx *txn, contractMapID, contractMapRevision int64, maxSectors uint64) (roots []types.Hash256, err error) {
+	const rootsQuery = `SELECT sector_root FROM (
+    SELECT s.sector_root, MAX(cr.contract_v2_roots_map_revision_number)
+    FROM contract_v2_sector_roots cr
+    INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
+    WHERE cr.contract_v2_roots_map_id = $1
+    AND cr.contract_v2_roots_map_revision_number <= $2
+    AND cr.root_index < $3
+    GROUP BY cr.root_index
+    ORDER BY cr.root_index ASC
+);`
+
+	rows, err := tx.Query(rootsQuery, contractMapID, contractMapRevision, maxSectors)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query roots for map %v: %w", contractMapID, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var root types.Hash256
+		if err := rows.Scan(decode(&root)); err != nil {
+
+			return nil, fmt.Errorf("failed to scan sector root: %w", err)
+		}
+		roots = append(roots, root)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate sector roots: %w", err)
+	}
+	return
+}
+
 func insertV2Contract(tx *txn, contract contracts.V2Contract, mapID, mapRevisionNumber int64, formationSet rhp4.TransactionSet) (dbID int64, err error) {
 	const query = `INSERT INTO contracts_v2 (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue,
 egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, proof_height, expiration_height, formation_txn_set,
@@ -1173,6 +1174,13 @@ func updateV2ContractSectors(tx *txn, contractDBID int64, oldRoots, newRoots []t
 			return fmt.Errorf("failed to get sector ID: %w", err)
 		} else if _, err := updateRootStmt.Exec(contractMapID, contractMapRevisionID, newSectorID, i); err != nil {
 			return fmt.Errorf("failed to update sector root: %w", err)
+		}
+	}
+
+	if len(newRoots) < len(oldRoots) {
+		_, err := tx.Exec(`DELETE FROM contract_v2_sector_roots WHERE contract_v2_roots_map_id=$1 AND contract_v2_roots_map_revision_number=$2 AND root_index >= $3`, contractMapID, contractMapRevisionID, len(newRoots))
+		if err != nil {
+			return fmt.Errorf("failed to remove old roots: %w", err)
 		}
 	}
 
