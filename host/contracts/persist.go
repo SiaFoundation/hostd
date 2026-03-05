@@ -32,10 +32,6 @@ type (
 		// sector roots.
 		ReviseContract(revision SignedRevision, oldRoots, newRoots []types.Hash256, usage Usage) error
 
-		// ExpireContractSectors removes sector roots for any contracts that are
-		// rejected or past their proof window.
-		ExpireContractSectors(height uint64) error
-
 		// V2ContractElement returns the latest v2 state element with the given ID.
 		V2ContractElement(types.FileContractID) (types.ChainIndex, types.V2FileContractElement, error)
 		// V2Contracts returns a paginated list of v2 contracts sorted by expiration
