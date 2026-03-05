@@ -335,9 +335,7 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	expireHeight := index.Height - ReorgBuffer
 
 	// 6 block buffer for reorg protection
-	if err := cm.store.ExpireContractSectors(expireHeight); err != nil {
-		return fmt.Errorf("failed to expire contract sectors: %w", err)
-	} else if err := cm.store.ExpireV2ContractSectors(expireHeight); err != nil {
+	if err := cm.store.ExpireV2ContractSectors(expireHeight); err != nil {
 		return fmt.Errorf("failed to expire v2 contract sectors: %w", err)
 	}
 	return nil
