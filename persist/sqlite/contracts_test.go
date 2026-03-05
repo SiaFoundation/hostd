@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -583,11 +584,21 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 	checkRootConsistency := func(t *testing.T, expected []types.Hash256) {
 		t.Helper()
 
-		contractRoots, err := db.V2SectorRoots()
+		var actual []types.Hash256
+		err := db.transaction(func(tx *txn) error {
+			var mapID, mapRevNum int64
+			err := tx.QueryRow(`SELECT contract_v2_roots_map_id, contract_v2_roots_map_revision_number FROM contracts_v2 WHERE contract_id=$1`, encode(contract.ID)).Scan(&mapID, &mapRevNum)
+			if err != nil {
+				return err
+			}
+			// maxint64 is used here to catch orphaned deleted roots
+			actual, err = v2ContractRoots(tx, mapID, mapRevNum, math.MaxInt64)
+			return err
+		})
 		if err != nil {
 			t.Fatal("failed to get sector roots:", err)
-		} else if !slices.Equal(contractRoots[contract.ID], expected) {
-			t.Fatalf("expected roots %v, got %v", expected, contractRoots[contract.ID])
+		} else if !slices.Equal(actual, expected) {
+			t.Fatalf("expected roots %v, got %v", expected, actual)
 		}
 	}
 
