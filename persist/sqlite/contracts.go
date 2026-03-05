@@ -462,12 +462,6 @@ func (s *Store) ContractActions(index types.ChainIndex, revisionBroadcastHeight 
 	return
 }
 
-// ExpireContractSectors expires all sectors that are no longer covered by an
-// active contract.
-func (s *Store) ExpireContractSectors(height uint64) error {
-	return nil // TODO: remove
-}
-
 // ExpireV2ContractSectors expires all sectors that are no longer covered by an
 // active contract.
 func (s *Store) ExpireV2ContractSectors(height uint64) error {
