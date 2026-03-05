@@ -12,6 +12,7 @@ import (
 
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.uber.org/zap"
@@ -736,36 +737,45 @@ func TestPrune(t *testing.T) {
 	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
 
-	addContract := func(t *testing.T, expiration uint64) contracts.SignedRevision {
-		// add a contract to store the sectors
-		contractUnlockConditions := types.UnlockConditions{
-			PublicKeys: []types.UnlockKey{
-				renterKey.PublicKey().UnlockKey(),
-				hostKey.PublicKey().UnlockKey(),
-			},
-			SignaturesRequired: 2,
-		}
-		c := contracts.SignedRevision{
-			Revision: types.FileContractRevision{
-				ParentID:         types.FileContractID(frand.Entropy256()),
-				UnlockConditions: contractUnlockConditions,
-				FileContract: types.FileContract{
-					UnlockHash:  contractUnlockConditions.UnlockHash(),
-					WindowStart: expiration,
-					WindowEnd:   expiration,
-				},
+	revisionNumber := uint64(0)
+	addContract := func(t *testing.T, proofHeight, expirationHeight uint64) contracts.V2Contract {
+		t.Helper()
+		c := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				RevisionNumber:   revisionNumber,
+				ProofHeight:      proofHeight,
+				ExpirationHeight: expirationHeight,
 			},
 		}
-		if err := db.AddContract(c, []types.Transaction{}, types.MaxCurrency, contracts.Usage{}, 100); err != nil {
+		revisionNumber++
+		if err := db.AddV2Contract(c, rhp4.TransactionSet{}); err != nil {
 			t.Fatal(err)
 		}
 		return c
 	}
 
-	addSectorsToContract := func(t *testing.T, c *contracts.SignedRevision, sectors []types.Hash256) {
+	addSectorsToContract := func(t *testing.T, c *contracts.V2Contract, sectors []types.Hash256) {
 		t.Helper()
 
-		err = db.ReviseContract(*c, []types.Hash256{}, sectors, contracts.Usage{})
+		c.V2FileContract.RevisionNumber = revisionNumber
+		c.V2FileContract.Filesize = uint64(len(sectors)) * proto4.SectorSize
+		revisionNumber++
+		if err := db.ReviseV2Contract(c.ID, c.V2FileContract, nil, sectors, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resolveContract := func(t *testing.T, c contracts.V2Contract, height uint64) {
+		t.Helper()
+
+		err := db.transaction(func(tx *txn) error {
+			_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3 WHERE contract_id=$4`,
+				height, encode(types.BlockID{}), contracts.V2ContractStatusSuccessful, encode(c.ID))
+			return err
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -773,8 +783,8 @@ func TestPrune(t *testing.T) {
 
 	contract1Sectors, contract2Sectors, tempSectors, unreferencedSectors := roots[:10], roots[10:25], roots[25:50], roots[50:]
 
-	c1 := addContract(t, 100)
-	c2 := addContract(t, 110)
+	c1 := addContract(t, 100, 200)
+	c2 := addContract(t, 110, 210)
 
 	// add the sectors to the contract
 	addSectorsToContract(t, &c1, contract1Sectors)
@@ -841,8 +851,9 @@ func TestPrune(t *testing.T) {
 	}
 	assertSectors(t, 25, 25, available, deleted)
 
-	// expire one of the contract's sectors
-	if err := db.ExpireContractSectors(101); err != nil {
+	// resolve c1 and expire its sectors
+	resolveContract(t, c1, 100)
+	if err := db.ExpireV2ContractSectors(101); err != nil {
 		t.Fatal(err)
 	} else if err := db.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -859,12 +870,14 @@ func TestPrune(t *testing.T) {
 	available, deleted = contract2Sectors, append(deleted, tempSectors...)
 	assertSectors(t, 15, 0, available, deleted)
 
-	if err := db.ExpireContractSectors(111); err != nil {
+	// resolve c2 and expire its sectors
+	resolveContract(t, c2, 110)
+	if err := db.ExpireV2ContractSectors(111); err != nil {
 		t.Fatal(err)
 	} else if err := db.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	available, deleted = nil, append(deleted, contract1Sectors...)
+	available, deleted = nil, append(deleted, contract2Sectors...)
 	assertSectors(t, 0, 0, available, deleted)
 }
 

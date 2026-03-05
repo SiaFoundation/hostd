@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -582,28 +583,11 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 	checkRootConsistency := func(t *testing.T, expected []types.Hash256) {
 		t.Helper()
 
-		err := db.transaction(func(tx *txn) error {
-			stmt, err := tx.Prepare(`SELECT ss.sector_root FROM stored_sectors ss
-INNER JOIN contract_v2_sector_roots csr ON (ss.id = csr.sector_id)
-INNER JOIN contracts_v2 c ON (csr.contract_id = c.id)
-WHERE c.contract_id=$1 AND csr.root_index= $2`)
-			if err != nil {
-				t.Fatal("failed to prepare statement:", err)
-			}
-			defer stmt.Close()
-
-			for i, root := range expected {
-				var dbRoot types.Hash256
-				if err := stmt.QueryRow(encode(contract.ID), i).Scan(decode(&dbRoot)); err != nil {
-					t.Fatalf("failed to scan root %d: %s", i, err)
-				} else if dbRoot != root {
-					t.Fatalf("expected root %q at index %d, got %q", root, i, dbRoot)
-				}
-			}
-			return nil
-		})
+		contractRoots, err := db.V2SectorRoots()
 		if err != nil {
-			t.Fatal("failed to get db roots:", err)
+			t.Fatal("failed to get sector roots:", err)
+		} else if !slices.Equal(contractRoots[contract.ID], expected) {
+			t.Fatalf("expected roots %v, got %v", expected, contractRoots[contract.ID])
 		}
 	}
 
@@ -633,6 +617,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 		}
 		newRoots := append(append([]types.Hash256(nil), roots...), appended...)
 		contract.V2FileContract.RevisionNumber++
+		contract.V2FileContract.Filesize = proto4.SectorSize * uint64(len(newRoots))
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
 		}
@@ -669,6 +654,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 		}
 
 		contract.V2FileContract.RevisionNumber++
+		contract.V2FileContract.Filesize = proto4.SectorSize * uint64(len(newRoots))
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
 		}
@@ -685,6 +671,7 @@ WHERE c.contract_id=$1 AND csr.root_index= $2`)
 		newRoots = newRoots[:len(newRoots)-n]
 
 		contract.V2FileContract.RevisionNumber++
+		contract.V2FileContract.Filesize = proto4.SectorSize * uint64(len(newRoots))
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
 		}
@@ -883,7 +870,7 @@ func BenchmarkRefreshContract(b *testing.B) {
 						RevisionNumber: 1,
 					},
 				}
-				if err := db.RenewV2Contract(contract, rhp4.TransactionSet{}, currentID, roots); err != nil {
+				if err := db.RenewV2Contract(contract, rhp4.TransactionSet{}, currentID); err != nil {
 					b.Fatal(err)
 				}
 				currentID = contract.ID

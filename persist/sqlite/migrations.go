@@ -12,6 +12,150 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion49(tx *txn, log *zap.Logger) error {
+	_, err := tx.Exec(`
+-- drop old indices
+DROP INDEX contracts_v2_contract_id;
+DROP INDEX contracts_v2_renter_id;
+DROP INDEX contracts_v2_renewed_to;
+DROP INDEX contracts_v2_renewed_from;
+DROP INDEX contracts_v2_negotiation_height;
+DROP INDEX contracts_v2_contract_status;
+DROP INDEX contracts_v2_proof_height;
+DROP INDEX contracts_v2_expiration_height;
+DROP INDEX contracts_v2_confirmation_index_resolution_block_id_proof_height;
+DROP INDEX contracts_v2_confirmation_index_resolution_block_id_expiration_height;
+DROP INDEX contracts_v2_resolution_height;
+DROP INDEX contracts_v2_confirmation_index_proof_height;
+DROP INDEX contracts_v2_confirmation_index_negotiation_height;
+DROP INDEX contract_v2_sector_roots_sector_id;
+DROP INDEX contract_v2_sector_roots_contract_id_root_index;
+-- tables are renamed instead of updated since they will contain new NOT NULL columns
+ALTER TABLE contract_v2_sector_roots RENAME TO contract_v2_sector_roots_old;
+-- rename tables that reference contracts_v2 to avoid broken foreign keys
+ALTER TABLE contract_v2_state_elements RENAME TO contract_v2_state_elements_old;
+ALTER TABLE contract_v2_account_funding RENAME TO contract_v2_account_funding_old;
+ALTER TABLE contracts_v2 RENAME TO contracts_v2_old;
+CREATE TABLE contract_v2_roots_map (
+	id INTEGER NOT NULL,
+	revision_number INTEGER NOT NULL,
+	PRIMARY KEY (id, revision_number)
+);
+CREATE TABLE contract_v2_sector_roots (
+	id INTEGER PRIMARY KEY,
+	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
+	root_index INTEGER NOT NULL,
+	contract_v2_roots_map_id INTEGER NOT NULL,
+	contract_v2_roots_map_revision_number INTEGER NOT NULL,
+	FOREIGN KEY (contract_v2_roots_map_id, contract_v2_roots_map_revision_number) REFERENCES contract_v2_roots_map(id, revision_number),
+	UNIQUE(contract_v2_roots_map_id, contract_v2_roots_map_revision_number, root_index)
+);
+CREATE INDEX contract_v2_sector_roots_contract_v2_roots_map_id_revision_number ON contract_v2_sector_roots(contract_v2_roots_map_id, contract_v2_roots_map_revision_number);
+CREATE INDEX contract_v2_sector_roots_sector_id ON contract_v2_sector_roots(sector_id);
+
+CREATE TABLE contracts_v2 (
+	id INTEGER PRIMARY KEY,
+	renter_id INTEGER NOT NULL REFERENCES contract_renters(id),
+	renewed_to INTEGER REFERENCES contracts_v2(id) ON DELETE SET NULL,
+	renewed_from INTEGER REFERENCES contracts_v2(id) ON DELETE SET NULL,
+	contract_id BLOB UNIQUE NOT NULL,
+	revision_number BLOB NOT NULL, -- stored as BLOB to support uint64_max on clearing revisions
+	formation_txn_set BLOB NOT NULL, -- binary serialized transaction set
+	formation_txn_set_basis BLOB NOT NULL,
+	locked_collateral BLOB NOT NULL,
+	rpc_revenue BLOB NOT NULL,
+	storage_revenue BLOB NOT NULL,
+	ingress_revenue BLOB NOT NULL,
+	egress_revenue BLOB NOT NULL,
+	account_funding BLOB NOT NULL,
+	risked_collateral BLOB NOT NULL,
+	raw_revision BLOB NOT NULL, -- binary serialized contract revision
+	confirmation_index BLOB, -- null if the contract has not been confirmed on the blockchain, otherwise the chain index of the block containing the confirmation transaction
+	negotiation_height INTEGER NOT NULL, -- determines if the formation txn should be rebroadcast or if the contract should be deleted
+	proof_height INTEGER NOT NULL,
+	expiration_height INTEGER NOT NULL,
+	resolution_block_id BLOB, -- null if the resolution has not been confirmed on the blockchain
+	resolution_height INTEGER CHECK((resolution_height IS NULL) = (resolution_block_id IS NULL)), -- null if the resolution has not been confirmed on the blockchain
+	contract_status TEXT NOT NULL,
+
+	contract_v2_roots_map_id INTEGER NOT NULL,
+	contract_v2_roots_map_revision_number INTEGER NOT NULL,
+	FOREIGN KEY (contract_v2_roots_map_id, contract_v2_roots_map_revision_number) REFERENCES contract_v2_roots_map(id, revision_number)
+);
+CREATE INDEX contracts_v2_contract_id ON contracts_v2(contract_id);
+CREATE INDEX contracts_v2_renter_id ON contracts_v2(renter_id);
+CREATE INDEX contracts_v2_renewed_to ON contracts_v2(renewed_to);
+CREATE INDEX contracts_v2_renewed_from ON contracts_v2(renewed_from);
+CREATE INDEX contracts_v2_negotiation_height ON contracts_v2(negotiation_height);
+CREATE INDEX contracts_v2_proof_height ON contracts_v2(proof_height);
+CREATE INDEX contracts_v2_expiration_height ON contracts_v2(expiration_height);
+CREATE INDEX contracts_v2_contract_status ON contracts_v2(contract_status);
+CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_proof_height ON contracts_v2(confirmation_index, resolution_block_id, proof_height);
+CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_expiration_height ON contracts_v2(confirmation_index, resolution_block_id, expiration_height);
+CREATE INDEX contracts_v2_resolution_height ON contracts_v2(resolution_height);
+CREATE INDEX contracts_v2_confirmation_index_proof_height ON contracts_v2(confirmation_index, proof_height);
+CREATE INDEX contracts_v2_confirmation_index_negotiation_height ON contracts_v2(confirmation_index, negotiation_height);
+CREATE INDEX contracts_v2_roots_map_id_contract_v2_roots_map_revision_number ON contracts_v2(contract_v2_roots_map_id, contract_v2_roots_map_revision_number);`)
+	if err != nil {
+		return fmt.Errorf("failed to create contract_v2_roots_map table: %w", err)
+	}
+
+	// create a roots map entry for each existing contract using the contract's id
+	_, err = tx.Exec(`INSERT INTO contract_v2_roots_map (id, revision_number) SELECT id, 0 FROM contracts_v2_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to insert contract roots maps: %w", err)
+	}
+
+	log.Info("migrating contracts to new schema")
+	// uses the contract db ID as a unique root map ID to simplify migration.
+	// All existing contracts have their own map. The copy-on-write logic will be correct going forward.
+	_, err = tx.Exec(`INSERT INTO contracts_v2 (id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, formation_txn_set_basis, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, confirmation_index, negotiation_height, proof_height, expiration_height, resolution_block_id, resolution_height, contract_status, contract_v2_roots_map_id, contract_v2_roots_map_revision_number)
+SELECT id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, formation_txn_set_basis, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, confirmation_index, negotiation_height, proof_height, expiration_height, resolution_block_id, resolution_height, contract_status, id, 0 FROM contracts_v2_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to migrate contracts: %w", err)
+	}
+
+	log.Info("migrating sector roots to new schema")
+	_, err = tx.Exec(`INSERT INTO contract_v2_sector_roots (sector_id, root_index, contract_v2_roots_map_id, contract_v2_roots_map_revision_number)
+SELECT sector_id, root_index, contract_id, 0 FROM contract_v2_sector_roots_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to migrate contract sector roots: %w", err)
+	}
+
+	log.Info("cleaning up old tables and creating indexes")
+	_, err = tx.Exec(`
+-- recreate tables that reference contracts_v2
+CREATE TABLE contract_v2_state_elements (
+	contract_id INTEGER PRIMARY KEY REFERENCES contracts_v2(id),
+	leaf_index BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL,
+	raw_contract BLOB NOT NULL, -- binary serialized contract
+	revision_number BLOB NOT NULL -- for comparison
+);
+INSERT INTO contract_v2_state_elements (contract_id, leaf_index, merkle_proof, raw_contract, revision_number)
+SELECT contract_id, leaf_index, merkle_proof, raw_contract, revision_number FROM contract_v2_state_elements_old;
+
+CREATE TABLE contract_v2_account_funding (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts_v2(id),
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
+	amount BLOB NOT NULL,
+	UNIQUE (contract_id, account_id)
+);
+INSERT INTO contract_v2_account_funding (id, contract_id, account_id, amount)
+SELECT id, contract_id, account_id, amount FROM contract_v2_account_funding_old;
+
+-- drop old tables
+DROP TABLE contract_v2_state_elements_old;
+DROP TABLE contract_v2_account_funding_old;
+DROP TABLE contract_v2_sector_roots_old;
+DROP TABLE contracts_v2_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old tables and create indexes: %w", err)
+	}
+	return nil
+}
+
 // migrateVersion48 deletes stored_sectors that are no longer referenced by any
 // volume_sectors, contracts, or temp storage.
 func migrateVersion48(tx *txn, _ *zap.Logger) error {
@@ -1233,4 +1377,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion46,
 	migrateVersion47,
 	migrateVersion48,
+	migrateVersion49,
 }
