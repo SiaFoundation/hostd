@@ -998,7 +998,6 @@ func v2ContractRoots(tx *txn, contractMapID, contractMapRevision int64, maxSecto
 	for rows.Next() {
 		var root types.Hash256
 		if err := rows.Scan(decode(&root)); err != nil {
-
 			return nil, fmt.Errorf("failed to scan sector root: %w", err)
 		}
 		roots = append(roots, root)
