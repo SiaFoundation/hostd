@@ -35,6 +35,7 @@ type (
 		RenewedFromID    int64
 		LockedCollateral types.Currency
 		Usage            proto4.Usage
+		Revision         types.V2FileContract
 		Status           contracts.V2ContractStatus
 	}
 
@@ -680,7 +681,7 @@ WHERE contract_id=?`)
 // getV2ContractStateStmt helper to get the current state of a v2 contract.
 func getV2ContractStateStmt(tx *txn) (func(contractID types.FileContractID) (v2ContractState, error), func() error, error) {
 	stmt, err := tx.Prepare(`SELECT id, renewed_from, locked_collateral, risked_collateral, rpc_revenue, storage_revenue,
-ingress_revenue, egress_revenue, contract_status
+ingress_revenue, egress_revenue, raw_revision, contract_status
 FROM contracts_v2
 WHERE contract_id=?`)
 	if err != nil {
@@ -691,7 +692,7 @@ WHERE contract_id=?`)
 		err = stmt.QueryRow(encode(contractID)).Scan(&state.ID, decodeNullable(&state.RenewedFromID),
 			decode(&state.LockedCollateral), decode(&state.Usage.RiskedCollateral), decode(&state.Usage.RPC),
 			decode(&state.Usage.Storage), decode(&state.Usage.Ingress), decode(&state.Usage.Egress),
-			&state.Status)
+			decode(&state.Revision), &state.Status)
 		return
 	}, stmt.Close, nil
 }
@@ -1369,6 +1370,8 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 		} else if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusActive, incrementNumericStat); err != nil {
 			return fmt.Errorf("failed to update contract metrics: %w", err)
+		} else if err := incrementNumericStat(metricContractSectors, int64(state.Revision.Filesize/proto4.SectorSize), time.Now()); err != nil {
+			return fmt.Errorf("failed to update contract sectors metric: %w", err)
 		}
 	}
 	return nil
@@ -1451,6 +1454,8 @@ func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) 
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
 		} else if err := updateV2PotentialRevenueMetrics(state.Usage, true, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
+		} else if err := incrementNumericStat(metricContractSectors, -int64(state.Revision.Filesize/proto4.SectorSize), time.Now()); err != nil {
+			return fmt.Errorf("failed to update contract sectors metric: %w", err)
 		}
 	}
 	return nil
@@ -1550,6 +1555,8 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 				return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 			} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
 				return fmt.Errorf("failed to update collateral metrics: %w", err)
+			} else if err := incrementNumericStat(metricContractSectors, -int64(state.Revision.Filesize/proto4.SectorSize), time.Now()); err != nil {
+				return fmt.Errorf("failed to update contract sectors metric: %w", err)
 			}
 		case contracts.V2ContractStatusFailed:
 			if err := updateV2EarnedRevenueMetrics(state.Usage, false, incrementCurrencyStat); err != nil {
@@ -1634,6 +1641,8 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 				return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 			} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, true, incrementCurrencyStat); err != nil {
 				return fmt.Errorf("failed to update collateral metrics: %w", err)
+			} else if err := incrementNumericStat(metricContractSectors, -int64(state.Revision.Filesize/proto4.SectorSize), time.Now()); err != nil {
+				return fmt.Errorf("failed to update contract sectors metric: %w", err)
 			}
 		case contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusRenewed:
 			// if the contract is successful or renewed, subtract the usage from
@@ -1715,6 +1724,8 @@ func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, suc
 			return fmt.Errorf("failed to update earned revenue metrics: %w", err)
 		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
+		} else if err := incrementNumericStat(metricContractSectors, int64(state.Revision.Filesize/proto4.SectorSize), time.Now()); err != nil {
+			return fmt.Errorf("failed to update contract sectors metric: %w", err)
 		}
 	}
 	return nil
@@ -1785,6 +1796,8 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 			return fmt.Errorf("failed to update potential revenue metrics: %w", err)
 		} else if err := updateCollateralMetrics(state.LockedCollateral, state.Usage.RiskedCollateral, false, incrementCurrencyStat); err != nil {
 			return fmt.Errorf("failed to update collateral metrics: %w", err)
+		} else if err := incrementNumericStat(metricContractSectors, int64(state.Revision.Filesize/proto4.SectorSize), time.Now()); err != nil {
+			return fmt.Errorf("failed to update contract sectors metric: %w", err)
 		}
 	}
 	return nil

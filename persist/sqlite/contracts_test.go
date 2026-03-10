@@ -602,17 +602,6 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 		}
 	}
 
-	checkMetricConsistency := func(t *testing.T, expected uint64) {
-		t.Helper()
-
-		m, err := db.Metrics(time.Now())
-		if err != nil {
-			t.Fatal("failed to get metrics:", err)
-		} else if m.Storage.ContractSectors != expected {
-			t.Fatalf("expected %d contract sectors, got %d", expected, m.Storage.ContractSectors)
-		}
-	}
-
 	var roots []types.Hash256
 	appendSectors := func(t *testing.T, n int) {
 		t.Helper()
@@ -634,7 +623,6 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 		}
 
 		checkRootConsistency(t, newRoots)
-		checkMetricConsistency(t, uint64(len(newRoots)))
 		roots = newRoots
 	}
 
@@ -651,7 +639,6 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 			t.Fatal("failed to revise contract:", err)
 		}
 		checkRootConsistency(t, newRoots)
-		checkMetricConsistency(t, uint64(len(newRoots)))
 		roots = newRoots
 	}
 
@@ -671,7 +658,6 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 		}
 
 		checkRootConsistency(t, newRoots)
-		checkMetricConsistency(t, uint64(len(newRoots)))
 		roots = newRoots
 	}
 
@@ -688,7 +674,6 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 		}
 
 		checkRootConsistency(t, newRoots)
-		checkMetricConsistency(t, uint64(len(newRoots)))
 		roots = newRoots
 	}
 

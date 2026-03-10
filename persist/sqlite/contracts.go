@@ -24,11 +24,6 @@ func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int, err er
 			return fmt.Errorf("failed to delete contract sectors: %w", err)
 		}
 		expired = len(sectorIDs)
-
-		// decrement the contract metrics
-		if err := incrementNumericStat(tx, metricContractSectors, -len(sectorIDs), time.Now()); err != nil {
-			return fmt.Errorf("failed to decrement contract sectors: %w", err)
-		}
 		return nil
 	})
 	return
@@ -948,13 +943,9 @@ func resetRejectedV2Contract(tx *txn, contractID types.FileContractID) error {
 	// note: this should already be handled, but there is a small race where
 	// not all of the sectors may be cleaned up before the renter tries to
 	// renew. Instead of failing, it is preferred to clean up the remaining roots.
-	res, err := tx.Exec(`DELETE FROM contract_v2_sector_roots WHERE contract_v2_roots_map_id=$1 AND contract_v2_roots_map_revision_number=$2;`, contractMapID, contractMapRevisionNumber)
+	_, err = tx.Exec(`DELETE FROM contract_v2_sector_roots WHERE contract_v2_roots_map_id=$1 AND contract_v2_roots_map_revision_number=$2;`, contractMapID, contractMapRevisionNumber)
 	if err != nil {
 		return fmt.Errorf("failed to delete rejected contract sectors: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get affected rows: %w", err)
 	}
 
 	if _, err = tx.Exec(`DELETE FROM contracts_v2 WHERE id=$1;`, dbID); err != nil {
@@ -963,9 +954,7 @@ func resetRejectedV2Contract(tx *txn, contractID types.FileContractID) error {
 		return fmt.Errorf("failed to delete rejected contract roots map: %w", err)
 	}
 
-	if err := incrementNumericStat(metricContractSectors, -n, time.Now()); err != nil {
-		return fmt.Errorf("failed to decrement contract sectors: %w", err)
-	} else if err := incrementNumericStat(metricRejectedContracts, -1, time.Now()); err != nil {
+	if err := incrementNumericStat(metricRejectedContracts, -1, time.Now()); err != nil {
 		return fmt.Errorf("failed to update rejected contracts metric: %w", err)
 	}
 	return nil
@@ -1177,9 +1166,16 @@ func updateV2ContractSectors(tx *txn, contractDBID int64, oldRoots, newRoots []t
 		}
 	}
 
-	delta := len(newRoots) - len(oldRoots)
-	if err := incrementNumericStat(tx, metricContractSectors, delta, time.Now()); err != nil {
-		return fmt.Errorf("failed to update contract sectors: %w", err)
+	var status contracts.V2ContractStatus
+	if err := tx.QueryRow(`SELECT contract_status FROM contracts_v2 WHERE id=$1`, contractDBID).Scan(&status); err != nil {
+		return fmt.Errorf("failed to get contract status: %w", err)
+	}
+
+	if status == contracts.V2ContractStatusActive {
+		delta := len(newRoots) - len(oldRoots)
+		if err := incrementNumericStat(tx, metricContractSectors, delta, time.Now()); err != nil {
+			return fmt.Errorf("failed to update contract sectors: %w", err)
+		}
 	}
 	return nil
 }
