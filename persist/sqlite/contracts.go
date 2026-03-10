@@ -499,7 +499,7 @@ INNER JOIN contracts_v2 c ON (
 	c.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
 	AND c.contract_v2_roots_map_revision_number = csr.contract_v2_roots_map_revision_number
 )
-WHERE (c.resolution_height IS NOT NULL AND c.resolution_height < $1 OR c.contract_status = $2)
+WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR c.contract_status = $2)
 AND NOT EXISTS (
 	SELECT 1 FROM contracts_v2 c2
 	WHERE c2.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
@@ -529,48 +529,9 @@ RETURNING sector_id;`
 		return sectorIDs, nil
 	}
 
-	// find expired (map_id, revision_number) pairs that have an active
-	// higher-revision contract. These roots may have been superseded by
-	// a replacement at a higher revision and can be garbage collected.
-	const expiredPairsQuery = `SELECT c.contract_v2_roots_map_id, c.contract_v2_roots_map_revision_number
-FROM contracts_v2 c
-WHERE (c.resolution_height IS NOT NULL AND c.resolution_height < $1 OR c.contract_status = $2)
-AND EXISTS (
-	SELECT 1 FROM contracts_v2 c2
-	WHERE c2.contract_v2_roots_map_id = c.contract_v2_roots_map_id
-	AND c2.contract_v2_roots_map_revision_number > c.contract_v2_roots_map_revision_number
-	AND (c2.resolution_height IS NULL OR c2.resolution_height >= $1)
-	AND c2.contract_status != $2
-)`
-	pairRows, err := tx.Query(expiredPairsQuery, height, contracts.V2ContractStatusRejected)
-	if err != nil {
-		return nil, err
-	}
-	defer pairRows.Close()
-
-	type mapPair struct {
-		mapID    int64
-		revision int64
-	}
-	var pairs []mapPair
-	for pairRows.Next() {
-		var p mapPair
-		if err := pairRows.Scan(&p.mapID, &p.revision); err != nil {
-			return nil, err
-		}
-		pairs = append(pairs, p)
-	}
-	if err := pairRows.Err(); err != nil {
-		return nil, err
-	}
-
-	if len(pairs) == 0 {
-		return sectorIDs, nil
-	}
-
-	// for each expired pair, delete roots that have been superseded by a
-	// replacement at a higher revision for the same root_index. This is
-	// scoped to a single map_id so the query is efficient.
+	// delete roots that have been superseded by a replacement at a higher
+	// revision for the same root_index. These are from expired contracts
+	// that have an active higher-revision contract in the same renewal chain.
 	//
 	// Superseded rows are not included in the returned sectorIDs because
 	// they should not affect the contract sectors metric. When a sector
@@ -578,8 +539,11 @@ AND EXISTS (
 	// old row should not decrement the metric.
 	const supersededQuery = `DELETE FROM contract_v2_sector_roots
 WHERE id IN (SELECT csr.id FROM contract_v2_sector_roots csr
-WHERE csr.contract_v2_roots_map_id = $1
-AND csr.contract_v2_roots_map_revision_number = $2
+INNER JOIN contracts_v2 c ON (
+	c.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
+	AND c.contract_v2_roots_map_revision_number = csr.contract_v2_roots_map_revision_number
+)
+WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR c.contract_status = $2)
 AND EXISTS (
 	SELECT 1 FROM contract_v2_sector_roots csr2
 	WHERE csr2.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
@@ -587,22 +551,8 @@ AND EXISTS (
 	AND csr2.root_index = csr.root_index
 )
 LIMIT $3)`
-	supersededStmt, err := tx.Prepare(supersededQuery)
-	if err != nil {
-		return nil, err
-	}
-	defer supersededStmt.Close()
-
-	remaining := sqlSectorBatchSize - len(sectorIDs)
-	for _, p := range pairs {
-		if remaining <= 0 {
-			break
-		}
-		if _, err := supersededStmt.Exec(p.mapID, p.revision, remaining); err != nil {
-			return nil, err
-		}
-	}
-	return sectorIDs, nil
+	_, err = tx.Exec(supersededQuery, height, contracts.V2ContractStatusRejected, sqlSectorBatchSize-len(sectorIDs))
+	return sectorIDs, err
 }
 
 // updateResolvedV2Contract clears a contract and returns its ID
