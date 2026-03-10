@@ -153,7 +153,7 @@ DROP TABLE contracts_v2_old;`)
 	if err != nil {
 		return fmt.Errorf("failed to drop old tables and create indexes: %w", err)
 	}
-	return nil
+	return recalcContractSectorsMetrics(tx)
 }
 
 // migrateVersion48 deletes stored_sectors that are no longer referenced by any
@@ -1326,6 +1326,10 @@ egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, regi
 	return nil
 }
 
+func migrateVersion50(tx *txn, _ *zap.Logger) error {
+	return recalcContractSectorsMetrics(tx)
+}
+
 // migrations is a list of functions that are run to migrate the database from
 // one version to the next. Migrations are used to update existing databases to
 // match the schema in init.sql.
@@ -1378,4 +1382,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion47,
 	migrateVersion48,
 	migrateVersion49,
+	migrateVersion50,
 }

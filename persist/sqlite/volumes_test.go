@@ -802,7 +802,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertSectors := func(t *testing.T, contract, temp uint64, available, deleted []types.Hash256) {
+	assertSectors := func(t *testing.T, temp uint64, available, deleted []types.Hash256) {
 		t.Helper()
 
 		for _, root := range available {
@@ -828,8 +828,6 @@ func TestPrune(t *testing.T) {
 			t.Fatalf("failed to get metrics: %v", err)
 		} else if m.Storage.PhysicalSectors != uint64(len(available)) {
 			t.Fatalf("expected %v physical sectors, got %v", len(available), m.Storage.PhysicalSectors)
-		} else if m.Storage.ContractSectors != contract {
-			t.Fatalf("expected %v contract sectors, got %v", contract, m.Storage.ContractSectors)
 		} else if m.Storage.TempSectors != temp {
 			t.Fatalf("expected %v temporary sectors, got %v", temp, m.Storage.TempSectors)
 		}
@@ -842,14 +840,14 @@ func TestPrune(t *testing.T) {
 			t.Fatalf("expected %d stored_sectors entries, got %d", len(available), stored)
 		}
 	}
-	assertSectors(t, 25, 25, roots, nil)
+	assertSectors(t, 25, roots, nil)
 
 	// prune unreferenced sectors
 	available, deleted := roots[:len(roots)-len(unreferencedSectors)], unreferencedSectors
 	if err := db.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	assertSectors(t, 25, 25, available, deleted)
+	assertSectors(t, 25, available, deleted)
 
 	// resolve c1 and expire its sectors
 	resolveContract(t, c1, 100)
@@ -859,7 +857,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	available, deleted = append(contract2Sectors, tempSectors...), append(deleted, contract1Sectors...)
-	assertSectors(t, 15, 25, available, deleted)
+	assertSectors(t, 25, available, deleted)
 
 	// expire the temp sectors
 	if err := db.ExpireTempSectors(101); err != nil {
@@ -868,7 +866,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	available, deleted = contract2Sectors, append(deleted, tempSectors...)
-	assertSectors(t, 15, 0, available, deleted)
+	assertSectors(t, 0, available, deleted)
 
 	// resolve c2 and expire its sectors
 	resolveContract(t, c2, 110)
@@ -878,7 +876,7 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	available, deleted = nil, append(deleted, contract2Sectors...)
-	assertSectors(t, 0, 0, available, deleted)
+	assertSectors(t, 0, available, deleted)
 }
 
 func BenchmarkVolumeGrow(b *testing.B) {

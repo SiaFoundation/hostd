@@ -1,10 +1,12 @@
 package contracts_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -366,7 +368,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 
 		// metrics should not have been updated, contract is still pending
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine to confirm the contract
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
@@ -381,7 +383,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		expectedStatuses[contracts.V2ContractStatusSuccessful]++
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// sector metrics should not change due to the reorg buffer
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine through the reorg buffer so the sectors will be garbage
 		// collected
@@ -399,7 +401,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		fc, _, usage := appendSector(t, contractID, fc, nil, true)
 		// metrics should not have been updated, contract is still pending
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine to confirm the contract
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
@@ -414,7 +416,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		expectedStatuses[contracts.V2ContractStatusFailed]++
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// storage metrics will not change due to the reorg buffer
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine through the reorg buffer so the sectors will be
 		// garbage collected
@@ -496,7 +498,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// storage metrics will not change due to the reorg buffer
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine through the reorg buffer so all the storage will be garbage
 		// collected
@@ -726,7 +728,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// after confirmation.
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine until the contract is rejected
 		testutil.MineAndSync(t, node, types.VoidAddress, 20)
@@ -761,7 +763,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// after confirmation.
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine to confirm the contract
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
@@ -793,7 +795,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// collateral metrics won't change since the renewed contract is not
 		// active
 		assertContractMetrics(t, fc.TotalCollateral, usage.RiskedCollateral)
-		assertStorageMetrics(t, 2, 2)
+		assertStorageMetrics(t, 1, 2)
 
 		// mine until the renewed contract is rejected
 		// only contract status metrics should change
@@ -814,7 +816,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusRejected)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// storage metrics won't be garbage collected for 6 blocks
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 0, 0)
@@ -845,7 +847,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// after confirmation.
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// mine to confirm the contract
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
@@ -917,7 +919,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// storage metrics won't be garbage collected for 6 blocks
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 0, 0)
@@ -1258,7 +1260,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		expectedStatuses[contracts.V2ContractStatusPending]++
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 
 		// prepare blocks to revert the contract formation
 		revertState := node.Chain.TipState()
@@ -1285,7 +1287,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		expectedStatuses[contracts.V2ContractStatusPending]++
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 1, 1)
+		assertStorageMetrics(t, 0, 1)
 	})
 }
 
@@ -1534,6 +1536,68 @@ func TestV2SectorRootConsistency(t *testing.T) {
 
 		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
 			t.Fatal(err)
+		}
+
+		fc.Filesize = proto4.SectorSize * uint64(len(roots))
+		fc.Capacity = proto4.SectorSize * uint64(len(roots))
+		fc.FileMerkleRoot = proto4.MetaRoot(roots)
+		fc.RevisionNumber++
+		cost, collateral := types.Siacoins(1), types.Siacoins(2)
+		fc.RenterOutput.Value = fc.RenterOutput.Value.Sub(cost)
+		fc.HostOutput.Value = fc.HostOutput.Value.Add(cost)
+		fc.MissedHostValue = fc.MissedHostValue.Sub(collateral)
+		sigHash := node.Chain.TipState().ContractSigHash(fc)
+		fc.HostSignature = hostKey.SignHash(sigHash)
+		fc.RenterSignature = renterKey.SignHash(sigHash)
+
+		usage := proto4.Usage{
+			Storage:          cost,
+			RiskedCollateral: collateral,
+		}
+		if err := node.Contracts.ReviseV2Contract(contractID, fc, roots, usage); err != nil {
+			t.Fatal(err)
+		}
+		return fc, roots
+	}
+
+	deleteSectors := func(t *testing.T, contractID types.FileContractID, fc types.V2FileContract, roots []types.Hash256, indices []uint64) (types.V2FileContract, []types.Hash256) {
+		t.Helper()
+
+		// normalize indices by sorting and deduplicating them
+		// in descending order this mirrors the swap and trim
+		// logic used by renters.
+		slices.SortFunc(indices, func(a, b uint64) int {
+			return cmp.Compare(b, a) // descending
+		})
+		indices = slices.Compact(indices)
+
+		// ensure the roots at the specified indices are
+		// actually removed and the others kept.
+		kept := make(map[types.Hash256]struct{})
+		deleted := make(map[types.Hash256]struct{})
+		roots = slices.Clone(roots)
+		for _, n := range indices {
+			deleted[roots[n]] = struct{}{}
+		}
+		for _, root := range roots {
+			if _, ok := deleted[root]; ok {
+				continue
+			}
+			kept[root] = struct{}{}
+		}
+		for i, n := range indices {
+			roots[n] = roots[len(roots)-1-i]
+		}
+		roots = roots[:len(roots)-len(indices)]
+
+		for _, root := range roots {
+			if _, ok := deleted[root]; ok {
+				t.Fatalf("root %v was supposed to be deleted but is still present", root)
+			}
+			delete(kept, root)
+		}
+		if len(kept) != 0 {
+			t.Fatalf("some roots were supposed to be kept but are missing: %v", kept)
 		}
 
 		fc.Filesize = proto4.SectorSize * uint64(len(roots))
@@ -1896,6 +1960,91 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		}
 		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.ExpirationHeight-node.Chain.Tip().Height)+1)
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+	})
+
+	t.Run("delete sectors from contract", func(t *testing.T) {
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(100), types.Siacoins(200), 10, true)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+
+		var roots []types.Hash256
+		for range 10 {
+			fc, roots = appendSector(t, contractID, fc, roots)
+		}
+		assertRoots(t, contractID, roots)
+		assertDBRoots(t, contractID, roots)
+
+		fc, roots = deleteSectors(t, contractID, fc, roots, []uint64{1, 3, 5, 7, 9})
+		assertRoots(t, contractID, roots)
+		assertDBRoots(t, contractID, roots)
+
+		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+		assertDBRoots(t, contractID, nil)
+		// note: the roots cache is not cleared on expiry so not checked here
+	})
+
+	t.Run("delete sectors from renewal chain", func(t *testing.T) {
+		contractID, fc := formV2Contract(t, node.Chain, node.Contracts, node.Wallet, renterKey, hostKey, types.Siacoins(100), types.Siacoins(200), 10, true)
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+
+		// add sectors to the original contract
+		var roots []types.Hash256
+		for range 10 {
+			fc, roots = appendSector(t, contractID, fc, roots)
+		}
+		assertRoots(t, contractID, roots)
+
+		// delete one sector before renewing
+		fc, roots = deleteSectors(t, contractID, fc, roots, []uint64{2})
+		assertRoots(t, contractID, roots)
+		assertDBRoots(t, contractID, roots)
+
+		// renew the contract — renewal inherits remaining roots
+		renewalID, renewalFC, renewalTxnSet, renewalUsage := renewContract(t, contractID, fc, types.ZeroCurrency, types.Siacoins(2))
+		if _, err := node.Chain.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if err := node.Contracts.RenewV2Contract(renewalTxnSet, renewalUsage); err != nil {
+			t.Fatal(err)
+		}
+
+		// append a sector to the new contract after renewal
+		renewalFC, renewalRoots := appendSector(t, renewalID, renewalFC, roots)
+		// original contract should still have its roots, renewal should have inherited + new root
+		assertRoots(t, contractID, roots)
+		assertDBRoots(t, contractID, roots)
+		assertRoots(t, renewalID, renewalRoots)
+		assertDBRoots(t, renewalID, renewalRoots)
+
+		// original contract's roots should be cleaned up after renewal is confirmed
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		assertDBRoots(t, contractID, nil) // note: roots is not checked because it doesn't get cleared on expiration.
+		assertRoots(t, renewalID, renewalRoots)
+		assertDBRoots(t, renewalID, renewalRoots)
+
+		for range 3 {
+			renewalFC, renewalRoots = appendSector(t, renewalID, renewalFC, renewalRoots)
+		}
+		assertRoots(t, renewalID, renewalRoots)
+		assertDBRoots(t, renewalID, renewalRoots)
+
+		renewalFC, renewalRoots = deleteSectors(t, renewalID, renewalFC, renewalRoots, []uint64{1, 3, 5, 7, 9, 11})
+		assertRoots(t, renewalID, renewalRoots)
+		assertDBRoots(t, renewalID, renewalRoots)
+
+		// delete all remaining sectors
+		indices := make([]uint64, len(renewalRoots))
+		for i := range indices {
+			indices[i] = uint64(i)
+		}
+		renewalFC, renewalRoots = deleteSectors(t, renewalID, renewalFC, renewalRoots, indices)
+		assertRoots(t, renewalID, nil)
+		assertDBRoots(t, renewalID, nil)
+
+		// expire everything
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewalFC.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+		assertDBRoots(t, renewalID, nil)
+		assertDBRoots(t, contractID, nil)
 	})
 
 	t.Run("empty contract no sectors", func(t *testing.T) {

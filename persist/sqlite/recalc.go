@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.uber.org/zap"
@@ -142,9 +143,20 @@ func recalcContractSectorsMetrics(tx *txn) error {
 	}
 
 	var v2Count uint64
-	err = tx.QueryRow(`SELECT COUNT(*) FROM contract_v2_sector_roots`).Scan(&v2Count)
+	rows, err := tx.Query(`SELECT raw_revision FROM contracts_v2 WHERE contract_status = ?`, contracts.V2ContractStatusActive)
 	if err != nil {
-		return fmt.Errorf("failed to query v2 contract sector count: %w", err)
+		return fmt.Errorf("failed to query active v2 contracts: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var fc types.V2FileContract
+		if err := rows.Scan(decode(&fc)); err != nil {
+			return fmt.Errorf("failed to scan v2 contract: %w", err)
+		}
+		v2Count += fc.Filesize / proto4.SectorSize
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate active v2 contracts: %w", err)
 	}
 
 	setNumericStat(tx, metricContractSectors, v1Count+v2Count, time.Now())
