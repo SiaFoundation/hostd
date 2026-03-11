@@ -693,6 +693,268 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 	trimSectors(t, frand.Intn(len(roots)/4)+1)
 }
 
+func TestExpireV2ContractSectorsBatching(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		t.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	resolveContract := func(t *testing.T, contractID types.FileContractID, height uint64) {
+		t.Helper()
+		err := db.transaction(func(tx *txn) error {
+			_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3 WHERE contract_id=$4`,
+				height, encode(types.BlockID{}), contracts.V2ContractStatusSuccessful, encode(contractID))
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	countSectorRows := func(t *testing.T, contractID types.FileContractID) int {
+		t.Helper()
+		var count int
+		err := db.transaction(func(tx *txn) error {
+			return tx.QueryRow(`SELECT COUNT(*) FROM contract_v2_sector_roots csr
+INNER JOIN contracts_v2 c ON (c.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
+AND c.contract_v2_roots_map_revision_number = csr.contract_v2_roots_map_revision_number)
+WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+
+	countAllSectorRows := func(t *testing.T) int {
+		t.Helper()
+		var count int
+		err := db.transaction(func(tx *txn) error {
+			return tx.QueryRow(`SELECT COUNT(*) FROM contract_v2_sector_roots`).Scan(&count)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+
+	storeSectors := func(t *testing.T, n int) []types.Hash256 {
+		t.Helper()
+		var roots []types.Hash256
+		for range n {
+			root := frand.Entropy256()
+			if err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			roots = append(roots, root)
+		}
+		return roots
+	}
+
+	t.Run("single contract", func(t *testing.T) {
+		contract := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				ProofHeight:      100,
+				ExpirationHeight: 200,
+			},
+		}
+		if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+			t.Fatal(err)
+		}
+
+		roots := storeSectors(t, 13)
+		contract.V2FileContract.RevisionNumber++
+		contract.V2FileContract.Filesize = proto4.SectorSize * uint64(len(roots))
+		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		resolveContract(t, contract.ID, 100)
+		if err := db.ExpireV2ContractSectors(101); err != nil {
+			t.Fatal(err)
+		} else if n := countSectorRows(t, contract.ID); n != 0 {
+			t.Fatalf("expected 0 remaining sector roots, got %d", n)
+		}
+	})
+
+	t.Run("renewal chain with orphans", func(t *testing.T) {
+		c1 := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				ProofHeight:      100,
+				ExpirationHeight: 200,
+			},
+		}
+		if err := db.AddV2Contract(c1, rhp4.TransactionSet{}); err != nil {
+			t.Fatal(err)
+		}
+
+		roots := storeSectors(t, 8)
+		c1.V2FileContract.RevisionNumber++
+		c1.V2FileContract.Filesize = proto4.SectorSize * uint64(len(roots))
+		if err := db.ReviseV2Contract(c1.ID, c1.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// renew the contract — c2 inherits roots from c1
+		c2 := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				Filesize:         c1.V2FileContract.Filesize,
+				ProofHeight:      200,
+				ExpirationHeight: 300,
+			},
+		}
+		if err := db.RenewV2Contract(c2, rhp4.TransactionSet{}, c1.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		// delete 3 sectors from the renewal via swap-and-trim, creating
+		// orphaned inherited rows at the old revision
+		newRoots := slices.Clone(roots)
+		newRoots[1] = newRoots[len(newRoots)-1]
+		newRoots[3] = newRoots[len(newRoots)-2]
+		newRoots[5] = newRoots[len(newRoots)-3]
+		newRoots = newRoots[:len(newRoots)-3]
+
+		c2.V2FileContract.RevisionNumber++
+		c2.V2FileContract.Filesize = proto4.SectorSize * uint64(len(newRoots))
+		if err := db.ReviseV2Contract(c2.ID, c2.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// add more sectors to push total rows past the batch size
+		extra := storeSectors(t, 6)
+		finalRoots := append(slices.Clone(newRoots), extra...)
+		c2.V2FileContract.RevisionNumber++
+		c2.V2FileContract.Filesize = proto4.SectorSize * uint64(len(finalRoots))
+		if err := db.ReviseV2Contract(c2.ID, c2.V2FileContract, newRoots, finalRoots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		totalBefore := countAllSectorRows(t)
+
+		// resolve the original contract so its rows become eligible for expiry
+		resolveContract(t, c1.ID, 100)
+		if err := db.ExpireV2ContractSectors(101); err != nil {
+			t.Fatal(err)
+		}
+
+		totalAfter := countAllSectorRows(t)
+		// 5 of c1's 8 rows are superseded (indices 1,3,5,6,7 have
+		// replacement rows at rev 1). The other 3 (indices 0,2,4) are
+		// still inherited by c2 and must not be deleted.
+		if totalBefore-totalAfter != 5 {
+			t.Fatalf("expected 5 rows removed, got %d (before=%d, after=%d)", totalBefore-totalAfter, totalBefore, totalAfter)
+		}
+
+		// resolve c2 and expire its sectors
+		resolveContract(t, c2.ID, 200)
+		if err := db.ExpireV2ContractSectors(201); err != nil {
+			t.Fatal(err)
+		} else if n := countAllSectorRows(t); n != 0 {
+			t.Fatalf("expected 0 remaining sector roots, got %d", n)
+		}
+	})
+
+	// Verify that inherited rows at indices beyond the active contract's
+	// sector_count are cleaned up immediately, rather than waiting for
+	// the entire chain to expire.
+	t.Run("out of range inherited rows", func(t *testing.T) {
+		c1 := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				ProofHeight:      100,
+				ExpirationHeight: 200,
+			},
+		}
+		if err := db.AddV2Contract(c1, rhp4.TransactionSet{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// add 8 sectors to the original contract
+		roots := storeSectors(t, 8)
+		c1.V2FileContract.RevisionNumber++
+		c1.V2FileContract.Filesize = proto4.SectorSize * uint64(len(roots))
+		if err := db.ReviseV2Contract(c1.ID, c1.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// renew — c2 inherits 8 sectors from c1
+		c2 := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				Filesize:         c1.V2FileContract.Filesize,
+				ProofHeight:      200,
+				ExpirationHeight: 300,
+			},
+		}
+		if err := db.RenewV2Contract(c2, rhp4.TransactionSet{}, c1.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		// trim c2 down to 3 sectors (indices 0-2 kept, 3-7 out of range)
+		trimmedRoots := roots[:3]
+		c2.V2FileContract.RevisionNumber++
+		c2.V2FileContract.Filesize = proto4.SectorSize * uint64(len(trimmedRoots))
+		if err := db.ReviseV2Contract(c2.ID, c2.V2FileContract, roots, trimmedRoots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// 8 rows at rev 0 (c1), 0 new rows at rev 1 (trim only)
+		totalBefore := countAllSectorRows(t)
+		if totalBefore != 8 {
+			t.Fatalf("expected 8 total rows, got %d", totalBefore)
+		}
+
+		// resolve c1 and expire — indices 3-7 are out of range for c2
+		// (sector_count=3), so they should be cleaned up immediately
+		resolveContract(t, c1.ID, 100)
+		if err := db.ExpireV2ContractSectors(101); err != nil {
+			t.Fatal(err)
+		}
+
+		totalAfter := countAllSectorRows(t)
+		// indices 0,1,2 are still inherited by c2, indices 3-7 should be gone
+		if totalAfter != 3 {
+			t.Fatalf("expected 3 remaining rows, got %d", totalAfter)
+		}
+
+		// resolve c2 and clean up the rest
+		resolveContract(t, c2.ID, 200)
+		if err := db.ExpireV2ContractSectors(201); err != nil {
+			t.Fatal(err)
+		} else if n := countAllSectorRows(t); n != 0 {
+			t.Fatalf("expected 0 remaining sector roots, got %d", n)
+		}
+	})
+}
+
 func BenchmarkV2AppendSectors(b *testing.B) {
 	log := zaptest.NewLogger(b)
 	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)

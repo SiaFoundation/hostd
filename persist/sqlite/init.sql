@@ -160,6 +160,7 @@ CREATE TABLE contracts_v2 (
 	resolution_block_id BLOB, -- null if the resolution has not been confirmed on the blockchain
 	resolution_height INTEGER CHECK((resolution_height IS NULL) = (resolution_block_id IS NULL)), -- null if the resolution has not been confirmed on the blockchain
 	contract_status TEXT NOT NULL,
+	sector_count INTEGER NOT NULL, -- used for cleanup
 
 	contract_v2_roots_map_id INTEGER NOT NULL,
 	contract_v2_roots_map_revision_number INTEGER NOT NULL,
