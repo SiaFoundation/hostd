@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.uber.org/zap"
@@ -77,6 +78,7 @@ CREATE TABLE contracts_v2 (
 	resolution_block_id BLOB, -- null if the resolution has not been confirmed on the blockchain
 	resolution_height INTEGER CHECK((resolution_height IS NULL) = (resolution_block_id IS NULL)), -- null if the resolution has not been confirmed on the blockchain
 	contract_status TEXT NOT NULL,
+	sector_count INTEGER NOT NULL,
 
 	contract_v2_roots_map_id INTEGER NOT NULL,
 	contract_v2_roots_map_revision_number INTEGER NOT NULL,
@@ -109,10 +111,48 @@ CREATE INDEX contracts_v2_roots_map_id_contract_v2_roots_map_revision_number ON 
 	log.Info("migrating contracts to new schema")
 	// uses the contract db ID as a unique root map ID to simplify migration.
 	// All existing contracts have their own map. The copy-on-write logic will be correct going forward.
-	_, err = tx.Exec(`INSERT INTO contracts_v2 (id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, formation_txn_set_basis, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, confirmation_index, negotiation_height, proof_height, expiration_height, resolution_block_id, resolution_height, contract_status, contract_v2_roots_map_id, contract_v2_roots_map_revision_number)
-SELECT id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, formation_txn_set_basis, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, confirmation_index, negotiation_height, proof_height, expiration_height, resolution_block_id, resolution_height, contract_status, id, 0 FROM contracts_v2_old;`)
+	_, err = tx.Exec(`INSERT INTO contracts_v2 (id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, formation_txn_set_basis, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, confirmation_index, negotiation_height, proof_height, expiration_height, resolution_block_id, resolution_height, contract_status, sector_count, contract_v2_roots_map_id, contract_v2_roots_map_revision_number)
+SELECT id, renter_id, renewed_to, renewed_from, contract_id, revision_number, formation_txn_set, formation_txn_set_basis, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, confirmation_index, negotiation_height, proof_height, expiration_height, resolution_block_id, resolution_height, contract_status, 0, id, 0 FROM contracts_v2_old;`)
 	if err != nil {
 		return fmt.Errorf("failed to migrate contracts: %w", err)
+	}
+
+	// populate sector_count from the decoded raw_revision filesize
+	rows, err := tx.Query(`SELECT id, raw_revision FROM contracts_v2`)
+	if err != nil {
+		return fmt.Errorf("failed to query contracts for sector_count: %w", err)
+	}
+	defer rows.Close()
+
+	type contractEntry struct {
+		dbID        int64
+		sectorCount uint64
+	}
+	var entries []contractEntry
+	for rows.Next() {
+		var dbID int64
+		var fc types.V2FileContract
+		if err := rows.Scan(&dbID, decode(&fc)); err != nil {
+			return fmt.Errorf("failed to scan contract: %w", err)
+		}
+		entries = append(entries, contractEntry{dbID, fc.Filesize / proto4.SectorSize})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate contracts: %w", err)
+	} else if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close rows: %w", err)
+	}
+
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET sector_count=? WHERE id=?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare sector_count update: %w", err)
+	}
+	defer updateStmt.Close()
+
+	for _, e := range entries {
+		if _, err := updateStmt.Exec(e.sectorCount, e.dbID); err != nil {
+			return fmt.Errorf("failed to update sector_count: %w", err)
+		}
 	}
 
 	log.Info("migrating sector roots to new schema")
@@ -153,6 +193,7 @@ DROP TABLE contracts_v2_old;`)
 	if err != nil {
 		return fmt.Errorf("failed to drop old tables and create indexes: %w", err)
 	}
+
 	return recalcContractSectorsMetrics(tx)
 }
 
@@ -1326,10 +1367,6 @@ egress_limit, dyn_dns_provider, dns_update_v4, dns_update_v6, dyn_dns_opts, regi
 	return nil
 }
 
-func migrateVersion50(tx *txn, _ *zap.Logger) error {
-	return recalcContractSectorsMetrics(tx)
-}
-
 // migrations is a list of functions that are run to migrate the database from
 // one version to the next. Migrations are used to update existing databases to
 // match the schema in init.sql.
@@ -1382,5 +1419,4 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion47,
 	migrateVersion48,
 	migrateVersion49,
-	migrateVersion50,
 }
