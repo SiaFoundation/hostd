@@ -953,6 +953,119 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 			t.Fatalf("expected 0 remaining sector roots, got %d", n)
 		}
 	})
+
+	t.Run("renewal rejected then renewed again", func(t *testing.T) {
+		checkSectorRoots := func(t *testing.T, contractID types.FileContractID, expected []types.Hash256) {
+			t.Helper()
+			roots, err := db.V2SectorRoots()
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual := roots[contractID]
+			if !slices.Equal(actual, expected) {
+				t.Fatalf("expected %d roots, got %d", len(expected), len(actual))
+			}
+		}
+
+		rejectContract := func(t *testing.T, contractID types.FileContractID, parentID types.FileContractID) {
+			t.Helper()
+			err := db.transaction(func(tx *txn) error {
+				// set the contract status to rejected
+				if _, err := tx.Exec(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_id=$2`,
+					contracts.V2ContractStatusRejected, encode(contractID)); err != nil {
+					return err
+				}
+				// clear the renewed_to field on the parent so it can be renewed again
+				if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_to=NULL WHERE contract_id=$1`, encode(parentID)); err != nil {
+					return err
+				}
+				// increment rejected contracts metric (matches rejectV2Contracts behavior)
+				return incrementNumericStat(tx, metricRejectedContracts, 1, time.Now())
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// create c1
+		c1 := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				ProofHeight:      100,
+				ExpirationHeight: 200,
+			},
+		}
+		if err := db.AddV2Contract(c1, rhp4.TransactionSet{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// add sectors to c1
+		c1Roots := storeSectors(t, 8)
+		c1.V2FileContract.RevisionNumber++
+		c1.V2FileContract.Filesize = proto4.SectorSize * uint64(len(c1Roots))
+		if err := db.ReviseV2Contract(c1.ID, c1.V2FileContract, nil, c1Roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// renew c1 → c2
+		c2 := contracts.V2Contract{
+			ID: c1.ID.V2RenewalID(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				Filesize:         c1.V2FileContract.Filesize,
+				ProofHeight:      200,
+				ExpirationHeight: 300,
+			},
+		}
+		if err := db.RenewV2Contract(c2, rhp4.TransactionSet{}, c1.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		// upload additional sectors to c2
+		c2Extra := storeSectors(t, 4)
+		c2Roots := append(slices.Clone(c1Roots), c2Extra...)
+		c2.V2FileContract.RevisionNumber++
+		c2.V2FileContract.Filesize = proto4.SectorSize * uint64(len(c2Roots))
+		if err := db.ReviseV2Contract(c2.ID, c2.V2FileContract, c1Roots, c2Roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// reject c2 due to a reorg
+		rejectContract(t, c2.ID, c1.ID)
+
+		// renew c1 → c3
+		c3 := contracts.V2Contract{
+			ID: c1.ID.V2RenewalID(),
+			V2FileContract: types.V2FileContract{
+				RenterPublicKey:  renterKey.PublicKey(),
+				HostPublicKey:    hostKey.PublicKey(),
+				Filesize:         c1.V2FileContract.Filesize,
+				ProofHeight:      300,
+				ExpirationHeight: 400,
+			},
+		}
+		if err := db.RenewV2Contract(c3, rhp4.TransactionSet{}, c1.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		// c3 should have c1's original sectors
+		checkSectorRoots(t, c3.ID, c1Roots)
+
+		// upload more sectors to c3
+		c3Extra := storeSectors(t, 5)
+		c3Roots := append(slices.Clone(c1Roots), c3Extra...)
+		c3.V2FileContract.RevisionNumber++
+		c3.V2FileContract.Filesize = proto4.SectorSize * uint64(len(c3Roots))
+		if err := db.ReviseV2Contract(c3.ID, c3.V2FileContract, c1Roots, c3Roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+
+		// verify all sectors are present
+		checkSectorRoots(t, c3.ID, c3Roots)
+	})
 }
 
 func BenchmarkV2AppendSectors(b *testing.B) {
