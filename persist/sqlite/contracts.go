@@ -235,9 +235,9 @@ func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.T
 }
 
 // RenewV2Contract adds a new v2 contract to the database and sets the old
-// contract's renewed_from field. The old contract's sector roots are
-// copied to the new contract. The status of the old contract should continue
-// to be active until the renewal is confirmed
+// contract's renewed_from field. The new contract inherits the old contract's
+// sector roots. The status of the old contract should continue to be active
+// until the renewal is confirmed
 func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID) error {
 	return s.transaction(func(tx *txn) error {
 		if err := resetRejectedV2Contract(tx, renewal.ID); err != nil {
@@ -902,16 +902,18 @@ func resetRejectedV2Contract(tx *txn, contractID types.FileContractID) error {
 }
 
 func v2ContractRoots(tx *txn, contractMapID, contractMapRevision int64, maxSectors uint64) (roots []types.Hash256, err error) {
+	// sector_root is a bare column not in GROUP BY, but SQLite guarantees it
+	// comes from the row with the maximum revision_number per root_index.
+	// See https://www.sqlite.org/lang_select.html#bare_columns_in_an_aggregate_query
 	const rootsQuery = `SELECT sector_root FROM (
-    SELECT s.sector_root, MAX(cr.contract_v2_roots_map_revision_number)
+    SELECT s.sector_root, cr.root_index, MAX(cr.contract_v2_roots_map_revision_number)
     FROM contract_v2_sector_roots cr
     INNER JOIN stored_sectors s ON (cr.sector_id = s.id)
     WHERE cr.contract_v2_roots_map_id = $1
     AND cr.contract_v2_roots_map_revision_number <= $2
     AND cr.root_index < $3
-    GROUP BY cr.root_index
-    ORDER BY cr.root_index ASC
-);`
+    GROUP BY cr.root_index)
+	ORDER BY root_index ASC;`
 
 	rows, err := tx.Query(rootsQuery, contractMapID, contractMapRevision, maxSectors)
 	if err != nil {
