@@ -7,7 +7,7 @@ require (
 	github.com/cloudflare/cloudflare-go v0.116.0
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/mattn/go-sqlite3 v1.14.34
+	github.com/mattn/go-sqlite3 v1.14.37
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.19.0
 	go.sia.tech/coreutils v0.21.1
@@ -15,7 +15,7 @@ require (
 	go.sia.tech/web/hostd v0.68.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/sys v0.42.0
-	golang.org/x/term v0.40.0
+	golang.org/x/term v0.41.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
