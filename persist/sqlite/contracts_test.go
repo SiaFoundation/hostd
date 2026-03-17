@@ -1226,10 +1226,15 @@ func BenchmarkRefreshContract(b *testing.B) {
 				}
 			}
 
-			if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+			revision := contract.V2FileContract
+			revision.RevisionNumber++
+			revision.Filesize = proto4.SectorSize * uint64(len(roots))
+			revision.FileMerkleRoot = proto4.MetaRoot(roots)
+
+			if err := db.ReviseV2Contract(contract.ID, revision, nil, roots, proto4.Usage{}); err != nil {
 				b.Fatal(err)
 			}
-
+			contract.V2FileContract = revision
 			currentID := contract.ID
 			b.ResetTimer()
 			b.ReportAllocs()
@@ -1257,5 +1262,189 @@ func BenchmarkRefreshContract(b *testing.B) {
 		(10 << 40) / proto4.SectorSize, // 10 TiB
 	} {
 		runBenchmark(b, n)
+	}
+}
+
+func BenchmarkExpireV2ContractSectors(b *testing.B) {
+	const (
+		proofHeight      = 100
+		expirationHeight = 200
+	)
+	contractSectors := b.N * sqlSectorBatchSize * 2
+
+	log := zap.NewNop()
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log.Named("sqlite3"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		b.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		b.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, uint64(contractSectors)); err != nil {
+		b.Fatal(err)
+	}
+
+	contract := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RenterPublicKey:  frand.Entropy256(),
+			HostPublicKey:    frand.Entropy256(),
+			RevisionNumber:   1,
+			ProofHeight:      proofHeight,
+			ExpirationHeight: expirationHeight,
+		},
+	}
+	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+		b.Fatal(err)
+	}
+
+	roots := make([]types.Hash256, contractSectors)
+	for i := range roots {
+		roots[i] = frand.Entropy256()
+		if err := db.StoreSector(roots[i], func(loc storage.SectorLocation) error { return nil }); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	contract.V2FileContract.RevisionNumber++
+	contract.V2FileContract.Filesize = proto4.SectorSize * uint64(len(roots))
+	contract.V2FileContract.FileMerkleRoot = proto4.MetaRoot(roots)
+	if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+		b.Fatal(err)
+	}
+
+	err = db.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3`,
+			100, encode(types.BlockID{}), contracts.V2ContractStatusSuccessful)
+		return err
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.ReportMetric(float64(contractSectors), "sectors")
+
+	for range b.N {
+		n, err := db.batchExpireV2ContractSectors(contract.ExpirationHeight + 1)
+		if err != nil {
+			b.Fatal(err)
+		} else if n != int64(sqlSectorBatchSize) {
+			b.Fatalf("expected to expire %d sectors, expired %d", sqlSectorBatchSize, n)
+		}
+	}
+}
+
+func BenchmarkExpireV2ContractSectorsSuperseded(b *testing.B) {
+	const (
+		proofHeight      = 100
+		expirationHeight = 200
+	)
+	contractSectors := b.N * sqlSectorBatchSize * 2
+
+	log := zap.NewNop()
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log.Named("sqlite3"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	volumeID, err := db.AddVolume("test.dat", false)
+	if err != nil {
+		b.Fatal(err)
+	} else if err := db.SetAvailable(volumeID, true); err != nil {
+		b.Fatal(err)
+	} else if err = db.GrowVolume(volumeID, uint64(2*contractSectors)); err != nil {
+		b.Fatal(err)
+	}
+
+	// create c1 with sectors
+	c1 := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RenterPublicKey:  frand.Entropy256(),
+			HostPublicKey:    frand.Entropy256(),
+			RevisionNumber:   1,
+			ProofHeight:      proofHeight,
+			ExpirationHeight: expirationHeight,
+		},
+	}
+	if err := db.AddV2Contract(c1, rhp4.TransactionSet{}); err != nil {
+		b.Fatal(err)
+	}
+
+	roots := make([]types.Hash256, contractSectors)
+	for i := range roots {
+		roots[i] = frand.Entropy256()
+		if err := db.StoreSector(roots[i], func(loc storage.SectorLocation) error { return nil }); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	c1.V2FileContract.RevisionNumber++
+	c1.V2FileContract.Filesize = proto4.SectorSize * uint64(len(roots))
+	c1.V2FileContract.FileMerkleRoot = proto4.MetaRoot(roots)
+	if err := db.ReviseV2Contract(c1.ID, c1.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
+		b.Fatal(err)
+	}
+
+	// renew c1 -> c2, inheriting all sectors
+	c2 := contracts.V2Contract{
+		ID: frand.Entropy256(),
+		V2FileContract: types.V2FileContract{
+			RenterPublicKey:  c1.RenterPublicKey,
+			HostPublicKey:    c1.HostPublicKey,
+			RevisionNumber:   1,
+			Filesize:         c1.V2FileContract.Filesize,
+			ProofHeight:      200,
+			ExpirationHeight: 300,
+		},
+	}
+	if err := db.RenewV2Contract(c2, rhp4.TransactionSet{}, c1.ID); err != nil {
+		b.Fatal(err)
+	}
+
+	// replace every sector in c2 so all of c1's rows become superseded
+	newRoots := make([]types.Hash256, contractSectors)
+	for i := range newRoots {
+		newRoots[i] = frand.Entropy256()
+		if err := db.StoreSector(newRoots[i], func(loc storage.SectorLocation) error { return nil }); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	c2.V2FileContract.RevisionNumber++
+	c2.V2FileContract.Filesize = proto4.SectorSize * uint64(len(newRoots))
+	c2.V2FileContract.FileMerkleRoot = proto4.MetaRoot(newRoots)
+	if err := db.ReviseV2Contract(c2.ID, c2.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
+		b.Fatal(err)
+	}
+
+	// resolve c1 so its rows become eligible for expiry
+	err = db.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3 WHERE contract_id=$4`,
+			proofHeight, encode(types.BlockID{}), contracts.V2ContractStatusRenewed, encode(c1.ID))
+		return err
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	b.ReportMetric(float64(contractSectors), "sectors")
+
+	for range b.N {
+		n, err := db.batchExpireV2ContractSectors(c1.ExpirationHeight + 1)
+		if err != nil {
+			b.Fatal(err)
+		} else if n != int64(sqlSectorBatchSize) {
+			b.Fatalf("expected to expire %d sectors, expired %d", sqlSectorBatchSize, n)
+		}
 	}
 }

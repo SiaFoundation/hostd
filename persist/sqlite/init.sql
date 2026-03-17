@@ -196,7 +196,7 @@ CREATE TABLE contract_v2_sector_roots (
 	FOREIGN KEY (contract_v2_roots_map_id, contract_v2_roots_map_revision_number) REFERENCES contract_v2_roots_map(id, revision_number),
 	UNIQUE(contract_v2_roots_map_id, contract_v2_roots_map_revision_number, root_index)
 );
-CREATE INDEX contract_v2_sector_roots_contract_v2_roots_map_id_revision_number ON contract_v2_sector_roots(contract_v2_roots_map_id, contract_v2_roots_map_revision_number);
+CREATE INDEX contract_v2_sector_roots_map_id_root_index_revision_number ON contract_v2_sector_roots(contract_v2_roots_map_id, root_index, contract_v2_roots_map_revision_number);
 CREATE INDEX contract_v2_sector_roots_sector_id ON contract_v2_sector_roots(sector_id);
 
 CREATE TABLE temp_storage_sector_roots (

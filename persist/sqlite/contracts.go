@@ -17,7 +17,7 @@ import (
 
 var _ contracts.ContractStore = (*Store)(nil)
 
-func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int, err error) {
+func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int64, err error) {
 	err = s.transaction(func(tx *txn) (err error) {
 		expired, err = deleteExpiredV2ContractSectors(tx, height)
 		if err != nil {
@@ -468,7 +468,7 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 		} else if expired == 0 {
 			return nil
 		}
-		log.Debug("removed sectors", zap.Int("expired", expired), zap.Int("batch", i))
+		log.Debug("removed sectors", zap.Int64("expired", expired), zap.Int("batch", i))
 		jitterSleep(50 * time.Millisecond) // allow other transactions to run
 	}
 }
@@ -489,7 +489,7 @@ func getContract(tx *txn, contractID int64) (contracts.Contract, error) {
 	return contract, err
 }
 
-func deleteExpiredV2ContractSectors(tx *txn, height uint64) (deleted int, err error) {
+func deleteExpiredV2ContractSectors(tx *txn, height uint64) (int64, error) {
 	// delete roots where the contract at that (map_id, revision_number) is
 	// expired and no active higher-revision contract depends on them
 	const expiredQuery = `DELETE FROM contract_v2_sector_roots
@@ -516,7 +516,6 @@ LIMIT $3);`
 	if err != nil {
 		return 0, err
 	}
-	deleted = int(expired)
 
 	// delete roots that have been superseded by a replacement at a higher
 	// revision for the same root_index. These are from expired contracts
@@ -543,7 +542,7 @@ LIMIT $3)`
 	if err != nil {
 		return 0, err
 	}
-	return deleted + int(superseded), nil
+	return expired + superseded, nil
 }
 
 // updateResolvedV2Contract clears a contract and returns its ID
