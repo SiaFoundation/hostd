@@ -119,7 +119,7 @@ func (s *Store) Contract(id types.FileContractID) (contract contracts.Contract, 
 		var dbID int64
 		err := tx.QueryRow(query, encode(id)).Scan(&dbID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return contracts.ErrNotFound
+			return proto4.ErrContractNotFound
 		} else if err != nil {
 			return fmt.Errorf("failed to get contract id: %w", err)
 		}
@@ -140,7 +140,7 @@ WHERE c.contract_id=?`
 
 		err := tx.QueryRow(query, encode(contractID)).Scan(decode(&ele.V2FileContract), decode(&ele.StateElement.LeafIndex), decode(&ele.StateElement.MerkleProof), decode(&basis))
 		if errors.Is(err, sql.ErrNoRows) {
-			return contracts.ErrNotFound
+			return proto4.ErrContractNotFound
 		}
 		ele.ID = contractID
 		return err
@@ -528,7 +528,7 @@ func getContract(tx *txn, contractID int64) (contracts.Contract, error) {
 	row := tx.QueryRow(query, contractID)
 	contract, err := scanContract(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = contracts.ErrNotFound
+		err = proto4.ErrContractNotFound
 	}
 	return contract, err
 }
@@ -1060,7 +1060,7 @@ func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileCon
 		QueryRow(`SELECT id, revision_number FROM contracts_v2 WHERE contract_id=?`, encode(id)).
 		Scan(&contractDBID, decode(&existingRevision)); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, fmt.Errorf("contract %q: %w", id, contracts.ErrNotFound)
+			return 0, fmt.Errorf("contract %q: %w", id, proto4.ErrContractNotFound)
 		}
 		return 0, fmt.Errorf("failed to fetch contract: %w", err)
 	}
@@ -1348,7 +1348,7 @@ func scanV2Contract(row scanner) (c contracts.V2Contract, err error) {
 		decode(&c.V2FileContract),
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = contracts.ErrNotFound
+		err = proto4.ErrContractNotFound
 	}
 	return
 }
