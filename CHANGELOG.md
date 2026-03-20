@@ -1,3 +1,9 @@
+## 2.8.0 (2026-03-20)
+
+### Features
+
+- Contract renewals and refreshes are now constant time and do not need duplicate sector roots
+
 ## 2.7.0 (2026-03-02)
 
 ### Features
