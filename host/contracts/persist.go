@@ -14,8 +14,6 @@ type (
 		// given index.
 		ContractActions(index types.ChainIndex, revisionBroadcastHeight uint64) (LifecycleActions, error)
 
-		// SectorRoots returns the sector roots for all contracts.
-		SectorRoots() (map[types.FileContractID][]types.Hash256, error)
 		// V2SectorRoots returns the sector roots for all v2 contracts.
 		V2SectorRoots() (map[types.FileContractID][]types.Hash256, error)
 
@@ -34,10 +32,6 @@ type (
 		// sector roots.
 		ReviseContract(revision SignedRevision, oldRoots, newRoots []types.Hash256, usage Usage) error
 
-		// ExpireContractSectors removes sector roots for any contracts that are
-		// rejected or past their proof window.
-		ExpireContractSectors(height uint64) error
-
 		// V2ContractElement returns the latest v2 state element with the given ID.
 		V2ContractElement(types.FileContractID) (types.ChainIndex, types.V2FileContractElement, error)
 		// V2Contracts returns a paginated list of v2 contracts sorted by expiration
@@ -51,7 +45,7 @@ type (
 		AddV2Contract(V2Contract, rhp4.TransactionSet) error
 		// RenewV2Contract renews a contract. It is expected that the existing
 		// contract will be cleared.
-		RenewV2Contract(renewal V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID, roots []types.Hash256) error
+		RenewV2Contract(renewal V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID) error
 		// ReviseV2Contract atomically updates a contract and its associated
 		// sector roots.
 		ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, oldRoots, newRoots []types.Hash256, usage proto4.Usage) error

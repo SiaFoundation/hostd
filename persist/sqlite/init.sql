@@ -159,7 +159,12 @@ CREATE TABLE contracts_v2 (
 	expiration_height INTEGER NOT NULL,
 	resolution_block_id BLOB, -- null if the resolution has not been confirmed on the blockchain
 	resolution_height INTEGER CHECK((resolution_height IS NULL) = (resolution_block_id IS NULL)), -- null if the resolution has not been confirmed on the blockchain
-	contract_status TEXT NOT NULL
+	contract_status TEXT NOT NULL,
+	sector_count INTEGER NOT NULL, -- used for cleanup
+
+	contract_v2_roots_map_id INTEGER NOT NULL,
+	contract_v2_roots_map_revision_number INTEGER NOT NULL,
+	FOREIGN KEY (contract_v2_roots_map_id, contract_v2_roots_map_revision_number) REFERENCES contract_v2_roots_map(id, revision_number)
 );
 CREATE INDEX contracts_v2_contract_id ON contracts_v2(contract_id);
 CREATE INDEX contracts_v2_renter_id ON contracts_v2(renter_id);
@@ -174,16 +179,25 @@ CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_expiration_heig
 CREATE INDEX contracts_v2_resolution_height ON contracts_v2(resolution_height);
 CREATE INDEX contracts_v2_confirmation_index_proof_height ON contracts_v2(confirmation_index, proof_height);
 CREATE INDEX contracts_v2_confirmation_index_negotiation_height ON contracts_v2(confirmation_index, negotiation_height);
+CREATE INDEX contracts_v2_roots_map_id_contract_v2_roots_map_revision_number ON contracts_v2(contract_v2_roots_map_id, contract_v2_roots_map_revision_number);
+
+CREATE TABLE contract_v2_roots_map (
+	id INTEGER NOT NULL,
+	revision_number INTEGER NOT NULL,
+	PRIMARY KEY (id, revision_number)
+);
 
 CREATE TABLE contract_v2_sector_roots (
 	id INTEGER PRIMARY KEY,
-	contract_id INTEGER NOT NULl REFERENCES contracts_v2(id),
 	sector_id INTEGER NOT NULL REFERENCES stored_sectors(id),
 	root_index INTEGER NOT NULL,
-	UNIQUE(contract_id, root_index)
+	contract_v2_roots_map_id INTEGER NOT NULL,
+	contract_v2_roots_map_revision_number INTEGER NOT NULL,
+	FOREIGN KEY (contract_v2_roots_map_id, contract_v2_roots_map_revision_number) REFERENCES contract_v2_roots_map(id, revision_number),
+	UNIQUE(contract_v2_roots_map_id, contract_v2_roots_map_revision_number, root_index)
 );
+CREATE INDEX contract_v2_sector_roots_map_id_root_index_revision_number ON contract_v2_sector_roots(contract_v2_roots_map_id, root_index, contract_v2_roots_map_revision_number);
 CREATE INDEX contract_v2_sector_roots_sector_id ON contract_v2_sector_roots(sector_id);
-CREATE INDEX contract_v2_sector_roots_contract_id_root_index ON contract_v2_sector_roots(contract_id, root_index);
 
 CREATE TABLE temp_storage_sector_roots (
 	id INTEGER PRIMARY KEY,

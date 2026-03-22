@@ -3,7 +3,6 @@ package contracts
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"sync"
 	"time"
@@ -331,7 +330,7 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 		Usage:             usage,
 	}
 
-	if err := cm.store.RenewV2Contract(contract, renewal, existingID, existingRoots); err != nil {
+	if err := cm.store.RenewV2Contract(contract, renewal, existingID); err != nil {
 		return err
 	}
 	cm.setSectorRoots(contract.ID, existingRoots)
@@ -387,17 +386,11 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 	}
 
 	start := time.Now()
-	roots, err := store.SectorRoots()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sector roots: %w", err)
-	}
 
-	v2Roots, err := store.V2SectorRoots()
+	roots, err := store.V2SectorRoots()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get v2 sector roots: %w", err)
 	}
-
-	maps.Copy(roots, v2Roots)
 
 	cm.sectorRoots = roots
 	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))
