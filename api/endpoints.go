@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/hostd/v2/build"
@@ -405,7 +406,7 @@ func (a *api) handleGETContract(jc jape.Context) {
 		return
 	}
 	contract, err := a.contracts.Contract(id)
-	if errors.Is(err, contracts.ErrNotFound) {
+	if errors.Is(err, proto4.ErrContractNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
 	} else if !a.checkServerError(jc, "failed to get contract", err) {
@@ -444,7 +445,7 @@ func (a *api) handleGETV2Contract(jc jape.Context) {
 		return
 	}
 	contract, err := a.contracts.V2Contract(id)
-	if errors.Is(err, contracts.ErrNotFound) {
+	if errors.Is(err, proto4.ErrContractNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
 	} else if !a.checkServerError(jc, "failed to get contract", err) {

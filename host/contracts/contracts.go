@@ -208,9 +208,6 @@ type (
 )
 
 var (
-	// ErrNotFound is returned by the contract store when a contract is not
-	// found.
-	ErrNotFound = errors.New("contract not found")
 	// ErrContractExists is returned by the contract store during formation when
 	// the contract already exists.
 	ErrContractExists = errors.New("contract already exists")
