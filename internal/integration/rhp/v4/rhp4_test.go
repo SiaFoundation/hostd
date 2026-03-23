@@ -2,6 +2,7 @@ package rhp_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -1610,6 +1611,10 @@ func TestRPCFreeSectors(t *testing.T) {
 	for i, n := range frand.Perm(len(roots))[:len(roots)/2] {
 		indices[i] = uint64(n)
 	}
+	// sort descending to match RPCFreeSectors client behavior
+	slices.SortFunc(indices, func(a, b uint64) int {
+		return cmp.Compare(b, a)
+	})
 	newRoots := append([]types.Hash256(nil), roots...)
 	for i, n := range indices {
 		newRoots[n] = newRoots[len(newRoots)-i-1]
