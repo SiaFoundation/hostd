@@ -61,6 +61,7 @@ func (fs *fundAndSign) Address() types.Address {
 
 func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
 	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
+	tb.Cleanup(func() { rs.Close() })
 
 	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
 	rl, wl := hn.Settings.RHPBandwidthLimiters()
@@ -82,6 +83,7 @@ func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.Ho
 
 func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testutil.HostNode, log *zap.Logger) rhp4.TransportClient {
 	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(2*time.Minute))
+	tb.Cleanup(func() { rs.Close() })
 
 	udpAddr, err := net.ResolveUDPAddr("udp", "localhost:0")
 	if err != nil {
@@ -1850,6 +1852,7 @@ func TestMaxSectorBatchSize(t *testing.T) {
 	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
 
 	rs := rhp4.NewServer(hostKey, hn.Chain, hn.Contracts, hn.Wallet, hn.Settings, hn.Volumes, rhp4.WithPriceTableValidity(10*time.Minute))
+	defer rs.Close()
 
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
