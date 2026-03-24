@@ -1613,6 +1613,12 @@ func TestRPCFreeSectors(t *testing.T) {
 	for i, n := range frand.Perm(len(roots))[:len(roots)/2] {
 		indices[i] = uint64(n)
 	}
+
+	removeResult, err := rhp4.RPCFreeSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, indices)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// sort descending to match RPCFreeSectors client behavior
 	slices.SortFunc(indices, func(a, b uint64) int {
 		return cmp.Compare(b, a)
@@ -1622,11 +1628,6 @@ func TestRPCFreeSectors(t *testing.T) {
 		newRoots[n] = newRoots[len(newRoots)-i-1]
 	}
 	newRoots = newRoots[:len(newRoots)-len(indices)]
-
-	removeResult, err := rhp4.RPCFreeSectors(context.Background(), transport, renterKey, cs, settings.Prices, revision, indices)
-	if err != nil {
-		t.Fatal(err)
-	}
 	assertRevision(t, removeResult.Revision, newRoots)
 }
 
