@@ -518,12 +518,12 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	rhp4 := rhp4.NewServer(hostKey, cm, contractManager, rhpWallet, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
 	var stopListenerFuncs []func() error
 	defer func() {
+		rhp4.Close()
 		for _, f := range stopListenerFuncs {
 			if err := f(); err != nil {
 				log.Error("failed to stop listener", zap.Error(err))
 			}
 		}
-		rhp4.Close()
 	}()
 	for _, addr := range cfg.RHP4.ListenAddresses {
 		switch addr.Protocol {
