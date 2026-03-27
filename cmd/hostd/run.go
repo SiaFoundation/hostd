@@ -516,12 +516,12 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	rhpWallet := newRHPWallet(wm, am)
 	rhp4 := rhp4.NewServer(hostKey, cm, contractManager, rhpWallet, sm, vm, rhp4.WithPriceTableValidity(30*time.Minute))
-	var stopListenerFuncs []func() error
+	var closeFns []func() error
+	closeFns = append(closeFns, func() error { rhp4.Close(); return nil })
 	defer func() {
-		rhp4.Close()
-		for _, f := range stopListenerFuncs {
+		for _, f := range closeFns {
 			if err := f(); err != nil {
-				log.Error("failed to stop listener", zap.Error(err))
+				log.Error("failed to close", zap.Error(err))
 			}
 		}
 	}()
@@ -533,7 +533,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 				return fmt.Errorf("failed to listen on rhp4 addr: %w", err)
 			}
 			log.Info("started RHP4 listener", zap.String("address", l.Addr().String()))
-			stopListenerFuncs = append(stopListenerFuncs, l.Close)
+			closeFns = append(closeFns, l.Close)
 			go siamux.Serve(l, rhp4, log.Named("rhp4.siamux"))
 		case config.RHP4ProtoQUIC, config.RHP4ProtoQUIC4, config.RHP4ProtoQUIC6:
 			var proto string
@@ -553,13 +553,13 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
-			stopListenerFuncs = append(stopListenerFuncs, l.Close)
+			closeFns = append(closeFns, l.Close)
 			ql, err := quic.Listen(l, certificates.NewQUICCertManager(certProvider))
 			if err != nil {
 				return fmt.Errorf("failed to listen on RHP4 QUIC address: %w", err)
 			}
 			log.Info("started RHP4 QUIC listener", zap.String("address", l.LocalAddr().String()))
-			stopListenerFuncs = append(stopListenerFuncs, ql.Close)
+			closeFns = append(closeFns, ql.Close)
 			go quic.Serve(ql, rhp4, quic.WithServeLogger(log.Named("rhp4.quic")),
 				quic.WithServeStreamMiddleware(func(c net.Conn) net.Conn {
 					return monitoring.NewConn(c, monitoring.WithDataMonitor(dr), monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl))
