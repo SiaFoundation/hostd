@@ -108,7 +108,7 @@ func TestAutoAnnounceV2(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		} else if last.Address != "" {
-			// after confirming a v2 announcement, the the v1 announcement address
+			// after confirming a v2 announcement, the v1 announcement address
 			// should be empty
 			t.Fatalf("expected no v1 announcement, got %v", last.Address)
 		}
