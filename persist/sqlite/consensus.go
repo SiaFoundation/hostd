@@ -449,8 +449,12 @@ func (ux *updateTx) V2ContractRelevant(id types.FileContractID) (relevant bool, 
 
 func (ux *updateTx) LastAnnouncement() (announcement settings.Announcement, err error) {
 	var addr sql.NullString
-	err = ux.tx.QueryRow(`SELECT last_announce_index, last_announce_address FROM global_settings`).Scan(decodeNullable(&announcement.Index), &addr)
-	if addr.Valid {
+	var v2Hash sql.Null[types.Hash256]
+	err = ux.tx.QueryRow(`SELECT last_announce_index, last_announce_address, last_v2_announce_hash FROM global_settings`).Scan(decodeNullable(&announcement.Index), &addr, decodeNullable(&v2Hash))
+	if addr.Valid && !v2Hash.Valid {
+		// only populate the v1 announcement if there is no v2 announcement.
+		// Clients should use the address from the host settings after a v2
+		// announcement has been made.
 		announcement.Address = addr.String
 	}
 	return
