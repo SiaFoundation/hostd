@@ -103,11 +103,28 @@ func TestAutoAnnounceV2(t *testing.T) {
 		} else if announceIndex != index {
 			t.Fatalf("expected index %v, got %v", index, announceIndex)
 		}
+
+		last, err := node.Store.LastAnnouncement()
+		if err != nil {
+			t.Fatal(err)
+		} else if last.Address != "" {
+			// after confirming a v2 announcement, the the v1 announcement address
+			// should be empty
+			t.Fatalf("expected no v1 announcement, got %v", last.Address)
+		}
 	}
 
-	settings := settings.DefaultSettings
-	settings.NetAddress = "foo.bar"
-	sm.UpdateSettings(settings)
+	// set an old announcement
+	if err := node.Store.UpdateLastAnnouncement(settings.Announcement{
+		Address: "v1.old:9981",
+		Index:   types.ChainIndex{Height: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := settings.DefaultSettings
+	s.NetAddress = "foo.bar"
+	sm.UpdateSettings(s)
 
 	// fund the wallet and trigger the first auto-announce
 	mineAndSync(t, network.MaturityDelay+1+1)
@@ -118,8 +135,8 @@ func TestAutoAnnounceV2(t *testing.T) {
 	assertV2Announcement(t, "foo.bar", lastHeight+50+1) // first confirm + interval + confirmation
 
 	// change the address
-	settings.NetAddress = "baz.qux"
-	sm.UpdateSettings(settings)
+	s.NetAddress = "baz.qux"
+	sm.UpdateSettings(s)
 
 	// trigger and confirm the new announcement
 	lastHeight = node.Chain.Tip().Height

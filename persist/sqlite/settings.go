@@ -173,14 +173,18 @@ func (s *Store) HostKey() (pk types.PrivateKey) {
 // LastAnnouncement returns the last announcement.
 func (s *Store) LastAnnouncement() (ann settings.Announcement, err error) {
 	var address sql.NullString
+	var v2HashBytes []byte
 
 	err = s.transaction(func(tx *txn) error {
-		return tx.QueryRow(`SELECT last_announce_index, last_announce_address FROM global_settings`).
-			Scan(decodeNullable(&ann.Index), &address)
+		return tx.QueryRow(`SELECT last_announce_index, last_announce_address, last_v2_announce_hash FROM global_settings`).
+			Scan(decodeNullable(&ann.Index), &address, &v2HashBytes)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return settings.Announcement{}, nil
-	} else if address.Valid {
+	} else if address.Valid && v2HashBytes == nil {
+		// only populate the v1 announcement if there is no v2 announcement.
+		// Clients should use the address from the host settings after a v2
+		// announcement has been made.
 		ann.Address = address.String
 	}
 	return
