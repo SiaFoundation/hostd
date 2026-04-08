@@ -74,17 +74,17 @@ The default config path can be changed using the `HOSTD_CONFIG_FILE` environment
 ### Example Config File
 
 ```yaml
-directory: /etc/hostd
+directory: /var/lib/hostd
 recoveryPhrase: indicate nature buzz route rude embody engage confirm aspect potato weapon bid
 http:
-  address: :9980
+  address: 127.0.0.1:9980
   password: sia is cool
 syncer:
   address: :9981
   bootstrap: true
 consensus:
   network: mainnet
-  indexBatchSize: 100
+  indexBatchSize: 1000
 rhp4:
   listenAddresses:
     - protocol: tcp # tcp, tcp4 or tcp6
@@ -107,39 +107,49 @@ log:
     format: json # log format (human, json)
 ```
 
-### Environment Variables
-+ `HOSTD_API_PASSWORD` - The password for the UI and API
-+ `HOSTD_WALLET_SEED` - The recovery phrase for the wallet
-+ `HOSTD_LOG_FILE` - changes the location of the log file. If unset, the log file will be created in the data directory
-+ `HOSTD_CONFIG_FILE` - changes the path of the `hostd` config file.
+### Configuration Reference
 
-### CLI Flags
-```sh
--dir string
-	directory to store hostd metadata defaults to the current directory
--http string
-	address to serve API on (default "localhost:9980")
--log.level string
-	log level (debug, info, warn, error) (default "debug")
--name string
-	a friendly name for the host, only used for display
--network string
-	network name (mainnet, testnet, etc) (default "mainnet")
--openui
-	automatically open the web UI on startup (default true)
--syncer.address string
-	address to listen on for peer connections (default ":9981")
--syncer.bootstrap
-	bootstrap the gateway and consensus modules (default true)
--rhp2 string
-	address to listen on for RHP2 connections (default ":9982")
--rhp3 string
-	address to listen on for TCP RHP3 connections (default ":9983")
--rhp4 string
-        address to listen on for RHP4 connections
--env
-	disable stdin prompts for environment variables (default false)
-```
+`hostd` loads defaults in code, then loads values from `hostd.yml`, and finally applies supported CLI flag overrides. A few settings can also be seeded from environment variables.
+
+| **Name** | **Description** | **Default Value** | **CLI Flag** | **Environment Variable** | **YAML Path** |
+|--------------------------------------|------------------------------------------------------|-----------------------------------|----------------------------------|------------------------------------------------|----------------------------------------|
+| `Name` | Friendly display name for the host | - | `--name` | - | `name` |
+| `Directory` | Directory for host metadata, consensus data, and logs | OS-specific data dir (`%APPDATA%/hostd`, `~/Library/Application Support/hostd`, `/var/lib/hostd`, `/data` in Docker) | `--dir` | `HOSTD_DATA_DIR` | `directory` |
+| `RecoveryPhrase` | Wallet recovery phrase used to unlock the host wallet | - | - | `HOSTD_WALLET_SEED` | `recoveryPhrase` |
+| `AutoOpenWebUI` | Open the web UI in a browser on startup | `true` | `--openui` | - | `autoOpenWebUI` |
+| `HTTP.Address` | Address for serving the API and embedded web UI | `127.0.0.1:9980` | `--http` | - | `http.address` |
+| `HTTP.Password` | Password for the admin API and web UI | - | - | `HOSTD_API_PASSWORD` | `http.password` |
+| `Syncer.Address` | Address for peer-to-peer sync connections | `:9981` | `--syncer.address` | - | `syncer.address` |
+| `Syncer.Bootstrap` | Add built-in bootstrap peers for the selected network | `true` | `--syncer.bootstrap` | - | `syncer.bootstrap` |
+| `Syncer.EnableUPnP` | Attempt to forward the syncer TCP port via UPnP | `false` | - | - | `syncer.enableUPnP` |
+| `Syncer.Peers` | Additional peer addresses to add to the peer store at startup | `[]` | - | - | `syncer.peers[]` |
+| `Consensus.Network` | Consensus network to join | `mainnet` | `--network` | - | `consensus.network` |
+| `Consensus.IndexBatchSize` | Batch size used by the index manager while processing updates | `1000` | - | - | `consensus.indexBatchSize` |
+| `Consensus.PruneTarget` | Number of recent blocks to retain when pruning consensus data; `0` disables pruning | `0` | - | - | `consensus.pruneTarget` |
+| `Explorer.Disable` | Disable the external explorer integration | `false` | - | - | `explorer.disable` |
+| `Explorer.URL` | Explorer API base URL used for explorer-backed features | `https://api.siascan.com` on `mainnet`, `https://api.siascan.com/zen` on `zen` | - | - | `explorer.url` |
+| `Storage.EnableMerkleCache` | Cache Merkle subtree roots in SQLite to reduce disk IO for partial reads | `true` | - | - | `storage.enableMerkleCache` |
+| `RHP4.QUIC.CertPath` | Path to the TLS certificate chain file for RHP4 QUIC | Auto-managed certificate if unset | - | - | `rhp4.quic.certPath` |
+| `RHP4.QUIC.KeyPath` | Path to the TLS private key file for RHP4 QUIC | Auto-managed certificate if unset | - | - | `rhp4.quic.keyPath` |
+| `RHP4.ListenAddresses.Protocol` | Protocol for each RHP4 listener (`tcp`, `tcp4`, `tcp6`, `quic`, `quic4`, `quic6`) | One TCP listener and one QUIC listener | - | - | `rhp4.listenAddresses[].protocol` |
+| `RHP4.ListenAddresses.Address` | Bind address for each RHP4 listener | `:9984` for both default listeners | `--rhp4` overrides the address for all configured RHP4 listeners | - | `rhp4.listenAddresses[].address` |
+| `Log.StdOut.Enabled` | Enable logging to standard output | `true` | - | - | `log.stdout.enabled` |
+| `Log.StdOut.Level` | Log level for standard output logging | `info` | `--log.level` also sets this | - | `log.stdout.level` |
+| `Log.StdOut.Format` | Log format for standard output (`human` or `json`) | `human` | - | - | `log.stdout.format` |
+| `Log.StdOut.EnableANSI` | Enable ANSI color codes in standard output logs | `true` on non-Windows, `false` on Windows | - | - | `log.stdout.enableANSI` |
+| `Log.File.Enabled` | Enable logging to a file | `true` | - | - | `log.file.enabled` |
+| `Log.File.Level` | Log level for file logging | `info` | `--log.level` also sets this | - | `log.file.level` |
+| `Log.File.Format` | Log format for file logging (`human` or `json`) | `json` | - | - | `log.file.format` |
+| `Log.File.Path` | Path of the log file | `<data directory>/hostd.log` when unset | - | `HOSTD_LOG_FILE_PATH` | `log.file.path` |
+
+### Additional Environment Variables
+
++ `HOSTD_CONFIG_FILE` - overrides the path used to locate `hostd.yml`
+
+### Other CLI Flags
+
++ `--env` - disable stdin prompts for required values such as the API password and wallet seed
++ `--instant` - enable instant sync mode for faster initial sync
 
 # Building
 
