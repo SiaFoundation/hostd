@@ -125,7 +125,7 @@ log:
 | `Syncer.Peers` | Additional peer addresses to add to the peer store at startup | `[]` | - | - | `syncer.peers[]` |
 | `Consensus.Network` | Consensus network to join | `mainnet` | `--network` | - | `consensus.network` |
 | `Consensus.IndexBatchSize` | Batch size used by the index manager while processing updates | `1000` | - | - | `consensus.indexBatchSize` |
-| `Consensus.PruneTarget` | Number of recent blocks to retain when pruning consensus data; `0` disables pruning | `0` | - | - | `consensus.pruneTarget` |
+| `Consensus.PruneTarget` | Number of recent blocks to retain when pruning consensus data. Should never be less than 144, unless disabled; `0` disables pruning | `0` | - | - | `consensus.pruneTarget` |
 | `Explorer.Disable` | Disable the external explorer integration | `false` | - | - | `explorer.disable` |
 | `Explorer.URL` | Explorer API base URL used for explorer-backed features | `https://api.siascan.com` on `mainnet`, `https://api.siascan.com/zen` on `zen` | - | - | `explorer.url` |
 | `Storage.EnableMerkleCache` | Cache Merkle subtree roots in SQLite to reduce disk IO for partial reads | `true` | - | - | `storage.enableMerkleCache` |
