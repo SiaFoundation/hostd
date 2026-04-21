@@ -183,6 +183,12 @@ func NewHostNode(t testing.TB, pk types.PrivateKey, network *consensus.Network, 
 
 	cn := NewConsensusNode(t, network, genesis, log)
 
+	// call VerifyWalletKey to initialize the wallet hash
+	walletHash := types.HashBytes(pk[:])
+	if err := cn.Store.VerifyWalletKey(walletHash); err != nil {
+		t.Fatal("failed to set wallet key hash:", err)
+	}
+
 	wm, err := wallet.NewSingleAddressWallet(pk, cn.Chain, cn.Store, &MockSyncer{})
 	if err != nil {
 		t.Fatal("failed to create wallet:", err)

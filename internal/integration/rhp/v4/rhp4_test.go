@@ -354,7 +354,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 
 		// refresh the contract
-		_, err = rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		_, err = rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  types.ZeroCurrency,
 			Collateral: types.ZeroCurrency,
@@ -372,7 +372,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 		newAllowance := types.Siacoins(10)
 		newCollateral := types.Siacoins(20)
 		// refresh the contract
-		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  newAllowance,
 			Collateral: newCollateral,
@@ -413,7 +413,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 		newAllowance := types.Siacoins(20)
 		newCollateral := types.Siacoins(40)
 		// refresh the contract
-		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  newAllowance,
 			Collateral: newCollateral,
@@ -457,7 +457,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 		newAllowance := types.Siacoins(10)
 		newCollateral := types.Siacoins(20)
 		// refresh the contract
-		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  newAllowance,
 			Collateral: newCollateral,
@@ -505,7 +505,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 		newAllowance := types.Siacoins(10)
 		newCollateral := types.Siacoins(20)
 		// refresh the contract
-		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		refreshResult, err := rhp4.RPCRefreshContractPartialRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  newAllowance,
 			Collateral: newCollateral,
@@ -629,7 +629,7 @@ func TestRPCRefreshFullRollover(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 
 		// refresh the contract
-		_, err = rhp4.RPCRefreshContractFullRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		_, err = rhp4.RPCRefreshContractFullRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  types.ZeroCurrency,
 			Collateral: types.ZeroCurrency,
@@ -644,7 +644,7 @@ func TestRPCRefreshFullRollover(t *testing.T) {
 	t.Run("valid refresh", func(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 		// refresh the contract
-		refreshResult, err := rhp4.RPCRefreshContractFullRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRefreshContractParams{
+		refreshResult, err := rhp4.RPCRefreshContractFullRollover(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRefreshContractParams{
 			ContractID: revision.ID,
 			Allowance:  types.Siacoins(10),
 			Collateral: types.Siacoins(20),
@@ -763,7 +763,7 @@ func TestRPCRenew(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 
 		// renew the contract
-		_, err = rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRenewContractParams{
+		_, err = rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRenewContractParams{
 			ContractID:  revision.ID,
 			Allowance:   types.Siacoins(150),
 			Collateral:  types.Siacoins(300),
@@ -780,7 +780,7 @@ func TestRPCRenew(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 
 		// renew the contract
-		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRenewContractParams{
+		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRenewContractParams{
 			ContractID:  revision.ID,
 			Allowance:   types.Siacoins(150),
 			Collateral:  types.Siacoins(300),
@@ -818,7 +818,7 @@ func TestRPCRenew(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 
 		// renew the contract
-		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRenewContractParams{
+		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRenewContractParams{
 			ContractID:  revision.ID,
 			Allowance:   types.Siacoins(50),
 			Collateral:  types.Siacoins(100),
@@ -856,7 +856,7 @@ func TestRPCRenew(t *testing.T) {
 		revision := formContractUploadSector(t, types.Siacoins(100), types.Siacoins(200), types.Siacoins(25))
 
 		// renew the contract
-		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRenewContractParams{
+		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRenewContractParams{
 			ContractID:  revision.ID,
 			Allowance:   types.Siacoins(150),
 			Collateral:  types.Siacoins(300),
@@ -900,7 +900,7 @@ func TestRPCRenew(t *testing.T) {
 		revision.Revision = res.Revision
 
 		// renew the contract
-		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, revision.Revision, proto4.RPCRenewContractParams{
+		renewResult, err := rhp4.RPCRenewContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, settings.WalletAddress, revision.Revision, proto4.RPCRenewContractParams{
 			ContractID:  revision.ID,
 			Allowance:   types.Siacoins(50),
 			Collateral:  types.Siacoins(100),
