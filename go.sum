@@ -47,10 +47,10 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 go.etcd.io/bbolt v1.4.3 h1:dEadXpI6G79deX5prL3QRNP6JB8UxVkqo4UPnHaNXJo=
 go.etcd.io/bbolt v1.4.3/go.mod h1:tKQlpPaYCVFctUIgFKFnAlvbmB3tpy1vkTnDWohtc0E=
-go.sia.tech/core v0.19.2-0.20260421131916-3a5d3f254fd9 h1:SHUyAU/iO9ltIqkBEkUjqwoKxbdK7/aUcpcAElIXSpw=
-go.sia.tech/core v0.19.2-0.20260421131916-3a5d3f254fd9/go.mod h1:FhSj+8PZLGQZSjujkAkvjhLvzuy9hRZuoBFFJoH2mto=
-go.sia.tech/coreutils v0.21.3-0.20260421175830-fdbbedba6702 h1:DbQiijG63afxWiDLpI8h6/XxjIJeeNDNko2kRXq+TCM=
-go.sia.tech/coreutils v0.21.3-0.20260421175830-fdbbedba6702/go.mod h1:ovmt85wg8FiIutO1/oyw7jylfWBffCdUDl7+s45sycU=
+go.sia.tech/core v0.20.0 h1:/KegmrjDgSdnJsbMavGfxShuGA8CfeRQQhulHpB6iys=
+go.sia.tech/core v0.20.0/go.mod h1:nZsd0YjU6slPLkpz0rxLcMJJQTKyp0hxjNIKReF7wBQ=
+go.sia.tech/coreutils v0.21.3 h1:VXLvRPHQOocxGR21HJP6s8B35MwOI9V0FP908VX/aEk=
+go.sia.tech/coreutils v0.21.3/go.mod h1:jPFwxdUjURWSan9UgQkCFO0Zlt1bErLSu7v/l1tuhfg=
 go.sia.tech/jape v0.14.1 h1:3QWpOzAxxcaECuv2Mc6tbkFh+olLnyUxxP5SfwgI/qY=
 go.sia.tech/jape v0.14.1/go.mod h1:BEygF1DcgdWBenPa75iJ1b91FuxzLmKBxpglmx+C9BY=
 go.sia.tech/mux v1.5.0 h1:6bQeO5y4AQPcf+UYHjhxpaNX+2V2wI5LIl0BbAg2YDA=

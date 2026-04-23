@@ -2,4 +2,4 @@
 default: patch
 ---
 
-# Update go.sia.tech/core to v0.19.1.
+# Update `go.sia.tech/core` to v0.20.0.
