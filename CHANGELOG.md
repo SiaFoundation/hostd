@@ -1,3 +1,18 @@
+## 2.8.0 (2026-04-23)
+
+### Features
+
+- Contract renewals and refreshes are now constant time and do not need duplicate sector roots
+- Graceful shutdown of RHP4 server via defer .Close()
+
+### Fixes
+
+- Fix issue causing renewals to fail after a resync.
+- Fixes a mismatch between the announced address of the host and the address displayed in the UI for hosts that had a different address before the hardfork.
+- Update `go.sia.tech/core` to v0.20.0.
+- Update `go.sia.tech/coreutils` to 0.21.3.
+- Use new contract not found error
+
 ## 2.7.0 (2026-03-02)
 
 ### Features
