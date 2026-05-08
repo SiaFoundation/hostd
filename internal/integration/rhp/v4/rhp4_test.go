@@ -2015,6 +2015,120 @@ func TestMaxSectorBatchSize(t *testing.T) {
 	assertRevision(t, removeResult.Revision, nil)
 }
 
+func TestPools(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	n, genesis := testutil.V2Network()
+	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()
+
+	hn := testutil.NewHostNode(t, hostKey, n, genesis, log)
+	cm := hn.Chain
+	w := hn.Wallet
+
+	testutil.MineAndSync(t, hn, w.Address(), int(n.MaturityDelay+20))
+
+	transport := testRenterHostPair(t, hostKey, hn, log.Named("renterhost"))
+
+	settings, err := rhp4.RPCSettings(context.Background(), transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fundAndSign := &fundAndSign{w, renterKey}
+	formResult, err := rhp4.RPCFormContract(context.Background(), transport, cm, fundAndSign, cm.TipState(), settings.Prices, hostKey.PublicKey(), settings.WalletAddress, proto4.RPCFormContractParams{
+		RenterPublicKey: renterKey.PublicKey(),
+		RenterAddress:   w.Address(),
+		Allowance:       types.Siacoins(100),
+		Collateral:      types.Siacoins(200),
+		ProofHeight:     cm.Tip().Height + 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := formResult.Contract
+	cs := cm.TipState()
+
+	accountKey := types.GeneratePrivateKey()
+	account := proto4.Account(accountKey.PublicKey())
+	pool1Key := types.GeneratePrivateKey()
+	pool1 := proto4.Account(pool1Key.PublicKey())
+	pool2Key := types.GeneratePrivateKey()
+	pool2 := proto4.Account(pool2Key.PublicKey())
+
+	if err := rhp4.RPCAttachPools(context.Background(), transport, []rhp4.PoolAttachInput{
+		{Account: account, PoolKey: types.GeneratePrivateKey()},
+	}, time.Minute); !errors.Is(err, proto4.ErrPoolNotFound) {
+		t.Fatalf("expected ErrPoolNotFound, got %v", err)
+	}
+
+	res, err := rhp4.RPCReplenishPools(context.Background(), transport, rhp4.RPCReplenishPoolsParams{
+		Pools:    []proto4.Account{pool1},
+		Target:   types.Siacoins(10),
+		Contract: revision,
+	}, cs, fundAndSign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.Revision = res.Revision
+
+	res, err = rhp4.RPCReplenishPools(context.Background(), transport, rhp4.RPCReplenishPoolsParams{
+		Pools:    []proto4.Account{pool2},
+		Target:   types.Siacoins(20),
+		Contract: revision,
+	}, cs, fundAndSign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.Revision = res.Revision
+
+	balances, err := hn.Contracts.PoolBalances([]proto4.Account{pool1, pool2})
+	if err != nil {
+		t.Fatal(err)
+	} else if !balances[0].Equals(types.Siacoins(10)) {
+		t.Fatalf("pool1 after seed: expected 10 SC, got %v", balances[0])
+	} else if !balances[1].Equals(types.Siacoins(20)) {
+		t.Fatalf("pool2 after seed: expected 20 SC, got %v", balances[1])
+	}
+
+	if err := rhp4.RPCAttachPools(context.Background(), transport, []rhp4.PoolAttachInput{
+		{Account: account, PoolKey: pool1Key},
+	}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := rhp4.RPCAttachPools(context.Background(), transport, []rhp4.PoolAttachInput{
+		{Account: account, PoolKey: pool2Key},
+	}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := rhp4.RPCAttachPools(context.Background(), transport, []rhp4.PoolAttachInput{
+		{Account: account, PoolKey: pool1Key},
+	}, time.Minute); err != nil {
+		t.Fatalf("re-attach should be idempotent, got %v", err)
+	}
+
+	if err := hn.Contracts.DebitAccount(account, proto4.Usage{RPC: types.Siacoins(11)}); err != nil {
+		t.Fatal(err)
+	}
+	balances, err = hn.Contracts.PoolBalances([]proto4.Account{pool1, pool2})
+	if err != nil {
+		t.Fatal(err)
+	} else if !balances[0].IsZero() {
+		t.Fatalf("pool1 after debit: expected 0, got %v", balances[0])
+	} else if !balances[1].Equals(types.Siacoins(19)) {
+		t.Fatalf("pool2 after debit: expected 19 SC, got %v", balances[1])
+	}
+
+	if err := rhp4.RPCDetachPools(context.Background(), transport, []rhp4.PoolDetachInput{
+		{Account: account, Pool: pool1, Signer: pool1Key},
+		{Account: account, Pool: pool2, Signer: accountKey},
+	}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := hn.Contracts.DebitAccount(account, proto4.Usage{RPC: types.NewCurrency64(1)}); !errors.Is(err, proto4.ErrNotEnoughFunds) {
+		t.Fatalf("expected ErrNotEnoughFunds after detach, got %v", err)
+	}
+}
+
 func BenchmarkWrite(b *testing.B) {
 	n, genesis := testutil.V2Network()
 	hostKey, renterKey := types.GeneratePrivateKey(), types.GeneratePrivateKey()

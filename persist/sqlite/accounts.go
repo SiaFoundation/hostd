@@ -57,29 +57,63 @@ func (s *Store) RHP4AccountBalance(account proto4.Account) (balance types.Curren
 	return
 }
 
-// RHP4DebitAccount debits the account with the given ID.
+// RHP4DebitAccount debits the account with the given ID. The account's
+// balance is drained first; any shortfall is drained from attached pools in
+// attachment order. If the combined balance is insufficient, no balances are
+// modified and proto4.ErrNotEnoughFunds is returned.
 func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) error {
 	return s.transaction(func(tx *txn) error {
-		var dbID int64
-		var balance types.Currency
-		err := tx.QueryRow(`SELECT id, balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(&dbID, decode(&balance))
+		var accountDBID int64
+		var accountBalance types.Currency
+		err := tx.QueryRow(`SELECT id, balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(&accountDBID, decode(&accountBalance))
 		if errors.Is(err, sql.ErrNoRows) {
 			return proto4.ErrNotEnoughFunds
 		} else if err != nil {
 			return fmt.Errorf("failed to query balance: %w", err)
 		}
 
-		total := usage.RenterCost()
-		balance, underflow := balance.SubWithUnderflow(total)
-		if underflow {
+		attached, err := attachedPools(tx, accountDBID)
+		if err != nil {
+			return fmt.Errorf("failed to get attached pools: %w", err)
+		}
+
+		cost := usage.RenterCost()
+		drawable := accountBalance
+		for _, p := range attached {
+			if drawable.Cmp(cost) >= 0 {
+				break
+			}
+			drawable = drawable.Add(p.Balance)
+		}
+		if drawable.Cmp(cost) < 0 {
 			return proto4.ErrNotEnoughFunds
 		}
 
-		_, err = tx.Exec(`UPDATE accounts SET balance=$1, expiration_timestamp=$2 WHERE id=$3`, encode(balance), encode(time.Now().Add(accountExpirationTime)), dbID)
-		if err != nil {
-			return fmt.Errorf("failed to update balance: %w", err)
-		} else if err := distributeRHP4AccountUsage(tx, dbID, usage); err != nil {
-			return fmt.Errorf("failed to update contract funding: %w", err)
+		// try account balance first
+		accountUsage := takeRHP4Usage(&usage, accountBalance)
+		if taken := accountUsage.RenterCost(); !taken.IsZero() {
+			if _, err := tx.Exec(`UPDATE accounts SET balance=$1, expiration_timestamp=$2 WHERE id=$3`, encode(accountBalance.Sub(taken)), encode(time.Now().Add(accountExpirationTime)), accountDBID); err != nil {
+				return fmt.Errorf("failed to update account balance: %w", err)
+			} else if err := distributeRHP4AccountUsage(tx, accountDBID, accountUsage); err != nil {
+				return fmt.Errorf("failed to update contract funding: %w", err)
+			}
+			cost = cost.Sub(taken)
+		}
+
+		// try all attached pools
+		for _, p := range attached {
+			if cost.IsZero() {
+				break
+			}
+			poolUsage := takeRHP4Usage(&usage, p.Balance)
+			if taken := poolUsage.RenterCost(); !taken.IsZero() {
+				if _, err := tx.Exec(`UPDATE rhp4_pools SET balance=$1 WHERE id=$2`, encode(p.Balance.Sub(taken)), p.ID); err != nil {
+					return fmt.Errorf("failed to update pool balance: %w", err)
+				} else if err := distributeRHP4PoolUsage(tx, p.ID, poolUsage); err != nil {
+					return fmt.Errorf("failed to update pool funding: %w", err)
+				}
+				cost = cost.Sub(taken)
+			}
 		}
 		return nil
 	})
@@ -407,21 +441,6 @@ func distributeRHP4AccountUsage(tx *txn, accountID int64, usage proto4.Usage) er
 		return fmt.Errorf("failed to get contract funding: %w", err)
 	}
 
-	distributeFunds := func(usage, additional, remainder *types.Currency) {
-		if remainder.IsZero() || usage.IsZero() {
-			return
-		}
-
-		v := *usage
-		if usage.Cmp(*remainder) > 0 {
-			v = *remainder
-		}
-		*usage = usage.Sub(v)
-		*remainder = remainder.Sub(v)
-		*additional = additional.Add(v)
-	}
-
-	// distribute account usage to the funding contracts
 	for _, f := range funding {
 		remainder := f.Amount
 
@@ -464,21 +483,6 @@ func distributeRHP3AccountUsage(tx *txn, accountID int64, usage accounts.Usage, 
 		return fmt.Errorf("failed to get contract funding: %w", err)
 	}
 
-	distributeFunds := func(usage, additional, remainder *types.Currency) {
-		if remainder.IsZero() || usage.IsZero() {
-			return
-		}
-
-		v := *usage
-		if usage.Cmp(*remainder) > 0 {
-			v = *remainder
-		}
-		*usage = usage.Sub(v)
-		*remainder = remainder.Sub(v)
-		*additional = additional.Add(v)
-	}
-
-	// distribute account usage to the funding contracts
 	for _, f := range funding {
 		remainder := f.Amount
 
@@ -528,4 +532,28 @@ func setContractAccountFunding(tx *txn, fundingID int64, amount types.Currency) 
 
 	_, err := tx.Exec(`UPDATE contract_account_funding SET amount=$1 WHERE id=$2`, encode(amount), fundingID)
 	return err
+}
+
+// takeRHP4Usage pulls up to max from remaining and returns what was taken.
+func takeRHP4Usage(remaining *proto4.Usage, limit types.Currency) (taken proto4.Usage) {
+	distributeFunds(&remaining.Storage, &taken.Storage, &limit)
+	distributeFunds(&remaining.Ingress, &taken.Ingress, &limit)
+	distributeFunds(&remaining.Egress, &taken.Egress, &limit)
+	distributeFunds(&remaining.RPC, &taken.RPC, &limit)
+	return
+}
+
+// distributeFunds moves up to *limit from src into dst, decrementing both src
+// and limit by the amount transferred.
+func distributeFunds(src, dst, limit *types.Currency) {
+	if limit.IsZero() || src.IsZero() {
+		return
+	}
+	v := *src
+	if v.Cmp(*limit) > 0 {
+		v = *limit
+	}
+	*src = src.Sub(v)
+	*dst = dst.Add(v)
+	*limit = limit.Sub(v)
 }
