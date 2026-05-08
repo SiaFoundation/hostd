@@ -7,7 +7,6 @@ import (
 
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
-	rhp4 "go.sia.tech/coreutils/rhp/v4"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.sia.tech/hostd/v2/index"
 	"go.uber.org/zap/zaptest"
@@ -34,20 +33,7 @@ func TestRHP4Accounts(t *testing.T) {
 		t.Fatal("expected no contracts")
 	}
 
-	// add a contract to the database
-	contract := contracts.V2Contract{
-		ID: frand.Entropy256(),
-		V2FileContract: types.V2FileContract{
-			RenterPublicKey:  renterKey.PublicKey(),
-			HostPublicKey:    hostKey.PublicKey(),
-			ProofHeight:      100,
-			ExpirationHeight: 200,
-		},
-	}
-
-	if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
-		t.Fatal(err)
-	}
+	contract := addV2Contract(t, db, renterKey, hostKey)
 
 	checkMetricConsistency := func(t *testing.T, potential, earned proto4.Usage) {
 		m, err := db.Metrics(time.Now())
@@ -219,26 +205,8 @@ func TestRHP4AccountsDistribution(t *testing.T) {
 		t.Fatal("expected no contracts")
 	}
 
-	// add two contracts to the database
-	c1 := contracts.V2Contract{
-		ID: frand.Entropy256(),
-		V2FileContract: types.V2FileContract{
-			RenterPublicKey: renterKey.PublicKey(),
-			HostPublicKey:   hostKey.PublicKey(),
-		},
-	}
-
-	if err := db.AddV2Contract(c1, rhp4.TransactionSet{}); err != nil {
-		t.Fatal(err)
-	}
-
-	c2 := contracts.V2Contract{
-		ID:             frand.Entropy256(),
-		V2FileContract: types.V2FileContract{},
-	}
-	if err := db.AddV2Contract(c2, rhp4.TransactionSet{}); err != nil {
-		t.Fatal(err)
-	}
+	c1 := addV2Contract(t, db, renterKey, hostKey)
+	c2 := addV2Contract(t, db, renterKey, hostKey)
 
 	// confirm both contracts
 	err = db.UpdateChainState(func(itx index.UpdateTx) error {

@@ -61,7 +61,22 @@ type (
 		RHP4AccountBalances([]proto4.Account) ([]types.Currency, error)
 		// RHP4CreditAccounts atomically revises a contract and credits the accounts
 		RHP4CreditAccounts([]proto4.AccountDeposit, types.FileContractID, types.V2FileContract, proto4.Usage) (balances []types.Currency, err error)
-		// RHP4DebitAccount debits an account.
+		// RHP4DebitAccount debits an account, falling through to attached pools
+		// in attachment order when the account's own balance is insufficient.
 		RHP4DebitAccount(proto4.Account, proto4.Usage) error
+
+		// RHP4PoolBalances returns the balances of multiple pools in input
+		// order. Unknown pools return types.ZeroCurrency.
+		RHP4PoolBalances([]proto4.Account) ([]types.Currency, error)
+		// RHP4CreditPools atomically revises a contract and credits the pools.
+		// Pools are created on first credit.
+		RHP4CreditPools([]proto4.AccountDeposit, types.FileContractID, types.V2FileContract, proto4.Usage) (balances []types.Currency, err error)
+		// RHP4AttachPools attaches accounts to pools atomically. If any
+		// referenced pool is missing, proto4.ErrPoolNotFound is returned and
+		// no mutation occurs.
+		RHP4AttachPools([]proto4.PoolAttachment) error
+		// RHP4DetachPools detaches the given account/pool pairs atomically.
+		// Missing pairs are silently ignored.
+		RHP4DetachPools([]proto4.PoolDetachment) error
 	}
 )

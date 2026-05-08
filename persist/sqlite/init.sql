@@ -241,6 +241,30 @@ CREATE TABLE contract_v2_account_funding (
 	UNIQUE (contract_id, account_id)
 );
 
+CREATE TABLE rhp4_pools (
+	id INTEGER PRIMARY KEY,
+	pool_id BLOB UNIQUE NOT NULL,
+	balance BLOB NOT NULL
+);
+
+CREATE TABLE contract_v2_pool_funding (
+	id INTEGER PRIMARY KEY,
+	contract_id INTEGER NOT NULL REFERENCES contracts_v2(id),
+	pool_id INTEGER NOT NULL REFERENCES rhp4_pools(id),
+	amount BLOB NOT NULL,
+	UNIQUE (contract_id, pool_id)
+);
+CREATE INDEX contract_v2_pool_funding_pool_id ON contract_v2_pool_funding(pool_id);
+
+CREATE TABLE rhp4_account_pool_attachments (
+	id INTEGER PRIMARY KEY,
+	account_id INTEGER NOT NULL REFERENCES accounts(id),
+	pool_id INTEGER NOT NULL REFERENCES rhp4_pools(id),
+	UNIQUE (account_id, pool_id)
+);
+CREATE INDEX rhp4_account_pool_attachments_account_id_id ON rhp4_account_pool_attachments(account_id, id);
+CREATE INDEX rhp4_account_pool_attachments_pool_id ON rhp4_account_pool_attachments(pool_id);
+
 CREATE TABLE host_stats (
 	date_created INTEGER NOT NULL,
 	stat TEXT NOT NULL,
