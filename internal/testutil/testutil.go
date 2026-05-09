@@ -1,7 +1,6 @@
 package testutil
 
 import (
-	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -141,12 +140,6 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 	}
 	cm := chain.NewManager(cs, tipState)
 
-	syncerListener, err := net.Listen("tcp", "localhost:0")
-	if err != nil {
-		t.Fatal("failed to listen:", err)
-	}
-	t.Cleanup(func() { syncerListener.Close() })
-
 	ps, err := sqlite.NewPeerStore(db)
 	if err != nil {
 		t.Fatal("failed to create peer store:", err)
@@ -157,6 +150,15 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 
 	srl := rate.NewLimiter(rate.Inf, 0)
 	swl := rate.NewLimiter(rate.Inf, 0)
+	syncerListener, err := monitoring.Listen("tcp", "localhost:0",
+		monitoring.WithDataMonitor(syncerRecorder),
+		monitoring.WithReadLimit(srl),
+		monitoring.WithWriteLimit(swl))
+	if err != nil {
+		t.Fatal("failed to listen:", err)
+	}
+	t.Cleanup(func() { syncerListener.Close() })
+
 	syncerDialer := monitoring.NewDialer(monitoring.WithDataMonitor(syncerRecorder),
 		monitoring.WithReadLimit(srl), monitoring.WithWriteLimit(swl))
 	syncer := syncer.New(syncerListener, cm, ps, gateway.Header{
