@@ -348,7 +348,12 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 
 	syncerRecorder := monitoring.NewDataRecorder(store.IncrementSyncerDataUsage, log.Named("syncer-data"))
 	defer syncerRecorder.Close()
-	syncerListener, err := monitoring.Listen("tcp", cfg.Syncer.Address, monitoring.WithDataMonitor(syncerRecorder))
+	srl := rate.NewLimiter(rate.Inf, 0)
+	swl := rate.NewLimiter(rate.Inf, 0)
+	syncerListener, err := monitoring.Listen("tcp", cfg.Syncer.Address,
+		monitoring.WithDataMonitor(syncerRecorder),
+		monitoring.WithReadLimit(srl),
+		monitoring.WithWriteLimit(swl))
 	if err != nil {
 		return fmt.Errorf("failed to listen on syncer address: %w", err)
 	}
@@ -386,8 +391,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	}
 
 	log.Debug("starting syncer", zap.String("syncer address", syncerAddr))
-	srl := rate.NewLimiter(rate.Inf, 0)
-	swl := rate.NewLimiter(rate.Inf, 0)
 	syncerDialer := monitoring.NewDialer(monitoring.WithDataMonitor(syncerRecorder),
 		monitoring.WithReadLimit(srl), monitoring.WithWriteLimit(swl))
 	s := syncer.New(syncerListener, cm, ps, gateway.Header{
