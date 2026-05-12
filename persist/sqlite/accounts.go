@@ -100,6 +100,16 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 			cost = cost.Sub(taken)
 		}
 
+		if cost.IsZero() {
+			return nil
+		}
+
+		updatePoolStmt, err := tx.Prepare(`UPDATE rhp4_pools SET balance=$1 WHERE id=$2`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare update pool statement: %w", err)
+		}
+		defer updatePoolStmt.Close()
+
 		// try all attached pools
 		for _, p := range attached {
 			if cost.IsZero() {
@@ -107,13 +117,16 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 			}
 			poolUsage := takeRHP4Usage(&usage, p.Balance)
 			if taken := poolUsage.RenterCost(); !taken.IsZero() {
-				if _, err := tx.Exec(`UPDATE rhp4_pools SET balance=$1 WHERE id=$2`, encode(p.Balance.Sub(taken)), p.ID); err != nil {
+				if _, err := updatePoolStmt.Exec(encode(p.Balance.Sub(taken)), p.ID); err != nil {
 					return fmt.Errorf("failed to update pool balance: %w", err)
 				} else if err := distributeRHP4PoolUsage(tx, p.ID, poolUsage); err != nil {
 					return fmt.Errorf("failed to update pool funding: %w", err)
 				}
 				cost = cost.Sub(taken)
 			}
+		}
+		if !cost.IsZero() {
+			return proto4.ErrNotEnoughFunds
 		}
 		return nil
 	})
