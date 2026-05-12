@@ -1900,7 +1900,21 @@ type accountFundAmount struct {
 	amount      types.Currency
 }
 
+type poolFundAmount struct {
+	poolDBID int64
+	amount   types.Currency
+}
+
 func resetRejectedContractAccountFunding(tx *txn, contractDBID int64, log *zap.Logger) error {
+	if err := resetRejectedAccountFunding(tx, contractDBID, log); err != nil {
+		return fmt.Errorf("failed to reset account funding: %w", err)
+	} else if err := resetRejectedPoolFunding(tx, contractDBID, log); err != nil {
+		return fmt.Errorf("failed to reset pool funding: %w", err)
+	}
+	return nil
+}
+
+func resetRejectedAccountFunding(tx *txn, contractDBID int64, log *zap.Logger) error {
 	rows, err := tx.Query(`DELETE FROM contract_v2_account_funding WHERE contract_id=? RETURNING account_id, amount`, contractDBID)
 	if err != nil {
 		return fmt.Errorf("failed to revert contract account funding: %w", err)
@@ -1968,6 +1982,64 @@ func resetRejectedContractAccountFunding(tx *txn, contractDBID int64, log *zap.L
 
 	if err := incrementCurrencyStat(tx, metricAccountBalance, balanceDelta, true, time.Now()); err != nil {
 		return fmt.Errorf("failed to increment currency stat: %w", err)
+	}
+	return nil
+}
+
+// resetRejectedPoolFunding rolls back pool deposits funded by a rejected
+// contract. Pool rows are shared across attached accounts and other funding
+// contracts, so the balance is reduced in place rather than the row deleted.
+func resetRejectedPoolFunding(tx *txn, contractDBID int64, log *zap.Logger) error {
+	rows, err := tx.Query(`DELETE FROM contract_v2_pool_funding WHERE contract_id=? RETURNING pool_id, amount`, contractDBID)
+	if err != nil {
+		return fmt.Errorf("failed to revert contract pool funding: %w", err)
+	}
+	defer rows.Close()
+
+	var sources []poolFundAmount
+	for rows.Next() {
+		var source poolFundAmount
+		if err := rows.Scan(&source.poolDBID, decode(&source.amount)); err != nil {
+			return fmt.Errorf("failed to scan contract pool funding: %w", err)
+		}
+		sources = append(sources, source)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to scan contract pool funding: %w", err)
+	} else if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close contract pool funding rows: %w", err)
+	}
+
+	if len(sources) == 0 {
+		return nil
+	}
+
+	getPoolBalanceStmt, err := tx.Prepare(`SELECT balance FROM rhp4_pools WHERE id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare get pool balance statement: %w", err)
+	}
+	defer getPoolBalanceStmt.Close()
+
+	updatePoolBalanceStmt, err := tx.Prepare(`UPDATE rhp4_pools SET balance=$1 WHERE id=$2`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update pool balance statement: %w", err)
+	}
+	defer updatePoolBalanceStmt.Close()
+
+	for _, source := range sources {
+		var balance types.Currency
+		if err := getPoolBalanceStmt.QueryRow(source.poolDBID).Scan(decode(&balance)); err != nil {
+			return fmt.Errorf("failed to get pool balance: %w", err)
+		}
+
+		newBalance := types.ZeroCurrency
+		if balance.Cmp(source.amount) > 0 {
+			newBalance = balance.Sub(source.amount)
+		}
+		if _, err := updatePoolBalanceStmt.Exec(encode(newBalance), source.poolDBID); err != nil {
+			return fmt.Errorf("failed to update pool balance: %w", err)
+		}
+		log.Debug("reverted pool funding", zap.Int64("poolID", source.poolDBID), zap.Stringer("delta", balance.Sub(newBalance)), zap.Stringer("balance", newBalance))
 	}
 	return nil
 }
