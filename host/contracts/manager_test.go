@@ -1064,6 +1064,129 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertStorageMetrics(t, 0, 0)
 	})
 
+	t.Run("rejected renewal with pool funding re-renewed", func(t *testing.T) {
+		cm := node.Chain
+		c := node.Contracts
+		w := node.Wallet
+
+		renterFunds, hostFunds := types.Siacoins(10), types.Siacoins(20)
+
+		// form an initial contract with a longer duration so that the renewal can be rejected
+		// while this contract is still active
+		contractID, fc := formV2Contract(t, cm, c, w, renterKey, hostKey, renterFunds, hostFunds, 30, true)
+
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+		// metrics should not have changed
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+
+		// mine to confirm the contract
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		expectedStatuses[contracts.V2ContractStatusPending]--
+		expectedStatuses[contracts.V2ContractStatusActive]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
+		assertContractMetrics(t, fc.TotalCollateral, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+
+		// renew the contract
+		renewalID, renewal, renewalTxnSet, renewalUsage := renewContract(t, contractID, fc, types.ZeroCurrency, types.Siacoins(2))
+		// corrupt the renewalTxnSet so that it cannot be rebroadcast
+		renewalTxnSet.Transactions[0].SiacoinInputs[0].SatisfiedPolicy.Signatures[0] = types.Signature{}
+		if err := node.Contracts.RenewV2Contract(renewalTxnSet, renewalUsage); err != nil {
+			t.Fatal(err)
+		}
+
+		assertPoolBalance := func(t *testing.T, pool proto4.Account, expected types.Currency) {
+			t.Helper()
+			balances, err := node.Contracts.PoolBalances([]proto4.Account{pool})
+			if err != nil {
+				t.Fatal("failed to get pool balance", err)
+			} else if len(balances) != 1 {
+				t.Fatalf("expected 1 balance, got %d", len(balances))
+			} else if !balances[0].Equals(expected) {
+				t.Fatalf("expected pool balance %d, got %d", expected, balances[0])
+			}
+		}
+
+		fundPool := func(t *testing.T, contractID types.FileContractID, fc types.V2FileContract, pool proto4.Account, amount types.Currency) (types.V2FileContract, proto4.Usage) {
+			t.Helper()
+			fc.RenterOutput.Value = fc.RenterOutput.Value.Sub(amount)
+			fc.HostOutput.Value = fc.HostOutput.Value.Add(amount)
+			fc.RevisionNumber++
+			sigHash := node.Chain.TipState().ContractSigHash(fc)
+			fc.HostSignature = hostKey.SignHash(sigHash)
+			fc.RenterSignature = renterKey.SignHash(sigHash)
+			usage := proto4.Usage{
+				AccountFunding: amount,
+			}
+			if _, err := node.Contracts.CreditPoolsWithContract([]proto4.AccountDeposit{
+				{Account: pool, Amount: amount},
+			}, contractID, fc, usage); err != nil {
+				t.Fatal(err)
+			}
+			return fc, usage
+		}
+
+		// fund a pool from the pending renewal
+		pool := proto4.Account(types.GeneratePrivateKey().PublicKey())
+		_, usage := fundPool(t, renewalID, renewal, pool, types.Siacoins(2))
+		assertPoolBalance(t, pool, usage.AccountFunding)
+
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusPending)
+		assertContractMetrics(t, fc.TotalCollateral, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+
+		// mine until the renewed contract is rejected
+		// only contract status metrics should change
+		// the existing contract should still be active
+		testutil.MineAndSync(t, node, types.VoidAddress, 18)
+		expectedStatuses[contracts.V2ContractStatusRejected]++
+		expectedStatuses[contracts.V2ContractStatusPending]--
+		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusRejected)
+		assertContractMetrics(t, fc.TotalCollateral, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+		// pool balance should be reset
+		assertPoolBalance(t, pool, types.ZeroCurrency)
+
+		// renew the contract again
+		renewalID, renewal, renewalTxnSet, renewalUsage = renewContract(t, contractID, fc, types.ZeroCurrency, types.Siacoins(2))
+		if _, err := cm.AddV2PoolTransactions(renewalTxnSet.Basis, renewalTxnSet.Transactions); err != nil {
+			t.Fatal(err)
+		} else if err := node.Contracts.RenewV2Contract(renewalTxnSet, renewalUsage); err != nil {
+			t.Fatal(err)
+		}
+
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusPending)
+		assertContractMetrics(t, fc.TotalCollateral, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+		assertPoolBalance(t, pool, types.ZeroCurrency)
+
+		// mine to confirm the renewal
+		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		expectedStatuses[contracts.V2ContractStatusPending]--
+		expectedStatuses[contracts.V2ContractStatusRenewed]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusRenewed)
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusActive)
+		assertContractMetrics(t, renewal.TotalCollateral, renewalUsage.RiskedCollateral)
+		assertStorageMetrics(t, 0, 0)
+		assertPoolBalance(t, pool, types.ZeroCurrency)
+
+		// mine until the renewed contract is successful
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.ProofHeight-cm.Tip().Height)+1)
+		expectedStatuses[contracts.V2ContractStatusActive]--
+		expectedStatuses[contracts.V2ContractStatusSuccessful]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusRenewed)
+		assertContractStatus(t, renewalID, contracts.V2ContractStatusSuccessful)
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+	})
+
 	t.Run("revert", func(t *testing.T) {
 		cm := node.Chain
 		c := node.Contracts
