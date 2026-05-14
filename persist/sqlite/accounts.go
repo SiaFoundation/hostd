@@ -373,14 +373,6 @@ WHERE a.account_id=$1`
 	return
 }
 
-// PruneAccounts removes all accounts that have expired
-func (s *Store) PruneAccounts(height uint64) error {
-	return s.transaction(func(tx *txn) error {
-		_, err := tx.Exec(`DELETE FROM accounts WHERE expiration_height<$1`, height)
-		return err
-	})
-}
-
 func incrementContractAccountFunding(tx *txn, accountID, contractID int64, amount types.Currency) error {
 	var fundingValue types.Currency
 	err := tx.QueryRow(`SELECT amount FROM contract_account_funding WHERE contract_id=$1 AND account_id=$2`, contractID, accountID).Scan(decode(&fundingValue))

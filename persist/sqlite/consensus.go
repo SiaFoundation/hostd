@@ -1939,45 +1939,35 @@ func resetRejectedAccountFunding(tx *txn, contractDBID int64, log *zap.Logger) e
 		return nil
 	}
 
-	getAccountFundingStmt, err := tx.Prepare(`SELECT balance FROM accounts WHERE id=$1`)
+	getAccountBalanceStmt, err := tx.Prepare(`SELECT balance FROM accounts WHERE id=$1`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare get account funding statement: %w", err)
+		return fmt.Errorf("failed to prepare get account balance statement: %w", err)
 	}
-	defer getAccountFundingStmt.Close()
+	defer getAccountBalanceStmt.Close()
 
-	updateAccountFundingStmt, err := tx.Prepare(`UPDATE accounts SET balance=$1 WHERE id=$2`)
+	updateAccountBalanceStmt, err := tx.Prepare(`UPDATE accounts SET balance=$1 WHERE id=$2`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare update account funding statement: %w", err)
+		return fmt.Errorf("failed to prepare update account balance statement: %w", err)
 	}
-	defer updateAccountFundingStmt.Close()
-
-	deleteAccountStmt, err := tx.Prepare(`DELETE FROM accounts WHERE id=$1`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare delete account statement: %w", err)
-	}
-	defer deleteAccountStmt.Close()
+	defer updateAccountBalanceStmt.Close()
 
 	var balanceDelta types.Currency
 	for _, source := range sources {
 		var balance types.Currency
-		if err := getAccountFundingStmt.QueryRow(source.accountDBID).Scan(decode(&balance)); err != nil {
-			return fmt.Errorf("failed to get account funding: %w", err)
+		if err := getAccountBalanceStmt.QueryRow(source.accountDBID).Scan(decode(&balance)); err != nil {
+			return fmt.Errorf("failed to get account balance: %w", err)
 		}
 
-		if balance.Cmp(source.amount) <= 0 {
-			if _, err := deleteAccountStmt.Exec(source.accountDBID); err != nil {
-				return fmt.Errorf("failed to clear account: %w", err)
-			}
-			balanceDelta = balanceDelta.Add(balance)
-			log.Debug("reverted account funding", zap.Int64("accountID", source.accountDBID), zap.Stringer("delta", balance), zap.Stringer("balance", types.ZeroCurrency))
-		} else {
-			newBalance := balance.Sub(source.amount)
-			if _, err := updateAccountFundingStmt.Exec(encode(newBalance), source.accountDBID); err != nil {
-				return fmt.Errorf("failed to update account funding: %w", err)
-			}
-			balanceDelta = balanceDelta.Add(source.amount)
-			log.Debug("reverted account funding", zap.Int64("accountID", source.accountDBID), zap.Stringer("delta", source.amount), zap.Stringer("balance", newBalance))
+		newBalance, underflow := balance.SubWithUnderflow(source.amount)
+		if underflow {
+			newBalance = types.ZeroCurrency
 		}
+		delta := balance.Sub(newBalance)
+		if _, err := updateAccountBalanceStmt.Exec(encode(newBalance), source.accountDBID); err != nil {
+			return fmt.Errorf("failed to update account balance: %w", err)
+		}
+		balanceDelta = balanceDelta.Add(delta)
+		log.Debug("reverted account funding", zap.Int64("accountID", source.accountDBID), zap.Stringer("delta", delta), zap.Stringer("balance", newBalance))
 	}
 
 	if err := incrementCurrencyStat(tx, metricAccountBalance, balanceDelta, true, time.Now()); err != nil {
