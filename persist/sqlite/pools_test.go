@@ -302,3 +302,80 @@ func TestRHP4PoolFundingDistribution(t *testing.T) {
 		t.Fatalf("expected remaining account_funding 2 SC, got %v", totalAccountFunding)
 	}
 }
+
+// resetRejectedAccountFunding used to DELETE accounts whose balance was fully
+// covered by the rejected contract. That tripped the FK from
+// rhp4_account_pool_attachments whenever the account had been attached to a
+// pool. The reset now zeroes the balance in place instead.
+func TestResetRejectedAccountFundingWithPoolAttachment(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	renterKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	hostKey := types.NewPrivateKeyFromSeed(frand.Bytes(32))
+	contract := addV2Contract(t, db, renterKey, hostKey)
+
+	account := proto4.Account(types.GeneratePrivateKey().PublicKey())
+	pool := proto4.Account(types.GeneratePrivateKey().PublicKey())
+
+	contract.V2FileContract.RevisionNumber++
+	if _, err := db.RHP4CreditPools([]proto4.AccountDeposit{
+		{Account: pool, Amount: types.Siacoins(1)},
+	}, contract.ID, contract.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(1)}); err != nil {
+		t.Fatal(err)
+	}
+
+	contract.V2FileContract.RevisionNumber++
+	if _, err := db.RHP4CreditAccounts([]proto4.AccountDeposit{
+		{Account: account, Amount: types.Siacoins(5)},
+	}, contract.ID, contract.V2FileContract, proto4.Usage{AccountFunding: types.Siacoins(5)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.RHP4AttachPools([]proto4.PoolAttachment{
+		{Account: account, Pool: pool, ValidUntil: time.Now().Add(time.Minute)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var contractDBID int64
+	if err := db.db.QueryRow(`SELECT id FROM contracts_v2 WHERE contract_id=?`, encode(contract.ID)).Scan(&contractDBID); err != nil {
+		t.Fatal(err)
+	}
+
+	err = db.transaction(func(tx *txn) error {
+		return resetRejectedAccountFunding(tx, contractDBID, log)
+	})
+	if err != nil {
+		t.Fatalf("resetRejectedAccountFunding failed: %v", err)
+	}
+
+	// account row should still exist with a zero balance so the attachment FK
+	// remains valid
+	if bal, err := db.RHP4AccountBalance(account); err != nil {
+		t.Fatal(err)
+	} else if !bal.IsZero() {
+		t.Fatalf("expected zero account balance, got %v", bal)
+	}
+
+	// attachment should be untouched, so the next credit + debit still routes
+	// the deficit to the pool
+	contract.V2FileContract.RevisionNumber++
+	if _, err := db.RHP4CreditAccounts([]proto4.AccountDeposit{
+		{Account: account, Amount: types.NewCurrency64(1)},
+	}, contract.ID, contract.V2FileContract, proto4.Usage{AccountFunding: types.NewCurrency64(1)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RHP4DebitAccount(account, proto4.Usage{RPC: types.Siacoins(1).Add(types.NewCurrency64(1))}); err != nil {
+		t.Fatal(err)
+	}
+	if balances, err := db.RHP4PoolBalances([]proto4.Account{pool}); err != nil {
+		t.Fatal(err)
+	} else if !balances[0].IsZero() {
+		t.Fatalf("expected pool drained via attachment, got %v", balances[0])
+	}
+}
