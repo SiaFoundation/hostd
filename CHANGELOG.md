@@ -1,3 +1,15 @@
+## 2.9.0 (2026-05-18)
+
+### Features
+
+- Add support for RHP4 account pools.
+
+### Fixes
+
+#### Apply syncer rate limits to inbound peer connections.
+
+The `syncerIngressLimit` and `syncerEgressLimit` settings now correctly throttle inbound peer connections in addition to outbound ones.
+
 ## 2.8.0 (2026-04-23)
 
 ### Features
