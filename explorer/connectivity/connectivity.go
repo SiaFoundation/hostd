@@ -21,8 +21,8 @@ type (
 		TestConnection(ctx context.Context, host explorer.Host) (explorer.TestResult, error)
 	}
 
-	// Settings is an interface to access the host's settings, specifically
-	// the RHP4 net addresses.
+	// Settings is an interface to access the host's settings needed for
+	// connectivity testing.
 	Settings interface {
 		RHP4NetAddresses() []chain.NetAddress
 		Announced() bool
@@ -133,7 +133,7 @@ func NewManager(hostKey types.PublicKey, settings Settings, explorer Explorer, o
 			select {
 			case <-time.After(nextTestTime):
 				if !m.settings.Announced() {
-					nextTestTime = time.Minute
+					nextTestTime = min(time.Minute, m.maxCheckInterval)
 					m.log.Debug("skipping connectivity test, host has not been announced")
 					continue
 				}

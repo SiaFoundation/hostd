@@ -263,7 +263,7 @@ func (m *ConfigManager) Announced() bool {
 	ann, err := m.store.LastAnnouncement()
 	if err != nil {
 		m.log.Error("failed to check announcement status", zap.Error(err))
-		return true
+		return false
 	}
 	return ann.Index != (types.ChainIndex{})
 }
