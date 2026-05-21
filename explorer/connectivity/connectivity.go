@@ -25,6 +25,7 @@ type (
 	// the RHP4 net addresses.
 	Settings interface {
 		RHP4NetAddresses() []chain.NetAddress
+		Announced() bool
 	}
 
 	// Alerts is an interface to register and dismiss alerts related to
@@ -131,6 +132,12 @@ func NewManager(hostKey types.PublicKey, settings Settings, explorer Explorer, o
 		for {
 			select {
 			case <-time.After(nextTestTime):
+				if !m.settings.Announced() {
+					nextTestTime = time.Minute
+					m.log.Debug("skipping connectivity test, host has not been announced")
+					continue
+				}
+
 				result, ok, err := m.TestConnection(ctx)
 				if errors.Is(err, context.Canceled) {
 					return // shutdown

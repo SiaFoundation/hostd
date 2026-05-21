@@ -257,6 +257,17 @@ func (m *ConfigManager) LastAnnouncement() (Announcement, error) {
 	return m.store.LastAnnouncement()
 }
 
+// Announced returns true if the host has confirmed at least one announcement
+// on-chain (v1 or v2).
+func (m *ConfigManager) Announced() bool {
+	ann, err := m.store.LastAnnouncement()
+	if err != nil {
+		m.log.Error("failed to check announcement status", zap.Error(err))
+		return true
+	}
+	return ann.Index != (types.ChainIndex{})
+}
+
 // UpdateSettings updates the host's settings.
 func (m *ConfigManager) UpdateSettings(s Settings) error {
 	done, err := m.tg.Add()

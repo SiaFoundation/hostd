@@ -24,6 +24,7 @@ type (
 	mockSettings struct {
 		mu               sync.Mutex
 		rhp4NetAddresses []chain.NetAddress
+		announced        bool
 	}
 )
 
@@ -38,6 +39,13 @@ func (m *mockSettings) SetRHP4NetAddresses(addresses []chain.NetAddress) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.rhp4NetAddresses = addresses
+}
+
+// Announced returns whether the mock host has been announced.
+func (m *mockSettings) Announced() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.announced
 }
 
 // TestConnection is a mock implementation of the Explorer interface
@@ -89,6 +97,7 @@ func TestTestConnection(t *testing.T) {
 		rhp4NetAddresses: []chain.NetAddress{
 			{Protocol: quic.Protocol, Address: "1.2.3.4:9984"},
 		},
+		announced: true,
 	}
 
 	am := alerts.NewManager()
@@ -125,6 +134,7 @@ func TestConnectivityAlerts(t *testing.T) {
 		rhp4NetAddresses: []chain.NetAddress{
 			{Protocol: quic.Protocol, Address: "1.2.3.4:9984"},
 		},
+		announced: true,
 	}
 	am := alerts.NewManager()
 
@@ -154,5 +164,49 @@ func TestConnectivityAlerts(t *testing.T) {
 	time.Sleep(500 * time.Millisecond) // wait for the next test to run
 	if len(am.Active()) != 0 {
 		t.Fatalf("expected no active alerts, got %d", len(am.Active()))
+	}
+}
+
+func TestSuppressAlertsBeforeAnnouncement(t *testing.T) {
+	mexp := &mockExplorer{
+		fn: invalidConnectionResult,
+	}
+
+	hostKey := types.GeneratePrivateKey().PublicKey()
+	sm := &mockSettings{
+		rhp4NetAddresses: []chain.NetAddress{
+			{Protocol: quic.Protocol, Address: "1.2.3.4:9984"},
+		},
+		announced: false,
+	}
+	am := alerts.NewManager()
+
+	cm, err := connectivity.NewManager(hostKey, sm, mexp,
+		connectivity.WithAlerts(am),
+		connectivity.WithMaxCheckInterval(100*time.Millisecond),
+		connectivity.WithBackoff(func(int) time.Duration { return 100 * time.Millisecond }))
+	if err != nil {
+		t.Fatalf("failed to create connectivity manager: %v", err)
+	}
+	defer cm.Close()
+
+	time.Sleep(500 * time.Millisecond)
+
+	if len(am.Active()) != 0 {
+		t.Fatalf("expected no alerts before announcement, got %d", len(am.Active()))
+	}
+
+	// simulate announcement
+	sm.mu.Lock()
+	sm.announced = true
+	sm.mu.Unlock()
+
+	time.Sleep(500 * time.Millisecond)
+
+	active := am.Active()
+	if len(active) != 1 {
+		t.Fatalf("expected 1 active alert after announcement, got %d", len(active))
+	} else if !strings.Contains(active[0].Message, "test error") {
+		t.Fatalf("expected alert message to contain 'test error', got %q", active[0].Message)
 	}
 }
