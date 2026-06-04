@@ -774,9 +774,8 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 	}
 
 	vm.mu.Lock()
-	defer vm.mu.Unlock()
-
 	vol, ok := vm.volumes[id]
+	vm.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("volume %v not found", id)
 	}
