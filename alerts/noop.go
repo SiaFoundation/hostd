@@ -11,6 +11,9 @@ func (NoOpAlerter) Register(Alert) {}
 // Dismiss implements the Alerter interface.
 func (NoOpAlerter) Dismiss(...types.Hash256) {}
 
+// IsActive implements the Alerter interface.
+func (NoOpAlerter) IsActive(types.Hash256) bool { return false }
+
 // DismissCategory implements the Alerter interface.
 func (NoOpAlerter) DismissCategory(string) {}
 

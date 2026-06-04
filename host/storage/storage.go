@@ -25,6 +25,10 @@ const (
 	MaxTempSectorBlocks = 144 * 7 // 7 days
 )
 
+// NoWritableStorageAlertID is the ID of the alert registered when volumes
+// have free space, but none of it is writable.
+var NoWritableStorageAlertID = types.HashBytes([]byte("storage:noWritableStorage"))
+
 // VolumeStatus is the status of a volume.
 const (
 	VolumeStatusUnavailable = "unavailable"
@@ -39,6 +43,7 @@ type (
 	Alerts interface {
 		Register(alerts.Alert)
 		Dismiss(...types.Hash256)
+		IsActive(types.Hash256) bool
 	}
 
 	// A SectorLocation is a location of a sector within a volume.
@@ -156,6 +161,8 @@ func (vm *VolumeManager) loadVolumes() error {
 		}
 		vm.log.Debug("loaded volume", zap.Int64("id", vol.ID), zap.String("path", vol.LocalPath))
 	}
+	// alerts are not persisted, so re-evaluate writable storage at startup
+	vm.updateNoWritableStorageAlert(nil)
 	return nil
 }
 
@@ -327,7 +334,7 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 
 // writeSector atomically adds a sector to the database and writes it to disk
 func (vm *VolumeManager) writeSector(root types.Hash256, data *[proto4.SectorSize]byte) error {
-	return vm.vs.StoreSector(root, func(loc SectorLocation) error {
+	err := vm.vs.StoreSector(root, func(loc SectorLocation) error {
 		start := time.Now()
 
 		vm.mu.Lock()
@@ -360,6 +367,80 @@ func (vm *VolumeManager) writeSector(root types.Hash256, data *[proto4.SectorSiz
 		// Add newly written sector to cache
 		vm.cache.Add(root, data)
 		return vol.Sync()
+	})
+	if errors.Is(err, ErrNotEnoughStorage) {
+		vm.updateNoWritableStorageAlert(err)
+	} else if err == nil && vm.alerts.IsActive(NoWritableStorageAlertID) {
+		// a nil error does not prove writable space remains: the sector may
+		// already have been stored, so re-evaluate instead of dismissing
+		vm.updateNoWritableStorageAlert(nil)
+	}
+	return err
+}
+
+func (vm *VolumeManager) updateNoWritableStorageAlert(cause error) {
+	volumes, err := vm.vs.Volumes()
+	if err != nil {
+		vm.log.Error("failed to check writable storage", zap.Error(err))
+		return
+	}
+
+	var (
+		totalSectors           uint64
+		usedSectors            uint64
+		writableFreeSectors    uint64
+		readOnlyFreeSectors    uint64
+		unavailableFreeSectors uint64
+	)
+	for _, vol := range volumes {
+		totalSectors += vol.TotalSectors
+		usedSectors += vol.UsedSectors
+
+		var freeSectors uint64
+		if vol.TotalSectors > vol.UsedSectors {
+			freeSectors = vol.TotalSectors - vol.UsedSectors
+		}
+
+		switch {
+		case !vol.Available:
+			unavailableFreeSectors += freeSectors
+		case vol.ReadOnly:
+			readOnlyFreeSectors += freeSectors
+		default:
+			writableFreeSectors += freeSectors
+		}
+	}
+
+	// only alert when free space exists that cannot be written to. A host
+	// with no free space at all is simply full, and a host with no volumes
+	// configured has no capacity to lose.
+	if writableFreeSectors > 0 || readOnlyFreeSectors+unavailableFreeSectors == 0 {
+		vm.alerts.Dismiss(NoWritableStorageAlertID)
+		return
+	}
+
+	// skip re-registering if the alert is already active to avoid
+	// re-broadcasting it and resetting its timestamp
+	if vm.alerts.IsActive(NoWritableStorageAlertID) {
+		return
+	}
+
+	data := map[string]any{
+		"totalSectors":           totalSectors,
+		"usedSectors":            usedSectors,
+		"writableFreeSectors":    writableFreeSectors,
+		"readOnlyFreeSectors":    readOnlyFreeSectors,
+		"unavailableFreeSectors": unavailableFreeSectors,
+	}
+	if cause != nil {
+		data["error"] = cause.Error()
+	}
+	vm.alerts.Register(alerts.Alert{
+		ID:        NoWritableStorageAlertID,
+		Severity:  alerts.SeverityCritical,
+		Message:   "No writable storage available",
+		Data:      data,
+		Timestamp: time.Now(),
 	})
 }
 
@@ -527,6 +608,9 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 		}
 		vm.alerts.Register(alert)
 		vol.SetStatus(VolumeStatusReady)
+		// growVolume commits in batches, so writable space may have changed
+		// even on failure
+		vm.updateNoWritableStorageAlert(nil)
 		select {
 		case result <- err:
 		default:
@@ -556,6 +640,7 @@ func (vm *VolumeManager) SetReadOnly(id int64, readOnly bool) error {
 	if err := vm.vs.SetReadOnly(id, readOnly); err != nil {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
+	vm.updateNoWritableStorageAlert(nil)
 	return nil
 }
 
@@ -589,6 +674,7 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 	if err := vm.vs.SetReadOnly(id, true); err != nil {
 		return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 	}
+	vm.updateNoWritableStorageAlert(nil)
 
 	alert := alerts.Alert{
 		ID:       frand.Entropy256(),
@@ -664,6 +750,7 @@ func (vm *VolumeManager) RemoveVolume(ctx context.Context, id int64, force bool,
 
 		err := doMigration()
 		vol.SetStatus(oldStatus)
+		vm.updateNoWritableStorageAlert(nil)
 		select {
 		case result <- err:
 		default:
@@ -707,6 +794,7 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 			return fmt.Errorf("failed to set volume %v to read-only: %w", id, err)
 		}
 		resetReadOnly = true
+		vm.updateNoWritableStorageAlert(nil)
 	}
 
 	go func() {
@@ -762,6 +850,7 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 			}
 		}
 		vol.SetStatus(VolumeStatusReady)
+		vm.updateNoWritableStorageAlert(nil)
 		select {
 		case result <- err:
 		default:
@@ -968,6 +1057,7 @@ func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSiz
 	} else if err != nil {
 		return fmt.Errorf("failed to store sector: %w", err)
 	} else if err := vm.vs.AddTempSector(root, expiration); errors.Is(err, ErrNotEnoughStorage) {
+		vm.updateNoWritableStorageAlert(err)
 		return proto4.ErrNotEnoughStorage
 	} else if err != nil {
 		return fmt.Errorf("failed to reference temporary sector: %w", err)
@@ -1037,6 +1127,10 @@ func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManag
 				if err := vm.vs.PruneSectors(ctx, time.Now().Add(-1*vm.pruneInterval)); err != nil && !errors.Is(err, context.Canceled) {
 					vm.log.Error("failed to prune sectors", zap.Error(err))
 				}
+				// expired temp sectors and pruned sectors free space without
+				// a write attempt. Re-evaluating unconditionally also bounds
+				// how long a stale alert can persist
+				vm.updateNoWritableStorageAlert(nil)
 			}
 		}
 	}()

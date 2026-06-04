@@ -13,6 +13,7 @@ import (
 
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
+	"go.sia.tech/hostd/v2/alerts"
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.sia.tech/hostd/v2/persist/sqlite"
 	"go.uber.org/zap/zaptest"
@@ -156,6 +157,196 @@ func TestAddVolume(t *testing.T) {
 		t.Fatal("expected volume to be writable")
 	case volumes[0].Status != storage.VolumeStatusReady:
 		t.Fatalf("expected volume status %v, got %v", storage.VolumeStatusReady, volumes[0].Status)
+	}
+}
+
+// findNoWritableStorageAlert returns the active "no writable storage" alert,
+// if any.
+func findNoWritableStorageAlert(am *alerts.Manager) (alerts.Alert, bool) {
+	for _, alert := range am.Active() {
+		if alert.ID == storage.NoWritableStorageAlertID {
+			return alert, true
+		}
+	}
+	return alerts.Alert{}, false
+}
+
+func TestNoWritableStorageAlert(t *testing.T) {
+	const expectedSectors = 2
+	dir := t.TempDir()
+
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if vm != nil {
+			vm.Close()
+		}
+	}()
+
+	result := make(chan error, 1)
+	volume, err := vm.AddVolume(context.Background(), filepath.Join(t.TempDir(), "hostdata.dat"), expectedSectors, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := findNoWritableStorageAlert(am); ok {
+		t.Fatal("expected no alert with writable free sectors")
+	}
+
+	// store a sector while the volume is writable
+	var storedSector [proto4.SectorSize]byte
+	if _, err := frand.Read(storedSector[:256]); err != nil {
+		t.Fatal(err)
+	}
+	storedRoot := proto4.SectorRoot(&storedSector)
+	if err := vm.StoreSector(storedRoot, &storedSector, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := vm.SetReadOnly(volume.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	alert, ok := findNoWritableStorageAlert(am)
+	if !ok {
+		t.Fatal("expected alert after marking the only volume read-only")
+	} else if alert.Severity != alerts.SeverityCritical {
+		t.Fatalf("expected critical alert, got %v", alert.Severity)
+	} else if alert.Data["readOnlyFreeSectors"] != float64(expectedSectors-1) {
+		t.Fatalf("expected %v read-only free sectors, got %v", expectedSectors-1, alert.Data["readOnlyFreeSectors"])
+	}
+
+	var sector [proto4.SectorSize]byte
+	if _, err := frand.Read(sector[:256]); err != nil {
+		t.Fatal(err)
+	}
+	root := proto4.SectorRoot(&sector)
+	if err := vm.StoreSector(root, &sector, 1); !errors.Is(err, proto4.ErrNotEnoughStorage) {
+		t.Fatalf("expected %v, got %v", proto4.ErrNotEnoughStorage, err)
+	}
+	if _, ok := findNoWritableStorageAlert(am); !ok {
+		t.Fatal("expected alert to remain after a failed write")
+	}
+
+	// re-storing an already stored sector succeeds without writing, which
+	// must not clear the alert
+	if err := vm.StoreSector(storedRoot, &storedSector, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findNoWritableStorageAlert(am); !ok {
+		t.Fatal("expected alert to remain after re-storing an existing sector")
+	}
+
+	if err := vm.SetReadOnly(volume.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findNoWritableStorageAlert(am); ok {
+		t.Fatal("expected alert to be dismissed after making the volume writable again")
+	}
+
+	// set the volume to read-only again and restart the volume manager to
+	// ensure the alert is re-registered at startup
+	if err := vm.SetReadOnly(volume.ID, true); err != nil {
+		t.Fatal(err)
+	} else if err := vm.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	am = alerts.NewManager()
+	vm, err = storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := findNoWritableStorageAlert(am); !ok {
+		t.Fatal("expected alert after reloading with no writable storage")
+	}
+}
+
+func TestNoWritableStorageAlertSpaceFreed(t *testing.T) {
+	dir := t.TempDir()
+
+	log := zaptest.NewLogger(t)
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	am := alerts.NewManager()
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithAlerter(am), storage.WithPruneInterval(500*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	// add a volume with a single sector and fill it with a temp sector
+	result := make(chan error, 1)
+	if _, err := vm.AddVolume(context.Background(), filepath.Join(t.TempDir(), "hostdata.dat"), 1, result); err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	var sector [proto4.SectorSize]byte
+	if _, err := frand.Read(sector[:256]); err != nil {
+		t.Fatal(err)
+	}
+	root := proto4.SectorRoot(&sector)
+	if err := vm.StoreSector(root, &sector, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	// a write to a full host should fail, but full writable storage is not an
+	// alertable condition
+	if _, err := frand.Read(sector[:256]); err != nil {
+		t.Fatal(err)
+	}
+	root = proto4.SectorRoot(&sector)
+	if err := vm.StoreSector(root, &sector, 1); !errors.Is(err, proto4.ErrNotEnoughStorage) {
+		t.Fatalf("expected %v, got %v", proto4.ErrNotEnoughStorage, err)
+	} else if _, ok := findNoWritableStorageAlert(am); ok {
+		t.Fatal("expected no alert on a full host")
+	}
+
+	// add a second read-only volume so free space exists, but none of it is
+	// writable
+	volume2, err := vm.AddVolume(context.Background(), filepath.Join(t.TempDir(), "hostdata.dat"), 1, result)
+	if err != nil {
+		t.Fatal(err)
+	} else if err := <-result; err != nil {
+		t.Fatal(err)
+	} else if err := vm.SetReadOnly(volume2.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findNoWritableStorageAlert(am); !ok {
+		t.Fatal("expected alert with only read-only free space")
+	}
+
+	// expire the temp sector. The prune loop should free the space and
+	// dismiss the alert without a write attempt.
+	if err := vm.ProcessActions(types.ChainIndex{Height: 2}); err != nil {
+		t.Fatal(err)
+	}
+
+	for start := time.Now(); ; {
+		if _, ok := findNoWritableStorageAlert(am); !ok {
+			break
+		} else if time.Since(start) > 30*time.Second {
+			t.Fatal("expected alert to be dismissed after freeing space")
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 

@@ -41,6 +41,7 @@ type (
 	Alerter interface {
 		Register(a Alert)
 		Dismiss(ids ...types.Hash256)
+		IsActive(id types.Hash256) bool
 	}
 
 	// An Alert is a dismissible message that is displayed to the user.
@@ -65,7 +66,7 @@ type (
 		log    *zap.Logger
 		events EventReporter
 
-		mu sync.Mutex
+		mu sync.RWMutex
 		// alerts is a map of alert IDs to their current alert.
 		alerts map[types.Hash256]Alert
 	}
@@ -160,6 +161,14 @@ func (m *Manager) Dismiss(ids ...types.Hash256) {
 	m.mu.Unlock()
 }
 
+// IsActive returns true if the alert with the given ID is registered.
+func (m *Manager) IsActive(id types.Hash256) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, ok := m.alerts[id]
+	return ok
+}
+
 // DismissCategory removes all alerts in the given category.
 func (m *Manager) DismissCategory(category string) {
 	m.mu.Lock()
@@ -173,8 +182,8 @@ func (m *Manager) DismissCategory(category string) {
 
 // Active returns the host's active alerts.
 func (m *Manager) Active() []Alert {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	alerts := make([]Alert, 0, len(m.alerts))
 	for _, alert := range m.alerts {
 		alerts = append(alerts, alert.DeepCopy())
