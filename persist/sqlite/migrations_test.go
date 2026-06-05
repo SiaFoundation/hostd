@@ -536,3 +536,153 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 		t.Fatalf("unexpected resolution index: got %v, want %v", contract.ResolutionIndex, resolutionIndex)
 	}
 }
+
+// TestMigrateV51 ensures that v2 contracts left active when their renewal
+// landed in the same block as a revision are corrected to renewed and have
+// their resolution index populated from the renewed_to contract.
+func TestMigrateV51(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
+	store := initDBVersion(t, fp, 50, log)
+
+	// stuck case: parent active with a confirmed renewal child
+	stuckParent := types.FileContractID(frand.Entropy256())
+	stuckChild := types.FileContractID(frand.Entropy256())
+	renewalIndex := types.ChainIndex{
+		ID:     frand.Entropy256(),
+		Height: frand.Uint64n(math.MaxUint32),
+	}
+
+	// pending case: parent active with a child still pending confirmation
+	pendingParent := types.FileContractID(frand.Entropy256())
+	pendingChild := types.FileContractID(frand.Entropy256())
+
+	// lone case: active contract that is not part of any renewal chain
+	loneActive := types.FileContractID(frand.Entropy256())
+
+	err := store.transaction(func(tx *txn) error {
+		var renterID int64
+		if err := tx.QueryRow(`INSERT INTO contract_renters (public_key) VALUES ($1) RETURNING id`, encode(types.PublicKey(frand.Entropy256()))).Scan(&renterID); err != nil {
+			return err
+		} else if _, err := tx.Exec(`INSERT INTO contract_v2_roots_map (id, revision_number) VALUES (1, 0)`); err != nil {
+			return err
+		}
+
+		insertContract := func(id types.FileContractID, status contracts.V2ContractStatus, confirmation *types.ChainIndex) (int64, error) {
+			var confEncoded any
+			if confirmation != nil {
+				confEncoded = encode(*confirmation)
+			}
+			var dbID int64
+			err := tx.QueryRow(`INSERT INTO contracts_v2 (renter_id, contract_id, revision_number, formation_txn_set, formation_txn_set_basis,
+locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision,
+confirmation_index, negotiation_height, proof_height, expiration_height, contract_status, sector_count, contract_v2_roots_map_id, contract_v2_roots_map_revision_number)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) RETURNING id`,
+				renterID,
+				encode(id),
+				encode(uint64(1)),
+				encodeSlice([]types.V2Transaction{}),
+				encode(types.ChainIndex{}),
+				encode(types.ZeroCurrency),
+				encode(types.ZeroCurrency),
+				encode(types.ZeroCurrency),
+				encode(types.ZeroCurrency),
+				encode(types.ZeroCurrency),
+				encode(types.ZeroCurrency),
+				encode(types.ZeroCurrency),
+				encode(types.V2FileContract{}),
+				confEncoded,
+				uint64(0),
+				uint64(100),
+				uint64(110),
+				status,
+				uint64(0),
+				int64(1),
+				int64(0),
+			).Scan(&dbID)
+			return dbID, err
+		}
+
+		// stuck case
+		parentID, err := insertContract(stuckParent, contracts.V2ContractStatusActive, nil)
+		if err != nil {
+			return err
+		}
+		childID, err := insertContract(stuckChild, contracts.V2ContractStatusActive, &renewalIndex)
+		if err != nil {
+			return err
+		} else if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_to=$1 WHERE id=$2`, childID, parentID); err != nil {
+			return err
+		} else if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_from=$1 WHERE id=$2`, parentID, childID); err != nil {
+			return err
+		}
+
+		// pending case
+		pParentID, err := insertContract(pendingParent, contracts.V2ContractStatusActive, nil)
+		if err != nil {
+			return err
+		}
+		pChildID, err := insertContract(pendingChild, contracts.V2ContractStatusPending, nil)
+		if err != nil {
+			return err
+		} else if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_to=$1 WHERE id=$2`, pChildID, pParentID); err != nil {
+			return err
+		} else if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_from=$1 WHERE id=$2`, pParentID, pChildID); err != nil {
+			return err
+		}
+
+		// lone case
+		if _, err := insertContract(loneActive, contracts.V2ContractStatusActive, nil); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	} else if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// reopen to trigger the migration
+	store, err = OpenDatabase(fp, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// assert stuck parent is now renewed with the renewal index copied over
+	c, err := store.V2Contract(stuckParent)
+	if err != nil {
+		t.Fatal(err)
+	} else if c.Status != contracts.V2ContractStatusRenewed {
+		t.Fatal("unexpected", c.Status)
+	} else if c.ResolutionIndex != renewalIndex {
+		t.Fatal("unexpected", c.ResolutionIndex)
+	}
+
+	// assert stuck child unchanged
+	c, err = store.V2Contract(stuckChild)
+	if err != nil {
+		t.Fatal(err)
+	} else if c.Status != contracts.V2ContractStatusActive {
+		t.Fatal("unexpected", c.Status)
+	}
+
+	// assert pending parent unchanged
+	c, err = store.V2Contract(pendingParent)
+	if err != nil {
+		t.Fatal(err)
+	} else if c.Status != contracts.V2ContractStatusActive {
+		t.Fatal("unexpected", c.Status)
+	} else if c.ResolutionIndex != (types.ChainIndex{}) {
+		t.Fatal("unexpected", c.ResolutionIndex)
+	}
+
+	// assert lone active contract unchanged
+	c, err = store.V2Contract(loneActive)
+	if err != nil {
+		t.Fatal(err)
+	} else if c.Status != contracts.V2ContractStatusActive {
+		t.Fatal("unexpected", c.Status)
+	}
+}
