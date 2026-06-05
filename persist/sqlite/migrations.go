@@ -13,6 +13,64 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion51 corrects v2 contracts left in active status when their
+// renewal landed in the same block as a revision.
+func migrateVersion51(tx *txn, log *zap.Logger) error {
+	// fetch active contracts with a renewal that has been confirmed
+	// on chain but the old contract was not marked as renewed
+	rows, err := tx.Query(`SELECT c.id, cc.confirmation_index
+FROM contracts_v2 c
+INNER JOIN contracts_v2 cc ON c.renewed_to = cc.id
+WHERE c.contract_status = ?
+AND cc.confirmation_index IS NOT NULL`, contracts.V2ContractStatusActive)
+	if err != nil {
+		return fmt.Errorf("failed to query stuck contracts: %w", err)
+	}
+	defer rows.Close()
+
+	affected := make(map[int64]types.ChainIndex, 0)
+	for rows.Next() {
+		var dbID int64
+		var ci types.ChainIndex
+		if err := rows.Scan(&dbID, decode(&ci)); err != nil {
+			return fmt.Errorf("failed to scan stuck contract: %w", err)
+		}
+		affected[dbID] = ci
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate stuck contracts: %w", err)
+	} else if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to close stuck contracts rows: %w", err)
+	} else if len(affected) == 0 {
+		return nil
+	}
+
+	// update contract status to renewed for the affected contracts and
+	// set the resolution index to the confirmation index of the renewal
+	log.Info("repairing v2 contracts left active after renewal", zap.Int("count", len(affected)))
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET contract_status=?, resolution_block_id=?, resolution_height=? WHERE id=?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+	defer updateStmt.Close()
+
+	for dbID, ci := range affected {
+		if _, err := updateStmt.Exec(contracts.V2ContractStatusRenewed, encode(ci.ID), ci.Height, dbID); err != nil {
+			return fmt.Errorf("failed to repair contract %d: %w", dbID, err)
+		}
+	}
+
+	// historical time series points are not backfilled
+	if err := recalcContractCountMetrics(tx); err != nil {
+		return fmt.Errorf("failed to recalc contract count metrics: %w", err)
+	} else if err := recalcContractSectorsMetrics(tx); err != nil {
+		return fmt.Errorf("failed to recalc contract sectors metric: %w", err)
+	} else if err := recalcContractRevenueCollateralMetrics(tx, log); err != nil {
+		return fmt.Errorf("failed to recalc contract revenue and collateral metrics: %w", err)
+	}
+	return nil
+}
+
 func migrateVersion50(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 CREATE TABLE rhp4_pools (
@@ -1449,4 +1507,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion48,
 	migrateVersion49,
 	migrateVersion50,
+	migrateVersion51,
 }
