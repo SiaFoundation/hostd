@@ -27,7 +27,7 @@ const (
 
 // NoWritableStorageAlertID is the ID of the alert registered when volumes
 // have free space, but none of it is writable.
-var NoWritableStorageAlertID = types.HashBytes([]byte("storage:noWritableStorage"))
+var NoWritableStorageAlertID = frand.Entropy256()
 
 // VolumeStatus is the status of a volume.
 const (
@@ -774,8 +774,9 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 	}
 
 	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
 	vol, ok := vm.volumes[id]
-	vm.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("volume %v not found", id)
 	}
