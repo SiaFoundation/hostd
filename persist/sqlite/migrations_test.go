@@ -6,7 +6,9 @@ import (
 	"math"
 	"path/filepath"
 	"testing"
+	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/contracts"
 	"go.uber.org/zap"
@@ -568,7 +570,7 @@ func TestMigrateV51(t *testing.T) {
 			return err
 		}
 
-		insertContract := func(id types.FileContractID, status contracts.V2ContractStatus, confirmation *types.ChainIndex) (int64, error) {
+		insertContract := func(id types.FileContractID, status contracts.V2ContractStatus, confirmation *types.ChainIndex, lockedCollateral, storageRevenue types.Currency, filesize uint64) (int64, error) {
 			var confEncoded any
 			if confirmation != nil {
 				confEncoded = encode(*confirmation)
@@ -583,14 +585,14 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 				encode(uint64(1)),
 				encodeSlice([]types.V2Transaction{}),
 				encode(types.ChainIndex{}),
+				encode(lockedCollateral),
+				encode(types.ZeroCurrency),
+				encode(storageRevenue),
 				encode(types.ZeroCurrency),
 				encode(types.ZeroCurrency),
 				encode(types.ZeroCurrency),
 				encode(types.ZeroCurrency),
-				encode(types.ZeroCurrency),
-				encode(types.ZeroCurrency),
-				encode(types.ZeroCurrency),
-				encode(types.V2FileContract{}),
+				encode(types.V2FileContract{Filesize: filesize}),
 				confEncoded,
 				uint64(0),
 				uint64(100),
@@ -604,11 +606,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 		}
 
 		// stuck case
-		parentID, err := insertContract(stuckParent, contracts.V2ContractStatusActive, nil)
+		parentID, err := insertContract(stuckParent, contracts.V2ContractStatusActive, nil, types.Siacoins(100), types.Siacoins(10), 2*proto4.SectorSize)
 		if err != nil {
 			return err
 		}
-		childID, err := insertContract(stuckChild, contracts.V2ContractStatusActive, &renewalIndex)
+		childID, err := insertContract(stuckChild, contracts.V2ContractStatusActive, &renewalIndex, types.Siacoins(50), types.Siacoins(5), proto4.SectorSize)
 		if err != nil {
 			return err
 		} else if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_to=$1 WHERE id=$2`, childID, parentID); err != nil {
@@ -618,11 +620,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 		}
 
 		// pending case
-		pParentID, err := insertContract(pendingParent, contracts.V2ContractStatusActive, nil)
+		pParentID, err := insertContract(pendingParent, contracts.V2ContractStatusActive, nil, types.ZeroCurrency, types.ZeroCurrency, 0)
 		if err != nil {
 			return err
 		}
-		pChildID, err := insertContract(pendingChild, contracts.V2ContractStatusPending, nil)
+		pChildID, err := insertContract(pendingChild, contracts.V2ContractStatusPending, nil, types.ZeroCurrency, types.ZeroCurrency, 0)
 		if err != nil {
 			return err
 		} else if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_to=$1 WHERE id=$2`, pChildID, pParentID); err != nil {
@@ -632,7 +634,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 		}
 
 		// lone case
-		if _, err := insertContract(loneActive, contracts.V2ContractStatusActive, nil); err != nil {
+		if _, err := insertContract(loneActive, contracts.V2ContractStatusActive, nil, types.ZeroCurrency, types.ZeroCurrency, 0); err != nil {
 			return err
 		}
 		return nil
@@ -684,5 +686,25 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 		t.Fatal(err)
 	} else if c.Status != contracts.V2ContractStatusActive {
 		t.Fatal("unexpected", c.Status)
+	}
+
+	// assert metrics were recalculated against the corrected statuses: the
+	// repaired parent drops out of the active counts, its locked collateral
+	// and sectors are no longer counted, and its revenue moves to earned
+	m, err := store.Metrics(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	} else if m.Contracts.Active != 3 {
+		t.Fatal("unexpected", m.Contracts.Active)
+	} else if m.Contracts.Renewed != 1 {
+		t.Fatal("unexpected", m.Contracts.Renewed)
+	} else if !m.Contracts.LockedCollateral.Equals(types.Siacoins(50)) {
+		t.Fatal("unexpected", m.Contracts.LockedCollateral)
+	} else if !m.Revenue.Potential.Storage.Equals(types.Siacoins(5)) {
+		t.Fatal("unexpected", m.Revenue.Potential.Storage)
+	} else if !m.Revenue.Earned.Storage.Equals(types.Siacoins(10)) {
+		t.Fatal("unexpected", m.Revenue.Earned.Storage)
+	} else if m.Storage.ContractSectors != 1 {
+		t.Fatal("unexpected", m.Storage.ContractSectors)
 	}
 }
