@@ -799,12 +799,25 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 
 	go func() {
 		log := vm.log.Named("resize").With(zap.Int64("volumeID", id))
-		ctx, cancel, err := vm.tg.AddContext(ctx)
-		if err != nil {
+
+		var err error
+		defer func() {
+			if resetReadOnly {
+				// reset the volume to read-write
+				if err := vm.vs.SetReadOnly(id, false); err != nil {
+					vm.log.Error("failed to set volume to read-write", zap.Error(err))
+				}
+			}
+			vol.SetStatus(VolumeStatusReady)
+			vm.updateNoWritableStorageAlert(nil)
 			select {
 			case result <- err:
 			default:
 			}
+		}()
+
+		ctx, cancel, err := vm.tg.AddContext(ctx)
+		if err != nil {
 			return
 		}
 		defer cancel()
@@ -843,18 +856,6 @@ func (vm *VolumeManager) ResizeVolume(ctx context.Context, id int64, maxSectors 
 			alert.Severity = alerts.SeverityInfo
 		}
 		vm.alerts.Register(alert)
-		if resetReadOnly {
-			// reset the volume to read-write
-			if err := vm.vs.SetReadOnly(id, false); err != nil {
-				vm.log.Error("failed to set volume to read-write", zap.Error(err))
-			}
-		}
-		vol.SetStatus(VolumeStatusReady)
-		vm.updateNoWritableStorageAlert(nil)
-		select {
-		case result <- err:
-		default:
-		}
 	}()
 	return nil
 }
