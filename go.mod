@@ -7,15 +7,15 @@ require (
 	github.com/cloudflare/cloudflare-go v0.117.0
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/mattn/go-sqlite3 v1.14.44
+	github.com/mattn/go-sqlite3 v1.14.45
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.21.0
+	go.sia.tech/core v0.21.1
 	go.sia.tech/coreutils v0.22.0
 	go.sia.tech/jape v0.14.1
 	go.sia.tech/web/hostd v0.68.2
 	go.uber.org/zap v1.28.0
-	golang.org/x/sys v0.45.0
-	golang.org/x/term v0.43.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/term v0.44.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
@@ -34,12 +34,12 @@ require (
 	github.com/quic-go/webtransport-go v0.10.1-0.20260312060737-05fe5253a73c // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
-	go.sia.tech/mux v1.5.0 // indirect
+	go.sia.tech/mux v1.5.2 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

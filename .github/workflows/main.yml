@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - master
-      - its-happening
 
 env:
   CGO_ENABLED: 1
