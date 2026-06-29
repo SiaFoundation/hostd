@@ -36,7 +36,7 @@ func storeRandomSector(vm *storage.VolumeManager, expiration uint64) (types.Hash
 		return types.Hash256{}, fmt.Errorf("failed to generate random sector: %w", err)
 	}
 	root := proto4.SectorRoot(&sector)
-	err := vm.StoreSector(root, &sector, expiration)
+	err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), expiration)
 	return root, err
 }
 
@@ -69,7 +69,7 @@ func TestVolumeLoad(t *testing.T) {
 	var sector [proto4.SectorSize]byte
 	frand.Read(sector[:])
 	root := proto4.SectorRoot(&sector)
-	if err = vm.StoreSector(root, &sector, 1); err != nil {
+	if err = vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -110,7 +110,7 @@ func TestVolumeLoad(t *testing.T) {
 	// write a new sector
 	frand.Read(sector[:])
 	root = proto4.SectorRoot(&sector)
-	if err = vm.StoreSector(root, &sector, 1); err != nil {
+	if err = vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -211,7 +211,7 @@ func TestNoWritableStorageAlert(t *testing.T) {
 		t.Fatal(err)
 	}
 	storedRoot := proto4.SectorRoot(&storedSector)
-	if err := vm.StoreSector(storedRoot, &storedSector, 1); err != nil {
+	if err := vm.StoreSector(storedRoot, &storedSector, proto4.CachedSectorSubtrees(&storedSector), 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -232,7 +232,7 @@ func TestNoWritableStorageAlert(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := proto4.SectorRoot(&sector)
-	if err := vm.StoreSector(root, &sector, 1); !errors.Is(err, proto4.ErrNotEnoughStorage) {
+	if err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); !errors.Is(err, proto4.ErrNotEnoughStorage) {
 		t.Fatalf("expected %v, got %v", proto4.ErrNotEnoughStorage, err)
 	}
 	if _, ok := findNoWritableStorageAlert(am); !ok {
@@ -241,7 +241,7 @@ func TestNoWritableStorageAlert(t *testing.T) {
 
 	// re-storing an already stored sector succeeds without writing, which
 	// must not clear the alert
-	if err := vm.StoreSector(storedRoot, &storedSector, 1); err != nil {
+	if err := vm.StoreSector(storedRoot, &storedSector, proto4.CachedSectorSubtrees(&storedSector), 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := findNoWritableStorageAlert(am); !ok {
@@ -304,7 +304,7 @@ func TestNoWritableStorageAlertSpaceFreed(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := proto4.SectorRoot(&sector)
-	if err := vm.StoreSector(root, &sector, 1); err != nil {
+	if err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -314,7 +314,7 @@ func TestNoWritableStorageAlertSpaceFreed(t *testing.T) {
 		t.Fatal(err)
 	}
 	root = proto4.SectorRoot(&sector)
-	if err := vm.StoreSector(root, &sector, 1); !errors.Is(err, proto4.ErrNotEnoughStorage) {
+	if err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); !errors.Is(err, proto4.ErrNotEnoughStorage) {
 		t.Fatalf("expected %v, got %v", proto4.ErrNotEnoughStorage, err)
 	} else if _, ok := findNoWritableStorageAlert(am); ok {
 		t.Fatal("expected no alert on a full host")
@@ -386,7 +386,7 @@ func TestRemoveVolume(t *testing.T) {
 		}
 		roots[i] = proto4.SectorRoot(&sector)
 
-		if err := vm.StoreSector(roots[i], &sector, 1); err != nil {
+		if err := vm.StoreSector(roots[i], &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -879,7 +879,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 
 	// try to write a sector to the volume, which should fail
-	if err := vm.StoreSector(root, &sector, 1); !errors.Is(err, storage.ErrNotEnoughStorage) {
+	if err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); !errors.Is(err, storage.ErrNotEnoughStorage) {
 		t.Fatalf("expected %v, got %v", storage.ErrNotEnoughStorage, err)
 	}
 
@@ -905,7 +905,7 @@ func TestVolumeConcurrency(t *testing.T) {
 	}
 
 	// write the sector again, which should succeed
-	if err := vm.StoreSector(root, &sector, 1); err != nil {
+	if err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1397,7 +1397,7 @@ func TestStoragePrune(t *testing.T) {
 			t.Fatal("failed to generate random sector:", err)
 		}
 		root := proto4.SectorRoot(&sector)
-		if err = vm.StoreSector(root, &sector, expiration); err != nil {
+		if err = vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), expiration); err != nil {
 			t.Fatal("failed to store sector:", err)
 		}
 		return root
@@ -1458,7 +1458,7 @@ func TestMerkleCacheDisable(t *testing.T) {
 		t.Fatal("failed to generate random sector:", err)
 	}
 	root := proto4.SectorRoot(&sector)
-	if err = vm.StoreSector(root, &sector, 100); err != nil {
+	if err = vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 100); err != nil {
 		t.Fatal("failed to store sector:", err)
 	}
 
@@ -1531,7 +1531,7 @@ func BenchmarkStoreSector(b *testing.B) {
 	// fill the volume
 	for i := range b.N {
 		root, sector := roots[i], sectors[i]
-		err := vm.StoreSector(root, &sector, 1)
+		err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1)
 		if err != nil {
 			b.Fatal(i, err)
 		}
@@ -1606,7 +1606,7 @@ func BenchmarkVolumeManagerRead(b *testing.B) {
 		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := proto4.SectorRoot(&sector)
-		err := vm.StoreSector(root, &sector, 1)
+		err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1)
 		if err != nil {
 			b.Fatal(i, err)
 		}
@@ -1656,7 +1656,7 @@ func BenchmarkVolumeRemove(b *testing.B) {
 		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := proto4.SectorRoot(&sector)
-		err := vm.StoreSector(root, &sector, 1)
+		err := vm.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1)
 		if err != nil {
 			b.Fatal(i, err)
 		}

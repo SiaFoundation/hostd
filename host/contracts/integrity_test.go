@@ -103,7 +103,7 @@ func TestCheckIntegrity(t *testing.T) {
 		var sector [proto4.SectorSize]byte
 		frand.Read(sector[:256])
 		root := proto4.SectorRoot(&sector)
-		if err := host.Volumes.StoreSector(root, &sector, expiration); err != nil {
+		if err := host.Volumes.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), expiration); err != nil {
 			t.Fatal(err)
 		}
 		roots = append(roots, root)
