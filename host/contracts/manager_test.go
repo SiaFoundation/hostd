@@ -211,7 +211,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		roots = append(roots, root)
 
-		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
+		if err := node.Volumes.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -698,7 +698,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		root := proto4.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
-		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
+		if err := node.Volumes.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1353,7 +1353,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		root := proto4.SectorRoot(&sector)
 		roots := []types.Hash256{root}
 
-		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
+		if err := node.Volumes.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1657,7 +1657,7 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		root := proto4.SectorRoot(&sector)
 		roots = append(roots, root)
 
-		if err := node.Volumes.StoreSector(root, &sector, 1); err != nil {
+		if err := node.Volumes.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -2050,7 +2050,7 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		var replacementSector [proto4.SectorSize]byte
 		frand.Read(replacementSector[:])
 		replacementRoot := proto4.SectorRoot(&replacementSector)
-		if err := node.Volumes.StoreSector(replacementRoot, &replacementSector, 1); err != nil {
+		if err := node.Volumes.StoreSector(replacementRoot, &replacementSector, proto4.CachedSectorSubtrees(&replacementSector), 1); err != nil {
 			t.Fatal(err)
 		}
 
