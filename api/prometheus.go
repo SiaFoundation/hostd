@@ -419,15 +419,22 @@ func (v VolumeResp) PrometheusMetric() (metrics []prometheus.Metric) {
 			Value:  float64(volume.SuccessfulWrites),
 		})
 		metrics = append(metrics, prometheus.Metric{
+			Name:   "hostd_volume_corrupt_sectors",
+			Labels: labels,
+			Value:  float64(volume.CorruptSectors),
+		})
+		metrics = append(metrics, prometheus.Metric{
 			Name:   "hostd_volume_status",
 			Labels: labels,
 			Value: func() float64 {
-				if volume.Status == "creating" {
+				switch volume.Status {
+				case "creating":
 					return 1
-				} else if volume.Status == "ready" {
+				case "ready":
 					return 2
+				default:
+					return 0
 				}
-				return 0
 			}(),
 		})
 	}

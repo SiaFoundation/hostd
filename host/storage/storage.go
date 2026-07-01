@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,11 @@ const (
 // NoWritableStorageAlertID is the ID of the alert registered when volumes
 // have free space, but none of it is writable.
 var NoWritableStorageAlertID = frand.Entropy256()
+
+// CorruptSectorAlertCategory is the category of alerts registered when a sector
+// fails to verify against its root while being read. Each affected volume gets
+// its own alert (keyed by volume) grouped under this category.
+const CorruptSectorAlertCategory = "corrupt sectors"
 
 // VolumeStatus is the status of a volume.
 const (
@@ -98,11 +104,12 @@ type (
 // initVolume adds a volume to the volume manager. If the volume is already
 // added, it is returned. The volume mutex must be held before calling this
 // function.
-func (vm *VolumeManager) initVolume(id int64, status string, d volumeData) *volume {
+func (vm *VolumeManager) initVolume(id int64, location string, status string, d volumeData) *volume {
 	if v, ok := vm.volumes[id]; ok {
 		return v
 	}
 	v := &volume{
+		location: location,
 		recorder: vm.recorder,
 		stats: VolumeStats{
 			Status: status,
@@ -130,7 +137,7 @@ func (vm *VolumeManager) loadVolumes() error {
 	// load the volumes into memory
 	for _, vol := range volumes {
 		// if the volume has not been loaded yet, create a new volume
-		v := vm.initVolume(vol.ID, VolumeStatusUnavailable, nil)
+		v := vm.initVolume(vol.ID, vol.LocalPath, VolumeStatusUnavailable, nil)
 		if err := v.OpenVolume(vol.LocalPath, false); err != nil {
 			v.appendError(fmt.Errorf("failed to open volume: %w", err))
 			vm.log.Error("unable to open volume", zap.Error(err), zap.Int64("id", vol.ID), zap.String("path", vol.LocalPath))
@@ -578,7 +585,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 
 	// add the new volume to the volume map
 	vm.mu.Lock()
-	vol := vm.initVolume(volumeID, VolumeStatusCreating, f)
+	vol := vm.initVolume(volumeID, localPath, VolumeStatusCreating, f)
 	vm.mu.Unlock()
 
 	vm.vs.SetAvailable(volumeID, true)
@@ -1003,35 +1010,66 @@ func (vm *VolumeManager) ReadSector(root types.Hash256, offset, length uint64) (
 	segmentOffset := segmentStart * proto4.LeafSize
 	segmentLength := (segmentEnd - segmentStart) * proto4.LeafSize
 
-	if len(meta.CachedSubtrees) == 0 {
-		// roots are not in cache, read the full sector
-		sector, err := vm.readLocation(meta.Location, 0, proto4.SectorSize)
+	if len(meta.CachedSubtrees) != 0 {
+		buf, err := vm.readLocation(meta.Location, segmentOffset, segmentLength)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read full sector data: %w", err)
-		} else if uint64(len(sector)) != proto4.SectorSize {
-			return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", proto4.SectorSize, len(sector))
+			return nil, nil, fmt.Errorf("failed to read sector segment: %w", err)
+		} else if uint64(len(buf)) != segmentLength {
+			return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", segmentLength, len(buf))
 		}
 
-		subtrees := proto4.CachedSectorSubtrees((*[proto4.SectorSize]byte)(sector))
-		proof := proto4.BuildSectorProof(sector[segmentOffset:][:segmentLength], leafStart, leafEnd, subtrees)
-		if vm.merkleCacheEnabled {
-			go func() {
-				if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
-					vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
-				}
-			}()
+		data := buf[(offset - segmentOffset):][:length]
+		proof := proto4.BuildSectorProof(buf, leafStart, leafEnd, meta.CachedSubtrees)
+		rpv := proto4.NewRangeProofVerifier(leafStart, leafEnd)
+		if _, err := rpv.ReadFrom(bytes.NewReader(data)); err == nil && rpv.Verify(proof, root) {
+			return data, proof, nil
 		}
-		return sector[offset:][:length], proof, nil
+		vm.log.Warn("cached sector proof failed to verify, falling back to full sector read", zap.Stringer("root", root))
 	}
 
-	// roots are already in cache, read only the necessary data
-	buf, err := vm.readLocation(meta.Location, segmentOffset, segmentLength)
+	sector, err := vm.readLocation(meta.Location, 0, proto4.SectorSize)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read sector segment: %w", err)
-	} else if uint64(len(buf)) != segmentLength {
-		return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", segmentLength, len(buf))
+		return nil, nil, fmt.Errorf("failed to read full sector data: %w", err)
+	} else if uint64(len(sector)) != proto4.SectorSize {
+		return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", proto4.SectorSize, len(sector))
 	}
-	return buf[(offset - segmentOffset):][:length], proto4.BuildSectorProof(buf, leafStart, leafEnd, meta.CachedSubtrees), nil
+
+	subtrees := proto4.CachedSectorSubtrees((*[proto4.SectorSize]byte)(sector))
+	if proto4.MetaRoot(subtrees) != root {
+		vm.registerCorruptSectorAlert(meta.Location, root)
+		return nil, nil, ErrSectorCorrupt
+	} else if vm.merkleCacheEnabled {
+		if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
+			vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
+		}
+	}
+	proof := proto4.BuildSectorProof(sector[segmentOffset:][:segmentLength], leafStart, leafEnd, subtrees)
+	return sector[offset:][:length], proof, nil
+}
+
+func (vm *VolumeManager) registerCorruptSectorAlert(loc SectorLocation, root types.Hash256) {
+	vm.mu.Lock()
+	v, ok := vm.volumes[loc.Volume]
+	vm.mu.Unlock()
+	if !ok {
+		vm.log.Error("failed to register corrupt sector alert: volume not found", zap.Int64("volume", loc.Volume), zap.Stringer("root", root))
+		return
+	}
+
+	corruptSectors := v.incrementCorruptSectors()
+	vm.log.Error("corrupt sector detected", zap.Stringer("root", root), zap.String("volume", v.Location()), zap.Uint64("corruptSectors", corruptSectors))
+	vm.alerts.Register(alerts.Alert{
+		ID:       v.alertID("corrupt"),
+		Category: CorruptSectorAlertCategory,
+		Severity: alerts.SeverityError,
+		Message:  "Corrupt sector detected",
+		Data: map[string]any{
+			"volume":         v.Location(),
+			"sector":         root,
+			"corruptSectors": corruptSectors,
+		},
+		Timestamp: time.Now(),
+	})
 }
 
 // HasSector returns true if the host is storing a sector
