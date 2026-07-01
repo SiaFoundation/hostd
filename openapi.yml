@@ -2038,6 +2038,10 @@ components:
           type: integer
           format: int64
           description: Number of successful sector write operations.
+        corruptSectors:
+          type: integer
+          format: int64
+          description: Number of sectors that failed to verify against their root while being read.
         status:
           type: string
           description: Current volume status (unavailable, creating, resizing, removing, ready).

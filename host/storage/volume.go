@@ -45,6 +45,7 @@ type (
 		FailedWrites     uint64  `json:"failedWrites"`
 		SuccessfulReads  uint64  `json:"successfulReads"`
 		SuccessfulWrites uint64  `json:"successfulWrites"`
+		CorruptSectors   uint64  `json:"corruptSectors"`
 		Status           string  `json:"status"`
 		Errors           []error `json:"errors"`
 	}
@@ -91,6 +92,13 @@ func (v *volume) incrementWriteStats(n uint64, err error) {
 	}
 	v.recorder.AddWrite(n)
 	v.stats.SuccessfulWrites++
+}
+
+func (v *volume) incrementCorruptSectors() uint64 {
+	v.statsMu.Lock()
+	defer v.statsMu.Unlock()
+	v.stats.CorruptSectors++
+	return v.stats.CorruptSectors
 }
 
 func (v *volume) appendError(err error) {

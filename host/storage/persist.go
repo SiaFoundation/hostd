@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
@@ -106,7 +107,7 @@ var (
 	// ErrSectorNotFound is returned when a sector is not found.
 	ErrSectorNotFound = errors.New("sector not found")
 	// ErrSectorCorrupt is returned when a sector is found to be corrupt.
-	ErrSectorCorrupt = errors.New("sector is corrupt")
+	ErrSectorCorrupt = proto4.ErrSectorCorrupt
 	// ErrVolumeNotEmpty is returned when trying to remove or shrink a volume
 	// that has not been emptied.
 	ErrVolumeNotEmpty = errors.New("volume is not empty")
