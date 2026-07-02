@@ -171,6 +171,15 @@ func findNoWritableStorageAlert(am *alerts.Manager) (alerts.Alert, bool) {
 	return alerts.Alert{}, false
 }
 
+func findCorruptSectorAlert(am *alerts.Manager) (alerts.Alert, bool) {
+	for _, alert := range am.Active() {
+		if alert.Category == storage.CorruptSectorAlertCategory {
+			return alert, true
+		}
+	}
+	return alerts.Alert{}, false
+}
+
 func TestNoWritableStorageAlert(t *testing.T) {
 	const expectedSectors = 2
 	dir := t.TempDir()
@@ -1488,6 +1497,85 @@ func TestMerkleCacheDisable(t *testing.T) {
 	} else if !verifier.Verify(proof, root) {
 		t.Fatal("failed to verify proof")
 	}
+}
+
+func TestReadSectorCorrupt(t *testing.T) {
+	run := func(t *testing.T, cacheEnabled bool) {
+		log := zaptest.NewLogger(t)
+		dir := t.TempDir()
+		db, err := sqlite.OpenDatabase(filepath.Join(dir, "hostd.db"), log.Named("sqlite"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+
+		am := alerts.NewManager()
+		vm, err := storage.NewVolumeManager(db,
+			storage.WithLogger(log.Named("volumes")),
+			storage.WithCacheSize(0),
+			storage.WithMerkleCacheEnabled(cacheEnabled),
+			storage.WithAlerter(am),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		volPath := filepath.Join(dir, "data.dat")
+		result := make(chan error, 1)
+		if _, err := vm.AddVolume(context.Background(), volPath, 4, result); err != nil {
+			t.Fatal(err)
+		} else if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+
+		var sector [proto4.SectorSize]byte
+		frand.Read(sector[:])
+		root := proto4.SectorRoot(&sector)
+		var subtrees []types.Hash256
+		if cacheEnabled {
+			subtrees = proto4.CachedSectorSubtrees(&sector)
+		}
+		if err := vm.StoreSector(root, &sector, subtrees, 100); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, _, err := vm.ReadSector(root, proto4.LeafSize, proto4.LeafSize); err != nil {
+			t.Fatal("intact read failed:", err)
+		} else if _, ok := findCorruptSectorAlert(am); ok {
+			t.Fatal("unexpected corrupt sector alert before corruption")
+		}
+
+		f, err := os.OpenFile(volPath, os.O_RDWR, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteAt([]byte{^sector[100]}, 100); err != nil {
+			t.Fatal(err)
+		} else if err := f.Sync(); err != nil {
+			t.Fatal(err)
+		} else if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, _, err := vm.ReadSector(root, proto4.LeafSize, proto4.LeafSize); !errors.Is(err, storage.ErrSectorCorrupt) {
+			t.Fatalf("expected ErrSectorCorrupt, got %v", err)
+		}
+
+		alert, ok := findCorruptSectorAlert(am)
+		if !ok {
+			t.Fatal("expected corrupt sector alert")
+		} else if alert.Severity != alerts.SeverityError {
+			t.Fatalf("expected error severity, got %v", alert.Severity)
+		} else if alert.Data["volume"].(string) != volPath {
+			t.Fatalf("expected volume %q, got %q", volPath, alert.Data["volume"])
+		} else if alert.Data["corruptSectors"].(float64) != 1 {
+			t.Fatalf("expected corruptSectors 1, got %v", alert.Data["corruptSectors"])
+		}
+	}
+
+	t.Run("cache disabled", func(t *testing.T) { run(t, false) })
+	t.Run("cache enabled", func(t *testing.T) { run(t, true) })
 }
 
 func BenchmarkStoreSector(b *testing.B) {
