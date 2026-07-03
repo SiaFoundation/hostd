@@ -9,8 +9,8 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/shopspring/decimal v1.4.0
-	go.sia.tech/core v0.21.2-0.20260701182152-44b8503f7998
-	go.sia.tech/coreutils v0.22.2-0.20260701182243-fad12776daaa
+	go.sia.tech/core v0.21.3-0.20260703153603-327be4a8d318
+	go.sia.tech/coreutils v0.22.2-0.20260703161806-1cbfb0499be6
 	go.sia.tech/jape v0.14.1
 	go.sia.tech/web/hostd v0.68.2
 	go.uber.org/zap v1.28.0
