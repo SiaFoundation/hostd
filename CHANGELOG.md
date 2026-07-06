@@ -1,3 +1,9 @@
+## 2.10.1 (2026-07-06)
+
+### Fixes
+
+- Updated coreutils to v0.23.3 and core to v0.21.4
+
 ## 2.10.0 (2026-07-03)
 
 ### Features
