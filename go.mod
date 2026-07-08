@@ -5,8 +5,10 @@ go 1.26.0
 require (
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/cloudflare/cloudflare-go v0.117.0
+	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.21.4
@@ -27,18 +29,24 @@ require (
 	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
+	github.com/lib/pq v1.10.9 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.60.0 // indirect
 	github.com/quic-go/webtransport-go v0.11.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
+	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
 	go.sia.tech/mux v1.5.2 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
