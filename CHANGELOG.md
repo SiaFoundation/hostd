@@ -1,3 +1,10 @@
+## 2.10.2 (2026-07-12)
+
+### Fixes
+
+- Fixed nomad cert issuance failing due to provider API change.
+- Fixed issue with time to refresh not taking into account failures.
+
 ## 2.10.1 (2026-07-06)
 
 ### Fixes
