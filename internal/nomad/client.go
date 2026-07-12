@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base32"
 	"encoding/json"
 	"encoding/pem"
@@ -91,6 +92,7 @@ func (c *Client) IssueCertificate(ctx context.Context) (*rsa.PrivateKey, []*x509
 	}
 	domain := HostDomain(c.hostKey.PublicKey())
 	csr, err := x509.CreateCertificateRequest(frand.Reader, &x509.CertificateRequest{
+		Subject:            pkix.Name{Country: []string{"US"}},
 		DNSNames:           []string{domain},
 		SignatureAlgorithm: x509.SHA256WithRSA,
 	}, certKey)
