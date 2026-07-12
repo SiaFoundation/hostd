@@ -2,4 +2,4 @@
 default: patch
 ---
 
-# Fix nomad cert issuance.
+# Fixed nomad cert issuance failing due to provider API change.

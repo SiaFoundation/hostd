@@ -170,7 +170,7 @@ func NewProvider(dir string, hostKey types.PrivateKey, log *zap.Logger) *Provide
 				log.Debug("no certificate loaded, issuing a new one")
 				reissueTime = backoff(consecutiveFailures)
 			} else {
-				reissueTime = timeToRefresh(provider.cert)
+				reissueTime = max(timeToRefresh(provider.cert), backoff(consecutiveFailures))
 			}
 			provider.mu.Unlock()
 			log.Debug("waiting for certificate refresh", zap.Duration("remaining", reissueTime))
