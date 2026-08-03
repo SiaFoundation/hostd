@@ -338,7 +338,7 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 		} else if done {
 			return nil
 		}
-		// continue after the last sector examined instead of repeatedly scanning
+		// continue after the last sector pruned instead of repeatedly scanning
 		// retained sectors at the beginning of the table for every batch.
 		afterSectorID = refs[len(refs)-1].SectorID
 		jitterSleep(50 * time.Millisecond)
