@@ -245,18 +245,20 @@ type volumeSectorRef struct {
 	SectorID       int64
 }
 
-func updatePruneableVolumeSectors(tx *txn, lastAccess time.Time) (refs []volumeSectorRef, err error) {
+func updatePruneableVolumeSectors(tx *txn, lastAccess time.Time, afterSectorID int64) (refs []volumeSectorRef, err error) {
 	const selectQuery = `
 SELECT vs.id, vs.volume_id, vs.sector_id
 FROM volume_sectors vs
 INNER JOIN stored_sectors ss ON vs.sector_id=ss.id
-LEFT JOIN contract_sector_roots csr ON ss.id=csr.sector_id
-LEFT JOIN contract_v2_sector_roots csr2 ON ss.id=csr2.sector_id
-LEFT JOIN temp_storage_sector_roots tsr ON ss.id=tsr.sector_id
-WHERE ss.last_access_timestamp < $1 AND csr.sector_id IS NULL AND csr2.sector_id IS NULL AND tsr.sector_id IS NULL
-LIMIT $2;`
+WHERE ss.id > $1
+	AND ss.last_access_timestamp < $2
+	AND NOT EXISTS (SELECT 1 FROM contract_sector_roots csr WHERE csr.sector_id=ss.id)
+	AND NOT EXISTS (SELECT 1 FROM contract_v2_sector_roots csr2 WHERE csr2.sector_id=ss.id)
+	AND NOT EXISTS (SELECT 1 FROM temp_storage_sector_roots tsr WHERE tsr.sector_id=ss.id)
+ORDER BY ss.id
+LIMIT $3;`
 
-	rows, err := tx.Query(selectQuery, encode(lastAccess), sqlSectorBatchSize)
+	rows, err := tx.Query(selectQuery, afterSectorID, encode(lastAccess), sqlSectorBatchSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select volume sectors: %w", err)
 	}
@@ -289,6 +291,7 @@ LIMIT $2;`
 // timestamp and are no longer referenced by a contract or temp storage.
 func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 	// note: last access can be removed after v2 when sectors are immediately committed to temp storage
+	var afterSectorID int64
 	for i := 0; ; i++ {
 		select {
 		case <-ctx.Done():
@@ -296,9 +299,13 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 		default:
 		}
 
-		var done bool
+		var (
+			done bool
+			refs []volumeSectorRef
+		)
 		err := s.transaction(func(tx *txn) error {
-			refs, err := updatePruneableVolumeSectors(tx, lastAccess)
+			var err error
+			refs, err = updatePruneableVolumeSectors(tx, lastAccess, afterSectorID)
 			if err != nil {
 				return fmt.Errorf("failed to select volume sectors: %w", err)
 			} else if len(refs) == 0 {
@@ -331,6 +338,9 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 		} else if done {
 			return nil
 		}
+		// continue after the last sector examined instead of repeatedly scanning
+		// retained sectors at the beginning of the table for every batch.
+		afterSectorID = refs[len(refs)-1].SectorID
 		jitterSleep(50 * time.Millisecond)
 	}
 }
