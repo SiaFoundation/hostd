@@ -1146,3 +1146,106 @@ func BenchmarkReadSectorParallel(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkPruneSectors(b *testing.B) {
+	runBenchmark := func(b *testing.B, retained uint64) {
+		b.Helper()
+
+		b.Run(fmt.Sprintf("retained=%d", retained), func(b *testing.B) {
+			prunable := uint64(b.N) * sqlSectorBatchSize * 2
+
+			log := zap.NewNop()
+			db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer db.Close()
+
+			if _, err := addTestVolume(db, "test", retained+prunable); err != nil {
+				b.Fatal(err)
+			}
+
+			// add a contract to the database
+			contract := contracts.V2Contract{
+				ID: frand.Entropy256(),
+				V2FileContract: types.V2FileContract{
+					RevisionNumber: 1,
+				},
+			}
+
+			if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+				b.Fatal(err)
+			}
+
+			// store the retained sectors at the beginning of the table and
+			// commit them to the contract so pruning must skip past them
+			roots := make([]types.Hash256, 0, retained)
+			for range retained {
+				root := types.Hash256(frand.Entropy256())
+				roots = append(roots, root)
+
+				if err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil }); err != nil {
+					b.Fatal(err)
+				}
+			}
+
+			revision := contract.V2FileContract
+			revision.RevisionNumber++
+			revision.Filesize = proto4.SectorSize * uint64(len(roots))
+			revision.FileMerkleRoot = proto4.MetaRoot(roots)
+
+			if err := db.ReviseV2Contract(contract.ID, revision, nil, roots, proto4.Usage{}); err != nil {
+				b.Fatal(err)
+			}
+
+			// start after the last retained sector, the position the prune loop
+			// reaches once it has skipped the contract's sectors
+			var afterSectorID int64
+			if err := db.transaction(func(tx *txn) error {
+				return tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM stored_sectors`).Scan(&afterSectorID)
+			}); err != nil {
+				b.Fatal(err)
+			}
+
+			// store the prunable sectors after the retained ones
+			for range prunable {
+				root := types.Hash256(frand.Entropy256())
+				if err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil }); err != nil {
+					b.Fatal(err)
+				}
+			}
+
+			lastAccess := time.Now().Add(time.Hour)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			b.ReportMetric(float64(retained), "retained")
+
+			for range b.N {
+				var refs []volumeSectorRef
+				err := db.transaction(func(tx *txn) (err error) {
+					refs, err = updatePruneableVolumeSectors(tx, lastAccess, afterSectorID)
+					return
+				})
+				if err != nil {
+					b.Fatal(err)
+				} else if len(refs) != sqlSectorBatchSize {
+					b.Fatalf("expected to prune %d sectors, pruned %d", sqlSectorBatchSize, len(refs))
+				}
+
+				afterSectorID = refs[len(refs)-1].SectorID
+			}
+		})
+	}
+
+	// each retained sector is stored during setup, so the largest volume is
+	// capped at 100 GiB to keep the benchmark runnable
+	for _, n := range []uint64{
+		10,
+		100,
+		1000,
+		(100 << 30) / proto4.SectorSize, // 100 GiB
+	} {
+		runBenchmark(b, n)
+	}
+}
