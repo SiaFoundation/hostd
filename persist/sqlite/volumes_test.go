@@ -237,6 +237,8 @@ func TestForceRemoveVolumeSectorsUsage(t *testing.T) {
 		t.Fatalf("expected %v used sectors, got %v", sectors, v.UsedSectors)
 	}
 
+	// removing the sectors without first migrating them should cause them all
+	// to be lost and used sectors to be decremented to 0
 	removed, lost, err := db.batchRemoveVolumeSectors(volume.ID, true)
 	if err != nil {
 		t.Fatal(err)

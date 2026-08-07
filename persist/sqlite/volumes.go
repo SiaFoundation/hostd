@@ -64,11 +64,10 @@ func (s *Store) batchRemoveVolumeSectors(id int64, force bool) (removed, lost in
 			}
 
 			if lost > 0 {
-				// special case: if the volume sectors are force deleted, any
-				// unmigrated sectors  be deducted from the physical sector
-				// count.
-				if err := incrementNumericStat(tx, metricPhysicalSectors, -int(lost), time.Now()); err != nil {
-					return fmt.Errorf("failed to update physical sector metric: %w", err)
+				// special case: if the volume sectors are force deleted, usage
+				// is freed
+				if err := incrementVolumeUsage(tx, id, -int(lost)); err != nil {
+					return fmt.Errorf("failed to update volume usage: %w", err)
 				} else if err := incrementNumericStat(tx, metricLostSectors, int(lost), time.Now()); err != nil {
 					return fmt.Errorf("failed to update lost sector metric: %w", err)
 				}
