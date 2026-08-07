@@ -178,7 +178,7 @@ Commands:
 	version		Print the hostd version
 	seed		Generate a new wallet seed and print the corresponding address
 	config		Print the default hostd config
-	recalculate	Recalculate the contract account funding in the SQLite3 database
+	recalculate	Recalculate the derived metrics in the SQLite3 database
 	sqlite3		Perform various operations on the SQLite3 database
 `
 
@@ -202,7 +202,13 @@ Interactively configure hostd. The resulting config will be saved to hostd.yml o
 	recalculateUsage = `Usage:
 hostd recalculate <srcPath>
 
-Recalculates the contract account funding in the SQLite3 database. This command is not safe to run while the host is running.
+Recalculates the metrics that are derived from other tables in the SQLite3
+database, repairing them if they have drifted: contract account funding,
+contract revenue and collateral, and each volume's used and total sector
+counts. The database is vacuumed afterwards, which temporarily requires free
+disk space roughly equal to the size of the database.
+
+This command is not safe to run while the host is running.
 `
 
 	sqlite3Usage = `Usage:
