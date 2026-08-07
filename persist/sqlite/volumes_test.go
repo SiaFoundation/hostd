@@ -181,7 +181,7 @@ func TestStoreSectorRollbackReleasedLocation(t *testing.T) {
 		if err := db.RemoveSector(root); err != nil {
 			t.Fatal(err)
 		}
-		return writeErr
+		return writeErr // cause rollback
 	})
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("expected write error, got %v", err)
