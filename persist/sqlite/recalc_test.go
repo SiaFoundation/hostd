@@ -3,6 +3,7 @@ package sqlite
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.sia.tech/hostd/v2/host/storage"
 	"go.uber.org/zap/zaptest"
@@ -88,5 +89,14 @@ func TestRecalcVolumeMetricsEmptyVolume(t *testing.T) {
 		t.Fatalf("expected 4 used sectors, got %v", usedSectors)
 	} else if totalSectors != 4 {
 		t.Fatalf("expected 4 total sectors, got %v", totalSectors)
+	}
+
+	// the storage metrics must have been reset along with the volumes
+	if m, err := db.Metrics(time.Now()); err != nil {
+		t.Fatal(err)
+	} else if m.Storage.PhysicalSectors != 4 {
+		t.Fatalf("expected 4 physical sectors, got %v", m.Storage.PhysicalSectors)
+	} else if m.Storage.TotalSectors != 4 {
+		t.Fatalf("expected 4 total sectors, got %v", m.Storage.TotalSectors)
 	}
 }
