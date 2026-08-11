@@ -33,6 +33,7 @@ type (
 	// A ConsensusNode is a node with the core consensus components
 	ConsensusNode struct {
 		Store                *sqlite.Store
+		ChainDB              *coreutils.BoltChainDB
 		Chain                *chain.Manager
 		Syncer               *syncer.Syncer
 		SyncerIngressLimiter *rate.Limiter
@@ -171,6 +172,7 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 
 	return &ConsensusNode{
 		Store:                db,
+		ChainDB:              chainDB,
 		Chain:                cm,
 		Syncer:               syncer,
 		SyncerIngressLimiter: srl,
