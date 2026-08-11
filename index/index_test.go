@@ -25,6 +25,11 @@ func TestPruneTarget(t *testing.T) {
 	time.Sleep(time.Second) // allow time for pruning to occur
 	tip := hn.Chain.Tip()
 
+	// flush pruned blocks for deterministic result
+	if err := hn.ChainDB.Scratchpad().Flush(); err != nil {
+		t.Fatal("failed to flush chain db:", err)
+	}
+
 	// blocks below (tip.Height - pruneTarget) should be pruned
 	pruneHeight := tip.Height - pruneTarget
 	for h := range pruneHeight {
