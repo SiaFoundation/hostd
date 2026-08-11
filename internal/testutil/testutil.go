@@ -134,11 +134,11 @@ func NewConsensusNode(t testing.TB, network *consensus.Network, genesis types.Bl
 	}
 	t.Cleanup(func() { chainDB.Close() })
 
-	cs, tipState, err := chain.NewDBStore(chainDB, network, genesis, nil)
+	cs, err := chain.NewDBStore(chainDB, network, genesis, nil)
 	if err != nil {
 		t.Fatal("failed to create chain store:", err)
 	}
-	cm := chain.NewManager(cs, tipState)
+	cm := chain.NewManager(cs)
 
 	ps, err := sqlite.NewPeerStore(db)
 	if err != nil {

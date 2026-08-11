@@ -258,7 +258,6 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 	consensusExists := consensusExists(cfg.Directory)
 
 	var dbstore *chain.DBStore
-	var tipState consensus.State
 	walletAddress := types.StandardUnlockHash(walletKey.PublicKey())
 	if instantSync && !consensusExists {
 		if exp == nil {
@@ -316,7 +315,7 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 		defer bdb.Close()
 
-		dbstore, tipState, err = chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chain")))
+		dbstore, err = chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chain")))
 		if err != nil {
 			return fmt.Errorf("failed to create chain store from checkpoint: %w", err)
 		}
@@ -332,13 +331,13 @@ func runRootCmd(ctx context.Context, cfg config.Config, walletKey types.PrivateK
 		}
 		defer bdb.Close()
 
-		dbstore, tipState, err = chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chain")))
+		dbstore, err = chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chain")))
 		if err != nil {
 			return fmt.Errorf("failed to create chain store: %w", err)
 		}
 	}
 
-	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
+	cm := chain.NewManager(dbstore, chain.WithLog(log.Named("chain")))
 
 	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log.Named("listener"))
 	if err != nil {
