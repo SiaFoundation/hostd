@@ -245,7 +245,7 @@ CREATE INDEX log_lines_log_message ON log_lines(log_message);
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
-	host_key BLOB, 
+	host_key BLOB,
 	wallet_last_processed_change BLOB, -- last processed consensus change for the wallet
 	contracts_last_processed_change BLOB, -- last processed consensus change for the contract manager
 	wallet_height INTEGER, -- height of the wallet as of the last processed change
@@ -492,8 +492,8 @@ func TestMigrateV44(t *testing.T) {
 			return err
 		}
 
-		_, err = tx.Exec(`INSERT INTO contracts_v2 (renter_id, contract_id, revision_number, negotiation_height, proof_height, expiration_height, formation_txn_set, formation_txn_set_basis, 
-locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, resolution_index, contract_status) 
+		_, err = tx.Exec(`INSERT INTO contracts_v2 (renter_id, contract_id, revision_number, negotiation_height, proof_height, expiration_height, formation_txn_set, formation_txn_set_basis,
+locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision, resolution_index, contract_status)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
 			renterID,
 			encode(contractID),

@@ -172,12 +172,14 @@ func TestV2ContractLifecycle(t *testing.T) {
 			t.Fatal("failed to fund transaction:", err)
 		}
 		w.SignV2Inputs(&renewalTxn, toSign)
-		return contractID.V2RenewalID(), renewal.NewContract, rhp4.TransactionSet{
-				Basis:        basis,
-				Transactions: []types.V2Transaction{renewalTxn},
-			}, proto4.Usage{
-				RiskedCollateral: renewal.NewContract.RiskedCollateral(),
-			}
+		ts := rhp4.TransactionSet{
+			Basis:        basis,
+			Transactions: []types.V2Transaction{renewalTxn},
+		}
+		usage := proto4.Usage{
+			RiskedCollateral: renewal.NewContract.RiskedCollateral(),
+		}
+		return contractID.V2RenewalID(), renewal.NewContract, ts, usage
 	}
 
 	fundAccount := func(t *testing.T, contractID types.FileContractID, fc types.V2FileContract, account proto4.Account, amount types.Currency) (types.V2FileContract, proto4.Usage) {
@@ -1641,12 +1643,14 @@ func TestV2SectorRootConsistency(t *testing.T) {
 			t.Fatal("failed to fund transaction:", err)
 		}
 		w.SignV2Inputs(&renewalTxn, toSign)
-		return contractID.V2RenewalID(), renewal.NewContract, rhp4.TransactionSet{
-				Basis:        basis,
-				Transactions: []types.V2Transaction{renewalTxn},
-			}, proto4.Usage{
-				RiskedCollateral: renewal.NewContract.RiskedCollateral(),
-			}
+		ts := rhp4.TransactionSet{
+			Basis:        basis,
+			Transactions: []types.V2Transaction{renewalTxn},
+		}
+		usage := proto4.Usage{
+			RiskedCollateral: renewal.NewContract.RiskedCollateral(),
+		}
+		return contractID.V2RenewalID(), renewal.NewContract, ts, usage
 	}
 
 	appendSector := func(t *testing.T, contractID types.FileContractID, fc types.V2FileContract, roots []types.Hash256) (types.V2FileContract, []types.Hash256) {

@@ -13,5 +13,5 @@ Also fixed `hostd recalculate` skipping volumes that have no sectors left,
 which meant it could report success without repairing a volume whose rows had
 all been deleted by an interrupted removal.
 
-Hosts already affected can repair the counters by running `hostd recalculate`
-against their database while the host is stopped.
+Hosts already affected have their counters repaired automatically by a database
+migration on the next startup.
