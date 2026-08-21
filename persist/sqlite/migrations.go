@@ -13,6 +13,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion52 repairs volume usage accounting that drifted from the
+// sectors actually stored in each volume.
+func migrateVersion52(tx *txn, log *zap.Logger) error {
+	if err := recalcVolumeMetrics(tx, log); err != nil {
+		return fmt.Errorf("failed to recalculate volume metrics: %w", err)
+	}
+	return nil
+}
+
 // migrateVersion51 corrects v2 contracts left in active status when their
 // renewal landed in the same block as a revision.
 func migrateVersion51(tx *txn, log *zap.Logger) error {
@@ -1508,4 +1517,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion49,
 	migrateVersion50,
 	migrateVersion51,
+	migrateVersion52,
 }

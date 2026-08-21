@@ -84,9 +84,10 @@ func recalcContractAccountFunding(tx *txn, _ *zap.Logger) error {
 }
 
 func recalcVolumeMetrics(tx *txn, log *zap.Logger) error {
-	const query = `SELECT volume_id, COUNT(*) AS total_sectors, COUNT(CASE WHEN sector_id IS NOT NULL THEN 1 END) AS used_sectors
-FROM volume_sectors
-GROUP BY volume_id`
+	const query = `SELECT sv.id, COUNT(vs.id) AS total_sectors, COUNT(vs.sector_id) AS used_sectors
+FROM storage_volumes sv
+LEFT JOIN volume_sectors vs ON vs.volume_id=sv.id
+GROUP BY sv.id`
 
 	type volCount struct {
 		ID           int64

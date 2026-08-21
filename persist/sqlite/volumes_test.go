@@ -156,6 +156,110 @@ func TestAddSector(t *testing.T) {
 	}
 }
 
+// TestStoreSectorRollbackReleasedLocation ensures that a failed write does not
+// double-count a location that was already released while the sector was being
+// written. fn is called outside of a transaction, so the reference can be
+// cleared by a migration or a removal before the rollback runs.
+func TestStoreSectorRollbackReleasedLocation(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	volume, err := addTestVolume(db, "test", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := frand.Entropy256()
+	writeErr := errors.New("write failed")
+	err = db.StoreSector(root, func(loc storage.SectorLocation) error {
+		// release the location out from under the write, as a migration or a
+		// removal would. This already decrements the volume usage.
+		if err := db.RemoveSector(root); err != nil {
+			t.Fatal(err)
+		}
+		return writeErr // cause rollback
+	})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("expected write error, got %v", err)
+	}
+
+	// the rollback must not decrement the usage a second time
+	v, err := db.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if v.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", v.UsedSectors)
+	}
+
+	// the volume must still be fully writable
+	for range 2 {
+		if err := db.StoreSector(frand.Entropy256(), func(storage.SectorLocation) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if v, err := db.Volume(volume.ID); err != nil {
+		t.Fatal(err)
+	} else if v.UsedSectors != 2 {
+		t.Fatalf("expected 2 used sectors, got %v", v.UsedSectors)
+	}
+}
+
+// TestForceRemoveVolumeSectorsUsage ensures that force deleting a volume's
+// sectors keeps used_sectors in step with each batch, so an interrupted
+// removal does not leave the counter above the number of stored sectors.
+func TestForceRemoveVolumeSectorsUsage(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// size the volume to a single batch so one call removes every sector
+	const sectors = 3
+	volume, err := addTestVolume(db, "test", sectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for range sectors {
+		if err := db.StoreSector(frand.Entropy256(), func(storage.SectorLocation) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if v, err := db.Volume(volume.ID); err != nil {
+		t.Fatal(err)
+	} else if v.UsedSectors != sectors {
+		t.Fatalf("expected %v used sectors, got %v", sectors, v.UsedSectors)
+	}
+
+	// removing the sectors without first migrating them should cause them all
+	// to be lost and used sectors to be decremented to 0
+	removed, lost, err := db.batchRemoveVolumeSectors(volume.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	} else if removed != sectors {
+		t.Fatalf("expected %v removed, got %v", sectors, removed)
+	} else if lost != sectors {
+		t.Fatalf("expected %v lost, got %v", sectors, lost)
+	}
+
+	// the volume row still exists at this point; its metadata must match the
+	// now-empty volume_sectors table
+	v, err := db.Volume(volume.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if v.UsedSectors != 0 {
+		t.Fatalf("expected 0 used sectors, got %v", v.UsedSectors)
+	} else if v.TotalSectors != 0 {
+		t.Fatalf("expected 0 total sectors, got %v", v.TotalSectors)
+	}
+}
+
 func TestHasSector(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)

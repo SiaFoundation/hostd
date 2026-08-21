@@ -64,11 +64,10 @@ func (s *Store) batchRemoveVolumeSectors(id int64, force bool) (removed, lost in
 			}
 
 			if lost > 0 {
-				// special case: if the volume sectors are force deleted, any
-				// unmigrated sectors  be deducted from the physical sector
-				// count.
-				if err := incrementNumericStat(tx, metricPhysicalSectors, -int(lost), time.Now()); err != nil {
-					return fmt.Errorf("failed to update physical sector metric: %w", err)
+				// special case: if the volume sectors are force deleted, usage
+				// is freed
+				if err := incrementVolumeUsage(tx, id, -int(lost)); err != nil {
+					return fmt.Errorf("failed to update volume usage: %w", err)
 				} else if err := incrementNumericStat(tx, metricLostSectors, int(lost), time.Now()); err != nil {
 					return fmt.Errorf("failed to update lost sector metric: %w", err)
 				}
@@ -153,10 +152,12 @@ WHERE v.id=$1`
 // ErrNotEnoughStorage is returned.
 func (s *Store) StoreSector(root types.Hash256, fn storage.StoreFunc) error {
 	var location storage.SectorLocation
+	var sectorID int64
 	var exists bool
 
 	err := s.transaction(func(tx *txn) error {
-		sectorID, err := insertSectorDBID(tx, root)
+		var err error
+		sectorID, err = insertSectorDBID(tx, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector id: %w", err)
 		}
@@ -199,9 +200,14 @@ func (s *Store) StoreSector(root types.Hash256, fn storage.StoreFunc) error {
 	// call fn with the location
 	if err := fn(location); err != nil {
 		rollbackErr := s.transaction(func(tx *txn) error {
-			_, err := tx.Exec(`UPDATE volume_sectors SET sector_id=null WHERE id=$1`, location.ID)
+			res, err := tx.Exec(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 AND sector_id=$2`, location.ID, sectorID)
 			if err != nil {
 				return fmt.Errorf("failed to rollback sector location: %w", err)
+			} else if n, err := res.RowsAffected(); err != nil {
+				return fmt.Errorf("failed to check rows affected: %w", err)
+			} else if n == 0 {
+				// location was released in the meantime
+				return nil
 			} else if err := incrementVolumeUsage(tx, location.Volume, -1); err != nil {
 				return fmt.Errorf("failed to update volume metadata: %w", err)
 			}
