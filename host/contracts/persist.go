@@ -24,10 +24,10 @@ type (
 		Contract(types.FileContractID) (Contract, error)
 		// AddContract stores the provided contract, should error if the contract
 		// already exists in the store.
-		AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage, negotationHeight uint64) error
+		AddContract(revision SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage Usage, negotiationHeight uint64) error
 		// RenewContract renews a contract. It is expected that the existing
 		// contract will be cleared.
-		RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, initialUsage Usage, negotationHeight uint64) error
+		RenewContract(renewal SignedRevision, existing SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, initialUsage Usage, negotiationHeight uint64) error
 		// ReviseContract atomically updates a contract and its associated
 		// sector roots.
 		ReviseContract(revision SignedRevision, oldRoots, newRoots []types.Hash256, usage Usage) error

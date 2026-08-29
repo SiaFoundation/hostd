@@ -279,9 +279,9 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 }
 
 // AddContract adds a new contract to the database.
-func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) error {
+func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotiationHeight uint64) error {
 	return s.transaction(func(tx *txn) error {
-		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotationHeight)
+		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotiationHeight)
 		if err != nil {
 			return fmt.Errorf("failed to add contract: %w", err)
 		}
@@ -292,10 +292,10 @@ func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []ty
 // RenewContract adds a new contract to the database and sets the old
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract.
-func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotationHeight uint64) error {
+func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotiationHeight uint64) error {
 	return s.transaction(func(tx *txn) error {
 		// add the new contract
-		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotationHeight)
+		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotiationHeight)
 		if err != nil {
 			return fmt.Errorf("failed to insert renewed contract: %w", err)
 		}
@@ -808,7 +808,7 @@ func renterDBID(tx *txn, renterKey types.PublicKey) (int64, error) {
 	return dbID, err
 }
 
-func insertContract(tx *txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotationHeight uint64) (dbID int64, err error) {
+func insertContract(tx *txn, revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotiationHeight uint64) (dbID int64, err error) {
 	const query = `INSERT INTO contracts (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue,
 egress_revenue, registry_read, registry_write, account_funding, risked_collateral, revision_number, negotiation_height, window_start, window_end, formation_txn_set,
 raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, formation_confirmed) VALUES
@@ -830,7 +830,7 @@ raw_revision, host_sig, renter_sig, confirmed_revision_number, contract_status, 
 		encode(initialUsage.AccountFunding),
 		encode(initialUsage.RiskedCollateral),
 		encode(revision.Revision.RevisionNumber),
-		negotationHeight,              // stored as int64 for queries, should never overflow
+		negotiationHeight,             // stored as int64 for queries, should never overflow
 		revision.Revision.WindowStart, // stored as int64 for queries, should never overflow
 		revision.Revision.WindowEnd,   // stored as int64 for queries, should never overflow
 		encodeTxnSet(formationSet),
