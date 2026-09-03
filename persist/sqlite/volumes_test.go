@@ -1302,6 +1302,11 @@ func BenchmarkPruneSectors(b *testing.B) {
 				b.Fatal(err)
 			}
 
+			// the merkle cache is enabled by default
+			if err := cacheTestSubtrees(db, roots); err != nil {
+				b.Fatal(err)
+			}
+
 			// start after the last retained sector, the position the prune loop
 			// reaches once it has skipped the contract's sectors
 			var afterSectorID int64
@@ -1312,11 +1317,18 @@ func BenchmarkPruneSectors(b *testing.B) {
 			}
 
 			// store the prunable sectors after the retained ones
+			prunableRoots := make([]types.Hash256, 0, prunable)
 			for range prunable {
 				root := types.Hash256(frand.Entropy256())
+				prunableRoots = append(prunableRoots, root)
+
 				if err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil }); err != nil {
 					b.Fatal(err)
 				}
+			}
+
+			if err := cacheTestSubtrees(db, prunableRoots); err != nil {
+				b.Fatal(err)
 			}
 
 			lastAccess := time.Now().Add(time.Hour)
@@ -1352,4 +1364,148 @@ func BenchmarkPruneSectors(b *testing.B) {
 	} {
 		runBenchmark(b, n)
 	}
+}
+
+// BenchmarkPruneSectorsFullScan measures the scan a prune pass makes when it
+// finds nothing to prune.
+func BenchmarkPruneSectorsFullScan(b *testing.B) {
+	runBenchmark := func(b *testing.B, sectors uint64) {
+		b.Helper()
+
+		log := zap.NewNop()
+		db, err := OpenDatabase(filepath.Join(b.TempDir(), "test.db"), log)
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer db.Close()
+
+		if _, err := addTestVolume(db, "test", sectors); err != nil {
+			b.Fatal(err)
+		}
+
+		// add a contract to commit the sectors to
+		contract := contracts.V2Contract{
+			ID: frand.Entropy256(),
+			V2FileContract: types.V2FileContract{
+				RevisionNumber: 1,
+			},
+		}
+		if err := db.AddV2Contract(contract, rhp4.TransactionSet{}); err != nil {
+			b.Fatal(err)
+		}
+
+		roots := make([]types.Hash256, 0, sectors)
+		for range sectors {
+			root := types.Hash256(frand.Entropy256())
+			roots = append(roots, root)
+
+			if err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil }); err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		// hold half the sectors in a contract and half in temp storage so
+		// nothing is prunable and both NOT EXISTS branches are exercised
+		contractRoots, tempRoots := roots[:len(roots)/2], roots[len(roots)/2:]
+
+		revision := contract.V2FileContract
+		revision.RevisionNumber++
+		revision.Filesize = proto4.SectorSize * uint64(len(contractRoots))
+		revision.FileMerkleRoot = proto4.MetaRoot(contractRoots)
+
+		if err := db.ReviseV2Contract(contract.ID, revision, nil, contractRoots, proto4.Usage{}); err != nil {
+			b.Fatal(err)
+		}
+
+		for _, root := range tempRoots {
+			if err := db.AddTempSector(root, 100); err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		// the merkle cache is enabled by default
+		if err := cacheTestSubtrees(db, roots); err != nil {
+			b.Fatal(err)
+		}
+
+		tablePages := storedSectorsPages(db)
+
+		// old enough that the timestamp filter excludes nothing
+		lastAccess := time.Now().Add(time.Hour)
+
+		b.Run(fmt.Sprintf("sectors=%d", sectors), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ReportMetric(float64(tablePages), "tablePages")
+
+			for range b.N {
+				var refs []volumeSectorRef
+				err := db.transaction(func(tx *txn) (err error) {
+					refs, err = updatePruneableVolumeSectors(tx, lastAccess, 0)
+					return
+				})
+				if err != nil {
+					b.Fatal(err)
+				} else if len(refs) != 0 {
+					b.Fatalf("expected nothing to prune, got %d sectors", len(refs))
+				}
+			}
+		})
+	}
+
+	// each sector is stored during setup, so cap the largest volume
+	for _, sectors := range []uint64{
+		1000,
+		10000,
+		(100 << 30) / proto4.SectorSize, // 100 GiB
+	} {
+		runBenchmark(b, sectors)
+	}
+}
+
+// cacheTestSubtrees populates cached_subtree_roots for the given sector roots,
+// as the merkle cache does in production.
+func cacheTestSubtrees(db *Store, roots []types.Hash256) error {
+	// 1024 roots, 32 KiB, per sector
+	subtrees := proto4.CachedSectorSubtrees(new([proto4.SectorSize]byte))
+	encoded := encode(subtrees)
+
+	const batchSize = 1000
+	for i := 0; i < len(roots); i += batchSize {
+		batch := roots[i:min(i+batchSize, len(roots))]
+
+		err := db.transaction(func(tx *txn) error {
+			stmt, err := tx.Prepare(`UPDATE stored_sectors SET cached_subtree_roots=$1 WHERE sector_root=$2`)
+			if err != nil {
+				return fmt.Errorf("failed to prepare statement: %w", err)
+			}
+			defer stmt.Close()
+
+			for _, root := range batch {
+				if _, err := stmt.Exec(encoded, encode(root)); err != nil {
+					return fmt.Errorf("failed to cache subtrees: %w", err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// storedSectorsPages returns the number of leaf pages the stored_sectors
+// b-tree occupies. Requires the sqlite_dbstat build tag, 0 without it.
+func storedSectorsPages(db *Store) (pages int64) {
+	err := db.transaction(func(tx *txn) error {
+		// fold the WAL back in so the count covers everything written
+		if _, err := tx.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			return fmt.Errorf("failed to checkpoint: %w", err)
+		}
+		return tx.QueryRow(`SELECT COUNT(*) FROM dbstat WHERE name='stored_sectors' AND pagetype='leaf'`).Scan(&pages)
+	})
+	if err != nil {
+		return 0
+	}
+	return pages
 }
