@@ -37,7 +37,7 @@ CREATE TABLE stored_sectors (
 	last_access_timestamp INTEGER NOT NULL
 );
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
-CREATE INDEX stored_sectors_last_access ON stored_sectors(last_access_timestamp);
+CREATE INDEX stored_sectors_id_last_access ON stored_sectors(id, last_access_timestamp);
 
 CREATE TABLE storage_volumes (
 	id INTEGER PRIMARY KEY,
