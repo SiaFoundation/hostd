@@ -16,11 +16,14 @@ import (
 // migrateVersion53 adds a covering index for the sector pruning query. Without
 // it the query's ORDER BY id falls back to a rowid scan of stored_sectors,
 // which has to walk the cached_subtree_roots overflow pages of every row to
-// reach the last_access_timestamp declared after them.
+// reach the last_access_timestamp declared after them. The old index is
+// dropped since the pruning query was its only reader.
 func migrateVersion53(tx *txn, _ *zap.Logger) error {
-	_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS stored_sectors_id_last_access ON stored_sectors(id, last_access_timestamp);`)
+	_, err := tx.Exec(`
+CREATE INDEX IF NOT EXISTS stored_sectors_id_last_access ON stored_sectors(id, last_access_timestamp);
+DROP INDEX IF EXISTS stored_sectors_last_access;`)
 	if err != nil {
-		return fmt.Errorf("failed to create index: %w", err)
+		return fmt.Errorf("failed to update stored sector indices: %w", err)
 	}
 	return nil
 }

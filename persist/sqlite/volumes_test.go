@@ -1430,7 +1430,7 @@ func BenchmarkPruneSectorsFullScan(b *testing.B) {
 
 		tablePages := storedSectorsPages(db)
 
-		// old enough that the timestamp filter excludes nothing
+		// a cutoff in the future, so the timestamp filter excludes nothing
 		lastAccess := time.Now().Add(time.Hour)
 
 		b.Run(fmt.Sprintf("sectors=%d", sectors), func(b *testing.B) {
@@ -1498,10 +1498,6 @@ func cacheTestSubtrees(db *Store, roots []types.Hash256) error {
 // b-tree occupies. Requires the sqlite_dbstat build tag, 0 without it.
 func storedSectorsPages(db *Store) (pages int64) {
 	err := db.transaction(func(tx *txn) error {
-		// fold the WAL back in so the count covers everything written
-		if _, err := tx.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-			return fmt.Errorf("failed to checkpoint: %w", err)
-		}
 		return tx.QueryRow(`SELECT COUNT(*) FROM dbstat WHERE name='stored_sectors' AND pagetype='leaf'`).Scan(&pages)
 	})
 	if err != nil {
