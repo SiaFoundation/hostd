@@ -13,6 +13,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion53 adds a covering index for the sector pruning query. Without
+// it the query's ORDER BY id falls back to a rowid scan of stored_sectors,
+// which has to walk the cached_subtree_roots overflow pages of every row to
+// reach the last_access_timestamp declared after them.
+func migrateVersion53(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS stored_sectors_id_last_access ON stored_sectors(id, last_access_timestamp);`)
+	if err != nil {
+		return fmt.Errorf("failed to create index: %w", err)
+	}
+	return nil
+}
+
 // migrateVersion52 repairs volume usage accounting that drifted from the
 // sectors actually stored in each volume.
 func migrateVersion52(tx *txn, log *zap.Logger) error {
@@ -1518,4 +1530,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion50,
 	migrateVersion51,
 	migrateVersion52,
+	migrateVersion53,
 }
