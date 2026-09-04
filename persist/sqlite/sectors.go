@@ -82,7 +82,10 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 // CacheSubtrees stores the cached subtree roots for a sector
 func (s *Store) CacheSubtrees(root types.Hash256, subtrees []types.Hash256) error {
 	return s.transaction(func(tx *txn) error {
-		_, err := tx.Exec(`UPDATE stored_sectors SET cached_subtree_roots=$1 WHERE sector_root=$2;`, encode(subtrees), encode(root))
+		const query = `INSERT INTO sector_subtree_cache (sector_id, subtree_roots)
+SELECT id, $1 FROM stored_sectors WHERE sector_root=$2
+ON CONFLICT (sector_id) DO UPDATE SET subtree_roots=EXCLUDED.subtree_roots;`
+		_, err := tx.Exec(query, encode(subtrees), encode(root))
 		return err
 	})
 }
@@ -102,8 +105,8 @@ func (s *Store) SectorMetadata(root types.Hash256) (meta storage.SectorMetadata,
 			return fmt.Errorf("failed to get sector location: %w", err)
 		}
 
-		err = tx.QueryRow(`SELECT cached_subtree_roots FROM stored_sectors WHERE id=$1;`, sectorID).Scan(decodeNullable(&meta.CachedSubtrees))
-		if err != nil {
+		err = tx.QueryRow(`SELECT subtree_roots FROM sector_subtree_cache WHERE sector_id=$1;`, sectorID).Scan(decode(&meta.CachedSubtrees))
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to get cached subtrees: %w", err)
 		}
 		return nil
