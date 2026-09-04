@@ -1462,8 +1462,8 @@ func BenchmarkPruneSectorsFullScan(b *testing.B) {
 	}
 }
 
-// cacheTestSubtrees populates cached_subtree_roots for the given sector roots,
-// as the merkle cache does in production.
+// cacheTestSubtrees populates the merkle cache for the given sector roots, as
+// production does for every stored sector.
 func cacheTestSubtrees(db *Store, roots []types.Hash256) error {
 	// 1024 roots, 32 KiB, per sector
 	subtrees := proto4.CachedSectorSubtrees(new([proto4.SectorSize]byte))
@@ -1474,7 +1474,9 @@ func cacheTestSubtrees(db *Store, roots []types.Hash256) error {
 		batch := roots[i:min(i+batchSize, len(roots))]
 
 		err := db.transaction(func(tx *txn) error {
-			stmt, err := tx.Prepare(`UPDATE stored_sectors SET cached_subtree_roots=$1 WHERE sector_root=$2`)
+			stmt, err := tx.Prepare(`INSERT INTO sector_subtree_cache (sector_id, subtree_roots)
+SELECT id, $1 FROM stored_sectors WHERE sector_root=$2
+ON CONFLICT (sector_id) DO UPDATE SET subtree_roots=EXCLUDED.subtree_roots`)
 			if err != nil {
 				return fmt.Errorf("failed to prepare statement: %w", err)
 			}

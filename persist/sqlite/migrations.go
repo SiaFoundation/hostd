@@ -13,14 +13,31 @@ import (
 	"go.uber.org/zap"
 )
 
-// migrateVersion53 adds a covering index for the sector pruning query. Without
-// it the query's ORDER BY id falls back to a rowid scan of stored_sectors,
-// which has to walk the cached_subtree_roots overflow pages of every row to
-// reach the last_access_timestamp declared after them. The old index is
-// dropped since the pruning query was its only reader.
+// migrateVersion54 moves the merkle cache into its own table. The cached roots
+// are not carried over, they are rebuilt on the next read.
+//
+// It also drops stored_sectors_id_last_access, which unreleased builds created
+// to keep the pruning scan off rows made expensive by the inline cache. The
+// rows are cheap to read without it, so the index only cost writes.
+func migrateVersion54(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+CREATE TABLE sector_subtree_cache (
+	sector_id INTEGER PRIMARY KEY REFERENCES stored_sectors(id) ON DELETE CASCADE,
+	subtree_roots BLOB NOT NULL
+);
+ALTER TABLE stored_sectors DROP COLUMN cached_subtree_roots;
+DROP INDEX IF EXISTS stored_sectors_id_last_access;`)
+	if err != nil {
+		return fmt.Errorf("failed to move merkle cache: %w", err)
+	}
+	return nil
+}
+
+// migrateVersion53 drops the index on last_access_timestamp. Nothing reads that
+// column except the sector pruning query, which cannot use the index since it
+// orders by id.
 func migrateVersion53(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
-CREATE INDEX IF NOT EXISTS stored_sectors_id_last_access ON stored_sectors(id, last_access_timestamp);
 DROP INDEX IF EXISTS stored_sectors_last_access;`)
 	if err != nil {
 		return fmt.Errorf("failed to update stored sector indices: %w", err)
@@ -1534,4 +1551,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion51,
 	migrateVersion52,
 	migrateVersion53,
+	migrateVersion54,
 }
