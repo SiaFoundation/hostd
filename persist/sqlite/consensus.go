@@ -85,19 +85,10 @@ func getSiacoinStateElements(tx *txn) (elements []stateElement, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var se stateElement
-		if err := rows.Scan(decode(&se.ID), decode(&se.LeafIndex), decode(&se.MerkleProof)); err != nil {
-			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
-		}
-		elements = append(elements, se)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan siacoin elements: %w", err)
-	}
-	return elements, nil
+	return collectRows(rows, func(s scanner) (se stateElement, err error) {
+		err = s.Scan(decode(&se.ID), decode(&se.LeafIndex), decode(&se.MerkleProof))
+		return se, err
+	})
 }
 
 func updateSiacoinStateElements(tx *txn, elements []stateElement) error {
@@ -125,19 +116,10 @@ func getContractStateElements(tx *txn) (elements []contractStateElement, err err
 	if err != nil {
 		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var se contractStateElement
-		if err := rows.Scan(&se.ID, decode(&se.LeafIndex), decode(&se.MerkleProof)); err != nil {
-			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
-		}
-		elements = append(elements, se)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan siacoin elements: %w", err)
-	}
-	return elements, nil
+	return collectRows(rows, func(s scanner) (se contractStateElement, err error) {
+		err = s.Scan(&se.ID, decode(&se.LeafIndex), decode(&se.MerkleProof))
+		return se, err
+	})
 }
 
 func updateContractStateElements(tx *txn, elements []contractStateElement) error {
@@ -165,19 +147,10 @@ func getChainStateElements(tx *txn) (elements []stateElement, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query chain state elements: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var se stateElement
-		if err := rows.Scan(decode(&se.ID), decode(&se.LeafIndex), decode(&se.MerkleProof)); err != nil {
-			return nil, fmt.Errorf("failed to scan chain state element: %w", err)
-		}
-		elements = append(elements, se)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan chain state elements: %w", err)
-	}
-	return elements, nil
+	return collectRows(rows, func(s scanner) (se stateElement, err error) {
+		err = s.Scan(decode(&se.ID), decode(&se.LeafIndex), decode(&se.MerkleProof))
+		return se, err
+	})
 }
 
 func updateChainStateElements(tx *txn, elements []stateElement) error {
@@ -513,17 +486,15 @@ func maturedSiacoinBalance(tx *txn, index types.ChainIndex) (inflow types.Curren
 	if err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to query matured siacoin elements: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var value types.Currency
-		if err := rows.Scan(decode(&value)); err != nil {
-			return types.ZeroCurrency, fmt.Errorf("failed to scan siacoin value: %w", err)
-		}
-		inflow = inflow.Add(value)
-	}
-	if err := rows.Err(); err != nil {
+	values, err := collectRows(rows, func(s scanner) (value types.Currency, err error) {
+		err = s.Scan(decode(&value))
+		return value, err
+	})
+	if err != nil {
 		return types.ZeroCurrency, fmt.Errorf("failed to iterate siacoin elements: %w", err)
+	}
+	for _, value := range values {
+		inflow = inflow.Add(value)
 	}
 	return
 }
@@ -1810,19 +1781,10 @@ func contractsToReject(tx *txn, height uint64) (rejected []types.FileContractID,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id types.FileContractID
-		if err := rows.Scan(decode(&id)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		rejected = append(rejected, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan contracts: %w", err)
-	}
-	return
+	return collectRows(rows, func(s scanner) (id types.FileContractID, err error) {
+		err = s.Scan(decode(&id))
+		return id, err
+	})
 }
 
 func rejectContracts(tx *txn, height uint64, log *zap.Logger) (rejected []types.FileContractID, err error) {
@@ -1880,19 +1842,10 @@ func v2ContractsToReject(tx *txn, height uint64) (rejected []types.FileContractI
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contracts: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id types.FileContractID
-		if err := rows.Scan(decode(&id)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		rejected = append(rejected, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan contracts: %w", err)
-	}
-	return
+	return collectRows(rows, func(s scanner) (id types.FileContractID, err error) {
+		err = s.Scan(decode(&id))
+		return id, err
+	})
 }
 
 type accountFundAmount struct {
@@ -1919,23 +1872,13 @@ func resetRejectedAccountFunding(tx *txn, contractDBID int64, log *zap.Logger) e
 	if err != nil {
 		return fmt.Errorf("failed to revert contract account funding: %w", err)
 	}
-	defer rows.Close()
-
-	var sources []accountFundAmount
-	for rows.Next() {
-		var source accountFundAmount
-		if err := rows.Scan(&source.accountDBID, decode(&source.amount)); err != nil {
-			return fmt.Errorf("failed to scan contract account funding: %w", err)
-		}
-		sources = append(sources, source)
-	}
-	if err := rows.Err(); err != nil {
+	sources, err := collectRows(rows, func(s scanner) (source accountFundAmount, err error) {
+		err = s.Scan(&source.accountDBID, decode(&source.amount))
+		return source, err
+	})
+	if err != nil {
 		return fmt.Errorf("failed to scan contract account funding: %w", err)
-	} else if err := rows.Close(); err != nil {
-		return fmt.Errorf("failed to close contract account funding rows: %w", err)
-	}
-
-	if len(sources) == 0 {
+	} else if len(sources) == 0 {
 		return nil
 	}
 
@@ -1984,23 +1927,13 @@ func resetRejectedPoolFunding(tx *txn, contractDBID int64, log *zap.Logger) erro
 	if err != nil {
 		return fmt.Errorf("failed to revert contract pool funding: %w", err)
 	}
-	defer rows.Close()
-
-	var sources []poolFundAmount
-	for rows.Next() {
-		var source poolFundAmount
-		if err := rows.Scan(&source.poolDBID, decode(&source.amount)); err != nil {
-			return fmt.Errorf("failed to scan contract pool funding: %w", err)
-		}
-		sources = append(sources, source)
-	}
-	if err := rows.Err(); err != nil {
+	sources, err := collectRows(rows, func(s scanner) (source poolFundAmount, err error) {
+		err = s.Scan(&source.poolDBID, decode(&source.amount))
+		return source, err
+	})
+	if err != nil {
 		return fmt.Errorf("failed to scan contract pool funding: %w", err)
-	} else if err := rows.Close(); err != nil {
-		return fmt.Errorf("failed to close contract pool funding rows: %w", err)
-	}
-
-	if len(sources) == 0 {
+	} else if len(sources) == 0 {
 		return nil
 	}
 

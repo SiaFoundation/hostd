@@ -29,16 +29,11 @@ WHERE a.account_id=$1`
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var src accounts.FundingSource
-			if err := rows.Scan(decode(&src.ContractID), decode(&src.Amount)); err != nil {
-				return fmt.Errorf("failed to scan row: %w", err)
-			}
-			srcs = append(srcs, src)
-		}
-		return rows.Err()
+		srcs, err = collectRows(rows, func(s scanner) (src accounts.FundingSource, err error) {
+			err = s.Scan(decode(&src.ContractID), decode(&src.Amount))
+			return src, err
+		})
+		return err
 	})
 	return
 }
@@ -77,7 +72,8 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 			return fmt.Errorf("failed to get attached pools: %w", err)
 		}
 
-		cost := usage.RenterCost()
+		remaining := usage
+		cost := remaining.RenterCost()
 		drawable := accountBalance
 		for _, p := range attached {
 			if drawable.Cmp(cost) >= 0 {
@@ -90,7 +86,7 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 		}
 
 		// try account balance first
-		accountUsage := takeRHP4Usage(&usage, accountBalance)
+		accountUsage := takeRHP4Usage(&remaining, accountBalance)
 		if taken := accountUsage.RenterCost(); !taken.IsZero() {
 			if _, err := tx.Exec(`UPDATE accounts SET balance=$1, expiration_timestamp=$2 WHERE id=$3`, encode(accountBalance.Sub(taken)), encode(time.Now().Add(accountExpirationTime)), accountDBID); err != nil {
 				return fmt.Errorf("failed to update account balance: %w", err)
@@ -115,7 +111,7 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 			if cost.IsZero() {
 				break
 			}
-			poolUsage := takeRHP4Usage(&usage, p.Balance)
+			poolUsage := takeRHP4Usage(&remaining, p.Balance)
 			if taken := poolUsage.RenterCost(); !taken.IsZero() {
 				if _, err := updatePoolStmt.Exec(encode(p.Balance.Sub(taken)), p.ID); err != nil {
 					return fmt.Errorf("failed to update pool balance: %w", err)
@@ -167,6 +163,7 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 		}
 
 		var createdAccounts int
+		var updated []types.Currency
 		for _, deposit := range deposits {
 			var balance types.Currency
 			err := getBalanceStmt.QueryRow(encode(deposit.Account)).Scan(decode(&balance))
@@ -183,7 +180,7 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 			if err != nil {
 				return fmt.Errorf("failed to update balance: %w", err)
 			}
-			balances = append(balances, balance)
+			updated = append(updated, balance)
 
 			var fundAmount types.Currency
 			if err := getFundingAmountStmt.QueryRow(contractDBID, accountDBID).Scan(decode(&fundAmount)); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -205,6 +202,7 @@ func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID 
 			return fmt.Errorf("failed to increment active accounts metric: %w", err)
 		}
 
+		balances = updated
 		return nil
 	})
 	return
@@ -221,14 +219,16 @@ func (s *Store) RHP4AccountBalances(accounts []proto4.Account) (balances []types
 		}
 		defer stmt.Close()
 
+		var result []types.Currency
 		for _, account := range accounts {
 			var balance types.Currency
 			err := stmt.QueryRow(encode(account)).Scan(decode(&balance))
 			if err != nil && !errors.Is(err, sql.ErrNoRows) { // missing accounts have a balance of 0
 				return fmt.Errorf("failed to get balance: %w", err)
 			}
-			balances = append(balances, balance)
+			result = append(result, balance)
 		}
+		balances = result
 		return nil
 	})
 	return
@@ -332,16 +332,11 @@ func (s *Store) Accounts(limit, offset int) (acc []accounts.Account, err error) 
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var a accounts.Account
-			if err := rows.Scan(decode(&a.ID), decode(&a.Balance), decode(&a.Expiration)); err != nil {
-				return fmt.Errorf("failed to scan row: %w", err)
-			}
-			acc = append(acc, a)
-		}
-		return rows.Err()
+		acc, err = collectRows(rows, func(s scanner) (a accounts.Account, err error) {
+			err = s.Scan(decode(&a.ID), decode(&a.Balance), decode(&a.Expiration))
+			return a, err
+		})
+		return err
 	})
 	return
 }
@@ -359,16 +354,11 @@ WHERE a.account_id=$1`
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var src accounts.FundingSource
-			if err := rows.Scan(decode(&src.ContractID), decode(&src.Amount)); err != nil {
-				return fmt.Errorf("failed to scan row: %w", err)
-			}
-			srcs = append(srcs, src)
-		}
-		return rows.Err()
+		srcs, err = collectRows(rows, func(s scanner) (src accounts.FundingSource, err error) {
+			err = s.Scan(decode(&src.ContractID), decode(&src.Amount))
+			return src, err
+		})
+		return err
 	})
 	return
 }
@@ -415,7 +405,7 @@ func contractV2Funding(tx *txn, accountID int64) (fund []fundAmount, err error) 
 		}
 		fund = append(fund, f)
 	}
-	return
+	return fund, rows.Err()
 }
 
 // contractFunding returns all contracts that were used to fund the account.
@@ -435,7 +425,7 @@ func contractFunding(tx *txn, accountID int64) (fund []fundAmount, err error) {
 		}
 		fund = append(fund, f)
 	}
-	return
+	return fund, rows.Err()
 }
 
 // distributeRHP4AccountUsage distributes account usage to the contracts that funded

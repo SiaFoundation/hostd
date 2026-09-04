@@ -72,6 +72,7 @@ func (s *Store) RHP4CreditPools(deposits []proto4.AccountDeposit, contractID typ
 			return fmt.Errorf("failed to get contract ID: %w", err)
 		}
 
+		var credited []types.Currency
 		for _, deposit := range deposits {
 			var balance types.Currency
 			if err := getBalanceStmt.QueryRow(encode(deposit.Account)).Scan(decode(&balance)); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -84,7 +85,7 @@ func (s *Store) RHP4CreditPools(deposits []proto4.AccountDeposit, contractID typ
 			if err := updateBalanceStmt.QueryRow(encode(deposit.Account), encode(balance)).Scan(&poolDBID); err != nil {
 				return fmt.Errorf("failed to update balance: %w", err)
 			}
-			balances = append(balances, balance)
+			credited = append(credited, balance)
 
 			var fundAmount types.Currency
 			if err := getFundingAmountStmt.QueryRow(contractDBID, poolDBID).Scan(decode(&fundAmount)); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -97,6 +98,7 @@ func (s *Store) RHP4CreditPools(deposits []proto4.AccountDeposit, contractID typ
 		if _, err := reviseV2Contract(tx, contractID, revision, usage); err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
 		}
+		balances = credited
 		return nil
 	})
 	return
@@ -174,15 +176,10 @@ ORDER BY a.id ASC`, accountDBID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var p attachedPool
-		if err := rows.Scan(&p.ID, decode(&p.Balance)); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-		pools = append(pools, p)
-	}
-	return pools, rows.Err()
+	return collectRows(rows, func(s scanner) (p attachedPool, err error) {
+		err = s.Scan(&p.ID, decode(&p.Balance))
+		return p, err
+	})
 }
 
 func contractV2PoolFunding(tx *txn, poolDBID int64) (fund []fundAmount, err error) {

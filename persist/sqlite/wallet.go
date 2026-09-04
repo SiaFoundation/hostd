@@ -30,22 +30,19 @@ func (s *Store) BroadcastedSets() (sets []wallet.BroadcastedSet, err error) {
 		if err != nil {
 			return fmt.Errorf("failed to query broadcasted sets: %w", err)
 		}
-		defer rows.Close()
-
-		for rows.Next() {
+		sets, err = collectRows(rows, func(s scanner) (set wallet.BroadcastedSet, err error) {
 			var buf []byte
-			var set wallet.BroadcastedSet
-			if err := rows.Scan(decode(&set.Basis), &buf, decode(&set.BroadcastedAt)); err != nil {
-				return fmt.Errorf("failed to scan broadcasted set: %w", err)
+			if err = s.Scan(decode(&set.Basis), &buf, decode(&set.BroadcastedAt)); err != nil {
+				return
 			}
 			dec := types.NewBufDecoder(buf)
 			types.DecodeSlice(dec, &set.Transactions)
-			if err := dec.Err(); err != nil {
-				return fmt.Errorf("failed to decode broadcasted set transactions: %w", err)
+			if err = dec.Err(); err != nil {
+				return wallet.BroadcastedSet{}, fmt.Errorf("failed to decode broadcasted set transactions: %w", err)
 			}
-			sets = append(sets, set)
-		}
-		return nil
+			return set, nil
+		})
+		return err
 	})
 	return
 }
@@ -74,18 +71,11 @@ func (s *Store) UnspentSiacoinElements() (basis types.ChainIndex, utxos []types.
 		if err != nil {
 			return fmt.Errorf("failed to query unspent siacoin elements: %w", err)
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var se types.SiacoinElement
-			if err := rows.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.SiacoinOutput.Address), decode(&se.StateElement.LeafIndex), decode(&se.StateElement.MerkleProof), &se.MaturityHeight); err != nil {
-				return fmt.Errorf("failed to scan unspent siacoin element: %w", err)
-			}
-			utxos = append(utxos, se)
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("failed to iterate unspent siacoin elements: %w", err)
-		}
-		return nil
+		utxos, err = collectRows(rows, func(s scanner) (se types.SiacoinElement, err error) {
+			err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.SiacoinOutput.Address), decode(&se.StateElement.LeafIndex), decode(&se.StateElement.MerkleProof), &se.MaturityHeight)
+			return se, err
+		})
+		return err
 	})
 	return
 }
@@ -122,19 +112,11 @@ func (s *Store) WalletEvents(offset, limit int) (events []wallet.Event, err erro
 		if err != nil {
 			return fmt.Errorf("failed to query wallet events: %w", err)
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var event wallet.Event
-			if err := rows.Scan(decode(&event)); err != nil {
-				return fmt.Errorf("failed to scan wallet event: %w", err)
-			}
-			events = append(events, event)
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("failed to iterate wallet events: %w", err)
-		}
-		return nil
+		events, err = collectRows(rows, func(s scanner) (event wallet.Event, err error) {
+			err = s.Scan(decode(&event))
+			return event, err
+		})
+		return err
 	})
 	return
 }

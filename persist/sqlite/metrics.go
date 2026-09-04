@@ -188,6 +188,9 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 		// overwrite the metric value for the current period
 		mustParseMetricValue(stat, value, &stats[len(stats)-1])
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate metrics: %w", err)
+	}
 
 	// fill in any missing periods
 	periods := []metrics.Metrics{}
@@ -241,6 +244,7 @@ JOIN (
 		}
 		defer rows.Close()
 
+		var result metrics.Metrics
 		for rows.Next() {
 			var stat string
 			var value []byte
@@ -248,9 +252,13 @@ JOIN (
 			if err := rows.Scan(&stat, &value); err != nil {
 				return fmt.Errorf("failed to scan row: %w", err)
 			}
-			mustParseMetricValue(stat, value, &m)
+			mustParseMetricValue(stat, value, &result)
 		}
-		m.Timestamp = timestamp
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to iterate metrics: %w", err)
+		}
+		result.Timestamp = timestamp
+		m = result
 		return nil
 	})
 

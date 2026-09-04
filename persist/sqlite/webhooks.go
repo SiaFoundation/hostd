@@ -37,18 +37,15 @@ func (s *Store) Webhooks() (hooks []webhooks.Webhook, err error) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var hook webhooks.Webhook
+		hooks, err = collectRows(rows, func(s scanner) (hook webhooks.Webhook, err error) {
 			var scopes string
-			if err := rows.Scan(&hook.ID, &hook.CallbackURL, &hook.SecretKey, &scopes); err != nil {
-				return err
+			if err = s.Scan(&hook.ID, &hook.CallbackURL, &hook.SecretKey, &scopes); err != nil {
+				return
 			}
 			hook.Scopes = strings.Split(scopes, ",")
-			hooks = append(hooks, hook)
-		}
-		return rows.Err()
+			return hook, nil
+		})
+		return err
 	})
 	return
 }

@@ -18,6 +18,18 @@ import (
 //go:embed init.sql
 var initDatabase string
 
+type fkViolation struct {
+	table   string
+	rowid   sql.NullInt64
+	fkTable string
+	fkRowid sql.NullInt64
+}
+
+func scanFKViolation(s scanner) (v fkViolation, err error) {
+	err = s.Scan(&v.table, &v.rowid, &v.fkTable, &v.fkRowid)
+	return
+}
+
 func (s *Store) initNewDatabase(target int64) error {
 	return s.transaction(func(tx *txn) error {
 		if _, err := tx.Exec(initDatabase); err != nil {
@@ -80,23 +92,14 @@ func checkFKConsistency(txn *txn, log *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to run foreign key check: %w", err)
 	}
-	defer rows.Close()
-	var hasErrors bool
-	for rows.Next() {
-		var table string
-		var rowid sql.NullInt64
-		var fkTable string
-		var fkRowid sql.NullInt64
-
-		if err := rows.Scan(&table, &rowid, &fkTable, &fkRowid); err != nil {
-			return fmt.Errorf("failed to scan foreign key check result: %w", err)
-		}
-		hasErrors = true
-		log.Error("foreign key constraint violated", zap.String("table", table), zap.Int64("rowid", rowid.Int64), zap.String("fkTable", fkTable), zap.Int64("fkRowid", fkRowid.Int64))
-	}
-	if err := rows.Err(); err != nil {
+	violations, err := collectRows(rows, scanFKViolation)
+	if err != nil {
 		return fmt.Errorf("failed to iterate foreign key check results: %w", err)
-	} else if hasErrors {
+	}
+	for _, v := range violations {
+		log.Error("foreign key constraint violated", zap.String("table", v.table), zap.Int64("rowid", v.rowid.Int64), zap.String("fkTable", v.fkTable), zap.Int64("fkRowid", v.fkRowid.Int64))
+	}
+	if len(violations) > 0 {
 		return errors.New("foreign key constraint violated")
 	}
 	return nil
