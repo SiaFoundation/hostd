@@ -149,7 +149,7 @@ func (s *Store) StoreSector(root types.Hash256, fn storage.StoreFunc) error {
 	var sectorID int64
 	var exists bool
 
-	err := s.transaction(func(tx *txn) error {
+	err := s.writeTransaction(func(tx *txn) error {
 		var err error
 		sectorID, err = insertSectorDBID(tx, root)
 		if err != nil {
@@ -235,7 +235,7 @@ func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex u
 
 		var done, sectorMigrated, sectorFailed bool
 		var nextIndex uint64
-		err = s.transaction(func(tx *txn) error {
+		err = s.writeTransaction(func(tx *txn) error {
 			const query = `SELECT vs.id, vs.volume_id, vs.volume_index, ss.sector_root, vs.sector_id FROM volume_sectors vs
 LEFT JOIN stored_sectors ss ON vs.sector_id=ss.id
 WHERE vs.volume_id=$1 AND vs.volume_index >= $2 AND vs.sector_id IS NOT NULL

@@ -133,7 +133,7 @@ func (s *Store) SectorLocation(root types.Hash256) (location storage.SectorLocat
 // AddTempSector adds a sector to temporary storage. The sectors will be deleted
 // after the expiration height
 func (s *Store) AddTempSector(root types.Hash256, expiration uint64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		// ensure the sector is written to a volume
 		var sectorID int64
 		err := tx.QueryRow(`SELECT ss.id FROM stored_sectors ss
@@ -301,7 +301,7 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 			done bool
 			refs []volumeSectorRef
 		)
-		err := s.transaction(func(tx *txn) error {
+		err := s.writeTransaction(func(tx *txn) error {
 			var err error
 			refs, err = updatePruneableVolumeSectors(tx, lastAccess, afterSectorID)
 			if err != nil {

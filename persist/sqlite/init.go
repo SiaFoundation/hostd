@@ -31,7 +31,7 @@ func scanFKViolation(s scanner) (v fkViolation, err error) {
 }
 
 func (s *Store) initNewDatabase(target int64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		if _, err := tx.Exec(initDatabase); err != nil {
 			return err
 		} else if err := setDBVersion(tx, target); err != nil {
@@ -50,7 +50,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 		log := log.With(zap.Int64("version", version))
 		start := time.Now()
 		fn := migrations[current-1]
-		err := s.transaction(func(tx *txn) error {
+		err := s.writeTransaction(func(tx *txn) error {
 			if _, err := tx.Exec("PRAGMA defer_foreign_keys=ON"); err != nil {
 				return fmt.Errorf("failed to enable foreign key deferral: %w", err)
 			} else if err := fn(tx, log); err != nil {
@@ -69,7 +69,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 }
 
 func (s *Store) init(target int64) error {
-	version := getDBVersion(s.db)
+	version := getDBVersion(s.writerDB)
 	switch {
 	case version == 0:
 		if err := s.initNewDatabase(target); err != nil {

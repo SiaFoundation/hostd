@@ -197,7 +197,7 @@ LEFT JOIN contracts_v2 rf ON (c.renewed_from=rf.id) %s`, whereClause)
 
 // AddV2Contract adds a new contract to the database.
 func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.TransactionSet) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		if err := resetRejectedV2Contract(tx, contract.ID); err != nil {
 			return fmt.Errorf("failed to reset rejected contract: %w", err)
 		}
@@ -219,7 +219,7 @@ func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.T
 // sector roots. The status of the old contract should continue to be active
 // until the renewal is confirmed
 func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		if err := resetRejectedV2Contract(tx, renewal.ID); err != nil {
 			return fmt.Errorf("failed to reset rejected contract: %w", err)
 		}
@@ -335,7 +335,7 @@ func incrementV2ContractUsage(tx *txn, dbID int64, usage proto4.Usage) error {
 
 // ReviseV2Contract atomically updates a contract's revision and sectors
 func (s *Store) ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, oldRoots, newRoots []types.Hash256, usage proto4.Usage) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		contractDBID, err := reviseV2Contract(tx, id, revision, usage)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)

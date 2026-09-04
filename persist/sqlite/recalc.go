@@ -350,6 +350,6 @@ func (s *Store) RecalcVolumeMetrics() error {
 
 // Vacuum runs the VACUUM command on the database.
 func (s *Store) Vacuum() error {
-	_, err := s.db.Exec(`VACUUM`)
+	_, err := s.writerDB.Exec(`VACUUM`)
 	return err
 }

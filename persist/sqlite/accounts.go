@@ -57,7 +57,7 @@ func (s *Store) RHP4AccountBalance(account proto4.Account) (balance types.Curren
 // attachment order. If the combined balance is insufficient, no balances are
 // modified and proto4.ErrNotEnoughFunds is returned.
 func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		var accountDBID int64
 		var accountBalance types.Currency
 		err := tx.QueryRow(`SELECT id, balance FROM accounts WHERE account_id=$1`, encode(account)).Scan(&accountDBID, decode(&accountBalance))
@@ -131,7 +131,7 @@ func (s *Store) RHP4DebitAccount(account proto4.Account, usage proto4.Usage) err
 // RHP4CreditAccounts credits the accounts with the given deposits and revises
 // the contract.
 func (s *Store) RHP4CreditAccounts(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract, usage proto4.Usage) (balances []types.Currency, err error) {
-	err = s.transaction(func(tx *txn) error {
+	err = s.writeTransaction(func(tx *txn) error {
 		getBalanceStmt, err := tx.Prepare(`SELECT balance FROM accounts WHERE account_id=$1`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare get balance statement: %w", err)

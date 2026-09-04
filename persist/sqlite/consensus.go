@@ -474,7 +474,7 @@ func (s *Store) Tip() (index types.ChainIndex, err error) {
 
 // UpdateChainState updates the chain state with the given updates.
 func (s *Store) UpdateChainState(fn func(index.UpdateTx) error) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		return fn(&updateTx{tx: tx})
 	})
 }

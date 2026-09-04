@@ -255,26 +255,34 @@ CREATE TABLE global_settings (
 INSERT INTO global_settings (id, db_version) VALUES (0, 1); -- version must be updated when the schema changes`
 
 func initDBVersion(tb testing.TB, fp string, target int64, log *zap.Logger) *Store {
-	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
+	writerDB, err := sql.Open("sqlite3", writerFilepath(fp))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	writerDB.SetMaxOpenConns(1)
+	tb.Cleanup(func() {
+		if err := writerDB.Close(); err != nil {
+			tb.Fatal(err)
+		}
+	})
+	readerDB, err := sql.Open("sqlite3", readerFilepath(fp))
 	if err != nil {
 		tb.Fatal(err)
 	}
 	tb.Cleanup(func() {
-		if err := db.Close(); err != nil {
+		if err := readerDB.Close(); err != nil {
 			tb.Fatal(err)
 		}
 	})
-	if _, err := db.Exec(initialSchema); err != nil {
+	if _, err := readerDB.Exec(initialSchema); err != nil {
 		tb.Fatal(err)
 	}
 
-	// set the number of open connections to 1 to prevent "database is locked"
-	// errors
-	db.SetMaxOpenConns(1)
-
 	store := &Store{
-		db:  db,
-		log: log,
+		path:     fp,
+		readerDB: readerDB,
+		writerDB: writerDB,
+		log:      log,
 	}
 	tb.Cleanup(func() {
 		if err := store.Close(); err != nil {
@@ -304,7 +312,7 @@ func TestMigrationConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	v := getDBVersion(store.db)
+	v := getDBVersion(store.writerDB)
 	if v != expectedVersion {
 		t.Fatalf("expected version %d, got %d", expectedVersion, v)
 	} else if err := store.Close(); err != nil {
@@ -317,7 +325,7 @@ func TestMigrationConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	v = getDBVersion(store.db)
+	v = getDBVersion(store.writerDB)
 	if v != expectedVersion {
 		t.Fatalf("expected version %d, got %d", expectedVersion, v)
 	}
@@ -353,12 +361,12 @@ func TestMigrationConsistency(t *testing.T) {
 	}
 
 	// ensure the migrated database has the same indices as the baseline
-	baselineIndices, err := getTableIndices(baseline.db)
+	baselineIndices, err := getTableIndices(baseline.writerDB)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	migratedIndices, err := getTableIndices(store.db)
+	migratedIndices, err := getTableIndices(store.writerDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,12 +406,12 @@ func TestMigrationConsistency(t *testing.T) {
 	}
 
 	// ensure the migrated database has the same tables as the baseline
-	baselineTables, err := getTables(baseline.db)
+	baselineTables, err := getTables(baseline.writerDB)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	migratedTables, err := getTables(store.db)
+	migratedTables, err := getTables(store.writerDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,11 +457,11 @@ func TestMigrationConsistency(t *testing.T) {
 	}
 
 	for k := range baselineTables {
-		baselineColumns, err := getTableColumns(baseline.db, k)
+		baselineColumns, err := getTableColumns(baseline.writerDB, k)
 		if err != nil {
 			t.Fatal(err)
 		}
-		migratedColumns, err := getTableColumns(store.db, k)
+		migratedColumns, err := getTableColumns(store.writerDB, k)
 		if err != nil {
 			t.Fatal(err)
 		}

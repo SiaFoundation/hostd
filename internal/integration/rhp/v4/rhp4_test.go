@@ -64,6 +64,7 @@ func testRenterHostPair(tb testing.TB, hostKey types.PrivateKey, hn *testutil.Ho
 	tb.Cleanup(func() { rs.Close() })
 
 	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
+	tb.Cleanup(func() { dr.Close() })
 	rl, wl := hn.Settings.RHPBandwidthLimiters()
 	l, err := monitoring.Listen("tcp", ":0", monitoring.WithReadLimit(rl), monitoring.WithWriteLimit(wl), monitoring.WithDataMonitor(dr))
 	if err != nil {
@@ -97,6 +98,8 @@ func testRenterHostPairQUIC(tb testing.TB, hostKey types.PrivateKey, hn *testuti
 	tb.Cleanup(func() { l.Close() })
 
 	dr := monitoring.NewDataRecorder(hn.Store.IncrementRHPDataUsage, log.Named("data"))
+	tb.Cleanup(func() { dr.Close() })
+
 	rl, wl := hn.Settings.RHPBandwidthLimiters()
 	ql, err := quic.Listen(l, certificates.NewQUICCertManager(hn.Certs))
 	if err != nil {

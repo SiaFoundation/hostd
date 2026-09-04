@@ -16,7 +16,7 @@ func TestInit(t *testing.T) {
 	}
 	defer db.Close()
 
-	version := getDBVersion(db.db)
+	version := getDBVersion(db.writerDB)
 	if version == 0 {
 		t.Fatalf("expected non-zero version, got %v", version)
 	}

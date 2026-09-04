@@ -41,7 +41,7 @@ func (s *Store) RHP4PoolBalances(pools []proto4.Account) (balances []types.Curre
 // RHP4CreditPools credits the pools with the given deposits and revises the
 // contract.
 func (s *Store) RHP4CreditPools(deposits []proto4.AccountDeposit, contractID types.FileContractID, revision types.V2FileContract, usage proto4.Usage) (balances []types.Currency, err error) {
-	err = s.transaction(func(tx *txn) error {
+	err = s.writeTransaction(func(tx *txn) error {
 		getBalanceStmt, err := tx.Prepare(`SELECT balance FROM rhp4_pools WHERE pool_id=$1`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare get balance statement: %w", err)
