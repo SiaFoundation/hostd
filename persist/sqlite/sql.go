@@ -144,7 +144,8 @@ func (tx *txn) Prepare(query string) (*stmt, error) {
 	s, err := tx.Tx.Prepare(query)
 	if dur := time.Since(start); dur > longQueryDuration {
 		tx.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
-	} else if err != nil {
+	}
+	if err != nil {
 		return nil, err
 	}
 	return &stmt{
@@ -162,7 +163,10 @@ func (tx *txn) Query(query string, args ...any) (*rows, error) {
 	if dur := time.Since(start); dur > longQueryDuration {
 		tx.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
-	return &rows{r, tx.log.Named("rows")}, err
+	if err != nil {
+		return nil, err
+	}
+	return &rows{r, tx.log.Named("rows")}, nil
 }
 
 // QueryRow executes a query that is expected to return at most one row.
