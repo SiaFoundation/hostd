@@ -118,15 +118,11 @@ func (s *Store) Peers() (peers []syncer.PeerInfo, _ error) {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			peer, err := scanPeerInfo(rows)
-			if err != nil {
-				return fmt.Errorf("failed to scan peer info: %w", err)
-			}
-			peers = append(peers, peer)
+		peers, err = collectRows(rows, scanPeerInfo)
+		if err != nil {
+			return fmt.Errorf("failed to scan peer info: %w", err)
 		}
-		return rows.Err()
+		return nil
 	})
 	return peers, err
 }

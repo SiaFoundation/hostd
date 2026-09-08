@@ -51,7 +51,6 @@ max_collateral_pinned=EXCLUDED.max_collateral_pinned, max_collateral=EXCLUDED.ma
 
 // Settings returns the current host settings.
 func (s *Store) Settings() (config settings.Settings, err error) {
-	var dyndnsBuf []byte
 	const query = `SELECT settings_revision, accepting_contracts, net_address,
 	contract_price, base_rpc_price, sector_access_price, collateral_multiplier,
 	max_collateral, storage_price, egress_price, ingress_price,
@@ -61,25 +60,29 @@ func (s *Store) Settings() (config settings.Settings, err error) {
 FROM host_settings;`
 
 	err = s.transaction(func(tx *txn) error {
-		err = tx.QueryRow(query).Scan(&config.Revision, &config.AcceptingContracts,
-			&config.NetAddress, decode(&config.ContractPrice),
-			decode(&config.BaseRPCPrice), decode(&config.SectorAccessPrice),
-			&config.CollateralMultiplier, decode(&config.MaxCollateral),
-			decode(&config.StoragePrice), decode(&config.EgressPrice),
-			decode(&config.IngressPrice), decode(&config.MaxAccountBalance),
-			&config.AccountExpiry, &config.PriceTableValidity, &config.MaxContractDuration, &config.WindowSize,
-			&config.IngressLimit, &config.EgressLimit, &config.MaxRegistryEntries,
-			&config.DDNS.Provider, &config.DDNS.IPv4, &config.DDNS.IPv6, &dyndnsBuf, &config.SectorCacheSize,
-			&config.SyncerIngressLimit, &config.SyncerEgressLimit)
+		var result settings.Settings
+		var dyndnsBuf []byte
+		err := tx.QueryRow(query).Scan(&result.Revision, &result.AcceptingContracts,
+			&result.NetAddress, decode(&result.ContractPrice),
+			decode(&result.BaseRPCPrice), decode(&result.SectorAccessPrice),
+			&result.CollateralMultiplier, decode(&result.MaxCollateral),
+			decode(&result.StoragePrice), decode(&result.EgressPrice),
+			decode(&result.IngressPrice), decode(&result.MaxAccountBalance),
+			&result.AccountExpiry, &result.PriceTableValidity, &result.MaxContractDuration, &result.WindowSize,
+			&result.IngressLimit, &result.EgressLimit, &result.MaxRegistryEntries,
+			&result.DDNS.Provider, &result.DDNS.IPv4, &result.DDNS.IPv6, &dyndnsBuf, &result.SectorCacheSize,
+			&result.SyncerIngressLimit, &result.SyncerEgressLimit)
 		if errors.Is(err, sql.ErrNoRows) {
 			return settings.ErrNoSettings
+		} else if err != nil {
+			return fmt.Errorf("failed to query settings: %w", err)
 		}
 		if dyndnsBuf != nil {
-			err = json.Unmarshal(dyndnsBuf, &config.DDNS.Options)
-			if err != nil {
+			if err := json.Unmarshal(dyndnsBuf, &result.DDNS.Options); err != nil {
 				return fmt.Errorf("failed to unmarshal ddns options: %w", err)
 			}
 		}
+		config = result
 		return nil
 	})
 	return

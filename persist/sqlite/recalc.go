@@ -160,7 +160,9 @@ func recalcContractSectorsMetrics(tx *txn) error {
 		return fmt.Errorf("failed to iterate active v2 contracts: %w", err)
 	}
 
-	setNumericStat(tx, metricContractSectors, v1Count+v2Count, time.Now())
+	if err := setNumericStat(tx, metricContractSectors, v1Count+v2Count, time.Now()); err != nil {
+		return fmt.Errorf("failed to set contract sectors metric: %w", err)
+	}
 	return nil
 }
 
@@ -201,15 +203,23 @@ func recalcContractCountMetrics(tx *txn) error {
 		}
 		statusesV2[status] = count
 	}
+	if err := rowsV2.Err(); err != nil {
+		return fmt.Errorf("failed to iterate contract counts v2: %w", err)
+	}
 
 	active := statuses[contracts.ContractStatusActive] + statusesV2[contracts.V2ContractStatusActive]
 	successful := statuses[contracts.ContractStatusSuccessful] + statusesV2[contracts.V2ContractStatusSuccessful]
 	failed := statuses[contracts.ContractStatusFailed] + statusesV2[contracts.V2ContractStatusFailed]
 
-	setNumericStat(tx, metricActiveContracts, active, time.Now())
-	setNumericStat(tx, metricSuccessfulContracts, successful, time.Now())
-	setNumericStat(tx, metricFailedContracts, failed, time.Now())
-	setNumericStat(tx, metricRenewedContracts, statusesV2[contracts.V2ContractStatusRenewed], time.Now())
+	if err := setNumericStat(tx, metricActiveContracts, active, time.Now()); err != nil {
+		return fmt.Errorf("failed to set active contracts metric: %w", err)
+	} else if err := setNumericStat(tx, metricSuccessfulContracts, successful, time.Now()); err != nil {
+		return fmt.Errorf("failed to set successful contracts metric: %w", err)
+	} else if err := setNumericStat(tx, metricFailedContracts, failed, time.Now()); err != nil {
+		return fmt.Errorf("failed to set failed contracts metric: %w", err)
+	} else if err := setNumericStat(tx, metricRenewedContracts, statusesV2[contracts.V2ContractStatusRenewed], time.Now()); err != nil {
+		return fmt.Errorf("failed to set renewed contracts metric: %w", err)
+	}
 	return nil
 }
 
@@ -340,6 +350,6 @@ func (s *Store) RecalcVolumeMetrics() error {
 
 // Vacuum runs the VACUUM command on the database.
 func (s *Store) Vacuum() error {
-	_, err := s.db.Exec(`VACUUM`)
+	_, err := s.writerDB.Exec(`VACUUM`)
 	return err
 }

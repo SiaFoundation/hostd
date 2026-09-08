@@ -25,14 +25,15 @@ type (
 	Store struct {
 		path string
 
-		db  *sql.DB
-		log *zap.Logger
+		writerDB *sql.DB
+		readerDB *sql.DB
+		log      *zap.Logger
 	}
 )
 
 // Close closes the underlying database.
 func (s *Store) Close() error {
-	return s.db.Close()
+	return errors.Join(s.readerDB.Close(), s.writerDB.Close())
 }
 
 // transaction executes a function within a database transaction. If the
@@ -40,30 +41,15 @@ func (s *Store) Close() error {
 // transaction is committed. If the transaction fails due to a busy error, it is
 // retried up to 10 times before returning.
 func (s *Store) transaction(fn func(*txn) error) error {
-	var err error
 	txnID := hex.EncodeToString(frand.Bytes(4))
 	log := s.log.Named("transaction").With(zap.String("id", txnID))
-	start := time.Now()
-	attempt := 1
-	for ; attempt < maxRetryAttempts; attempt++ {
-		attemptStart := time.Now()
-		log := log.With(zap.Int("attempt", attempt))
-		err = doTransaction(s.db, log, fn)
-		if err == nil {
-			// no error, break out of the loop
-			return nil
-		}
+	return retryTransaction(s.readerDB, log, fn)
+}
 
-		// return immediately if the error is not a busy error
-		if !strings.Contains(err.Error(), "database is locked") {
-			break
-		}
-		// exponential backoff
-		sleep := min(time.Duration(math.Pow(factor, float64(attempt)))*time.Millisecond, maxBackoff)
-		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"), zap.Duration("retry", sleep))
-		jitterSleep(sleep)
-	}
-	return fmt.Errorf("transaction failed (attempt %d): %w", attempt, err)
+func (s *Store) writeTransaction(fn func(*txn) error) error {
+	txnID := hex.EncodeToString(frand.Bytes(4))
+	log := s.log.Named("writeTransaction").With(zap.String("id", txnID))
+	return retryTransaction(s.writerDB, log, fn)
 }
 
 // Backup creates a backup of the open database. The backup is created using
@@ -72,16 +58,50 @@ func (s *Store) Backup(ctx context.Context, destPath string) error {
 	return Backup(ctx, s.path, destPath)
 }
 
-func sqliteFilepath(fp string) string {
-	params := []string{
-		fmt.Sprintf("_busy_timeout=%d", time.Minute.Milliseconds()),
-		"_foreign_keys=true",
-		"_journal_mode=WAL",
-		"_secure_delete=false",
-		"_auto_vacuum=INCREMENTAL",
-		"_cache_size=-65536", // 64MiB
-	}
+var sqliteBaseParams = []string{
+	fmt.Sprintf("_busy_timeout=%d", time.Minute.Milliseconds()),
+	"_foreign_keys=true",
+	"_journal_mode=WAL",
+	"_secure_delete=false",
+	"_auto_vacuum=INCREMENTAL",
+	"_cache_size=-65536", // 64MiB
+}
+
+func readerFilepath(fp string) string {
+	return "file:" + fp + "?" + strings.Join(sqliteBaseParams, "&")
+}
+
+func writerFilepath(fp string) string {
+	params := append(sqliteBaseParams, "_txlock=immediate")
 	return "file:" + fp + "?" + strings.Join(params, "&")
+}
+
+func isBusy(err error) bool {
+	sqliteErr, ok := errors.AsType[sqlite3.Error](err)
+	return ok && sqliteErr.Code == sqlite3.ErrBusy
+}
+
+// retryTransaction retries a transaction that failed due to a SQLite database is locked error
+// up to [maxRetryAttempts] times before returning the last error.
+func retryTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
+	start := time.Now()
+	for attempt := 1; ; attempt++ {
+		attemptStart := time.Now()
+		log := log.With(zap.Int("attempt", attempt))
+		err := doTransaction(db, log, fn)
+		switch {
+		case err == nil:
+			return nil
+		case !isBusy(err):
+			return err
+		case attempt >= maxRetryAttempts:
+			return err
+		}
+		// exponential backoff
+		sleep := min(time.Duration(math.Pow(factor, float64(attempt)))*time.Millisecond, maxBackoff)
+		log.Debug("database locked", zap.Duration("elapsed", time.Since(attemptStart)), zap.Duration("totalElapsed", time.Since(start)), zap.Stack("stack"), zap.Duration("retry", sleep))
+		jitterSleep(sleep)
+	}
 }
 
 // doTransaction is a helper function to execute a function within a transaction. If fn returns
@@ -140,7 +160,7 @@ func sqlConn(ctx context.Context, db *sql.DB) (c *sqlite3.SQLiteConn, err error)
 // is safe to use with a live database.
 func backupDB(ctx context.Context, src *sql.DB, destPath string) (err error) {
 	// create the destination database
-	dest, err := sql.Open("sqlite3", sqliteFilepath(destPath))
+	dest, err := sql.Open("sqlite3", readerFilepath(destPath))
 	if err != nil {
 		return fmt.Errorf("failed to open destination database: %w", err)
 	}
@@ -217,7 +237,7 @@ func Backup(ctx context.Context, srcPath, destPath string) (err error) {
 	// open a new connection to the source database. We don't want to run
 	// any migrations or other operations on the source database since it
 	// might be open in another process.
-	src, err := sql.Open("sqlite3", sqliteFilepath(srcPath))
+	src, err := sql.Open("sqlite3", readerFilepath(srcPath))
 	if err != nil {
 		return fmt.Errorf("failed to open source database: %w", err)
 	}
@@ -229,7 +249,7 @@ func Backup(ctx context.Context, srcPath, destPath string) (err error) {
 // IntegrityCheck runs a PRAGMA integrity_check on the database and logs any
 // integrity errors. If any errors are found, an error is returned.
 func IntegrityCheck(ctx context.Context, fp string, log *zap.Logger) error {
-	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
+	db, err := sql.Open("sqlite3", readerFilepath(fp))
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -239,26 +259,21 @@ func IntegrityCheck(ctx context.Context, fp string, log *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to run integrity check: %w", err)
 	}
-	defer rows.Close()
+	results, err := collectRows(rows, func(s scanner) (result string, err error) {
+		err = s.Scan(&result)
+		return result, err
+	})
+	if err != nil {
+		return fmt.Errorf("failed to iterate integrity check results: %w", err)
+	}
 	var hasErrors bool
-	for rows.Next() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		var result string
-		if err := rows.Scan(&result); err != nil {
-			return fmt.Errorf("failed to scan integrity check result: %w", err)
-		} else if result != "ok" {
+	for _, result := range results {
+		if result != "ok" {
 			log.Error("integrity check failed", zap.String("result", result))
 			hasErrors = true
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate integrity check results: %w", err)
-	} else if hasErrors {
+	if hasErrors {
 		return errors.New("integrity check failed")
 	}
 	return nil
@@ -268,7 +283,7 @@ func IntegrityCheck(ctx context.Context, fp string, log *zap.Logger) error {
 // foreign key constraint violations. If any violations are found, an error is
 // returned.
 func ForeignKeyCheck(ctx context.Context, fp string, log *zap.Logger) error {
-	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
+	db, err := sql.Open("sqlite3", readerFilepath(fp))
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -278,29 +293,14 @@ func ForeignKeyCheck(ctx context.Context, fp string, log *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to run foreign key check: %w", err)
 	}
-	defer rows.Close()
-	var hasErrors bool
-	for rows.Next() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		var table string
-		var rowid sql.NullInt64
-		var fkTable string
-		var fkRowid sql.NullInt64
-
-		if err := rows.Scan(&table, &rowid, &fkTable, &fkRowid); err != nil {
-			return fmt.Errorf("failed to scan foreign key check result: %w", err)
-		}
-		hasErrors = true
-		log.Error("foreign key constraint violated", zap.String("table", table), zap.Int64("rowid", rowid.Int64), zap.String("fkTable", fkTable), zap.Int64("fkRowid", fkRowid.Int64))
-	}
-	if err := rows.Err(); err != nil {
+	violations, err := collectRows(rows, scanFKViolation)
+	if err != nil {
 		return fmt.Errorf("failed to iterate foreign key check results: %w", err)
-	} else if hasErrors {
+	}
+	for _, v := range violations {
+		log.Error("foreign key constraint violated", zap.String("table", v.table), zap.Int64("rowid", v.rowid.Int64), zap.String("fkTable", v.fkTable), zap.Int64("fkRowid", v.fkRowid.Int64))
+	}
+	if len(violations) > 0 {
 		return errors.New("foreign key constraint violated")
 	}
 	return nil
@@ -309,21 +309,30 @@ func ForeignKeyCheck(ctx context.Context, fp string, log *zap.Logger) error {
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
 func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
-	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
+	readerDB, err := sql.Open("sqlite3", readerFilepath(fp))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// set the number of open connections to 1 to prevent "database is locked"
-	// errors
-	db.SetMaxOpenConns(1)
+	// mattn/sqlite3 does not support per transaction isolation
+	// levels like a nice SQL driver. Workaround it by having
+	// separate reader and writer conns.
+	writerDB, err := sql.Open("sqlite3", writerFilepath(fp))
+	if err != nil {
+		defer readerDB.Close()
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	writerDB.SetMaxOpenConns(1) // SQLite has at most one writer
 
 	store := &Store{
-		path: fp, // used for backups
-		db:   db,
-		log:  log,
+		path:     fp, // used for backups
+		readerDB: readerDB,
+		writerDB: writerDB,
+		log:      log,
 	}
 	if err := store.init(int64(len(migrations) + 1)); err != nil {
+		defer readerDB.Close()
+		defer writerDB.Close()
 		return nil, err
 	}
 	sqliteVersion, _, _ := sqlite3.Version()

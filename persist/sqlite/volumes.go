@@ -19,21 +19,20 @@ func forceDeleteVolumeSectors(tx *txn, volumeID int64) (removed, lost int64, err
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to remove volume sectors: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var empty bool
-		if err := rows.Scan(&empty); err != nil {
-			return 0, 0, fmt.Errorf("failed to scan volume sector: %w", err)
-		}
-
-		removed++
+	empties, err := collectRows(rows, func(s scanner) (empty bool, err error) {
+		err = s.Scan(&empty)
+		return empty, err
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	removed = int64(len(empties))
+	for _, empty := range empties {
 		if !empty {
 			lost++
 		}
 	}
-	err = rows.Err()
-	return
+	return removed, lost, nil
 }
 
 func deleteVolumeSectors(tx *txn, volumeID int64) (removed int64, err error) {
@@ -115,16 +114,11 @@ ORDER BY v.id ASC`
 		if err != nil {
 			return fmt.Errorf("query failed: %w", err)
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			volume, err := scanVolume(rows)
-			if err != nil {
-				return fmt.Errorf("failed to scan volume: %w", err)
-			}
-			volumes = append(volumes, volume)
+		volumes, err = collectRows(rows, scanVolume)
+		if err != nil {
+			return fmt.Errorf("failed to scan volume: %w", err)
 		}
-		return rows.Err()
+		return nil
 	})
 	return
 }
@@ -155,7 +149,7 @@ func (s *Store) StoreSector(root types.Hash256, fn storage.StoreFunc) error {
 	var sectorID int64
 	var exists bool
 
-	err := s.transaction(func(tx *txn) error {
+	err := s.writeTransaction(func(tx *txn) error {
 		var err error
 		sectorID, err = insertSectorDBID(tx, root)
 		if err != nil {
@@ -239,14 +233,16 @@ func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex u
 			return
 		}
 
-		var done bool
-		err = s.transaction(func(tx *txn) error {
+		var done, sectorMigrated, sectorFailed bool
+		var nextIndex uint64
+		err = s.writeTransaction(func(tx *txn) error {
 			const query = `SELECT vs.id, vs.volume_id, vs.volume_index, ss.sector_root, vs.sector_id FROM volume_sectors vs
 LEFT JOIN stored_sectors ss ON vs.sector_id=ss.id
 WHERE vs.volume_id=$1 AND vs.volume_index >= $2 AND vs.sector_id IS NOT NULL
 ORDER BY vs.volume_index ASC
 LIMIT 1;`
 
+			sectorMigrated, sectorFailed = false, false
 			var sectorID int64
 			var from storage.SectorLocation
 			err := tx.QueryRow(query, volumeID, index).Scan(&from.ID, &from.Volume, &from.Index, decodeNullable(&from.Root), &sectorID)
@@ -256,7 +252,7 @@ LIMIT 1;`
 			} else if err != nil {
 				return fmt.Errorf("failed to get sector: %w", err)
 			}
-			index = from.Index + 1 // update the start index for the next iteration
+			nextIndex = from.Index + 1 // the start index for the next iteration
 
 			to, err := emptyLocationForMigration(tx, volumeID, startIndex)
 			if err != nil {
@@ -268,8 +264,8 @@ LIMIT 1;`
 			// waiting on disk I/O. This is acceptable since it's extremely important that migrations
 			// are atomic.
 			if migrateErr := migrateFn(from, to); migrateErr != nil {
-				log.Error("failed to migrate sector", zap.Error(migrateErr), zap.Uint64("index", index), zap.Stringer("root", from.Root))
-				failed++
+				log.Error("failed to migrate sector", zap.Error(migrateErr), zap.Uint64("index", from.Index), zap.Stringer("root", from.Root))
+				sectorFailed = true
 				return nil
 			}
 
@@ -291,7 +287,7 @@ LIMIT 1;`
 				return errors.New("failed to update sector location: no rows affected")
 			}
 
-			migrated++
+			sectorMigrated = true
 			log.Debug("migrated sector", zap.Uint64("fromIndex", from.Index), zap.Int64("fromVolume", from.Volume), zap.Uint64("toIndex", to.Index), zap.Int64("toVolume", to.Volume), zap.Stringer("root", from.Root))
 			if from.Volume == to.Volume {
 				return nil // skip updating metrics if the volume is not changing
@@ -309,6 +305,12 @@ LIMIT 1;`
 			return
 		} else if done {
 			return
+		}
+		index = nextIndex
+		if sectorFailed {
+			failed++
+		} else if sectorMigrated {
+			migrated++
 		}
 		// allow other transactions to run
 		jitterSleep(50 * time.Millisecond) // maximum of 48000 sectors per hour

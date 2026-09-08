@@ -75,16 +75,8 @@ LEFT JOIN contracts rf ON (c.renewed_from=rf.id) %s`, whereClause)
 		if err != nil {
 			return fmt.Errorf("failed to query contracts: %w", err)
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			contract, err := scanContract(rows)
-			if err != nil {
-				return fmt.Errorf("failed to scan contract: %w", err)
-			}
-			contracts = append(contracts, contract)
-		}
-		return rows.Err()
+		contracts, err = collectRows(rows, scanContract)
+		return err
 	})
 	return
 }
@@ -149,20 +141,16 @@ func (s *Store) RebroadcastFormationSets(minNegotiationheight uint64) (rebroadca
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-
-		for rows.Next() {
+		rebroadcast, err = collectRows(rows, func(s scanner) (formationSet []types.Transaction, err error) {
 			var buf []byte
-			if err := rows.Scan(&buf); err != nil {
-				return fmt.Errorf("failed to scan formation set: %w", err)
+			if err = s.Scan(&buf); err != nil {
+				return
+			} else if err = decodeTxnSet(buf, &formationSet); err != nil {
+				return nil, fmt.Errorf("failed to decode formation txn set: %w", err)
 			}
-			var formationSet []types.Transaction
-			if err := decodeTxnSet(buf, &formationSet); err != nil {
-				return fmt.Errorf("failed to decode formation txn set: %w", err)
-			}
-			rebroadcast = append(rebroadcast, formationSet)
-		}
-		return rows.Err()
+			return formationSet, nil
+		})
+		return err
 	})
 	return
 }
@@ -201,23 +189,15 @@ LEFT JOIN contracts_v2 rf ON (c.renewed_from=rf.id) %s`, whereClause)
 		if err != nil {
 			return fmt.Errorf("failed to query contracts: %w", err)
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			contract, err := scanV2Contract(rows)
-			if err != nil {
-				return fmt.Errorf("failed to scan contract: %w", err)
-			}
-			contracts = append(contracts, contract)
-		}
-		return rows.Err()
+		contracts, err = collectRows(rows, scanV2Contract)
+		return err
 	})
 	return
 }
 
 // AddV2Contract adds a new contract to the database.
 func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.TransactionSet) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		if err := resetRejectedV2Contract(tx, contract.ID); err != nil {
 			return fmt.Errorf("failed to reset rejected contract: %w", err)
 		}
@@ -239,7 +219,7 @@ func (s *Store) AddV2Contract(contract contracts.V2Contract, formationSet rhp4.T
 // sector roots. The status of the old contract should continue to be active
 // until the renewal is confirmed
 func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.TransactionSet, renewedID types.FileContractID) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		if err := resetRejectedV2Contract(tx, renewal.ID); err != nil {
 			return fmt.Errorf("failed to reset rejected contract: %w", err)
 		}
@@ -355,7 +335,7 @@ func incrementV2ContractUsage(tx *txn, dbID int64, usage proto4.Usage) error {
 
 // ReviseV2Contract atomically updates a contract's revision and sectors
 func (s *Store) ReviseV2Contract(id types.FileContractID, revision types.V2FileContract, oldRoots, newRoots []types.Hash256, usage proto4.Usage) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		contractDBID, err := reviseV2Contract(tx, id, revision, usage)
 		if err != nil {
 			return fmt.Errorf("failed to revise contract: %w", err)
@@ -389,7 +369,6 @@ WHERE contract_status <> $1 AND resolution_height IS NULL;`
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
 
 		type contractRef struct {
 			id        types.FileContractID
@@ -397,20 +376,16 @@ WHERE contract_status <> $1 AND resolution_height IS NULL;`
 			mapID     int64
 			mapRevNum int64
 		}
-		var contracts []contractRef
-		for rows.Next() {
-			var ref contractRef
+		contracts, err := collectRows(rows, func(s scanner) (ref contractRef, err error) {
 			var fc types.V2FileContract
-			if err := rows.Scan(decode(&ref.id), decode(&fc), &ref.mapID, &ref.mapRevNum); err != nil {
-				return fmt.Errorf("failed to scan contract: %w", err)
+			if err = s.Scan(decode(&ref.id), decode(&fc), &ref.mapID, &ref.mapRevNum); err != nil {
+				return
 			}
 			ref.sectors = fc.Filesize / proto4.SectorSize
-			contracts = append(contracts, ref)
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("failed to iterate contracts: %w", err)
-		} else if err := rows.Close(); err != nil {
-			return fmt.Errorf("failed to close contract rows: %w", err)
+			return ref, nil
+		})
+		if err != nil {
+			return err
 		}
 
 		roots = make(map[types.FileContractID][]types.Hash256)
@@ -636,25 +611,18 @@ func rebroadcastV2Contracts(tx *txn) (rebroadcast []rhp4.TransactionSet, err err
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var formationSet rhp4.TransactionSet
+	return collectRows(rows, func(s scanner) (formationSet rhp4.TransactionSet, err error) {
 		var buf []byte
-		if err := rows.Scan(&buf, decode(&formationSet.Basis)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract id: %w", err)
+		if err = s.Scan(&buf, decode(&formationSet.Basis)); err != nil {
+			return
 		}
 		dec := types.NewBufDecoder(buf)
 		types.DecodeSlice(dec, &formationSet.Transactions)
-		if err := dec.Err(); err != nil {
-			return nil, fmt.Errorf("failed to decode formation txn set: %w", err)
+		if err = dec.Err(); err != nil {
+			return rhp4.TransactionSet{}, fmt.Errorf("failed to decode formation txn set: %w", err)
 		}
-		rebroadcast = append(rebroadcast, formationSet)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return
+		return formationSet, nil
+	})
 }
 
 func broadcastV2Revision(tx *txn, index types.ChainIndex, revisionBroadcastHeight uint64) (revisions []types.V2FileContractRevision, err error) {
@@ -667,25 +635,14 @@ func broadcastV2Revision(tx *txn, index types.ChainIndex, revisionBroadcastHeigh
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var rev types.V2FileContractRevision
-
-		err = rows.Scan(decode(&rev.Revision),
+	return collectRows(rows, func(s scanner) (rev types.V2FileContractRevision, err error) {
+		err = s.Scan(decode(&rev.Revision),
 			decode(&rev.Parent.ID),
 			decode(&rev.Parent.StateElement.LeafIndex),
 			decode(&rev.Parent.StateElement.MerkleProof),
 			decode(&rev.Parent.V2FileContract))
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		revisions = append(revisions, rev)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return
+		return rev, err
+	})
 }
 
 func proofV2Contracts(tx *txn, index types.ChainIndex, log *zap.Logger) (elements []contracts.V2ProofElement, err error) {
@@ -698,21 +655,13 @@ func proofV2Contracts(tx *txn, index types.ChainIndex, log *zap.Logger) (element
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var fce types.V2FileContractElement
-		if err := rows.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.StateElement.LeafIndex), decode(&fce.StateElement.MerkleProof)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		elements = append(elements, contracts.V2ProofElement{
-			V2FileContractElement: fce,
-		})
-	}
-	if err := rows.Err(); err != nil {
+	elements, err = collectRows(rows, func(s scanner) (element contracts.V2ProofElement, err error) {
+		fce := &element.V2FileContractElement
+		err = s.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.StateElement.LeafIndex), decode(&fce.StateElement.MerkleProof))
+		return element, err
+	})
+	if err != nil {
 		return nil, err
-	} else if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close rows: %w", err)
 	}
 
 	stmt, err := tx.Prepare(`SELECT id, height, leaf_index, merkle_proof FROM contracts_v2_chain_index_elements WHERE height=$1`)
@@ -752,19 +701,10 @@ func expireV2Contracts(tx *txn, index types.ChainIndex) (elements []types.V2File
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var fce types.V2FileContractElement
-		if err := rows.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.StateElement.LeafIndex), decode(&fce.StateElement.MerkleProof)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract: %w", err)
-		}
-		elements = append(elements, fce)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return
+	return collectRows(rows, func(s scanner) (fce types.V2FileContractElement, err error) {
+		err = s.Scan(decode(&fce.ID), decode(&fce.V2FileContract), decode(&fce.StateElement.LeafIndex), decode(&fce.StateElement.MerkleProof))
+		return fce, err
+	})
 }
 
 func incrementContractUsage(tx *txn, dbID int64, usage contracts.Usage) error {
@@ -918,19 +858,10 @@ func v2ContractRoots(tx *txn, contractMapID, contractMapRevision int64, maxSecto
 	if err != nil {
 		return nil, fmt.Errorf("failed to query roots for map %v: %w", contractMapID, err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var root types.Hash256
-		if err := rows.Scan(decode(&root)); err != nil {
-			return nil, fmt.Errorf("failed to scan sector root: %w", err)
-		}
-		roots = append(roots, root)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate sector roots: %w", err)
-	}
-	return
+	return collectRows(rows, func(s scanner) (root types.Hash256, err error) {
+		err = s.Scan(decode(&root))
+		return root, err
+	})
 }
 
 func insertV2Contract(tx *txn, contract contracts.V2Contract, mapID, mapRevisionNumber int64, formationSet rhp4.TransactionSet) (dbID int64, err error) {

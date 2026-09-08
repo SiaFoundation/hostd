@@ -938,7 +938,7 @@ func TestPrune(t *testing.T) {
 
 		// verify stored_sectors table is also being pruned
 		var stored int
-		if err := db.db.QueryRow(`SELECT COUNT(*) FROM stored_sectors`).Scan(&stored); err != nil {
+		if err := db.writerDB.QueryRow(`SELECT COUNT(*) FROM stored_sectors`).Scan(&stored); err != nil {
 			t.Fatalf("failed to count stored_sectors: %v", err)
 		} else if stored != len(available) {
 			t.Fatalf("expected %d stored_sectors entries, got %d", len(available), stored)

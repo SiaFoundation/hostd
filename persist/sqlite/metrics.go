@@ -130,63 +130,74 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 		return nil, fmt.Errorf("invalid interval: %v", interval)
 	}
 
-	// get metrics as of the start time to backfill any missing periods
-	initial, err := s.Metrics(start)
+	var stats []metrics.Metrics
+	err := s.transaction(func(tx *txn) error {
+		// get metrics as of the start time to backfill any missing periods
+		initial, err := getMetrics(tx, start)
+		if err != nil {
+			return fmt.Errorf("failed to get initial metrics: %w", err)
+		}
+
+		const query = `SELECT stat, stat_value, date_created FROM host_stats WHERE date_created BETWEEN $1 AND $2 ORDER BY date_created ASC`
+		rows, err := tx.Query(query, encode(start), encode(end))
+		if err != nil {
+			return fmt.Errorf("failed to query metrics: %w", err)
+		}
+		defer rows.Close()
+
+		collected := []metrics.Metrics{
+			// add the initial metric so that the first period is not empty
+			initial,
+		}
+		for rows.Next() {
+			var stat string
+			var value []byte
+			var timestamp time.Time
+
+			if err := rows.Scan(&stat, &value, decode(&timestamp)); err != nil {
+				return fmt.Errorf("failed to scan row: %w", err)
+			}
+
+			// normalize the stored timestamp to the locale and interval
+			timestamp = timestamp.In(start.Location())
+			switch interval {
+			case metrics.Interval5Minutes:
+				timestamp = timestamp.Truncate(5 * time.Minute)
+			case metrics.Interval15Minutes:
+				timestamp = timestamp.Truncate(15 * time.Minute)
+			case metrics.IntervalHourly:
+				timestamp = timestamp.Truncate(time.Hour)
+			case metrics.IntervalDaily:
+				y, m, d := timestamp.Date()
+				timestamp = time.Date(y, m, d, 0, 0, 0, 0, timestamp.Location())
+			case metrics.IntervalWeekly:
+				y, m, d := timestamp.Date()
+				d -= int(timestamp.Weekday())
+				timestamp = time.Date(y, m, d, 0, 0, 0, 0, timestamp.Location())
+			case metrics.IntervalMonthly:
+				y, m, _ := timestamp.Date()
+				timestamp = time.Date(y, m, 1, 0, 0, 0, 0, timestamp.Location())
+			case metrics.IntervalYearly:
+				timestamp = time.Date(timestamp.Year(), 1, 1, 0, 0, 0, 0, timestamp.Location())
+			}
+
+			// if the timestamp is not the same as the last period, add a new period
+			if collected[len(collected)-1].Timestamp != timestamp {
+				m := collected[len(collected)-1]
+				m.Timestamp = timestamp
+				collected = append(collected, m)
+			}
+			// overwrite the metric value for the current period
+			mustParseMetricValue(stat, value, &collected[len(collected)-1])
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to iterate metrics: %w", err)
+		}
+		stats = collected
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get initial metrics: %w", err)
-	}
-
-	const query = `SELECT stat, stat_value, date_created FROM host_stats WHERE date_created BETWEEN $1 AND $2 ORDER BY date_created ASC`
-	rows, err := s.db.Query(query, encode(start), encode(end))
-	if err != nil {
-		return nil, fmt.Errorf("failed to query metrics: %w", err)
-	}
-	defer rows.Close()
-
-	stats := []metrics.Metrics{
-		// add the initial metric so that the first period is not empty
-		initial,
-	}
-	for rows.Next() {
-		var stat string
-		var value []byte
-		var timestamp time.Time
-
-		if err := rows.Scan(&stat, &value, decode(&timestamp)); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// normalize the stored timestamp to the locale and interval
-		timestamp = timestamp.In(start.Location())
-		switch interval {
-		case metrics.Interval5Minutes:
-			timestamp = timestamp.Truncate(5 * time.Minute)
-		case metrics.Interval15Minutes:
-			timestamp = timestamp.Truncate(15 * time.Minute)
-		case metrics.IntervalHourly:
-			timestamp = timestamp.Truncate(time.Hour)
-		case metrics.IntervalDaily:
-			y, m, d := timestamp.Date()
-			timestamp = time.Date(y, m, d, 0, 0, 0, 0, timestamp.Location())
-		case metrics.IntervalWeekly:
-			y, m, d := timestamp.Date()
-			d -= int(timestamp.Weekday())
-			timestamp = time.Date(y, m, d, 0, 0, 0, 0, timestamp.Location())
-		case metrics.IntervalMonthly:
-			y, m, _ := timestamp.Date()
-			timestamp = time.Date(y, m, 1, 0, 0, 0, 0, timestamp.Location())
-		case metrics.IntervalYearly:
-			timestamp = time.Date(timestamp.Year(), 1, 1, 0, 0, 0, 0, timestamp.Location())
-		}
-
-		// if the timestamp is not the same as the last period, add a new period
-		if stats[len(stats)-1].Timestamp != timestamp {
-			m := stats[len(stats)-1]
-			m.Timestamp = timestamp
-			stats = append(stats, m)
-		}
-		// overwrite the metric value for the current period
-		mustParseMetricValue(stat, value, &stats[len(stats)-1])
+		return nil, err
 	}
 
 	// fill in any missing periods
@@ -227,33 +238,13 @@ func (s *Store) PeriodMetrics(start time.Time, n int, interval metrics.Interval)
 // Metrics returns aggregate metrics for the host as of the timestamp.
 func (s *Store) Metrics(timestamp time.Time) (m metrics.Metrics, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT s.stat, s.stat_value
-FROM host_stats s
-JOIN (
-    SELECT stat, MAX(date_created) AS most_recent
-    FROM host_stats
-    WHERE date_created <= $1
-    GROUP BY stat
-) AS sub ON s.stat = sub.stat AND s.date_created = sub.most_recent;`
-		rows, err := tx.Query(query, encode(timestamp))
+		result, err := getMetrics(tx, timestamp)
 		if err != nil {
-			return fmt.Errorf("failed to query metrics: %w", err)
+			return err
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var stat string
-			var value []byte
-
-			if err := rows.Scan(&stat, &value); err != nil {
-				return fmt.Errorf("failed to scan row: %w", err)
-			}
-			mustParseMetricValue(stat, value, &m)
-		}
-		m.Timestamp = timestamp
+		m = result
 		return nil
 	})
-
 	return
 }
 
@@ -467,6 +458,38 @@ func mustParseMetricValue(stat string, buf []byte, m *metrics.Metrics) {
 // incrementNumericStatStmt tracks a numeric stat, incrementing the current value by
 // delta. If the resulting value is negative, the function panics. This function
 // should be used when lots of stats need to be batched together.
+// getMetrics returns the aggregate metrics for the host as of the timestamp.
+func getMetrics(tx *txn, timestamp time.Time) (m metrics.Metrics, err error) {
+	const query = `SELECT s.stat, s.stat_value
+FROM host_stats s
+JOIN (
+    SELECT stat, MAX(date_created) AS most_recent
+    FROM host_stats
+    WHERE date_created <= $1
+    GROUP BY stat
+) AS sub ON s.stat = sub.stat AND s.date_created = sub.most_recent;`
+	rows, err := tx.Query(query, encode(timestamp))
+	if err != nil {
+		return metrics.Metrics{}, fmt.Errorf("failed to query metrics: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stat string
+		var value []byte
+
+		if err := rows.Scan(&stat, &value); err != nil {
+			return metrics.Metrics{}, fmt.Errorf("failed to scan row: %w", err)
+		}
+		mustParseMetricValue(stat, value, &m)
+	}
+	if err := rows.Err(); err != nil {
+		return metrics.Metrics{}, fmt.Errorf("failed to iterate metrics: %w", err)
+	}
+	m.Timestamp = timestamp
+	return m, nil
+}
+
 func incrementNumericStatStmt(tx *txn) (func(stat string, delta int64, timestamp time.Time) error, func() error, error) {
 	getStatStmt, err := tx.Prepare(`SELECT stat_value FROM host_stats WHERE stat=$1 AND date_created<=$2 ORDER BY date_created DESC LIMIT 1`)
 	if err != nil {

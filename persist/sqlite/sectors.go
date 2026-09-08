@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func deleteTempSectors(tx *txn, height uint64) (sectorIDs []int64, err error) {
+func deleteTempSectors(tx *txn, height uint64) ([]int64, error) {
 	const query = `DELETE FROM temp_storage_sector_roots
 WHERE id IN (SELECT id FROM temp_storage_sector_roots WHERE expiration_height <= $1 LIMIT $2)
 RETURNING sector_id;`
@@ -21,16 +21,10 @@ RETURNING sector_id;`
 	if err != nil {
 		return nil, fmt.Errorf("failed to select sectors: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var sectorID int64
-		if err := rows.Scan(&sectorID); err != nil {
-			return nil, fmt.Errorf("failed to scan sector id: %w", err)
-		}
-		sectorIDs = append(sectorIDs, sectorID)
-	}
-	return
+	return collectRows(rows, func(s scanner) (sectorID int64, err error) {
+		err = s.Scan(&sectorID)
+		return sectorID, err
+	})
 }
 
 func (s *Store) batchExpireTempSectors(height uint64) (expired int, err error) {
@@ -38,13 +32,14 @@ func (s *Store) batchExpireTempSectors(height uint64) (expired int, err error) {
 		sectorIDs, err := deleteTempSectors(tx, height)
 		if err != nil {
 			return fmt.Errorf("failed to delete sectors: %w", err)
-		} else if len(sectorIDs) == 0 {
-			return nil
 		}
 		expired = len(sectorIDs)
+		if expired == 0 {
+			return nil
+		}
 
 		// decrement the temp sectors metric
-		if err := incrementNumericStat(tx, metricTempSectors, -len(sectorIDs), time.Now()); err != nil {
+		if err := incrementNumericStat(tx, metricTempSectors, -expired, time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
 		return err
@@ -100,15 +95,17 @@ func (s *Store) SectorMetadata(root types.Hash256) (meta storage.SectorMetadata,
 		} else if err != nil {
 			return fmt.Errorf("failed to get sector id: %w", err)
 		}
-		meta.Location, err = sectorLocation(tx, sectorID, root)
+		var result storage.SectorMetadata
+		result.Location, err = sectorLocation(tx, sectorID, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector location: %w", err)
 		}
 
-		err = tx.QueryRow(`SELECT subtree_roots FROM sector_subtree_cache WHERE sector_id=$1;`, sectorID).Scan(decode(&meta.CachedSubtrees))
+		err = tx.QueryRow(`SELECT subtree_roots FROM sector_subtree_cache WHERE sector_id=$1;`, sectorID).Scan(decode(&result.CachedSubtrees))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to get cached subtrees: %w", err)
 		}
+		meta = result
 		return nil
 	})
 	return
@@ -136,7 +133,7 @@ func (s *Store) SectorLocation(root types.Hash256) (location storage.SectorLocat
 // AddTempSector adds a sector to temporary storage. The sectors will be deleted
 // after the expiration height
 func (s *Store) AddTempSector(root types.Hash256, expiration uint64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		// ensure the sector is written to a volume
 		var sectorID int64
 		err := tx.QueryRow(`SELECT ss.id FROM stored_sectors ss
@@ -265,21 +262,19 @@ LIMIT $3;`
 	if err != nil {
 		return nil, fmt.Errorf("failed to select volume sectors: %w", err)
 	}
-	defer rows.Close()
-
-	var volumeSectorIDs []any
-	for rows.Next() {
-		var ref volumeSectorRef
-		if err := rows.Scan(&ref.VolumeSectorID, &ref.VolumeID, &ref.SectorID); err != nil {
-			return nil, fmt.Errorf("failed to scan volume sector: %w", err)
-		}
-		refs = append(refs, ref)
-		volumeSectorIDs = append(volumeSectorIDs, ref.VolumeSectorID)
-	}
-	if err := rows.Err(); err != nil {
+	refs, err = collectRows(rows, func(s scanner) (ref volumeSectorRef, err error) {
+		err = s.Scan(&ref.VolumeSectorID, &ref.VolumeID, &ref.SectorID)
+		return ref, err
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to get volume sectors: %w", err)
 	} else if len(refs) == 0 {
 		return nil, nil
+	}
+
+	volumeSectorIDs := make([]any, 0, len(refs))
+	for _, ref := range refs {
+		volumeSectorIDs = append(volumeSectorIDs, ref.VolumeSectorID)
 	}
 
 	// update the volume_sectors table to null out the sector_id
@@ -306,7 +301,7 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 			done bool
 			refs []volumeSectorRef
 		)
-		err := s.transaction(func(tx *txn) error {
+		err := s.writeTransaction(func(tx *txn) error {
 			var err error
 			refs, err = updatePruneableVolumeSectors(tx, lastAccess, afterSectorID)
 			if err != nil {
@@ -348,21 +343,15 @@ func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
 	}
 }
 
-func contractSectorRefs(tx *txn, sectorID int64) (contractIDs []types.FileContractID, err error) {
+func contractSectorRefs(tx *txn, sectorID int64) ([]types.FileContractID, error) {
 	rows, err := tx.Query(`SELECT DISTINCT contract_id FROM contract_sector_roots WHERE sector_id=$1;`, sectorID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select contracts: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var contractID types.FileContractID
-		if err := rows.Scan(decode(&contractID)); err != nil {
-			return nil, fmt.Errorf("failed to scan contract id: %w", err)
-		}
-		contractIDs = append(contractIDs, contractID)
-	}
-	return
+	return collectRows(rows, func(s scanner) (contractID types.FileContractID, err error) {
+		err = s.Scan(decode(&contractID))
+		return contractID, err
+	})
 }
 
 func getTempStorageCount(tx *txn, sectorID int64) (n int, err error) {

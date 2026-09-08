@@ -343,7 +343,7 @@ func TestResetRejectedAccountFundingWithPoolAttachment(t *testing.T) {
 	}
 
 	var contractDBID int64
-	if err := db.db.QueryRow(`SELECT id FROM contracts_v2 WHERE contract_id=?`, encode(contract.ID)).Scan(&contractDBID); err != nil {
+	if err := db.writerDB.QueryRow(`SELECT id FROM contracts_v2 WHERE contract_id=?`, encode(contract.ID)).Scan(&contractDBID); err != nil {
 		t.Fatal(err)
 	}
 

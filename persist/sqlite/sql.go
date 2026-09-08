@@ -22,6 +22,14 @@ type (
 		Scan(dest ...any) error
 	}
 
+	// A rowIterator is the subset of sql.Rows needed to scan a result set.
+	rowIterator interface {
+		scanner
+		Next() bool
+		Err() error
+		Close() error
+	}
+
 	// A stmt wraps a *sql.Stmt, logging slow queries.
 	stmt struct {
 		*sql.Stmt
@@ -136,7 +144,8 @@ func (tx *txn) Prepare(query string) (*stmt, error) {
 	s, err := tx.Tx.Prepare(query)
 	if dur := time.Since(start); dur > longQueryDuration {
 		tx.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
-	} else if err != nil {
+	}
+	if err != nil {
 		return nil, err
 	}
 	return &stmt{
@@ -154,7 +163,10 @@ func (tx *txn) Query(query string, args ...any) (*rows, error) {
 	if dur := time.Since(start); dur > longQueryDuration {
 		tx.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
-	return &rows{r, tx.log.Named("rows")}, err
+	if err != nil {
+		return nil, err
+	}
+	return &rows{r, tx.log.Named("rows")}, nil
 }
 
 // QueryRow executes a query that is expected to return at most one row.
@@ -214,4 +226,20 @@ func queryArgs[T any](args []T) []any {
 		out[i] = arg
 	}
 	return out
+}
+
+// collectRows scans each row with fn and returns the results. rows is closed
+// before returning.
+func collectRows[T any](rows rowIterator, fn func(scanner) (T, error)) ([]T, error) {
+	defer rows.Close()
+
+	var values []T
+	for rows.Next() {
+		v, err := fn(rows)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, v)
+	}
+	return values, rows.Err()
 }

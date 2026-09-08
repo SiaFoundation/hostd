@@ -102,7 +102,7 @@ func TestFirstContractHeight(t *testing.T) {
 		t.Fatal("expected contract to exist")
 	}
 
-	_, err = db.db.Exec(`UPDATE contracts_v2 SET contract_status=$1`, contracts.V2ContractStatusActive)
+	_, err = db.writerDB.Exec(`UPDATE contracts_v2 SET contract_status=$1`, contracts.V2ContractStatusActive)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestFirstContractHeight(t *testing.T) {
 		t.Fatal("expected contract to exist")
 	}
 
-	_, err = db.db.Exec(`UPDATE contracts_v2 SET contract_status=$1`, contracts.V2ContractStatusSuccessful)
+	_, err = db.writerDB.Exec(`UPDATE contracts_v2 SET contract_status=$1`, contracts.V2ContractStatusSuccessful)
 	if err != nil {
 		t.Fatal(err)
 	}
