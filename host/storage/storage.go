@@ -28,6 +28,10 @@ const (
 // have free space, but none of it is writable.
 var NoWritableStorageAlertID = frand.Entropy256()
 
+// errRootMismatch is returned when the data at a location does not hash to the
+// expected root.
+var errRootMismatch = errors.New("sector root mismatch")
+
 // CorruptSectorAlertCategory is the category of alerts registered when a sector
 // fails to verify against its root while being read. Each affected volume gets
 // its own alert (keyed by volume) grouped under this category.
@@ -916,6 +920,43 @@ func (vm *VolumeManager) readLocation(loc SectorLocation, offset, length uint64)
 	return sector, nil
 }
 
+// readCachedSegment reads the segment covering offset and length and builds
+// its proof from the cached subtrees. errRootMismatch is returned if the proof
+// does not verify against root.
+func (vm *VolumeManager) readCachedSegment(meta SectorMetadata, root types.Hash256, offset, length uint64) ([]byte, []types.Hash256, error) {
+	leafStart, leafEnd, segmentOffset, segmentLength := segmentRange(offset, length)
+	buf, err := vm.readLocation(meta.Location, segmentOffset, segmentLength)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read sector segment: %w", err)
+	} else if uint64(len(buf)) != segmentLength {
+		return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", segmentLength, len(buf))
+	}
+
+	data := buf[(offset - segmentOffset):][:length]
+	proof := proto4.BuildSectorProof(buf, leafStart, leafEnd, meta.CachedSubtrees)
+	rpv := proto4.NewRangeProofVerifier(leafStart, leafEnd)
+	if _, err := rpv.ReadFrom(bytes.NewReader(data)); err != nil || !rpv.Verify(proof, root) {
+		return nil, nil, errRootMismatch
+	}
+	return data, proof, nil
+}
+
+// readVerified reads the full sector at loc and returns it with its subtree
+// roots. errRootMismatch is returned if the data does not hash to root.
+func (vm *VolumeManager) readVerified(loc SectorLocation, root types.Hash256) ([]byte, []types.Hash256, error) {
+	sector, err := vm.readLocation(loc, 0, proto4.SectorSize)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read full sector data: %w", err)
+	} else if uint64(len(sector)) != proto4.SectorSize {
+		return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", proto4.SectorSize, len(sector))
+	}
+	subtrees := proto4.CachedSectorSubtrees((*[proto4.SectorSize]byte)(sector))
+	if proto4.MetaRoot(subtrees) != root {
+		return nil, nil, errRootMismatch
+	}
+	return sector, subtrees, nil
+}
+
 // VerifySector verifies that the sector with the given root
 // is not corrupt by reading it from disk and recalculating its
 // root. This differs from ReadSector in that it does not use the cache.
@@ -972,44 +1013,46 @@ func (vm *VolumeManager) ReadSector(root types.Hash256, offset, length uint64) (
 		return nil, nil, fmt.Errorf("failed to locate sector: %w", err)
 	}
 
-	leafStart, leafEnd := offset/proto4.LeafSize, (offset+length+proto4.LeafSize-1)/proto4.LeafSize
-	segmentStart, segmentEnd := proto4.SectorSubtreeRange(leafStart, leafEnd)
-	segmentOffset := segmentStart * proto4.LeafSize
-	segmentLength := (segmentEnd - segmentStart) * proto4.LeafSize
-
-	if len(meta.CachedSubtrees) != 0 {
-		buf, err := vm.readLocation(meta.Location, segmentOffset, segmentLength)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read sector segment: %w", err)
-		} else if uint64(len(buf)) != segmentLength {
-			return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", segmentLength, len(buf))
-		}
-
-		data := buf[(offset - segmentOffset):][:length]
-		proof := proto4.BuildSectorProof(buf, leafStart, leafEnd, meta.CachedSubtrees)
-		rpv := proto4.NewRangeProofVerifier(leafStart, leafEnd)
-		if _, err := rpv.ReadFrom(bytes.NewReader(data)); err == nil && rpv.Verify(proof, root) {
+	cached := len(meta.CachedSubtrees) != 0
+	if cached {
+		data, proof, err := vm.readCachedSegment(meta, root, offset, length)
+		if err == nil {
 			return data, proof, nil
+		} else if !errors.Is(err, errRootMismatch) {
+			return nil, nil, err
 		}
-		vm.log.Warn("cached sector proof failed to verify, falling back to full sector read", zap.Stringer("root", root))
 	}
 
-	sector, err := vm.readLocation(meta.Location, 0, proto4.SectorSize)
+	loc := meta.Location
+	sector, subtrees, err := vm.readVerified(loc, root)
+	if errors.Is(err, errRootMismatch) {
+		// the sector may have been migrated since its location was fetched
+		loc, err = vm.vs.SectorLocation(root)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to locate sector: %w", err)
+		} else if loc.ID == meta.Location.ID {
+			vm.registerCorruptSectorAlert(loc, root)
+			return nil, nil, ErrSectorCorrupt
+		}
+		sector, subtrees, err = vm.readVerified(loc, root)
+		if errors.Is(err, errRootMismatch) {
+			vm.registerCorruptSectorAlert(loc, root)
+			return nil, nil, ErrSectorCorrupt
+		}
+	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read full sector data: %w", err)
-	} else if uint64(len(sector)) != proto4.SectorSize {
-		return nil, nil, fmt.Errorf("read length mismatch: expected %d, got %d", proto4.SectorSize, len(sector))
+		return nil, nil, err
 	}
 
-	subtrees := proto4.CachedSectorSubtrees((*[proto4.SectorSize]byte)(sector))
-	if proto4.MetaRoot(subtrees) != root {
-		vm.registerCorruptSectorAlert(meta.Location, root)
-		return nil, nil, ErrSectorCorrupt
-	} else if vm.merkleCacheEnabled {
+	if cached && loc.ID == meta.Location.ID {
+		vm.log.Warn("cached sector proof failed to verify, refreshing cache", zap.Stringer("root", root))
+	}
+	if vm.merkleCacheEnabled {
 		if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
-			vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
+			vm.log.Error("failed to cache sector subtrees", zap.Stringer("root", root), zap.Error(err))
 		}
 	}
+	leafStart, leafEnd, segmentOffset, segmentLength := segmentRange(offset, length)
 	proof := proto4.BuildSectorProof(sector[segmentOffset:][:segmentLength], leafStart, leafEnd, subtrees)
 	return sector[offset:][:length], proof, nil
 }
@@ -1092,6 +1135,14 @@ func (vm *VolumeManager) ProcessActions(index types.ChainIndex) error {
 	defer done()
 
 	return vm.vs.ExpireTempSectors(index.Height)
+}
+
+// segmentRange returns the leaf range covered by offset and length and the
+// byte range of the subtree-aligned segment containing it.
+func segmentRange(offset, length uint64) (leafStart, leafEnd, segmentOffset, segmentLength uint64) {
+	leafStart, leafEnd = offset/proto4.LeafSize, (offset+length+proto4.LeafSize-1)/proto4.LeafSize
+	segmentStart, segmentEnd := proto4.SectorSubtreeRange(leafStart, leafEnd)
+	return leafStart, leafEnd, segmentStart * proto4.LeafSize, (segmentEnd - segmentStart) * proto4.LeafSize
 }
 
 // NewVolumeManager creates a new VolumeManager.
