@@ -286,6 +286,7 @@ func pruneSectorBatch(tx *txn, log *zap.Logger) (int, error) {
 FROM stored_sectors ss
 LEFT JOIN volume_sectors vs ON vs.sector_id=ss.id
 WHERE ss.ref_count=0
+	AND NOT EXISTS (SELECT 1 FROM volume_sector_locks l WHERE l.volume_sector_id=vs.id)
 ORDER BY ss.id
 LIMIT $1`
 	rows, err := tx.Query(query, sqlSectorBatchSize)
