@@ -106,7 +106,7 @@ func (s *Store) RHP4CreditPools(deposits []proto4.AccountDeposit, contractID typ
 
 // RHP4AttachPools attaches accounts to pools atomically.
 func (s *Store) RHP4AttachPools(attachments []proto4.PoolAttachment) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		getPoolStmt, err := tx.Prepare(`SELECT id FROM rhp4_pools WHERE pool_id=$1`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare get pool statement: %w", err)
@@ -150,7 +150,7 @@ func (s *Store) RHP4AttachPools(attachments []proto4.PoolAttachment) error {
 
 // RHP4DetachPools detaches accounts from pools atomically.
 func (s *Store) RHP4DetachPools(detachments []proto4.PoolDetachment) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		stmt, err := tx.Prepare(`DELETE FROM rhp4_account_pool_attachments
 WHERE account_id=(SELECT id FROM accounts WHERE account_id=$1)
   AND pool_id=(SELECT id FROM rhp4_pools WHERE pool_id=$2)`)

@@ -56,7 +56,7 @@ var _ index.UpdateTx = (*updateTx)(nil)
 // should only occur if the user has reset their consensus database to
 // sync from scratch.
 func (s *Store) ResetChainState() error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`
 -- v2 contracts
 DELETE FROM contracts_v2_chain_index_elements;
@@ -73,7 +73,7 @@ UPDATE global_settings SET last_scanned_index=NULL, last_announce_index=NULL, la
 
 // SetCheckpoint sets the consensus checkpoint index for the store.
 func (s *Store) SetCheckpoint(index types.ChainIndex) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`UPDATE global_settings SET last_scanned_index=?`, encode(index))
 		return err
 	})

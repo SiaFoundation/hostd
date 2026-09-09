@@ -39,7 +39,7 @@ func (s *Store) SetRegistryValue(entry rhp3.RegistryEntry, expiration uint64) er
 	)
 	// note: need to error when the registry is full, so can't use upsert
 	registryKey := entry.RegistryKey.Hash()
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		err := tx.QueryRow(selectQuery, encode(registryKey)).Scan(decode(&registryKey))
 		if errors.Is(err, sql.ErrNoRows) {
 			// key doesn't exist, insert it

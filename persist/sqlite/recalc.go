@@ -329,21 +329,21 @@ func (s *Store) CheckContractAccountFunding() error {
 
 // RecalcContractAccountFunding recalculates the contract account funding table.
 func (s *Store) RecalcContractAccountFunding() error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		return recalcContractAccountFunding(tx, s.log)
 	})
 }
 
 // RecalcContractMetrics recalculates the contract metrics.
 func (s *Store) RecalcContractMetrics() error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		return recalcContractRevenueCollateralMetrics(tx, s.log)
 	})
 }
 
 // RecalcVolumeMetrics recalculates the volume metrics.
 func (s *Store) RecalcVolumeMetrics() error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		return recalcVolumeMetrics(tx, s.log)
 	})
 }

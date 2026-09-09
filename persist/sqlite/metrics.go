@@ -259,7 +259,7 @@ func (s *Store) IncrementSyncerDataUsage(ingress, egress uint64) error {
 }
 
 func (s *Store) incrementDataUsage(ingressStat, egressStat string, ingress, egress uint64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		if ingress > 0 {
 			if err := incrementNumericStat(tx, ingressStat, int(ingress), time.Now()); err != nil {
 				return fmt.Errorf("failed to track ingress stat %q: %w", ingressStat, err)
@@ -276,7 +276,7 @@ func (s *Store) incrementDataUsage(ingressStat, egressStat string, ingress, egre
 
 // IncrementSectorMetrics increments sector access metrics.
 func (s *Store) IncrementSectorMetrics(metrics storage.SectorMetrics) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		incrementStmt, done, err := incrementNumericStatStmt(tx)
 		if err != nil {
 			return fmt.Errorf("failed to prepare increment stmt: %w", err)
@@ -310,7 +310,7 @@ func (s *Store) IncrementSectorMetrics(metrics storage.SectorMetrics) error {
 
 // IncrementRegistryAccess increments the registry read and write metrics.
 func (s *Store) IncrementRegistryAccess(read, write uint64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		if read > 0 {
 			if err := incrementNumericStat(tx, metricRegistryReads, int(read), time.Now()); err != nil {
 				return fmt.Errorf("failed to track reads: %w", err)
