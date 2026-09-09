@@ -8,7 +8,7 @@ import (
 
 // RegisterWebhook registers a new webhook.
 func (s *Store) RegisterWebhook(url, secret string, scopes []string) (id int64, err error) {
-	err = s.transaction(func(tx *txn) error {
+	err = s.writeTransaction(func(tx *txn) error {
 		return tx.QueryRow("INSERT INTO webhooks (callback_url, secret_key, scopes) VALUES (?, ?, ?) RETURNING id", url, secret, strings.Join(scopes, ",")).Scan(&id)
 	})
 	return
@@ -16,7 +16,7 @@ func (s *Store) RegisterWebhook(url, secret string, scopes []string) (id int64, 
 
 // UpdateWebhook updates a webhook.
 func (s *Store) UpdateWebhook(id int64, url string, scopes []string) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		var dbID int64
 		return tx.QueryRow(`UPDATE webhooks SET callback_url = ?, scopes = ? WHERE id = ? RETURNING id`, url, strings.Join(scopes, ","), id).Scan(&dbID)
 	})
@@ -24,7 +24,7 @@ func (s *Store) UpdateWebhook(id int64, url string, scopes []string) error {
 
 // RemoveWebhook removes a webhook.
 func (s *Store) RemoveWebhook(id int64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec("DELETE FROM webhooks WHERE id = ?", id)
 		return err
 	})

@@ -28,7 +28,7 @@ RETURNING sector_id;`
 }
 
 func (s *Store) batchExpireTempSectors(height uint64) (expired int, err error) {
-	err = s.transaction(func(tx *txn) error {
+	err = s.writeTransaction(func(tx *txn) error {
 		sectorIDs, err := deleteTempSectors(tx, height)
 		if err != nil {
 			return fmt.Errorf("failed to delete sectors: %w", err)
@@ -42,7 +42,7 @@ func (s *Store) batchExpireTempSectors(height uint64) (expired int, err error) {
 		if err := incrementNumericStat(tx, metricTempSectors, -expired, time.Now()); err != nil {
 			return fmt.Errorf("failed to update metric: %w", err)
 		}
-		return err
+		return nil
 	})
 	return
 }
@@ -50,7 +50,7 @@ func (s *Store) batchExpireTempSectors(height uint64) (expired int, err error) {
 // RemoveSector removes the metadata of a sector and returns its
 // location in the volume.
 func (s *Store) RemoveSector(root types.Hash256) (err error) {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		sectorID, err := sectorDBID(tx, root)
 		if err != nil {
 			return fmt.Errorf("failed to get sector: %w", err)
@@ -76,7 +76,7 @@ func (s *Store) RemoveSector(root types.Hash256) (err error) {
 
 // CacheSubtrees stores the cached subtree roots for a sector
 func (s *Store) CacheSubtrees(root types.Hash256, subtrees []types.Hash256) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		const query = `INSERT INTO sector_subtree_cache (sector_id, subtree_roots)
 SELECT id, $1 FROM stored_sectors WHERE sector_root=$2
 ON CONFLICT (sector_id) DO UPDATE SET subtree_roots=EXCLUDED.subtree_roots;`
@@ -156,7 +156,7 @@ WHERE ss.sector_root=$1`, encode(root)).Scan(&sectorID)
 //
 // Deprecated: use AddTempSector
 func (s *Store) AddTemporarySectors(sectors []storage.TempSector) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		stmt, err := tx.Prepare(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) SELECT id, $1 FROM stored_sectors WHERE sector_root=$2 RETURNING id;`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare query: %w", err)

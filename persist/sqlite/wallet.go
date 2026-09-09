@@ -16,7 +16,7 @@ var _ wallet.SingleAddressStore = (*Store)(nil)
 // transactions are gone from the transaction pool or one week has
 // passed.
 func (s *Store) AddBroadcastedSet(txnset wallet.BroadcastedSet) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`INSERT INTO wallet_broadcasted_txnsets (id, basis, raw_transactions, date_created) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
 			encode(txnset.ID()), encode(txnset.Basis), encodeSlice(txnset.Transactions), encode(txnset.BroadcastedAt))
 		return err
@@ -49,7 +49,7 @@ func (s *Store) BroadcastedSets() (sets []wallet.BroadcastedSet, err error) {
 
 // RemoveBroadcastedSet removes a set so it's no longer rebroadcasted.
 func (s *Store) RemoveBroadcastedSet(txnset wallet.BroadcastedSet) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`DELETE FROM wallet_broadcasted_txnsets WHERE id = ?`, encode(txnset.ID()))
 		return err
 	})
@@ -126,7 +126,7 @@ func (s *Store) WalletEvents(offset, limit int) (events []wallet.Event, err erro
 // to rescan.
 func (s *Store) VerifyWalletKey(seedHash types.Hash256) error {
 	var buf []byte
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		err := tx.QueryRow(`SELECT wallet_hash FROM global_settings`).Scan(&buf)
 		if (err == nil && len(buf) != len(seedHash)) || errors.Is(err, sql.ErrNoRows) {
 			// wallet not initialized, set seed hash

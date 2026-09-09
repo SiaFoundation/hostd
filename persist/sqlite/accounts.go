@@ -249,7 +249,7 @@ func (s *Store) AccountBalance(accountID rhp3.Account) (balance types.Currency, 
 
 // CreditAccountWithContract adds the specified amount to the account with the given ID.
 func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		// get current balance
 		accountID, balance, err := accountBalance(tx, fund.Account)
 		exists := err == nil
@@ -298,7 +298,7 @@ func (s *Store) CreditAccountWithContract(fund accounts.FundAccountWithContract)
 // ID. Returns the remaining balance of the account.
 func (s *Store) DebitAccount(accountID rhp3.Account, usage accounts.Usage) error {
 	amount := usage.Total()
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		dbID, balance, err := accountBalance(tx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to query balance: %w", err)

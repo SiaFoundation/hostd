@@ -43,7 +43,7 @@ storage_pinned=EXCLUDED.storage_pinned, storage_price=EXCLUDED.storage_price, in
 ingress_price=EXCLUDED.ingress_price, egress_pinned=EXCLUDED.egress_pinned, egress_price=EXCLUDED.egress_price,
 max_collateral_pinned=EXCLUDED.max_collateral_pinned, max_collateral=EXCLUDED.max_collateral;`
 
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(query, p.Currency, p.Threshold, p.Storage.Pinned, p.Storage.Value, p.Ingress.Pinned, p.Ingress.Value, p.Egress.Pinned, p.Egress.Value, p.MaxCollateral.Pinned, p.MaxCollateral.Value)
 		return err
 	})
@@ -122,7 +122,7 @@ ON CONFLICT (id) DO UPDATE SET (settings_revision,
 		}
 	}
 
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(query, settings.AcceptingContracts,
 			settings.NetAddress, encode(settings.ContractPrice),
 			encode(settings.BaseRPCPrice), encode(settings.SectorAccessPrice),
@@ -210,7 +210,7 @@ func (s *Store) LastV2AnnouncementHash() (h types.Hash256, index types.ChainInde
 func (s *Store) UpdateLastAnnouncement(ann settings.Announcement) error {
 	const query = `UPDATE global_settings SET last_announce_index=$1, last_announce_address=$2;`
 
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(query, encode(ann.Index), ann.Address)
 		return err
 	})
@@ -219,7 +219,7 @@ func (s *Store) UpdateLastAnnouncement(ann settings.Announcement) error {
 // RevertLastAnnouncement reverts the last announcement.
 func (s *Store) RevertLastAnnouncement() error {
 	const query = `UPDATE global_settings SET last_announce_index=NULL, last_announce_address=NULL, last_announce_key=NULL;`
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(query)
 		return err
 	})
@@ -227,7 +227,7 @@ func (s *Store) RevertLastAnnouncement() error {
 
 // UpdateWalletHash updates the stored wallet hash.
 func (s *Store) UpdateWalletHash(walletHash types.Hash256) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`UPDATE global_settings SET wallet_hash=?`, encode(walletHash))
 		return err
 	})

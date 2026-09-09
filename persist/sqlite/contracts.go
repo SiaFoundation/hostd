@@ -18,7 +18,7 @@ import (
 var _ contracts.ContractStore = (*Store)(nil)
 
 func (s *Store) batchExpireV2ContractSectors(height uint64) (expired int64, err error) {
-	err = s.transaction(func(tx *txn) (err error) {
+	err = s.writeTransaction(func(tx *txn) (err error) {
 		expired, err = deleteExpiredV2ContractSectors(tx, height)
 		if err != nil {
 			return fmt.Errorf("failed to delete contract sectors: %w", err)
@@ -260,7 +260,7 @@ func (s *Store) RenewV2Contract(renewal contracts.V2Contract, renewalSet rhp4.Tr
 
 // AddContract adds a new contract to the database.
 func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []types.Transaction, lockedCollateral types.Currency, initialUsage contracts.Usage, negotiationHeight uint64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := insertContract(tx, revision, formationSet, lockedCollateral, initialUsage, negotiationHeight)
 		if err != nil {
 			return fmt.Errorf("failed to add contract: %w", err)
@@ -273,7 +273,7 @@ func (s *Store) AddContract(revision contracts.SignedRevision, formationSet []ty
 // contract's renewed_from field. The old contract's sector roots are
 // copied to the new contract.
 func (s *Store) RenewContract(renewal contracts.SignedRevision, clearing contracts.SignedRevision, renewalTxnSet []types.Transaction, lockedCollateral types.Currency, clearingUsage, renewalUsage contracts.Usage, negotiationHeight uint64) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		// add the new contract
 		renewedDBID, err := insertContract(tx, renewal, renewalTxnSet, lockedCollateral, renewalUsage, negotiationHeight)
 		if err != nil {
@@ -348,7 +348,7 @@ func (s *Store) ReviseV2Contract(id types.FileContractID, revision types.V2FileC
 
 // ReviseContract atomically updates a contract's revision and sectors
 func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots, newRoots []types.Hash256, usage contracts.Usage) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		// revise the contract
 		contractID, err := reviseContract(tx, revision, usage)
 		if err != nil {

@@ -55,7 +55,7 @@ func deleteVolumeSectors(tx *txn, volumeID int64) (removed int64, err error) {
 }
 
 func (s *Store) batchRemoveVolumeSectors(id int64, force bool) (removed, lost int64, err error) {
-	err = s.transaction(func(tx *txn) error {
+	err = s.writeTransaction(func(tx *txn) error {
 		if force {
 			removed, lost, err = forceDeleteVolumeSectors(tx, id)
 			if err != nil {
@@ -193,7 +193,7 @@ func (s *Store) StoreSector(root types.Hash256, fn storage.StoreFunc) error {
 
 	// call fn with the location
 	if err := fn(location); err != nil {
-		rollbackErr := s.transaction(func(tx *txn) error {
+		rollbackErr := s.writeTransaction(func(tx *txn) error {
 			res, err := tx.Exec(`UPDATE volume_sectors SET sector_id=null WHERE id=$1 AND sector_id=$2`, location.ID, sectorID)
 			if err != nil {
 				return fmt.Errorf("failed to rollback sector location: %w", err)
@@ -321,7 +321,7 @@ LIMIT 1;`
 // store. GrowVolume must be called afterwards to initialize the volume
 // to its desired size.
 func (s *Store) AddVolume(localPath string, readOnly bool) (volumeID int64, err error) {
-	err = s.transaction(func(tx *txn) error {
+	err = s.writeTransaction(func(tx *txn) error {
 		volumeID, err = addVolume(tx, localPath, readOnly)
 		return err
 	})
@@ -346,7 +346,7 @@ func (s *Store) RemoveVolume(id int64, force bool) error {
 		jitterSleep(50 * time.Millisecond)
 	}
 
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		// check that the volume exists
 		var volumeID int64
 		err := tx.QueryRow(`SELECT id FROM storage_volumes WHERE id=$1`, id).Scan(&volumeID)
@@ -377,7 +377,7 @@ func (s *Store) GrowVolume(id int64, maxSectors uint64) error {
 		panic("maxSectors must be greater than 0") // dev error
 	}
 
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		return growVolume(tx, id, maxSectors)
 	})
 }
@@ -389,7 +389,7 @@ func (s *Store) ShrinkVolume(id int64, maxSectors uint64) error {
 		panic("maxSectors must be greater than 0") // dev error
 	}
 
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		// check if there are any used sectors in the shrink range
 		var usedSectors uint64
 		err := tx.QueryRow(`SELECT COUNT(sector_id) FROM volume_sectors WHERE volume_id=$1 AND volume_index >= $2 AND sector_id IS NOT NULL;`, id, maxSectors).Scan(&usedSectors)
@@ -426,7 +426,7 @@ func (s *Store) ShrinkVolume(id int64, maxSectors uint64) error {
 // SetReadOnly sets the read-only flag on a volume.
 func (s *Store) SetReadOnly(volumeID int64, readOnly bool) error {
 	const query = `UPDATE storage_volumes SET read_only=$1 WHERE id=$2;`
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(query, readOnly, volumeID)
 		return err
 	})
@@ -435,7 +435,7 @@ func (s *Store) SetReadOnly(volumeID int64, readOnly bool) error {
 // SetAvailable sets the available flag on a volume.
 func (s *Store) SetAvailable(volumeID int64, available bool) error {
 	const query = `UPDATE storage_volumes SET available=$1 WHERE id=$2;`
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(query, available, volumeID)
 		return err
 	})

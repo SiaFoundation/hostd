@@ -103,7 +103,7 @@ func scanPeerInfo(s scanner) (pi syncer.PeerInfo, err error) {
 
 // AddPeer adds the given peer to the store.
 func (s *Store) AddPeer(peer string) error {
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		const query = `INSERT INTO syncer_peers (peer_address, first_seen) VALUES ($1, $2) ON CONFLICT (peer_address) DO NOTHING`
 		_, err := tx.Exec(query, peer, encode(time.Now()))
 		return err
@@ -168,7 +168,7 @@ func (s *Store) Ban(peer string, duration time.Duration, reason string) error {
 		return err
 	}
 	s.log.Debug("banning peer", zap.String("peer", address), zap.Duration("duration", duration), zap.String("reason", reason))
-	return s.transaction(func(tx *txn) error {
+	return s.writeTransaction(func(tx *txn) error {
 		const query = `INSERT INTO syncer_bans (net_cidr, expiration, reason) VALUES ($1, $2, $3) ON CONFLICT (net_cidr) DO UPDATE SET expiration=EXCLUDED.expiration, reason=EXCLUDED.reason`
 		_, err := tx.Exec(query, address, encode(time.Now().Add(duration)), reason)
 		return err
