@@ -334,47 +334,37 @@ func (vm *VolumeManager) shrinkVolume(ctx context.Context, id int64, volume *vol
 }
 
 // writeSector atomically adds a sector to the database and writes it to disk
-func (vm *VolumeManager) writeSector(root types.Hash256, data *[proto4.SectorSize]byte) error {
-	err := vm.vs.StoreSector(root, func(loc SectorLocation) error {
-		start := time.Now()
+func (vm *VolumeManager) writeSector(loc SectorLocation, root types.Hash256, data *[proto4.SectorSize]byte) error {
+	start := time.Now()
 
-		vm.mu.Lock()
-		vol, ok := vm.volumes[loc.Volume]
-		vm.mu.Unlock()
-		if !ok {
-			return fmt.Errorf("volume %v not found", loc.Volume)
-		}
-
-		// write the sector to the volume
-		if err := vol.WriteSector(data, loc.Index); err != nil {
-			stats := vol.Stats()
-			vm.alerts.Register(alerts.Alert{
-				ID:       vol.alertID("write"),
-				Severity: alerts.SeverityError,
-				Message:  "Failed to write sector",
-				Data: map[string]any{
-					"volume":       vol.Location(),
-					"failedReads":  stats.FailedReads,
-					"failedWrites": stats.FailedWrites,
-					"sector":       root,
-					"error":        err.Error(),
-				},
-				Timestamp: time.Now(),
-			})
-			return err
-		}
-		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
-
-		return vol.Sync()
-	})
-	if errors.Is(err, ErrNotEnoughStorage) {
-		vm.updateNoWritableStorageAlert(err)
-	} else if err == nil && vm.alerts.IsActive(NoWritableStorageAlertID) {
-		// a nil error does not prove writable space remains: the sector may
-		// already have been stored, so re-evaluate instead of dismissing
-		vm.updateNoWritableStorageAlert(nil)
+	vm.mu.Lock()
+	vol, ok := vm.volumes[loc.Volume]
+	vm.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("volume %v not found", loc.Volume)
 	}
-	return err
+
+	// write the sector to the volume
+	if err := vol.WriteSector(data, loc.Index); err != nil {
+		stats := vol.Stats()
+		vm.alerts.Register(alerts.Alert{
+			ID:       vol.alertID("write"),
+			Severity: alerts.SeverityError,
+			Message:  "Failed to write sector",
+			Data: map[string]any{
+				"volume":       vol.Location(),
+				"failedReads":  stats.FailedReads,
+				"failedWrites": stats.FailedWrites,
+				"sector":       root,
+				"error":        err.Error(),
+			},
+			Timestamp: time.Now(),
+		})
+		return err
+	}
+	vm.log.Debug("wrote sector", zap.Stringer("root", root), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
+
+	return vol.Sync()
 }
 
 func (vm *VolumeManager) updateNoWritableStorageAlert(cause error) {
@@ -1068,22 +1058,25 @@ func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSiz
 	}
 	defer done()
 
-	if err := vm.writeSector(root, data); errors.Is(err, ErrNotEnoughStorage) {
-		return proto4.ErrNotEnoughStorage
-	} else if err != nil {
-		return fmt.Errorf("failed to store sector: %w", err)
-	} else if err := vm.vs.AddTempSector(root, expiration); errors.Is(err, ErrNotEnoughStorage) {
+	err = vm.vs.AddTempSector(root, expiration, func(loc SectorLocation) error {
+		return vm.writeSector(loc, root, data)
+	})
+	if errors.Is(err, ErrNotEnoughStorage) {
 		vm.updateNoWritableStorageAlert(err)
 		return proto4.ErrNotEnoughStorage
 	} else if err != nil {
-		return fmt.Errorf("failed to reference temporary sector: %w", err)
+		return fmt.Errorf("failed to store sector: %w", err)
+	} else if vm.alerts.IsActive(NoWritableStorageAlertID) {
+		// a nil error does not prove writable space remains: the sector may
+		// already have been stored, so re-evaluate instead of dismissing
+		vm.updateNoWritableStorageAlert(nil)
 	}
 	if vm.merkleCacheEnabled {
 		go func() {
 			// optimistically cache the sector subtrees after storing
 			// the sector to avoid blocking the RPC response
 			if err := vm.vs.CacheSubtrees(root, subtrees); err != nil {
-				vm.log.Error("failed to cache sector subtrees", zap.String("sector", root.String()), zap.Error(err))
+				vm.log.Error("failed to cache sector subtrees", zap.Stringer("sector", root), zap.Error(err))
 			}
 		}()
 	}
@@ -1132,7 +1125,7 @@ func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManag
 			case <-ctx.Done():
 				return
 			case <-time.After(vm.pruneInterval):
-				if err := vm.vs.PruneSectors(ctx, time.Now().Add(-1*vm.pruneInterval)); err != nil && !errors.Is(err, context.Canceled) {
+				if err := vm.vs.PruneSectors(ctx); err != nil && !errors.Is(err, context.Canceled) {
 					vm.log.Error("failed to prune sectors", zap.Error(err))
 				}
 				// expired temp sectors and pruned sectors free space without

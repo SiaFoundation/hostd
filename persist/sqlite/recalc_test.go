@@ -38,7 +38,7 @@ func TestRecalcVolumeMetricsEmptyVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 4 {
-		if err := db.StoreSector(frand.Entropy256(), func(storage.SectorLocation) error { return nil }); err != nil {
+		if err := db.AddTempSector(frand.Entropy256(), 100, func(storage.SectorLocation) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -258,7 +258,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		t.Helper()
 
 		// ensure any dereferenced sectors have been pruned
-		if err := node.Store.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
+		if err := node.Store.PruneSectors(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1473,7 +1473,7 @@ func TestV2SectorRoots(t *testing.T) {
 	rev := txn.FileContracts[0]
 	for range sectors {
 		root := frand.Entropy256()
-		err := node.Store.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+		err := node.Store.AddTempSector(root, 100, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
 			t.Fatal(err)
 		}

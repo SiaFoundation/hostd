@@ -33,9 +33,10 @@ CREATE INDEX wallet_events_maturity_height ON wallet_events(maturity_height DESC
 CREATE TABLE stored_sectors (
 	id INTEGER PRIMARY KEY,
 	sector_root BLOB UNIQUE NOT NULL,
-	last_access_timestamp INTEGER NOT NULL
+	ref_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
+CREATE INDEX stored_sectors_unreferenced ON stored_sectors(id) WHERE ref_count=0;
 
 CREATE TABLE sector_subtree_cache (
 	sector_id INTEGER PRIMARY KEY REFERENCES stored_sectors(id) ON DELETE CASCADE,
@@ -66,6 +67,10 @@ CREATE INDEX volume_sectors_volume_id_sector_id ON volume_sectors(volume_id, sec
 CREATE INDEX volume_sectors_volume_id ON volume_sectors(volume_id);
 CREATE INDEX volume_sectors_volume_index ON volume_sectors(volume_index ASC);
 CREATE INDEX volume_sectors_sector_id ON volume_sectors(sector_id);
+
+CREATE TABLE volume_sector_locks (
+	volume_sector_id INTEGER PRIMARY KEY REFERENCES volume_sectors(id) ON DELETE CASCADE
+);
 
 CREATE TABLE contract_renters (
 	id INTEGER PRIMARY KEY,
@@ -122,6 +127,20 @@ CREATE TABLE contract_sector_roots (
 );
 CREATE INDEX contract_sector_roots_sector_id ON contract_sector_roots(sector_id);
 CREATE INDEX contract_sector_roots_contract_id_root_index ON contract_sector_roots(contract_id, root_index);
+CREATE TRIGGER contract_sector_roots_ref_count_insert AFTER INSERT ON contract_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER contract_sector_roots_ref_count_delete AFTER DELETE ON contract_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+END;
+CREATE TRIGGER contract_sector_roots_ref_count_update AFTER UPDATE OF sector_id ON contract_sector_roots
+WHEN OLD.sector_id != NEW.sector_id
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
 
 CREATE TABLE contract_v2_state_elements (
 	contract_id INTEGER PRIMARY KEY REFERENCES contracts_v2(id),
@@ -201,6 +220,20 @@ CREATE TABLE contract_v2_sector_roots (
 );
 CREATE INDEX contract_v2_sector_roots_map_id_root_index_revision_number ON contract_v2_sector_roots(contract_v2_roots_map_id, root_index, contract_v2_roots_map_revision_number);
 CREATE INDEX contract_v2_sector_roots_sector_id ON contract_v2_sector_roots(sector_id);
+CREATE TRIGGER contract_v2_sector_roots_ref_count_insert AFTER INSERT ON contract_v2_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER contract_v2_sector_roots_ref_count_delete AFTER DELETE ON contract_v2_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+END;
+CREATE TRIGGER contract_v2_sector_roots_ref_count_update AFTER UPDATE OF sector_id ON contract_v2_sector_roots
+WHEN OLD.sector_id != NEW.sector_id
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
 
 CREATE TABLE temp_storage_sector_roots (
 	id INTEGER PRIMARY KEY,
@@ -209,6 +242,20 @@ CREATE TABLE temp_storage_sector_roots (
 );
 CREATE INDEX temp_storage_sector_roots_sector_id ON temp_storage_sector_roots(sector_id);
 CREATE INDEX temp_storage_sector_roots_expiration_height ON temp_storage_sector_roots(expiration_height);
+CREATE TRIGGER temp_storage_sector_roots_ref_count_insert AFTER INSERT ON temp_storage_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER temp_storage_sector_roots_ref_count_delete AFTER DELETE ON temp_storage_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+END;
+CREATE TRIGGER temp_storage_sector_roots_ref_count_update AFTER UPDATE OF sector_id ON temp_storage_sector_roots
+WHEN OLD.sector_id != NEW.sector_id
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
 
 CREATE TABLE registry_entries (
 	registry_key BLOB PRIMARY KEY,

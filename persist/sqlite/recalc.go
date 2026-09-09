@@ -136,6 +136,23 @@ GROUP BY sv.id`
 	return nil
 }
 
+func recalcSectorReferences(tx *txn) error {
+	_, err := tx.Exec(`
+CREATE TEMP TABLE sector_ref_counts (sector_id INTEGER PRIMARY KEY, n INTEGER NOT NULL);
+INSERT INTO sector_ref_counts SELECT sector_id, SUM(n) FROM (
+	SELECT sector_id, COUNT(*) AS n FROM contract_sector_roots GROUP BY sector_id
+	UNION ALL SELECT sector_id, COUNT(*) FROM contract_v2_sector_roots GROUP BY sector_id
+	UNION ALL SELECT sector_id, COUNT(*) FROM temp_storage_sector_roots GROUP BY sector_id
+) GROUP BY sector_id;
+UPDATE stored_sectors SET ref_count=COALESCE((SELECT n FROM sector_ref_counts WHERE sector_id=stored_sectors.id), 0)
+WHERE ref_count != COALESCE((SELECT n FROM sector_ref_counts WHERE sector_id=stored_sectors.id), 0);
+DROP TABLE sector_ref_counts;`)
+	if err != nil {
+		return fmt.Errorf("failed to recalculate sector references: %w", err)
+	}
+	return nil
+}
+
 func recalcContractSectorsMetrics(tx *txn) error {
 	var v1Count uint64
 	err := tx.QueryRow(`SELECT COUNT(*) FROM contract_sector_roots`).Scan(&v1Count)
@@ -346,6 +363,12 @@ func (s *Store) RecalcVolumeMetrics() error {
 	return s.writeTransaction(func(tx *txn) error {
 		return recalcVolumeMetrics(tx, s.log)
 	})
+}
+
+// RecalcSectorReferences recomputes the reference count of every stored sector
+// from the contract and temp storage roots.
+func (s *Store) RecalcSectorReferences() error {
+	return s.writeTransaction(recalcSectorReferences)
 }
 
 // Vacuum runs the VACUUM command on the database.
