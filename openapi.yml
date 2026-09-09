@@ -1401,7 +1401,8 @@ components:
         sectorCacheSize:
           type: integer
           format: int64
-          description: Number of sectors to cache in memory for faster reads.
+          deprecated: true
+          description: Deprecated. The sector cache was removed and the value is ignored.
         revision:
           type: integer
           format: int64
@@ -1656,11 +1657,13 @@ components:
         sectorCacheHits:
           type: integer
           format: int64
-          description: Number of sector reads served from the in-memory cache.
+          deprecated: true
+          description: Deprecated. The sector cache was removed and the counter is no longer updated.
         sectorCacheMisses:
           type: integer
           format: int64
-          description: Number of sector reads that required disk access.
+          deprecated: true
+          description: Deprecated. The sector cache was removed and the counter is no longer updated.
       required:
         - totalSectors
         - physicalSectors

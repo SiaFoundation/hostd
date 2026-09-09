@@ -128,6 +128,7 @@ type (
 		// DNS settings
 		DDNS DNSSettings `json:"ddns"`
 
+		// Deprecated: the sector cache was removed and the value is ignored.
 		SectorCacheSize uint32 `json:"sectorCacheSize"`
 
 		Revision uint64 `json:"revision"`

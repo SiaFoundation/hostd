@@ -23,13 +23,6 @@ func WithAlerter(a Alerts) VolumeManagerOption {
 	}
 }
 
-// WithCacheSize sets the sector cache size for the manager.
-func WithCacheSize(cacheSize int) VolumeManagerOption {
-	return func(s *VolumeManager) {
-		s.cacheSize = cacheSize
-	}
-}
-
 // WithPruneInterval sets the time between cleaning up dereferenced
 // sectors.
 func WithPruneInterval(d time.Duration) VolumeManagerOption {

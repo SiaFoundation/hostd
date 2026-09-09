@@ -95,6 +95,7 @@ type (
 		ReadBytes  uint64 `json:"readBytes"`
 		WriteBytes uint64 `json:"writeBytes"`
 
+		// Deprecated: the sector cache was removed and the counters are no longer updated.
 		SectorCacheHits   uint64 `json:"sectorCacheHits"`
 		SectorCacheMisses uint64 `json:"sectorCacheMisses"`
 	}

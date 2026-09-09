@@ -87,7 +87,6 @@ type (
 		ResizeVolume(ctx context.Context, id int64, maxSectors uint64, result chan<- error) error
 		SetReadOnly(id int64, readOnly bool) error
 		RemoveSector(root types.Hash256) error
-		ResizeCache(size uint32)
 		ReadSector(root types.Hash256, offset, length uint64) ([]byte, []types.Hash256, error)
 
 		// SectorReferences returns the references to a sector

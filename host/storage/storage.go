@@ -7,10 +7,8 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	proto2 "go.sia.tech/core/rhp/v2"
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
@@ -82,10 +80,7 @@ type (
 
 	// A VolumeManager manages storage using local volumes.
 	VolumeManager struct {
-		cacheHits          uint64 // ensure 64-bit alignment on 32-bit systems
-		cacheMisses        uint64
 		merkleCacheEnabled bool
-		cacheSize          int
 		pruneInterval      time.Duration
 
 		vs       VolumeStore
@@ -97,7 +92,6 @@ type (
 
 		mu      sync.Mutex // protects the following fields
 		volumes map[int64]*volume
-		cache   *lru.Cache[types.Hash256, *[proto2.SectorSize]byte] // Added cache
 	}
 )
 
@@ -371,8 +365,6 @@ func (vm *VolumeManager) writeSector(root types.Hash256, data *[proto4.SectorSiz
 		}
 		vm.log.Debug("wrote sector", zap.String("root", root.String()), zap.Int64("volume", loc.Volume), zap.Uint64("index", loc.Index), zap.Duration("elapsed", time.Since(start)))
 
-		// Add newly written sector to cache
-		vm.cache.Add(root, data)
 		return vol.Sync()
 	})
 	if errors.Is(err, ErrNotEnoughStorage) {
@@ -902,15 +894,7 @@ func (vm *VolumeManager) RemoveSector(root types.Hash256) error {
 	} else if err := vol.Sync(); err != nil {
 		return fmt.Errorf("failed to sync volume %v: %w", loc.Volume, err)
 	}
-
-	// eject the sector from the cache
-	vm.cache.Remove(root)
 	return nil
-}
-
-// CacheStats returns the number of cache hits and misses.
-func (vm *VolumeManager) CacheStats() (hits, misses uint64) {
-	return atomic.LoadUint64(&vm.cacheHits), atomic.LoadUint64(&vm.cacheMisses)
 }
 
 func (vm *VolumeManager) readLocation(loc SectorLocation, offset, length uint64) ([]byte, error) {
@@ -938,13 +922,6 @@ func (vm *VolumeManager) readLocation(loc SectorLocation, offset, length uint64)
 			Timestamp: time.Now(),
 		})
 		return nil, fmt.Errorf("failed to read sector data: %w", err)
-	}
-
-	if length == proto4.SectorSize {
-		// only add full sectors to the cache
-		vm.cache.Add(loc.Root, (*[proto4.SectorSize]byte)(sector))
-		atomic.AddUint64(&vm.cacheMisses, 1)
-		vm.recorder.AddCacheMiss()
 	}
 	return sector, nil
 }
@@ -1113,12 +1090,6 @@ func (vm *VolumeManager) StoreSector(root types.Hash256, data *[proto4.SectorSiz
 	return nil
 }
 
-// ResizeCache resizes the cache to the given size.
-func (vm *VolumeManager) ResizeCache(size uint32) {
-	// Resize the underlying cache data structure
-	vm.cache.Resize(int(size))
-}
-
 // ProcessActions processes the actions for the given chain index.
 func (vm *VolumeManager) ProcessActions(index types.ChainIndex) error {
 	done, err := vm.tg.Add()
@@ -1133,7 +1104,6 @@ func (vm *VolumeManager) ProcessActions(index types.ChainIndex) error {
 // NewVolumeManager creates a new VolumeManager.
 func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManager, error) {
 	vm := &VolumeManager{
-		cacheSize:          32, // 128 MiB
 		pruneInterval:      5 * time.Minute,
 		merkleCacheEnabled: true,
 		vs:                 vs,
@@ -1172,16 +1142,6 @@ func NewVolumeManager(vs VolumeStore, opts ...VolumeManagerOption) (*VolumeManag
 			}
 		}
 	}()
-
-	// Initialize cache with LRU eviction and a max capacity of 64
-	cache, err := lru.New[types.Hash256, *[proto2.SectorSize]byte](64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize cache: %w", err)
-	}
-	// resize the cache, prevents an error in lru.New when initializing the
-	// cache to 0
-	cache.Resize(int(vm.cacheSize))
-	vm.cache = cache
 
 	vm.recorder = &sectorAccessRecorder{
 		store: vs,
