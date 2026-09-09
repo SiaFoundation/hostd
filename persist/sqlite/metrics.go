@@ -295,10 +295,6 @@ func (s *Store) IncrementSectorMetrics(metrics storage.SectorMetrics) error {
 			return fmt.Errorf("failed to track reads: %w", err)
 		} else if err := increment(metricSectorWrites, int(metrics.WriteCount)); err != nil {
 			return fmt.Errorf("failed to track writes: %w", err)
-		} else if err := increment(metricSectorCacheHit, int(metrics.CacheHit)); err != nil {
-			return fmt.Errorf("failed to track cache hits: %w", err)
-		} else if err := increment(metricSectorCacheMiss, int(metrics.CacheMiss)); err != nil {
-			return fmt.Errorf("failed to track cache misses: %w", err)
 		} else if err := increment(metricSectorReadBytes, int(metrics.ReadBytes)); err != nil {
 			return fmt.Errorf("failed to track read bytes: %w", err)
 		} else if err := increment(metricSectorWriteBytes, int(metrics.WriteBytes)); err != nil {

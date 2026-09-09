@@ -1362,7 +1362,7 @@ func TestStoragePrune(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(0), storage.WithPruneInterval(500*time.Millisecond))
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithPruneInterval(500*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1447,7 +1447,7 @@ func TestMerkleCacheDisable(t *testing.T) {
 	defer db.Close()
 
 	// initialize the storage manager
-	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithCacheSize(0), storage.WithMerkleCacheEnabled(false), storage.WithPruneInterval(500*time.Millisecond))
+	vm, err := storage.NewVolumeManager(db, storage.WithLogger(log.Named("volumes")), storage.WithMerkleCacheEnabled(false), storage.WithPruneInterval(500*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1512,7 +1512,6 @@ func TestReadSectorCorrupt(t *testing.T) {
 		am := alerts.NewManager()
 		vm, err := storage.NewVolumeManager(db,
 			storage.WithLogger(log.Named("volumes")),
-			storage.WithCacheSize(0),
 			storage.WithMerkleCacheEnabled(cacheEnabled),
 			storage.WithAlerter(am),
 		)

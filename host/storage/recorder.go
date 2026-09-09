@@ -17,9 +17,6 @@ type (
 
 		ReadBytes  uint64
 		WriteBytes uint64
-
-		CacheHit  uint64
-		CacheMiss uint64
 	}
 
 	sectorAccessRecorder struct {
@@ -61,18 +58,6 @@ func (sr *sectorAccessRecorder) AddWrite(n uint64) {
 
 	sr.metrics.WriteCount++
 	sr.metrics.WriteBytes += n
-}
-
-func (sr *sectorAccessRecorder) AddCacheHit() {
-	sr.mu.Lock()
-	defer sr.mu.Unlock()
-	sr.metrics.CacheHit++
-}
-
-func (sr *sectorAccessRecorder) AddCacheMiss() {
-	sr.mu.Lock()
-	defer sr.mu.Unlock()
-	sr.metrics.CacheMiss++
 }
 
 // Run starts the recorder, flushing data at regular intervals.

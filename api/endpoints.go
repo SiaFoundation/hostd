@@ -265,9 +265,6 @@ func (a *api) handlePATCHSettings(jc jape.Context) {
 		return
 	}
 
-	// Resize the cache based on the updated settings
-	a.volumes.ResizeCache(settings.SectorCacheSize)
-
 	jc.Encode(a.settings.Settings())
 }
 

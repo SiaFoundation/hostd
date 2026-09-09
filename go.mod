@@ -6,7 +6,6 @@ require (
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/cloudflare/cloudflare-go v0.118.0
 	github.com/google/go-github v17.0.0+incompatible
-	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/shopspring/decimal v1.4.0
 	go.sia.tech/core v0.21.7
