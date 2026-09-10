@@ -19,7 +19,7 @@ import (
 func migrateVersion55(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`
 ALTER TABLE stored_sectors DROP COLUMN last_access_timestamp;
-ALTER TABLE stored_sectors ADD COLUMN ref_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE stored_sectors ADD COLUMN ref_count INTEGER NOT NULL DEFAULT 0 CHECK (ref_count >= 0);
 CREATE TABLE volume_sector_locks (
 	volume_sector_id INTEGER PRIMARY KEY REFERENCES volume_sectors(id) ON DELETE CASCADE
 );
