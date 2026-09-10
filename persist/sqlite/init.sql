@@ -33,7 +33,7 @@ CREATE INDEX wallet_events_maturity_height ON wallet_events(maturity_height DESC
 CREATE TABLE stored_sectors (
 	id INTEGER PRIMARY KEY,
 	sector_root BLOB UNIQUE NOT NULL,
-	ref_count INTEGER NOT NULL DEFAULT 0
+	ref_count INTEGER NOT NULL DEFAULT 0 CHECK (ref_count >= 0)
 );
 CREATE INDEX stored_sectors_sector_root ON stored_sectors(sector_root);
 CREATE INDEX stored_sectors_unreferenced ON stored_sectors(id) WHERE ref_count=0;

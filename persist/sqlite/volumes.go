@@ -476,8 +476,8 @@ func insertSectorDBID(tx *txn, root types.Hash256) (id int64, err error) {
 
 func checkVolumeSectorLocks(tx *txn, volumeID int64, minIndex uint64) error {
 	var index uint64
-	err := tx.QueryRow(`SELECT vs.volume_index FROM volume_sectors vs
-INNER JOIN volume_sector_locks l ON l.volume_sector_id=vs.id
+	err := tx.QueryRow(`SELECT vs.volume_index FROM volume_sector_locks l
+CROSS JOIN volume_sectors vs ON vs.id=l.volume_sector_id
 WHERE vs.volume_id=$1 AND vs.volume_index >= $2 LIMIT 1`, volumeID, minIndex).Scan(&index)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -487,6 +487,9 @@ WHERE vs.volume_id=$1 AND vs.volume_index >= $2 LIMIT 1`, volumeID, minIndex).Sc
 	return fmt.Errorf("sector at volume %d index %d is locked", volumeID, index)
 }
 
+// lockVolumeSector locks a volume location so concurrent
+// operations can't re-use it while disk IO is inflight. Requires
+// an exclusive write transaction.
 func lockVolumeSector(tx *txn, volumeSectorID int64) error {
 	_, err := tx.Exec(`INSERT INTO volume_sector_locks (volume_sector_id) VALUES ($1)`, volumeSectorID)
 	return err
