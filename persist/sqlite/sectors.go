@@ -130,27 +130,6 @@ func (s *Store) SectorLocation(root types.Hash256) (location storage.SectorLocat
 	return
 }
 
-// AddTempSector adds a sector to temporary storage. The sectors will be deleted
-// after the expiration height
-func (s *Store) AddTempSector(root types.Hash256, expiration uint64) error {
-	return s.writeTransaction(func(tx *txn) error {
-		// ensure the sector is written to a volume
-		var sectorID int64
-		err := tx.QueryRow(`SELECT ss.id FROM stored_sectors ss
-INNER JOIN volume_sectors vs ON (vs.sector_id = ss.id)
-WHERE ss.sector_root=$1`, encode(root)).Scan(&sectorID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return storage.ErrSectorNotFound
-		} else if err != nil {
-			return fmt.Errorf("failed to find sector: %w", err)
-		} else if err := incrementNumericStat(tx, metricTempSectors, 1, time.Now()); err != nil {
-			return fmt.Errorf("failed to update metric: %w", err)
-		}
-		_, err = tx.Exec(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) VALUES ($1, $2)`, sectorID, expiration)
-		return err
-	})
-}
-
 // AddTemporarySectors adds the roots of sectors that are temporarily stored
 // on the host. The sectors will be deleted after the expiration height.
 //
@@ -239,106 +218,112 @@ WHERE ss.sector_root=$1 AND (EXISTS (SELECT 1 FROM contract_sector_roots csr WHE
 	return
 }
 
-type volumeSectorRef struct {
-	VolumeID       int64
-	VolumeSectorID int64
+type pruneCandidate struct {
 	SectorID       int64
+	VolumeSectorID sql.NullInt64
+	VolumeID       sql.NullInt64
+	Referenced     bool
 }
 
-func updatePruneableVolumeSectors(tx *txn, lastAccess time.Time, afterSectorID int64) (refs []volumeSectorRef, err error) {
-	const selectQuery = `
-SELECT vs.id, vs.volume_id, vs.sector_id
-FROM volume_sectors vs
-INNER JOIN stored_sectors ss ON vs.sector_id=ss.id
-WHERE ss.id > $1
-	AND ss.last_access_timestamp < $2
-	AND NOT EXISTS (SELECT 1 FROM contract_sector_roots csr WHERE csr.sector_id=ss.id)
-	AND NOT EXISTS (SELECT 1 FROM contract_v2_sector_roots csr2 WHERE csr2.sector_id=ss.id)
-	AND NOT EXISTS (SELECT 1 FROM temp_storage_sector_roots tsr WHERE tsr.sector_id=ss.id)
-ORDER BY ss.id
-LIMIT $3;`
-
-	rows, err := tx.Query(selectQuery, afterSectorID, encode(lastAccess), sqlSectorBatchSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select volume sectors: %w", err)
+// removePruneCandidates releases the locations of the unreferenced candidates
+// and deletes their metadata. A candidate the reference tables still point at
+// has its count recomputed instead.
+func removePruneCandidates(tx *txn, log *zap.Logger, candidates []pruneCandidate) error {
+	var repairIDs, sectorIDs, volumeSectorIDs []any
+	volumeDeltas := make(map[int64]int)
+	for _, c := range candidates {
+		if c.Referenced {
+			repairIDs = append(repairIDs, c.SectorID)
+			continue
+		}
+		sectorIDs = append(sectorIDs, c.SectorID)
+		if c.VolumeSectorID.Valid {
+			volumeSectorIDs = append(volumeSectorIDs, c.VolumeSectorID.Int64)
+			volumeDeltas[c.VolumeID.Int64]--
+		}
 	}
-	refs, err = collectRows(rows, func(s scanner) (ref volumeSectorRef, err error) {
-		err = s.Scan(&ref.VolumeSectorID, &ref.VolumeID, &ref.SectorID)
-		return ref, err
+
+	if len(repairIDs) > 0 {
+		log.Warn("repairing sector reference counts", zap.Int("sectors", len(repairIDs)))
+		repairQuery := `UPDATE stored_sectors SET ref_count=(SELECT COUNT(*) FROM contract_sector_roots WHERE sector_id=stored_sectors.id)
+	+(SELECT COUNT(*) FROM contract_v2_sector_roots WHERE sector_id=stored_sectors.id)
+	+(SELECT COUNT(*) FROM temp_storage_sector_roots WHERE sector_id=stored_sectors.id)
+WHERE id IN (` + queryPlaceHolders(len(repairIDs)) + `)`
+		if _, err := tx.Exec(repairQuery, repairIDs...); err != nil {
+			return fmt.Errorf("failed to repair sector reference counts: %w", err)
+		}
+	}
+	if len(sectorIDs) == 0 {
+		return nil
+	}
+
+	if len(volumeSectorIDs) > 0 {
+		updateQuery := `UPDATE volume_sectors SET sector_id=NULL WHERE id IN (` + queryPlaceHolders(len(volumeSectorIDs)) + `)`
+		if _, err := tx.Exec(updateQuery, volumeSectorIDs...); err != nil {
+			return fmt.Errorf("failed to release volume sectors: %w", err)
+		}
+		for volumeID, delta := range volumeDeltas {
+			if err := incrementVolumeUsage(tx, volumeID, delta); err != nil {
+				return fmt.Errorf("failed to update volume %d usage: %w", volumeID, err)
+			}
+		}
+	}
+
+	deleteQuery := `DELETE FROM stored_sectors WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `)`
+	if _, err := tx.Exec(deleteQuery, sectorIDs...); err != nil {
+		return fmt.Errorf("failed to delete stored sectors: %w", err)
+	}
+	return nil
+}
+
+// pruneSectorBatch removes up to sqlSectorBatchSize unreferenced sectors and
+// returns the number of candidates it considered.
+func pruneSectorBatch(tx *txn, log *zap.Logger) (int, error) {
+	const query = `SELECT ss.id, vs.id, vs.volume_id,
+	EXISTS (SELECT 1 FROM contract_sector_roots csr WHERE csr.sector_id=ss.id)
+	OR EXISTS (SELECT 1 FROM contract_v2_sector_roots csr2 WHERE csr2.sector_id=ss.id)
+	OR EXISTS (SELECT 1 FROM temp_storage_sector_roots tsr WHERE tsr.sector_id=ss.id)
+FROM stored_sectors ss
+LEFT JOIN volume_sectors vs ON vs.sector_id=ss.id
+WHERE ss.ref_count=0
+ORDER BY ss.id
+LIMIT $1`
+	rows, err := tx.Query(query, sqlSectorBatchSize)
+	if err != nil {
+		return 0, fmt.Errorf("failed to select sectors: %w", err)
+	}
+	candidates, err := collectRows(rows, func(s scanner) (c pruneCandidate, err error) {
+		err = s.Scan(&c.SectorID, &c.VolumeSectorID, &c.VolumeID, &c.Referenced)
+		return c, err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get volume sectors: %w", err)
-	} else if len(refs) == 0 {
-		return nil, nil
+		return 0, fmt.Errorf("failed to scan sectors: %w", err)
+	} else if err := removePruneCandidates(tx, log, candidates); err != nil {
+		return 0, err
 	}
-
-	volumeSectorIDs := make([]any, 0, len(refs))
-	for _, ref := range refs {
-		volumeSectorIDs = append(volumeSectorIDs, ref.VolumeSectorID)
-	}
-
-	// update the volume_sectors table to null out the sector_id
-	updateQuery := `UPDATE volume_sectors SET sector_id=null WHERE id IN (` + queryPlaceHolders(len(refs)) + `)`
-	if _, err := tx.Exec(updateQuery, volumeSectorIDs...); err != nil {
-		return nil, fmt.Errorf("failed to update volume sectors: %w", err)
-	}
-	return refs, nil
+	return len(candidates), nil
 }
 
-// PruneSectors removes volume references for sectors that have not been accessed since the provided
-// timestamp and are no longer referenced by a contract or temp storage.
-func (s *Store) PruneSectors(ctx context.Context, lastAccess time.Time) error {
-	// note: last access can be removed after v2 when sectors are immediately committed to temp storage
-	var afterSectorID int64
-	for i := 0; ; i++ {
+// PruneSectors removes sectors that are no longer referenced by a contract or
+// temp storage.
+func (s *Store) PruneSectors(ctx context.Context) error {
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		var (
-			done bool
-			refs []volumeSectorRef
-		)
-		err := s.writeTransaction(func(tx *txn) error {
-			var err error
-			refs, err = updatePruneableVolumeSectors(tx, lastAccess, afterSectorID)
-			if err != nil {
-				return fmt.Errorf("failed to select volume sectors: %w", err)
-			} else if len(refs) == 0 {
-				done = true
-				return nil
-			}
-
-			volumeDeltas := make(map[int64]int)
-			sectorIDs := make([]any, 0, len(refs))
-			for _, ref := range refs {
-				volumeDeltas[ref.VolumeID]--
-				sectorIDs = append(sectorIDs, ref.SectorID)
-			}
-
-			for volumeID, delta := range volumeDeltas {
-				if err := incrementVolumeUsage(tx, volumeID, delta); err != nil {
-					return fmt.Errorf("failed to update volume %d usage: %w", volumeID, err)
-				}
-			}
-
-			// delete the orphaned stored_sectors entries
-			deleteQuery := `DELETE FROM stored_sectors WHERE id IN (` + queryPlaceHolders(len(sectorIDs)) + `)`
-			if _, err := tx.Exec(deleteQuery, sectorIDs...); err != nil {
-				return fmt.Errorf("failed to delete stored sectors: %w", err)
-			}
-			return nil
+		var n int
+		err := s.writeTransaction(func(tx *txn) (err error) {
+			n, err = pruneSectorBatch(tx, s.log)
+			return err
 		})
 		if err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
-		} else if done {
+		} else if n == 0 {
 			return nil
 		}
-		// continue after the last sector pruned instead of repeatedly scanning
-		// retained sectors at the beginning of the table for every batch.
-		afterSectorID = refs[len(refs)-1].SectorID
 		jitterSleep(50 * time.Millisecond)
 	}
 }

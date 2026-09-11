@@ -331,9 +331,15 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 		log:      log,
 	}
 	if err := store.init(int64(len(migrations) + 1)); err != nil {
-		defer readerDB.Close()
-		defer writerDB.Close()
+		if closeErr := store.Close(); closeErr != nil {
+			log.Warn("failed to close store after init failure", zap.Error(closeErr))
+		}
 		return nil, err
+	} else if err := store.writeTransaction(clearVolumeSectorLocks); err != nil {
+		if closeErr := store.Close(); closeErr != nil {
+			log.Warn("failed to close store after volume lock clear failure", zap.Error(closeErr))
+		}
+		return nil, fmt.Errorf("failed to clear sector write locks: %w", err)
 	}
 	sqliteVersion, _, _ := sqlite3.Version()
 	log.Debug("database initialized", zap.String("sqliteVersion", sqliteVersion), zap.Int("schemaVersion", len(migrations)+1), zap.String("path", fp))

@@ -3,15 +3,15 @@ package storage
 import (
 	"context"
 	"errors"
-	"time"
 
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 )
 
 type (
-	// StoreFunc is called for every sector that needs written
-	// to disk.
+	// StoreFunc is called with an empty location the sector should be written
+	// and synced to. The location is locked until the write is published or
+	// fails.
 	StoreFunc func(loc SectorLocation) error
 	// MigrateFunc is called for every sector that needs migration.
 	// The sector should be migrated from 'from' to 'to' during
@@ -39,7 +39,8 @@ type (
 		// nil is returned.
 		GrowVolume(volumeID int64, maxSectors uint64) error
 		// ShrinkVolume shrinks a storage volume's metadata to maxSectors. If
-		// there are used sectors in the shrink range, an error is returned.
+		// there are used sectors or locked locations in the shrink range, an
+		// error is returned.
 		ShrinkVolume(volumeID int64, maxSectors uint64) error
 
 		// SetReadOnly sets the read-only flag on a volume.
@@ -47,23 +48,23 @@ type (
 		// SetAvailable sets the available flag on a volume.
 		SetAvailable(volumeID int64, available bool) error
 
-		// PruneSectors removes all sectors that have not been accessed since
-		// lastAccess and are no longer referenced by a contract or temp storage.
-		// If the context is canceled, pruning is stopped and the function returns
-		// with the error.
-		PruneSectors(ctx context.Context, lastAccess time.Time) error
+		// PruneSectors removes all sectors that are no longer referenced by a
+		// contract or temp storage. If the context is canceled, pruning is
+		// stopped and the function returns with the error.
+		PruneSectors(ctx context.Context) error
 
 		// MigrateSectors returns a new location for each occupied sector of a
 		// volume starting at min. The sector data should be copied to the new
 		// location and synced to disk during migrateFn. If migrateFn returns an
 		// error, migration will continue, but that sector is not migrated.
 		MigrateSectors(ctx context.Context, volumeID int64, min uint64, fn MigrateFunc) (migrated, failed int, err error)
-		// StoreSector calls fn with an empty location in a writable volume. If
-		// the sector root already exists, nil is returned. The sector should be
-		// written to disk within fn. If fn returns an error, the metadata is
-		// rolled back and the error is returned. If no space is available,
+		// AddTempSector adds a temporary reference to a sector. If the sector
+		// is not stored, fn is called with an empty location and the sector is
+		// published with its reference after fn succeeds. If a concurrent
+		// upload completes the same root first, its copy is used and the
+		// reservation is released. If no space is available,
 		// ErrNotEnoughStorage is returned.
-		StoreSector(root types.Hash256, fn StoreFunc) error
+		AddTempSector(root types.Hash256, expiration uint64, fn StoreFunc) error
 		// RemoveSector removes the metadata of a sector and returns its
 		// location in the volume.
 		RemoveSector(root types.Hash256) error
@@ -78,9 +79,6 @@ type (
 		// SectorMetadata returns the metadata of a sector or an error if the
 		// sector is not found.
 		SectorMetadata(types.Hash256) (SectorMetadata, error)
-		// AddTempSector adds a sector to temporary storage. The sectors will be deleted
-		// after the expiration height
-		AddTempSector(root types.Hash256, expiration uint64) error
 		// AddTemporarySectors adds a list of sectors to the temporary store.
 		// The sectors are not referenced by a contract and will be removed
 		// at the expiration height.

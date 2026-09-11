@@ -13,6 +13,65 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion55 adds a reference count to stored_sectors maintained by
+// triggers on the contract and temp storage root tables, replaces the last
+// access timestamp with volume_sector_locks and indexes unreferenced sectors.
+func migrateVersion55(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`
+ALTER TABLE stored_sectors DROP COLUMN last_access_timestamp;
+ALTER TABLE stored_sectors ADD COLUMN ref_count INTEGER NOT NULL DEFAULT 0 CHECK (ref_count >= 0);
+CREATE TABLE volume_sector_locks (
+	volume_sector_id INTEGER PRIMARY KEY REFERENCES volume_sectors(id) ON DELETE CASCADE
+);
+CREATE INDEX stored_sectors_unreferenced ON stored_sectors(id) WHERE ref_count=0;
+CREATE TRIGGER contract_sector_roots_ref_count_insert AFTER INSERT ON contract_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER contract_sector_roots_ref_count_delete AFTER DELETE ON contract_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+END;
+CREATE TRIGGER contract_sector_roots_ref_count_update AFTER UPDATE OF sector_id ON contract_sector_roots
+WHEN OLD.sector_id != NEW.sector_id
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER contract_v2_sector_roots_ref_count_insert AFTER INSERT ON contract_v2_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER contract_v2_sector_roots_ref_count_delete AFTER DELETE ON contract_v2_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+END;
+CREATE TRIGGER contract_v2_sector_roots_ref_count_update AFTER UPDATE OF sector_id ON contract_v2_sector_roots
+WHEN OLD.sector_id != NEW.sector_id
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER temp_storage_sector_roots_ref_count_insert AFTER INSERT ON temp_storage_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;
+CREATE TRIGGER temp_storage_sector_roots_ref_count_delete AFTER DELETE ON temp_storage_sector_roots
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+END;
+CREATE TRIGGER temp_storage_sector_roots_ref_count_update AFTER UPDATE OF sector_id ON temp_storage_sector_roots
+WHEN OLD.sector_id != NEW.sector_id
+BEGIN
+	UPDATE stored_sectors SET ref_count=ref_count-1 WHERE id=OLD.sector_id;
+	UPDATE stored_sectors SET ref_count=ref_count+1 WHERE id=NEW.sector_id;
+END;`)
+	if err != nil {
+		return fmt.Errorf("failed to update sector schema: %w", err)
+	}
+	return recalcSectorReferences(tx)
+}
+
 // migrateVersion54 moves the merkle cache into its own table. The cached roots
 // are not carried over, they are rebuilt on the next read.
 //
@@ -1552,4 +1611,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion52,
 	migrateVersion53,
 	migrateVersion54,
+	migrateVersion55,
 }

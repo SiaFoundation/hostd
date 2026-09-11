@@ -211,7 +211,7 @@ func TestReviseContract(t *testing.T) {
 		t.Helper()
 
 		// prune all possible sectors
-		if err := db.PruneSectors(context.Background(), time.Now().Add(time.Hour)); err != nil {
+		if err := db.PruneSectors(context.Background()); err != nil {
 			return fmt.Errorf("failed to prune sectors: %w", err)
 		}
 
@@ -260,7 +260,7 @@ func TestReviseContract(t *testing.T) {
 		var appended []types.Hash256
 		for range n {
 			root := frand.Entropy256()
-			err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+			err := db.AddTempSector(root, 100, func(loc storage.SectorLocation) error { return nil })
 			if err != nil {
 				t.Fatal("failed to store sector:", err)
 			}
@@ -269,6 +269,8 @@ func TestReviseContract(t *testing.T) {
 		newRoots := append(append([]types.Hash256(nil), roots...), appended...)
 		if err := db.ReviseContract(contract, roots, newRoots, contracts.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
+		} else if err := db.ExpireTempSectors(100); err != nil {
+			t.Fatal("failed to expire temp sectors:", err)
 		}
 
 		checkConsistency(t, newRoots)
@@ -609,7 +611,7 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 		var appended []types.Hash256
 		for range n {
 			root := frand.Entropy256()
-			err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+			err := db.AddTempSector(root, 100, func(loc storage.SectorLocation) error { return nil })
 			if err != nil {
 				t.Fatal("failed to store sector:", err)
 			}
@@ -620,6 +622,8 @@ func TestReviseV2ContractConsistency(t *testing.T) {
 		contract.V2FileContract.Filesize = proto4.SectorSize * uint64(len(newRoots))
 		if err := db.ReviseV2Contract(contract.ID, contract.V2FileContract, roots, newRoots, proto4.Usage{}); err != nil {
 			t.Fatal("failed to revise contract:", err)
+		} else if err := db.ExpireTempSectors(100); err != nil {
+			t.Fatal("failed to expire temp sectors:", err)
 		}
 
 		checkRootConsistency(t, newRoots)
@@ -757,7 +761,7 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 		var roots []types.Hash256
 		for range n {
 			root := frand.Entropy256()
-			if err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil }); err != nil {
+			if err := db.AddTempSector(root, 100, func(loc storage.SectorLocation) error { return nil }); err != nil {
 				t.Fatal(err)
 			}
 			roots = append(roots, root)
@@ -1103,10 +1107,8 @@ func BenchmarkV2AppendSectors(b *testing.B) {
 		root := types.Hash256(frand.Entropy256())
 		roots = append(roots, root)
 
-		err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+		err := db.AddTempSector(root, 100, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
-			b.Fatal(err)
-		} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -1156,10 +1158,8 @@ func BenchmarkV2TrimSectors(b *testing.B) {
 		root := types.Hash256(frand.Entropy256())
 		roots = append(roots, root)
 
-		err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+		err := db.AddTempSector(root, 100, func(loc storage.SectorLocation) error { return nil })
 		if err != nil {
-			b.Fatal(err)
-		} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -1218,10 +1218,8 @@ func BenchmarkRefreshContract(b *testing.B) {
 				root := types.Hash256(frand.Entropy256())
 				roots = append(roots, root)
 
-				err := db.StoreSector(root, func(loc storage.SectorLocation) error { return nil })
+				err := db.AddTempSector(root, 100, func(loc storage.SectorLocation) error { return nil })
 				if err != nil {
-					b.Fatal(err)
-				} else if err := db.AddTemporarySectors([]storage.TempSector{{Root: root, Expiration: 100}}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -1305,7 +1303,7 @@ func BenchmarkExpireV2ContractSectors(b *testing.B) {
 	roots := make([]types.Hash256, contractSectors)
 	for i := range roots {
 		roots[i] = frand.Entropy256()
-		if err := db.StoreSector(roots[i], func(loc storage.SectorLocation) error { return nil }); err != nil {
+		if err := db.AddTempSector(roots[i], 100, func(loc storage.SectorLocation) error { return nil }); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -1381,7 +1379,7 @@ func BenchmarkExpireV2ContractSectorsSuperseded(b *testing.B) {
 	roots := make([]types.Hash256, contractSectors)
 	for i := range roots {
 		roots[i] = frand.Entropy256()
-		if err := db.StoreSector(roots[i], func(loc storage.SectorLocation) error { return nil }); err != nil {
+		if err := db.AddTempSector(roots[i], 100, func(loc storage.SectorLocation) error { return nil }); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -1413,7 +1411,7 @@ func BenchmarkExpireV2ContractSectorsSuperseded(b *testing.B) {
 	newRoots := make([]types.Hash256, contractSectors)
 	for i := range newRoots {
 		newRoots[i] = frand.Entropy256()
-		if err := db.StoreSector(newRoots[i], func(loc storage.SectorLocation) error { return nil }); err != nil {
+		if err := db.AddTempSector(newRoots[i], 100, func(loc storage.SectorLocation) error { return nil }); err != nil {
 			b.Fatal(err)
 		}
 	}

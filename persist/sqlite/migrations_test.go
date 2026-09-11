@@ -1,7 +1,9 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	proto4 "go.sia.tech/core/rhp/v4"
 	"go.sia.tech/core/types"
 	"go.sia.tech/hostd/v2/host/contracts"
+	"go.sia.tech/hostd/v2/host/storage"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
@@ -383,6 +386,51 @@ func TestMigrationConsistency(t *testing.T) {
 		}
 	}
 
+	getTriggers := func(db *sql.DB) (map[string]bool, error) {
+		const query = `SELECT name, tbl_name, sql FROM sqlite_schema WHERE type='trigger'`
+		rows, err := db.Query(query)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		triggers := make(map[string]bool)
+		for rows.Next() {
+			var name, table, sqlStr string
+			if err := rows.Scan(&name, &table, &sqlStr); err != nil {
+				return nil, err
+			}
+			triggers[fmt.Sprintf("%s.%s.%s", name, table, sqlStr)] = true
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return triggers, nil
+	}
+
+	// ensure the migrated database has the same triggers as the baseline
+	baselineTriggers, err := getTriggers(baseline.readerDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	migratedTriggers, err := getTriggers(store.readerDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for k := range baselineTriggers {
+		if !migratedTriggers[k] {
+			t.Errorf("missing trigger %s", k)
+		}
+	}
+
+	for k := range migratedTriggers {
+		if !baselineTriggers[k] {
+			t.Errorf("unexpected trigger %s", k)
+		}
+	}
+
 	getTables := func(db *sql.DB) (map[string]bool, error) {
 		const query = `SELECT name FROM sqlite_schema WHERE type='table'`
 		rows, err := db.Query(query)
@@ -714,5 +762,81 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 		t.Fatal("unexpected", m.Revenue.Earned.Storage)
 	} else if m.Storage.ContractSectors != 1 {
 		t.Fatal("unexpected", m.Storage.ContractSectors)
+	}
+}
+
+// TestMigrateV55 ensures the migration from version 54 to 55 computes the
+// reference count of existing sectors and that pruning works afterwards.
+func TestMigrateV55(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
+	store := initDBVersion(t, fp, 54, log)
+
+	roots := make([]types.Hash256, 4)
+	for i := range roots {
+		roots[i] = frand.Entropy256()
+	}
+	contractRoot, tempRoot, sharedRoot, unreferencedRoot := roots[0], roots[1], roots[2], roots[3]
+
+	// populate the pre-migration schema directly
+	err := store.transaction(func(tx *txn) error {
+		if _, err := tx.Exec(`INSERT INTO storage_volumes (id, disk_path, used_sectors, total_sectors, read_only, available) VALUES (1, 'test', 4, 4, false, true)`); err != nil {
+			return err
+		} else if err := incrementNumericStat(tx, metricPhysicalSectors, len(roots), time.Now()); err != nil {
+			return err
+		} else if _, err := tx.Exec(`INSERT INTO contract_v2_roots_map (id, revision_number) VALUES (1, 0)`); err != nil {
+			return err
+		}
+		for i, root := range roots {
+			if _, err := tx.Exec(`INSERT INTO stored_sectors (id, sector_root, last_access_timestamp) VALUES ($1, $2, $3)`, i+1, encode(root), encode(time.Now())); err != nil {
+				return err
+			} else if _, err := tx.Exec(`INSERT INTO volume_sectors (volume_id, volume_index, sector_id) VALUES (1, $1, $2)`, i, i+1); err != nil {
+				return err
+			}
+		}
+		// the contract holds contractRoot and sharedRoot, temp storage holds
+		// tempRoot and sharedRoot
+		if _, err := tx.Exec(`INSERT INTO contract_v2_sector_roots (sector_id, root_index, contract_v2_roots_map_id, contract_v2_roots_map_revision_number) VALUES (1, 0, 1, 0), (3, 1, 1, 0)`); err != nil {
+			return err
+		} else if _, err := tx.Exec(`INSERT INTO temp_storage_sector_roots (sector_id, expiration_height) VALUES (2, 100), (3, 100)`); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	} else if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = OpenDatabase(fp, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	assertRefCount := func(t *testing.T, root types.Hash256, expected int) {
+		t.Helper()
+		var n int
+		if err := store.readerDB.QueryRow(`SELECT ref_count FROM stored_sectors WHERE sector_root=$1`, encode(root)).Scan(&n); err != nil {
+			t.Fatal(err)
+		} else if n != expected {
+			t.Fatalf("expected ref_count %d for %v, got %d", expected, root, n)
+		}
+	}
+	assertRefCount(t, contractRoot, 1)
+	assertRefCount(t, tempRoot, 1)
+	assertRefCount(t, sharedRoot, 2)
+
+	if err := store.PruneSectors(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []types.Hash256{contractRoot, tempRoot, sharedRoot} {
+		if _, err := store.SectorLocation(root); err != nil {
+			t.Fatalf("expected sector %v to be retained: %s", root, err)
+		}
+	}
+	if _, err := store.SectorLocation(unreferencedRoot); !errors.Is(err, storage.ErrSectorNotFound) {
+		t.Fatalf("expected ErrSectorNotFound, got %v", err)
 	}
 }
