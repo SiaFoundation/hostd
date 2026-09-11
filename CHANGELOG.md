@@ -1,3 +1,30 @@
+## 2.11.0 (2026-09-11)
+
+### Features
+
+#### Index unreferenced sectors for pruning
+
+Sectors now track how many contract and temp storage references they have, and
+a location holds a lock while a sector is being written to it. The prune sweep
+reads unreferenced sectors from an index instead of scanning every stored
+sector, which on a 100 TiB host held the database for about six seconds every
+five minutes. The last access timestamp is removed. The upgrade computes the
+counts for existing sectors and rewrites the sector table, which takes about a
+minute at that size.
+
+### Fixes
+
+- Allow concurrent database reads
+- Fix high CPU usage during sector pruning
+- Removed the in-memory sector cache, the sectorCacheSize setting is now ignored
+- Reverted back to encoding/json from sonic.
+
+#### Fix the merkle cache bloating the stored sectors table
+
+The cache kept 32 KiB of subtree roots inline on every sector row, which slowed
+sector reads, pruning and contract root lookups. Cached roots are discarded on
+upgrade and rebuilt on the next read.
+
 ## 2.10.3 (2026-09-01)
 
 ### Fixes
