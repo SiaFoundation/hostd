@@ -302,6 +302,8 @@ LIMIT 1;`
 				err = fmt.Errorf("failed to release locations: %w", err)
 				return
 			}
+			// allow other transactions to run
+			jitterSleep(50 * time.Millisecond) // maximum of 48000 sectors per hour
 			continue
 		}
 
