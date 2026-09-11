@@ -520,6 +520,150 @@ func TestShrinkVolume(t *testing.T) {
 	}
 }
 
+func TestMigrateSourceNotPruned(t *testing.T) {
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	source, err := addTestVolume(db, "source", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// an unreferenced sector is a prune candidate
+	root := frand.Entropy256()
+	if err := db.AddTempSector(root, 100, func(storage.SectorLocation) error { return nil }); err != nil {
+		t.Fatal(err)
+	} else if err := db.ExpireTempSectors(100); err != nil {
+		t.Fatal(err)
+	} else if err := db.SetReadOnly(source.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	destination, err := addTestVolume(db, "destination", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, failed, err := db.MigrateSectors(context.Background(), source.ID, 0, func(from, _ storage.SectorLocation) error {
+		// the sweep must not release the source while it is being copied
+		if err := db.PruneSectors(context.Background()); err != nil {
+			t.Fatal(err)
+		} else if loc, err := db.SectorLocation(root); err != nil {
+			t.Fatal(err)
+		} else if loc.ID != from.ID {
+			t.Fatalf("source released during copy: %+v", loc)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	} else if migrated != 1 || failed != 0 {
+		t.Fatalf("unexpected counts: %d migrated, %d failed", migrated, failed)
+	}
+	if loc, err := db.SectorLocation(root); err != nil {
+		t.Fatal(err)
+	} else if loc.Volume != destination.ID {
+		t.Fatalf("sector remains in volume %d", loc.Volume)
+	}
+	// once unlocked, the sweep removes it
+	if err := db.PruneSectors(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if _, err := db.SectorLocation(root); !errors.Is(err, storage.ErrSectorNotFound) {
+		t.Fatalf("expected pruned sector, got %v", err)
+	}
+}
+
+func TestMigrateDestinationLocks(t *testing.T) {
+	for _, failCommit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failCommit=%v", failCommit), func(t *testing.T) {
+			db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), zap.NewNop())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			source, err := addTestVolume(db, "source", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := types.Hash256(frand.Entropy256())
+			if err := db.AddTempSector(root, 100, func(storage.SectorLocation) error { return nil }); err != nil {
+				t.Fatal(err)
+			} else if err := db.SetReadOnly(source.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			destination, err := addTestVolume(db, "destination", 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// steer the allocator to index 1
+			err = db.writeTransaction(func(tx *txn) error {
+				_, err := tx.Exec(`UPDATE volume_sectors SET sector_writes=1 WHERE volume_id=$1 AND volume_index=0`, destination.ID)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			migrated, failed, err := db.MigrateSectors(context.Background(), source.ID, 0, func(from, to storage.SectorLocation) error {
+				if to.Volume != destination.ID || to.Index != 1 {
+					t.Fatalf("unexpected destination: %+v", to)
+				}
+				for _, force := range []bool{false, true} {
+					if err := db.RemoveVolume(destination.ID, force); err == nil {
+						t.Fatalf("removed reserved destination with force=%v", force)
+					}
+				}
+				if err := db.ShrinkVolume(destination.ID, 1); err == nil {
+					t.Fatal("shrunk reserved destination")
+				}
+				// a reservation inside the retained range does not block shrinking
+				if err := db.GrowVolume(destination.ID, 3); err != nil {
+					t.Fatal(err)
+				} else if err := db.ShrinkVolume(destination.ID, 2); err != nil {
+					t.Fatal(err)
+				}
+				if vol, err := db.Volume(destination.ID); err != nil {
+					t.Fatal(err)
+				} else if vol.TotalSectors != 2 || vol.UsedSectors != 0 {
+					t.Fatalf("destination changed: %+v", vol)
+				}
+				if failCommit {
+					// fail the location swap
+					return db.writeTransaction(func(tx *txn) error {
+						_, err := tx.Exec(`CREATE TRIGGER fail_migration BEFORE UPDATE OF sector_id ON volume_sectors
+WHEN NEW.sector_id IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'injected migration failure'); END`)
+						return err
+					})
+				}
+				return nil
+			})
+			if failCommit && err == nil || !failCommit && err != nil {
+				t.Fatalf("unexpected migration error: %v", err)
+			} else if failed != 0 || failCommit && migrated != 0 || !failCommit && migrated != 1 {
+				t.Fatalf("unexpected counts: %d migrated, %d failed", migrated, failed)
+			}
+			var locks int
+			if err := db.readerDB.QueryRow(`SELECT COUNT(*) FROM volume_sector_locks`).Scan(&locks); err != nil {
+				t.Fatal(err)
+			} else if locks != 0 {
+				t.Fatalf("migration left %d locks", locks)
+			}
+			if failCommit {
+				if loc, err := db.SectorLocation(root); err != nil {
+					t.Fatal(err)
+				} else if loc.Volume != source.ID {
+					t.Fatalf("source was not restored: %+v", loc)
+				}
+				if err := db.ShrinkVolume(destination.ID, 1); err != nil {
+					t.Fatal(err)
+				} else if err := db.RemoveVolume(destination.ID, false); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func TestMigrateConcurrency(t *testing.T) {
 	const initialSectors = 256
 	log := zap.NewNop()

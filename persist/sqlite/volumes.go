@@ -244,18 +244,19 @@ func (s *Store) MigrateSectors(ctx context.Context, volumeID int64, startIndex u
 			return
 		}
 
-		var done, sectorMigrated, sectorFailed bool
-		var nextIndex uint64
+		// reserve the source and destination
+		var done bool
+		var sectorID int64
+		var from, to storage.SectorLocation
 		err = s.writeTransaction(func(tx *txn) error {
-			const query = `SELECT vs.id, vs.volume_id, vs.volume_index, ss.sector_root, vs.sector_id FROM volume_sectors vs
+			done = false
+			const query = `SELECT vs.id, vs.volume_id, vs.volume_index, ss.sector_root, vs.sector_id
+FROM volume_sectors vs
 LEFT JOIN stored_sectors ss ON vs.sector_id=ss.id
 WHERE vs.volume_id=$1 AND vs.volume_index >= $2 AND vs.sector_id IS NOT NULL
 ORDER BY vs.volume_index ASC
 LIMIT 1;`
 
-			sectorMigrated, sectorFailed = false, false
-			var sectorID int64
-			var from storage.SectorLocation
 			err := tx.QueryRow(query, volumeID, index).Scan(&from.ID, &from.Volume, &from.Index, decodeNullable(&from.Root), &sectorID)
 			if errors.Is(err, sql.ErrNoRows) {
 				done = true
@@ -263,65 +264,91 @@ LIMIT 1;`
 			} else if err != nil {
 				return fmt.Errorf("failed to get sector: %w", err)
 			}
-			nextIndex = from.Index + 1 // the start index for the next iteration
 
-			to, err := emptyLocationForMigration(tx, volumeID, startIndex)
+			to, err = emptyLocationForMigration(tx, volumeID, startIndex)
 			if err != nil {
 				return fmt.Errorf("failed to get empty location: %w", err)
 			}
 			to.Root = from.Root
 
-			// this does introduce a performance concern where the database is now locked while
-			// waiting on disk I/O. This is acceptable since it's extremely important that migrations
-			// are atomic.
-			if migrateErr := migrateFn(from, to); migrateErr != nil {
-				log.Error("failed to migrate sector", zap.Error(migrateErr), zap.Uint64("index", from.Index), zap.Stringer("root", from.Root))
-				sectorFailed = true
-				return nil
+			if err := lockVolumeSector(tx, from.ID); err != nil {
+				return fmt.Errorf("failed to lock source: %w", err)
+			} else if err := lockVolumeSector(tx, to.ID); err != nil {
+				return fmt.Errorf("failed to lock destination: %w", err)
 			}
+			return nil
+		})
+		if err != nil {
+			err = fmt.Errorf("failed to reserve sector: %w", err)
+			return
+		} else if done {
+			return
+		}
+		index = from.Index + 1
 
+		release := func(tx *txn) error {
+			if err := releaseVolumeSector(tx, from.ID); err != nil {
+				return fmt.Errorf("failed to release source: %w", err)
+			} else if err := releaseVolumeSector(tx, to.ID); err != nil {
+				return fmt.Errorf("failed to release destination: %w", err)
+			}
+			return nil
+		}
+
+		if migrateErr := migrateFn(from, to); migrateErr != nil {
+			log.Error("failed to migrate sector", zap.Error(migrateErr), zap.Uint64("index", from.Index), zap.Stringer("root", from.Root))
+			failed++
+			if err = s.writeTransaction(release); err != nil {
+				err = fmt.Errorf("failed to release locations: %w", err)
+				return
+			}
+			// allow other transactions to run
+			jitterSleep(50 * time.Millisecond) // maximum of 48000 sectors per hour
+			continue
+		}
+
+		// swap the sector to the destination
+		var moved bool
+		err = s.writeTransaction(func(tx *txn) error {
+			moved = false
 			res, err := tx.Exec(`UPDATE volume_sectors SET sector_id=NULL WHERE id=$1 AND sector_id=$2`, from.ID, sectorID)
 			if err != nil {
 				return fmt.Errorf("failed to clear old sector location: %w", err)
 			} else if n, err := res.RowsAffected(); err != nil {
 				return fmt.Errorf("failed to get rows affected: %w", err)
-			} else if n != 1 {
-				return errors.New("failed to clear old sector location: no rows affected")
+			} else if n == 0 {
+				// the sector was removed during the copy
+				return release(tx)
 			}
 
-			res, err = tx.Exec(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2`, sectorID, to.ID)
+			res, err = tx.Exec(`UPDATE volume_sectors SET sector_id=$1 WHERE id=$2 AND sector_id IS NULL`, sectorID, to.ID)
 			if err != nil {
 				return fmt.Errorf("failed to update sector location: %w", err)
 			} else if n, err := res.RowsAffected(); err != nil {
 				return fmt.Errorf("failed to get rows affected: %w", err)
 			} else if n != 1 {
-				return errors.New("failed to update sector location: no rows affected")
+				return errors.New("failed to update sector location: destination is gone")
 			}
+			moved = true
 
-			sectorMigrated = true
-			log.Debug("migrated sector", zap.Uint64("fromIndex", from.Index), zap.Int64("fromVolume", from.Volume), zap.Uint64("toIndex", to.Index), zap.Int64("toVolume", to.Volume), zap.Stringer("root", from.Root))
-			if from.Volume == to.Volume {
-				return nil // skip updating metrics if the volume is not changing
+			if from.Volume != to.Volume {
+				if err := incrementVolumeUsage(tx, from.Volume, -1); err != nil {
+					return fmt.Errorf("failed to update old volume metadata: %w", err)
+				} else if err := incrementVolumeUsage(tx, to.Volume, 1); err != nil {
+					return fmt.Errorf("failed to update new volume metadata: %w", err)
+				}
 			}
-
-			if err := incrementVolumeUsage(tx, from.Volume, -1); err != nil {
-				return fmt.Errorf("failed to update old volume metadata: %w", err)
-			} else if err := incrementVolumeUsage(tx, to.Volume, 1); err != nil {
-				return fmt.Errorf("failed to update new volume metadata: %w", err)
-			}
-			return nil
+			return release(tx)
 		})
 		if err != nil {
 			err = fmt.Errorf("failed to migrate sector: %w", err)
+			if releaseErr := s.writeTransaction(release); releaseErr != nil {
+				err = errors.Join(err, fmt.Errorf("failed to release locations: %w", releaseErr))
+			}
 			return
-		} else if done {
-			return
-		}
-		index = nextIndex
-		if sectorFailed {
-			failed++
-		} else if sectorMigrated {
+		} else if moved {
 			migrated++
+			log.Debug("migrated sector", zap.Uint64("fromIndex", from.Index), zap.Int64("fromVolume", from.Volume), zap.Uint64("toIndex", to.Index), zap.Int64("toVolume", to.Volume), zap.Stringer("root", from.Root))
 		}
 		// allow other transactions to run
 		jitterSleep(50 * time.Millisecond) // maximum of 48000 sectors per hour
