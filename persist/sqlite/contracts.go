@@ -360,12 +360,14 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots, newR
 	})
 }
 
-// V2SectorRoots returns the sector roots for all active v2 contracts.
-func (s *Store) V2SectorRoots() (roots map[types.FileContractID][]types.Hash256, err error) {
+// V2SectorRoots returns the sector roots of all v2 contracts that have not
+// been rejected and are either unresolved or were resolved at or after
+// minHeight.
+func (s *Store) V2SectorRoots(minHeight uint64) (roots map[types.FileContractID][]types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const contractsQuery = `SELECT contract_id, raw_revision, contract_v2_roots_map_id, contract_v2_roots_map_revision_number FROM contracts_v2
-WHERE contract_status <> $1 AND resolution_height IS NULL;`
-		rows, err := tx.Query(contractsQuery, contracts.V2ContractStatusRejected)
+WHERE contract_status <> $1 AND (resolution_height IS NULL OR last_updated_height >= $2);`
+		rows, err := tx.Query(contractsQuery, contracts.V2ContractStatusRejected, minHeight)
 		if err != nil {
 			return err
 		}

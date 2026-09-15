@@ -1645,7 +1645,7 @@ func TestV2SectorRoots(t *testing.T) {
 			}
 		}
 
-		dbRoots, err := node.Store.V2SectorRoots()
+		dbRoots, err := node.Store.V2SectorRoots(node.Chain.Tip().Height - contracts.ReorgBuffer)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1902,7 +1902,7 @@ func TestV2SectorRootConsistency(t *testing.T) {
 	assertDBRoots := func(t *testing.T, contractID types.FileContractID, expected []types.Hash256) {
 		t.Helper()
 
-		dbRoots, err := node.Store.V2SectorRoots()
+		dbRoots, err := node.Store.V2SectorRoots(node.Chain.Tip().Height - contracts.ReorgBuffer)
 		if err != nil {
 			t.Fatal("failed to load sector roots:", err)
 		}
@@ -2016,9 +2016,19 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		}
 		assertRoots(t, renewalID2, roots)
 		assertDBRoots(t, renewalID2, roots)
-		assertDBRoots(t, renewalID1, nil)
+		// the renewed contract's roots are retained until the renewal is
+		// outside the reorg buffer
+		assertDBRoots(t, renewalID1, roots)
 
-		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal2.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+		assertDBRoots(t, renewalID1, nil)
+		assertDBRoots(t, renewalID2, roots)
+
+		// roots are retained until the resolution is outside the reorg buffer
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal2.ProofHeight-node.Chain.Tip().Height)+1)
+		assertDBRoots(t, renewalID2, roots)
+
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertDBRoots(t, renewalID1, nil)
 		assertDBRoots(t, renewalID2, nil)
 	})
@@ -2075,7 +2085,7 @@ func TestV2SectorRootConsistency(t *testing.T) {
 			t.Fatalf("expected rejected, got %v", contract.Status)
 		}
 
-		dbRoots, err := node.Store.V2SectorRoots()
+		dbRoots, err := node.Store.V2SectorRoots(node.Chain.Tip().Height - contracts.ReorgBuffer)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2280,8 +2290,14 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		assertRoots(t, renewalID, renewalRoots)
 		assertDBRoots(t, renewalID, renewalRoots)
 
-		// original contract's roots should be cleaned up after renewal is confirmed
+		// original contract's roots are retained until the renewal is outside
+		// the reorg buffer
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		assertDBRoots(t, contractID, roots)
+		assertRoots(t, renewalID, renewalRoots)
+		assertDBRoots(t, renewalID, renewalRoots)
+
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertDBRoots(t, contractID, nil) // note: roots is not checked because it doesn't get cleared on expiration.
 		assertRoots(t, renewalID, renewalRoots)
 		assertDBRoots(t, renewalID, renewalRoots)
