@@ -258,6 +258,7 @@ func (cm *Manager) AddV2Contract(formation rhp4.TransactionSet, usage proto4.Usa
 	if err := cm.store.AddV2Contract(contract, formation); err != nil {
 		return err
 	}
+	cm.roots.UpdateSectorRoots(contractID, nil)
 	cm.log.Debug("contract formed", zap.Stringer("contractID", contractID))
 	return nil
 }
