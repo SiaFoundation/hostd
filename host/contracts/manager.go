@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sync"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -77,10 +76,7 @@ type (
 
 		locks *locker // contracts must be locked while they are being modified
 
-		mu sync.Mutex // guards the following fields
-		// caches the sector roots of all contracts to avoid long reads from
-		// the store
-		sectorRoots map[types.FileContractID][]types.Hash256
+		roots *rootsCache
 	}
 )
 
@@ -88,25 +84,6 @@ var (
 	// ErrAlreadyRenewed is returned when a contract has already been renewed.
 	ErrAlreadyRenewed = errors.New("renewed contracts cannot be revised")
 )
-
-func (cm *Manager) getSectorRoots(id types.FileContractID) []types.Hash256 {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	roots, ok := cm.sectorRoots[id]
-	if !ok {
-		return nil
-	}
-	// return a deep copy of the roots
-	return append([]types.Hash256(nil), roots...)
-}
-
-func (cm *Manager) setSectorRoots(id types.FileContractID, roots []types.Hash256) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	// deep copy the roots
-	cm.sectorRoots[id] = append([]types.Hash256(nil), roots...)
-}
 
 // Contracts returns a paginated list of contracts matching the filter and the
 // total number of contracts matching the filter.
@@ -161,7 +138,7 @@ func (cm *Manager) RenewContract(renewal SignedRevision, existing SignedRevision
 	defer done()
 
 	// sanity checks
-	existingRoots := cm.getSectorRoots(existing.Revision.ParentID)
+	existingRoots := cm.roots.SectorRoots(existing.Revision.ParentID)
 	if existing.Revision.FileMerkleRoot != (types.Hash256{}) {
 		return errors.New("existing contract must be cleared")
 	} else if existing.Revision.Filesize != 0 {
@@ -177,7 +154,7 @@ func (cm *Manager) RenewContract(renewal SignedRevision, existing SignedRevision
 	if err := cm.store.RenewContract(renewal, existing, formationSet, lockedCollateral, clearingUsage, initialUsage, cm.chain.TipState().Index.Height); err != nil {
 		return err
 	}
-	cm.setSectorRoots(renewal.Revision.ParentID, existingRoots)
+	cm.roots.UpdateSectorRoots(renewal.Revision.ParentID, existingRoots)
 	cm.log.Debug("contract renewed", zap.Stringer("renewalID", renewal.Revision.ParentID), zap.Stringer("existingID", existing.Revision.ParentID))
 	return nil
 }
@@ -203,7 +180,7 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 		return fmt.Errorf("revision number went backwards: existing=%d revised=%d", existing.RevisionNumber, revision.RevisionNumber)
 	}
 
-	oldRoots := cm.getSectorRoots(contractID)
+	oldRoots := cm.roots.SectorRoots(contractID)
 
 	// validate the contract revision fields
 	switch {
@@ -241,7 +218,7 @@ func (cm *Manager) ReviseV2Contract(contractID types.FileContractID, revision ty
 		return err
 	}
 	// update the sector roots cache
-	cm.setSectorRoots(contractID, newRoots)
+	cm.roots.UpdateSectorRoots(contractID, newRoots)
 	cm.log.Debug("contract revised",
 		zap.Stringer("contractID", contractID),
 		zap.Uint64("previousRevisionNumber", existing.RevisionNumber),
@@ -315,7 +292,7 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	fc := resolution.NewContract
 
 	existingID := types.FileContractID(existing.ID)
-	existingRoots := cm.getSectorRoots(existingID)
+	existingRoots := cm.roots.SectorRoots(existingID)
 	if fc.FileMerkleRoot != proto4.MetaRoot(existingRoots) {
 		return errors.New("renewal root does not match existing roots")
 	}
@@ -333,14 +310,14 @@ func (cm *Manager) RenewV2Contract(renewal rhp4.TransactionSet, usage proto4.Usa
 	if err := cm.store.RenewV2Contract(contract, renewal, existingID); err != nil {
 		return err
 	}
-	cm.setSectorRoots(contract.ID, existingRoots)
+	cm.roots.UpdateSectorRoots(contract.ID, existingRoots)
 	cm.log.Debug("contract renewed", zap.Stringer("formedID", contract.ID), zap.Stringer("existingID", existingID))
 	return nil
 }
 
 // SectorRoots returns the roots of all sectors stored by the contract.
 func (cm *Manager) SectorRoots(id types.FileContractID) []types.Hash256 {
-	return cm.getSectorRoots(id)
+	return cm.roots.SectorRoots(id)
 }
 
 // Close closes the contract manager.
@@ -385,14 +362,27 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		opt(cm)
 	}
 
+	cm.log.Debug("building sector roots cache")
 	start := time.Now()
-
 	roots, err := store.V2SectorRoots()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get v2 sector roots: %w", err)
 	}
-
-	cm.sectorRoots = roots
 	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))
+
+	tip, err := store.Tip()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tip: %w", err)
+	}
+	expireHeight := tip.Height
+	if expireHeight > ReorgBuffer {
+		expireHeight -= ReorgBuffer
+	}
+
+	cm.roots = &rootsCache{
+		store:             store,
+		contractSectors:   roots,
+		lastExpiredHeight: expireHeight,
+	}
 	return cm, nil
 }

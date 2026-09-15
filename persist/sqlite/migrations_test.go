@@ -767,6 +767,63 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 
 // TestMigrateV55 ensures the migration from version 54 to 55 computes the
 // reference count of existing sectors and that pruning works afterwards.
+func TestMigrateV56(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
+	store := initDBVersion(t, fp, 55, log)
+
+	scanned := types.ChainIndex{Height: 200, ID: frand.Entropy256()}
+	resolution := types.ChainIndex{Height: 150, ID: frand.Entropy256()}
+	resolvedID, activeID := types.FileContractID(frand.Entropy256()), types.FileContractID(frand.Entropy256())
+
+	// populate the pre-migration schema directly
+	err := store.transaction(func(tx *txn) error {
+		if _, err := tx.Exec(`UPDATE global_settings SET last_scanned_index=$1`, encode(scanned)); err != nil {
+			return err
+		} else if _, err := tx.Exec(`INSERT INTO contract_renters (id, public_key) VALUES (1, $1)`, encode(types.GeneratePrivateKey().PublicKey())); err != nil {
+			return err
+		} else if _, err := tx.Exec(`INSERT INTO contract_v2_roots_map (id, revision_number) VALUES (1, 0), (2, 0)`); err != nil {
+			return err
+		}
+
+		const query = `INSERT INTO contracts_v2 (contract_id, renter_id, revision_number, formation_txn_set, formation_txn_set_basis,
+locked_collateral, rpc_revenue, storage_revenue, ingress_revenue, egress_revenue, account_funding, risked_collateral, raw_revision,
+negotiation_height, proof_height, expiration_height, contract_status, sector_count, contract_v2_roots_map_id, contract_v2_roots_map_revision_number,
+resolution_block_id, resolution_height) VALUES ($1, 1, $2, $3, $4, $5, $5, $5, $5, $5, $5, $5, $6, 100, 140, 160, $7, 0, $8, 0, $9, $10)`
+		insert := func(id types.FileContractID, mapID int64, status contracts.V2ContractStatus, resolutionID, resolutionHeight any) error {
+			_, err := tx.Exec(query, encode(id), encode(uint64(0)), []byte{}, encode(types.ChainIndex{}), encode(types.ZeroCurrency), encode(types.V2FileContract{}), status, mapID, resolutionID, resolutionHeight)
+			return err
+		}
+		if err := insert(resolvedID, 1, contracts.V2ContractStatusSuccessful, encode(resolution.ID), resolution.Height); err != nil {
+			return err
+		}
+		return insert(activeID, 2, contracts.V2ContractStatusActive, nil, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	} else if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = OpenDatabase(fp, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	assertLastUpdated := func(t *testing.T, id types.FileContractID, expected types.ChainIndex) {
+		t.Helper()
+		var index types.ChainIndex
+		if err := store.readerDB.QueryRow(`SELECT last_updated_height, last_updated_block_id FROM contracts_v2 WHERE contract_id=$1`, encode(id)).Scan(&index.Height, decode(&index.ID)); err != nil {
+			t.Fatal(err)
+		} else if index != expected {
+			t.Fatalf("expected last updated index %v for %v, got %v", expected, id, index)
+		}
+	}
+	assertLastUpdated(t, resolvedID, resolution)
+	assertLastUpdated(t, activeID, scanned)
+}
+
 func TestMigrateV55(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")

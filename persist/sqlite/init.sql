@@ -183,6 +183,8 @@ CREATE TABLE contracts_v2 (
 	resolution_height INTEGER CHECK((resolution_height IS NULL) = (resolution_block_id IS NULL)), -- null if the resolution has not been confirmed on the blockchain
 	contract_status TEXT NOT NULL,
 	sector_count INTEGER NOT NULL, -- used for cleanup
+	last_updated_height INTEGER NOT NULL DEFAULT 0,
+	last_updated_block_id BLOB NOT NULL DEFAULT x'0000000000000000000000000000000000000000000000000000000000000000',
 
 	contract_v2_roots_map_id INTEGER NOT NULL,
 	contract_v2_roots_map_revision_number INTEGER NOT NULL,
@@ -199,6 +201,7 @@ CREATE INDEX contracts_v2_contract_status ON contracts_v2(contract_status);
 CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_proof_height ON contracts_v2(confirmation_index, resolution_block_id, proof_height);
 CREATE INDEX contracts_v2_confirmation_index_resolution_block_id_expiration_height ON contracts_v2(confirmation_index, resolution_block_id, expiration_height);
 CREATE INDEX contracts_v2_resolution_height ON contracts_v2(resolution_height);
+CREATE INDEX contracts_v2_contract_status_last_updated_height ON contracts_v2(contract_status, last_updated_height);
 CREATE INDEX contracts_v2_confirmation_index_proof_height ON contracts_v2(confirmation_index, proof_height);
 CREATE INDEX contracts_v2_confirmation_index_negotiation_height ON contracts_v2(confirmation_index, negotiation_height);
 CREATE INDEX contracts_v2_roots_map_id_contract_v2_roots_map_revision_number ON contracts_v2(contract_v2_roots_map_id, contract_v2_roots_map_revision_number);
