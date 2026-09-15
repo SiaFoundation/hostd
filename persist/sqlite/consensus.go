@@ -347,15 +347,15 @@ func (ux *updateTx) RevertContracts(index types.ChainIndex, state contracts.Stat
 	}
 
 	// v2
-	if err := revertV2ContractFormation(ux.tx, state.ConfirmedV2); err != nil {
+	if err := revertV2ContractFormation(ux.tx, index, state.ConfirmedV2); err != nil {
 		return fmt.Errorf("failed to revert v2 contract formation: %w", err)
 	} else if err := applyV2ContractRevision(ux.tx, state.RevisedV2); err != nil { // note: this is correct. The previous revision is being applied
 		return fmt.Errorf("failed to revert v2 contract revisions: %w", err)
-	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusSuccessful, state.SuccessfulV2); err != nil {
+	} else if err := revertSuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusSuccessful, state.SuccessfulV2); err != nil {
 		return fmt.Errorf("failed to revert v2 successful resolution: %w", err)
-	} else if err := revertSuccessfulV2Contracts(ux.tx, contracts.V2ContractStatusRenewed, state.RenewedV2); err != nil {
+	} else if err := revertSuccessfulV2Contracts(ux.tx, index, contracts.V2ContractStatusRenewed, state.RenewedV2); err != nil {
 		return fmt.Errorf("failed to revert v2 renewed resolution: %w", err)
-	} else if err := revertFailedV2Contracts(ux.tx, state.FailedV2); err != nil {
+	} else if err := revertFailedV2Contracts(ux.tx, index, state.FailedV2); err != nil {
 		return fmt.Errorf("failed to revert v2 failure resolution: %w", err)
 	}
 	return nil
@@ -363,7 +363,7 @@ func (ux *updateTx) RevertContracts(index types.ChainIndex, state contracts.Stat
 
 // RejectContracts returns any contracts with a negotiation height
 // before the provided height that have not been confirmed.
-func (ux *updateTx) RejectContracts(height uint64) (rejected []types.FileContractID, rejectedV2 []types.FileContractID, err error) {
+func (ux *updateTx) RejectContracts(index types.ChainIndex, height uint64) (rejected []types.FileContractID, rejectedV2 []types.FileContractID, err error) {
 	log := ux.tx.log.Named("RejectContracts").With(zap.Uint64("height", height))
 
 	rejected, err = rejectContracts(ux.tx, height, log.Named("v1"))
@@ -371,7 +371,7 @@ func (ux *updateTx) RejectContracts(height uint64) (rejected []types.FileContrac
 		return nil, nil, fmt.Errorf("failed to reject v1 contracts: %w", err)
 	}
 
-	rejectedV2, err = rejectV2Contracts(ux.tx, height, log.Named("v2"))
+	rejectedV2, err = rejectV2Contracts(ux.tx, index, height, log.Named("v2"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get rejected v2 contracts: %w", err)
 	}
@@ -1298,7 +1298,7 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=$1, contract_status=$2 WHERE id=$3`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=$1, contract_status=$2, last_updated_height=$3, last_updated_block_id=$4 WHERE id=$5`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update status statement: %w", err)
 	}
@@ -1326,7 +1326,7 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 		}
 
 		// update the contract table with the confirmation index and new status.
-		res, err := updateStmt.Exec(encode(index), contracts.V2ContractStatusActive, state.ID)
+		res, err := updateStmt.Exec(encode(index), contracts.V2ContractStatusActive, index.Height, encode(index.ID), state.ID)
 		if err != nil {
 			return fmt.Errorf("failed to update state %q: %w", fce.ID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
@@ -1350,7 +1350,7 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 
 // revertV2ContractFormation reverts the contract formation by setting the
 // confirmation index to null and the status to pending.
-func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) error {
+func revertV2ContractFormation(tx *txn, index types.ChainIndex, reverted []types.V2FileContractElement) error {
 	if len(reverted) == 0 {
 		return nil
 	}
@@ -1373,7 +1373,7 @@ func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) 
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=NULL, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1410,7 +1410,7 @@ func revertV2ContractFormation(tx *txn, reverted []types.V2FileContractElement) 
 		}
 
 		// set the contract status to pending
-		if res, err := updateStmt.Exec(contracts.V2ContractStatusPending, state.ID); err != nil {
+		if res, err := updateStmt.Exec(contracts.V2ContractStatusPending, index.Height, encode(index.ID), state.ID); err != nil {
 			return fmt.Errorf("failed to revert contract formation %q: %w", fce.ID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -1470,7 +1470,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1508,7 +1508,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(encode(index.ID), index.Height, status, state.ID); err != nil {
+		if res, err := updateStmt.Exec(encode(index.ID), index.Height, status, index.Height, encode(index.ID), state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -1555,7 +1555,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1594,7 +1594,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(encode(index.ID), index.Height, contracts.V2ContractStatusFailed, state.ID); err != nil {
+		if res, err := updateStmt.Exec(encode(index.ID), index.Height, contracts.V2ContractStatusFailed, index.Height, encode(index.ID), state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -1632,7 +1632,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 
 // revertSuccessfulV2Contracts clears the resolution index, sets the status to
 // active and updates the revenue metrics.
-func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, successful []types.FileContractID) error {
+func revertSuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contracts.V2ContractStatus, successful []types.FileContractID) error {
 	if len(successful) == 0 {
 		return nil
 	}
@@ -1643,7 +1643,7 @@ func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, suc
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1674,7 +1674,7 @@ func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, suc
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(contracts.V2ContractStatusActive, state.ID); err != nil {
+		if res, err := updateStmt.Exec(contracts.V2ContractStatusActive, index.Height, encode(index.ID), state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -1704,7 +1704,7 @@ func revertSuccessfulV2Contracts(tx *txn, status contracts.V2ContractStatus, suc
 
 // revertFailedV2Contracts sets the contract status to active and adds the
 // potential revenue and collateral metrics.
-func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
+func revertFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.FileContractID) error {
 	if len(failed) == 0 {
 		return nil
 	}
@@ -1715,7 +1715,7 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1743,13 +1743,10 @@ func revertFailedV2Contracts(tx *txn, failed []types.FileContractID) error {
 			// panic if the contract is not failed. Proper reverts should have
 			//  ensured that this never happens.
 			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.V2ContractStatusFailed))
-		} else if state.Status == contracts.V2ContractStatusFailed {
-			// skip update, most likely rescanning
-			continue
 		}
 
 		// update the contract's resolution index and status
-		if res, err := updateStmt.Exec(contracts.V2ContractStatusActive, state.ID); err != nil {
+		if res, err := updateStmt.Exec(contracts.V2ContractStatusActive, index.Height, encode(index.ID), state.ID); err != nil {
 			return fmt.Errorf("failed to update contract %q: %w", contractID, err)
 		} else if n, err := res.RowsAffected(); err != nil {
 			return fmt.Errorf("failed to get rows affected: %w", err)
@@ -1967,7 +1964,7 @@ func resetRejectedPoolFunding(tx *txn, contractDBID int64, log *zap.Logger) erro
 	return nil
 }
 
-func rejectV2Contracts(tx *txn, height uint64, log *zap.Logger) (rejected []types.FileContractID, err error) {
+func rejectV2Contracts(tx *txn, index types.ChainIndex, height uint64, log *zap.Logger) (rejected []types.FileContractID, err error) {
 	rejected, err = v2ContractsToReject(tx, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rejected v2 contracts: %w", err)
@@ -1981,7 +1978,7 @@ func rejectV2Contracts(tx *txn, height uint64, log *zap.Logger) (rejected []type
 	}
 	defer stateDone()
 
-	updateStatus, err := tx.Prepare(`UPDATE contracts_v2 SET contract_status=? WHERE id=?`)
+	updateStatus, err := tx.Prepare(`UPDATE contracts_v2 SET contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare v2 update statement: %w", err)
 	}
@@ -2012,7 +2009,7 @@ func rejectV2Contracts(tx *txn, height uint64, log *zap.Logger) (rejected []type
 		}
 
 		// update metrics
-		if _, err := updateStatus.Exec(contracts.V2ContractStatusRejected, state.ID); err != nil {
+		if _, err := updateStatus.Exec(contracts.V2ContractStatusRejected, index.Height, encode(index.ID), state.ID); err != nil {
 			return nil, fmt.Errorf("failed to update contract status: %w", err)
 		} else if err := updateV2StatusMetrics(state.Status, contracts.V2ContractStatusRejected, incrementNumericStat); err != nil {
 			return nil, fmt.Errorf("failed to update contract metrics: %w", err)

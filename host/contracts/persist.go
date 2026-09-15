@@ -13,9 +13,13 @@ type (
 		// ContractActions returns the lifecycle actions for the contract at the
 		// given index.
 		ContractActions(index types.ChainIndex, revisionBroadcastHeight uint64) (LifecycleActions, error)
+		// Tip returns the last scanned chain index.
+		Tip() (types.ChainIndex, error)
 
-		// V2SectorRoots returns the sector roots for all v2 contracts.
-		V2SectorRoots() (map[types.FileContractID][]types.Hash256, error)
+		// V2SectorRoots returns the sector roots of all v2 contracts that
+		// have not been rejected and are either unresolved or were resolved
+		// at or after minHeight.
+		V2SectorRoots(minHeight uint64) (map[types.FileContractID][]types.Hash256, error)
 
 		// Contracts returns a paginated list of contracts sorted by expiration
 		// asc.
@@ -52,6 +56,9 @@ type (
 		// ExpireV2ContractSectors removes sector roots for any v2 contracts that are
 		// rejected or past their proof window.
 		ExpireV2ContractSectors(height uint64) error
+		// ExpiredV2Contracts returns the IDs of v2 contracts that were
+		// rejected or resolved at a height in [minHeight, maxHeight).
+		ExpiredV2Contracts(minHeight, maxHeight uint64) ([]types.FileContractID, error)
 
 		// RHP4AccountBalance returns the balance of an account.
 		RHP4AccountBalance(proto4.Account) (types.Currency, error)

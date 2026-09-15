@@ -98,7 +98,7 @@ type (
 		// RejectContracts sets the status of any v1 and v2 contracts with a
 		// negotiation height before the provided height and that have not
 		// been confirmed to rejected
-		RejectContracts(height uint64) (v1, v2 []types.FileContractID, err error)
+		RejectContracts(index types.ChainIndex, height uint64) (v1, v2 []types.FileContractID, err error)
 
 		// AddContractChainIndexElement adds or updates the merkle proof of
 		// chain index state elements
@@ -130,7 +130,7 @@ func (cm *Manager) buildV2StorageProof(cs consensus.State, ele V2ProofElement, l
 	sectorIndex := leafIndex / proto4.LeavesPerSector
 	segmentIndex := leafIndex % proto4.LeavesPerSector
 
-	roots := cm.getSectorRoots(contractID)
+	roots := cm.roots.SectorRoots(contractID)
 	contractRoot := proto4.MetaRoot(roots)
 	if contractRoot != revision.FileMerkleRoot {
 		log.Error("unexpected contract root", zap.Stringer("expectedRoot", revision.FileMerkleRoot), zap.Stringer("actualRoot", contractRoot))
@@ -337,6 +337,8 @@ func (cm *Manager) ProcessActions(index types.ChainIndex) error {
 	// 6 block buffer for reorg protection
 	if err := cm.store.ExpireV2ContractSectors(expireHeight); err != nil {
 		return fmt.Errorf("failed to expire v2 contract sectors: %w", err)
+	} else if err := cm.roots.ExpireContracts(expireHeight); err != nil {
+		return fmt.Errorf("failed to expire sector roots: %w", err)
 	}
 	return nil
 }
@@ -488,7 +490,7 @@ func (cm *Manager) UpdateChainState(tx UpdateStateTx, reverted []chain.RevertUpd
 		index := cau.State.Index
 		if index.Height >= cm.rejectBuffer {
 			minNegotiationHeight := index.Height - cm.rejectBuffer
-			rejectedV1, rejectedV2, err := tx.RejectContracts(minNegotiationHeight)
+			rejectedV1, rejectedV2, err := tx.RejectContracts(index, minNegotiationHeight)
 			if err != nil {
 				return fmt.Errorf("failed to reject contracts: %w", err)
 			}

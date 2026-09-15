@@ -280,6 +280,13 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 	}
 
+	assertCachedRoots := func(t *testing.T, contractID types.FileContractID, n int) {
+		t.Helper()
+		if roots := node.Contracts.SectorRoots(contractID); len(roots) != n {
+			t.Fatalf("expected %v cached sector roots, got %v", n, len(roots))
+		}
+	}
+
 	assertStorageMetrics := func(t *testing.T, contractSectors, physicalSectors uint64) {
 		t.Helper()
 		time.Sleep(2 * time.Second) // wait for the volume manager to prune sectors
@@ -371,6 +378,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// metrics should not have been updated, contract is still pending
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		assertStorageMetrics(t, 0, 1)
+		assertCachedRoots(t, contractID, 1)
 
 		// mine to confirm the contract
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
@@ -386,11 +394,13 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// sector metrics should not change due to the reorg buffer
 		assertStorageMetrics(t, 0, 1)
+		assertCachedRoots(t, contractID, 1)
 
 		// mine through the reorg buffer so the sectors will be garbage
 		// collected
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 0, 0)
+		assertCachedRoots(t, contractID, 0)
 	})
 
 	t.Run("failed storage proof", func(t *testing.T) {
@@ -404,6 +414,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// metrics should not have been updated, contract is still pending
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		assertStorageMetrics(t, 0, 1)
+		assertCachedRoots(t, contractID, 1)
 
 		// mine to confirm the contract
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
@@ -419,11 +430,13 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// storage metrics will not change due to the reorg buffer
 		assertStorageMetrics(t, 0, 1)
+		assertCachedRoots(t, contractID, 1)
 
 		// mine through the reorg buffer so the sectors will be
 		// garbage collected
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 0, 0)
+		assertCachedRoots(t, contractID, 0)
 	})
 
 	t.Run("renewal", func(t *testing.T) {
@@ -481,6 +494,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// not change due to the reorg buffer
 		assertContractMetrics(t, types.Siacoins(22), renewal.RiskedCollateral())
 		assertStorageMetrics(t, 1, 1)
+		assertCachedRoots(t, contractID, 1)
+		assertCachedRoots(t, renewalID, 1)
 
 		// try to revise the original contract after the renewal is confirmed
 		err = node.Contracts.ReviseV2Contract(contractID, fc, []types.Hash256{}, proto4.Usage{})
@@ -492,6 +507,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// garbage collected
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 1, 1)
+		assertCachedRoots(t, contractID, 0)
+		assertCachedRoots(t, renewalID, 1)
 
 		// mine until the renewed contract is successful
 		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.ProofHeight-node.Chain.Tip().Height+1))
@@ -506,6 +523,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		// collected
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 0, 0)
+		assertCachedRoots(t, renewalID, 0)
 
 		// try to revise the original contract after the renewal is successful
 		err = node.Contracts.ReviseV2Contract(contractID, fc, []types.Hash256{}, proto4.Usage{})
@@ -731,6 +749,7 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		assertStorageMetrics(t, 0, 1)
+		assertCachedRoots(t, contractID, 1)
 
 		// mine until the contract is rejected
 		testutil.MineAndSync(t, node, types.VoidAddress, 20)
@@ -738,6 +757,123 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, contractID, contracts.V2ContractStatusRejected)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		assertStorageMetrics(t, 0, 0)
+		assertCachedRoots(t, contractID, 0)
+	})
+
+	t.Run("rejected with storage resubmitted", func(t *testing.T) {
+		cm := node.Chain
+		c := node.Contracts
+		w := node.Wallet
+
+		renterFunds, hostFunds := types.Siacoins(10), types.Siacoins(20)
+		duration := uint64(10)
+		cs := cm.TipState()
+		fc := types.V2FileContract{
+			RevisionNumber:   0,
+			Filesize:         0,
+			Capacity:         0,
+			FileMerkleRoot:   types.Hash256{},
+			ProofHeight:      cs.Index.Height + duration,
+			ExpirationHeight: cs.Index.Height + duration + 10,
+			RenterOutput: types.SiacoinOutput{
+				Value:   renterFunds,
+				Address: w.Address(),
+			},
+			HostOutput: types.SiacoinOutput{
+				Value:   hostFunds,
+				Address: w.Address(),
+			},
+			MissedHostValue: hostFunds,
+			TotalCollateral: hostFunds,
+			RenterPublicKey: renterKey.PublicKey(),
+			HostPublicKey:   hostKey.PublicKey(),
+		}
+		fundAmount := cs.V2FileContractTax(fc).Add(hostFunds).Add(renterFunds)
+		sigHash := cs.ContractSigHash(fc)
+		fc.HostSignature = hostKey.SignHash(sigHash)
+		fc.RenterSignature = renterKey.SignHash(sigHash)
+
+		txn := types.V2Transaction{
+			FileContracts: []types.V2FileContract{fc},
+		}
+
+		basis, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
+		if err != nil {
+			t.Fatal("failed to fund transaction:", err)
+		}
+		w.SignV2Inputs(&txn, toSign)
+		formationSet := rhp4.TransactionSet{
+			Transactions: []types.V2Transaction{txn},
+			Basis:        basis,
+		}
+		contractID := txn.V2FileContractID(txn.ID(), 0)
+		// corrupt the formation set to trigger a rejection
+		formationSet.Transactions[len(formationSet.Transactions)-1].SiacoinInputs[0].SatisfiedPolicy.Signatures[0] = types.Signature{}
+		if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
+			t.Fatal("failed to add contract:", err)
+		}
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+
+		// add a root to the contract
+		var sector [proto4.SectorSize]byte
+		frand.Read(sector[:])
+		root := proto4.SectorRoot(&sector)
+		roots := []types.Hash256{root}
+
+		if err := node.Volumes.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
+			t.Fatal(err)
+		}
+
+		fc.Filesize = proto4.SectorSize
+		fc.Capacity = proto4.SectorSize
+		fc.FileMerkleRoot = proto4.MetaRoot(roots)
+		fc.RevisionNumber++
+		revisionSigHash := cm.TipState().ContractSigHash(fc)
+		fc.HostSignature = hostKey.SignHash(revisionSigHash)
+		fc.RenterSignature = renterKey.SignHash(revisionSigHash)
+		if err := c.ReviseV2Contract(contractID, fc, roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+		assertCachedRoots(t, contractID, 1)
+
+		// mine one block at a time until the contract is rejected so the
+		// rejection is still inside the reorg buffer and the roots are still
+		// cached
+		rejectContract := func(t *testing.T) {
+			t.Helper()
+			for i := 0; ; i++ {
+				testutil.MineAndSync(t, node, types.VoidAddress, 1)
+				if contract, err := c.V2Contract(contractID); err != nil {
+					t.Fatal(err)
+				} else if contract.Status == contracts.V2ContractStatusRejected {
+					break
+				} else if i > 20 {
+					t.Fatal("contract was not rejected")
+				}
+			}
+			expectedStatuses[contracts.V2ContractStatusPending]--
+			expectedStatuses[contracts.V2ContractStatusRejected]++
+		}
+		rejectContract(t)
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+		assertCachedRoots(t, contractID, 1)
+
+		// resubmitting the same contract replaces the rejected contract with a
+		// pending contract that has no roots
+		if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
+			t.Fatal("failed to resubmit contract:", err)
+		}
+		expectedStatuses[contracts.V2ContractStatusRejected]--
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+		assertCachedRoots(t, contractID, 0)
+
+		// the formation set is still corrupt, leave the contract rejected
+		rejectContract(t)
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertCachedRoots(t, contractID, 0)
 	})
 
 	t.Run("rejected renewal with storage", func(t *testing.T) {
@@ -1509,7 +1645,7 @@ func TestV2SectorRoots(t *testing.T) {
 			}
 		}
 
-		dbRoots, err := node.Store.V2SectorRoots()
+		dbRoots, err := node.Store.V2SectorRoots(node.Chain.Tip().Height - contracts.ReorgBuffer)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1766,7 +1902,7 @@ func TestV2SectorRootConsistency(t *testing.T) {
 	assertDBRoots := func(t *testing.T, contractID types.FileContractID, expected []types.Hash256) {
 		t.Helper()
 
-		dbRoots, err := node.Store.V2SectorRoots()
+		dbRoots, err := node.Store.V2SectorRoots(node.Chain.Tip().Height - contracts.ReorgBuffer)
 		if err != nil {
 			t.Fatal("failed to load sector roots:", err)
 		}
@@ -1795,10 +1931,12 @@ func TestV2SectorRootConsistency(t *testing.T) {
 			assertDBRoots(t, contractID, roots)
 		}
 
-		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ExpirationHeight-node.Chain.Tip().Height)+1)
+		// roots are cached until the resolution is outside the reorg buffer
+		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ProofHeight-node.Chain.Tip().Height)+1)
 		assertRoots(t, contractID, roots)
 
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+		assertRoots(t, contractID, nil)
 	})
 
 	t.Run("renewal inherits roots", func(t *testing.T) {
@@ -1878,9 +2016,19 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		}
 		assertRoots(t, renewalID2, roots)
 		assertDBRoots(t, renewalID2, roots)
-		assertDBRoots(t, renewalID1, nil)
+		// the renewed contract's roots are retained until the renewal is
+		// outside the reorg buffer
+		assertDBRoots(t, renewalID1, roots)
 
-		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal2.ExpirationHeight-node.Chain.Tip().Height)+1)
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+		assertDBRoots(t, renewalID1, nil)
+		assertDBRoots(t, renewalID2, roots)
+
+		// roots are retained until the resolution is outside the reorg buffer
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal2.ProofHeight-node.Chain.Tip().Height)+1)
+		assertDBRoots(t, renewalID2, roots)
+
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertDBRoots(t, renewalID1, nil)
 		assertDBRoots(t, renewalID2, nil)
 	})
@@ -1937,7 +2085,7 @@ func TestV2SectorRootConsistency(t *testing.T) {
 			t.Fatalf("expected rejected, got %v", contract.Status)
 		}
 
-		dbRoots, err := node.Store.V2SectorRoots()
+		dbRoots, err := node.Store.V2SectorRoots(node.Chain.Tip().Height - contracts.ReorgBuffer)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2142,8 +2290,14 @@ func TestV2SectorRootConsistency(t *testing.T) {
 		assertRoots(t, renewalID, renewalRoots)
 		assertDBRoots(t, renewalID, renewalRoots)
 
-		// original contract's roots should be cleaned up after renewal is confirmed
+		// original contract's roots are retained until the renewal is outside
+		// the reorg buffer
 		testutil.MineAndSync(t, node, types.VoidAddress, 1)
+		assertDBRoots(t, contractID, roots)
+		assertRoots(t, renewalID, renewalRoots)
+		assertDBRoots(t, renewalID, renewalRoots)
+
+		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
 		assertDBRoots(t, contractID, nil) // note: roots is not checked because it doesn't get cleared on expiration.
 		assertRoots(t, renewalID, renewalRoots)
 		assertDBRoots(t, renewalID, renewalRoots)

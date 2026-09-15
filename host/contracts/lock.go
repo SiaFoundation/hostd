@@ -139,7 +139,7 @@ func (cm *Manager) LockV2Contract(id types.FileContractID) (rev rhp4.RevisionSta
 		Revision:  contract.V2FileContract,
 		Renewed:   renewed,
 		Revisable: revisable,
-		Roots:     cm.getSectorRoots(id),
+		Roots:     cm.roots.SectorRoots(id),
 	}
 	return state, func() { cm.locks.Unlock(id) }, nil
 }
