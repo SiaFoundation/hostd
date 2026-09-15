@@ -13,6 +13,26 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion56 adds the last updated index to contracts_v2. Resolved
+// contracts are set to their resolution index, all other contracts to the last
+// scanned index.
+func migrateVersion56(tx *txn, _ *zap.Logger) error {
+	var index types.ChainIndex
+	if err := tx.QueryRow(`SELECT last_scanned_index FROM global_settings`).Scan(decodeNullable(&index)); err != nil {
+		return fmt.Errorf("failed to get last scanned index: %w", err)
+	}
+	_, err := tx.Exec(`
+ALTER TABLE contracts_v2 ADD COLUMN last_updated_height INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE contracts_v2 ADD COLUMN last_updated_block_id BLOB NOT NULL DEFAULT x'0000000000000000000000000000000000000000000000000000000000000000';
+UPDATE contracts_v2 SET last_updated_height=resolution_height, last_updated_block_id=resolution_block_id WHERE resolution_height IS NOT NULL;
+CREATE INDEX contracts_v2_contract_status_last_updated_height ON contracts_v2(contract_status, last_updated_height);`)
+	if err != nil {
+		return fmt.Errorf("failed to add last updated columns: %w", err)
+	}
+	_, err = tx.Exec(`UPDATE contracts_v2 SET last_updated_height=$1, last_updated_block_id=$2 WHERE resolution_height IS NULL`, index.Height, encode(index.ID))
+	return err
+}
+
 // migrateVersion55 adds a reference count to stored_sectors maintained by
 // triggers on the contract and temp storage root tables, replaces the last
 // access timestamp with volume_sector_locks and indexes unreferenced sectors.
@@ -1612,4 +1632,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion53,
 	migrateVersion54,
 	migrateVersion55,
+	migrateVersion56,
 }

@@ -80,7 +80,7 @@ func (cm *Manager) CheckIntegrity(ctx context.Context, contractID types.FileCont
 
 	expectedRoots := contract.Revision.Filesize / proto4.SectorSize
 
-	roots := cm.getSectorRoots(contractID)
+	roots := cm.roots.SectorRoots(contractID)
 	if uint64(len(roots)) != expectedRoots {
 		return nil, 0, fmt.Errorf("expected %v sector roots, got %v", expectedRoots, len(roots))
 	} else if calculated := proto4.MetaRoot(roots); contract.Revision.FileMerkleRoot != calculated {
