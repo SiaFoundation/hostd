@@ -1321,7 +1321,7 @@ func TestMetricsReadBytes(t *testing.T) {
 
 	randomRange := func() [3]uint64 {
 		start := frand.Uint64n(proto4.LeavesPerSector)
-		end := start + frand.Uint64n(proto4.LeavesPerSector-start)
+		end := start + 1 + frand.Uint64n(proto4.LeavesPerSector-start)
 		rangeStart, rangeEnd := proto4.SectorSubtreeRange(start, end)
 		return [3]uint64{start * proto4.LeafSize, (end - start) * proto4.LeafSize, (rangeEnd - rangeStart) * proto4.LeafSize}
 	}
