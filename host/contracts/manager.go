@@ -363,14 +363,6 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		opt(cm)
 	}
 
-	cm.log.Debug("building sector roots cache")
-	start := time.Now()
-	roots, err := store.V2SectorRoots()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get v2 sector roots: %w", err)
-	}
-	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))
-
 	tip, err := store.Tip()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tip: %w", err)
@@ -379,6 +371,14 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 	if expireHeight > ReorgBuffer {
 		expireHeight -= ReorgBuffer
 	}
+
+	cm.log.Debug("building sector roots cache")
+	start := time.Now()
+	roots, err := store.V2SectorRoots(expireHeight)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get v2 sector roots: %w", err)
+	}
+	cm.log.Debug("loaded sector roots", zap.Duration("elapsed", time.Since(start)))
 
 	cm.roots = &rootsCache{
 		store:             store,

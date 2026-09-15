@@ -961,7 +961,7 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 	t.Run("renewal rejected then renewed again", func(t *testing.T) {
 		checkSectorRoots := func(t *testing.T, contractID types.FileContractID, expected []types.Hash256) {
 			t.Helper()
-			roots, err := db.V2SectorRoots()
+			roots, err := db.V2SectorRoots(0)
 			if err != nil {
 				t.Fatal(err)
 			}

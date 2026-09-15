@@ -1743,9 +1743,6 @@ func revertFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.Fil
 			// panic if the contract is not failed. Proper reverts should have
 			//  ensured that this never happens.
 			panic(fmt.Errorf("unexpected contract state transition %q -> %q", state.Status, contracts.V2ContractStatusFailed))
-		} else if state.Status == contracts.V2ContractStatusFailed {
-			// skip update, most likely rescanning
-			continue
 		}
 
 		// update the contract's resolution index and status

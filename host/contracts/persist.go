@@ -16,8 +16,10 @@ type (
 		// Tip returns the last scanned chain index.
 		Tip() (types.ChainIndex, error)
 
-		// V2SectorRoots returns the sector roots for all v2 contracts.
-		V2SectorRoots() (map[types.FileContractID][]types.Hash256, error)
+		// V2SectorRoots returns the sector roots of all v2 contracts that
+		// have not been rejected and are either unresolved or were resolved
+		// at or after minHeight.
+		V2SectorRoots(minHeight uint64) (map[types.FileContractID][]types.Hash256, error)
 
 		// Contracts returns a paginated list of contracts sorted by expiration
 		// asc.
