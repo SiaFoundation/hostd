@@ -760,6 +760,122 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertCachedRoots(t, contractID, 0)
 	})
 
+	t.Run("rejected with storage resubmitted", func(t *testing.T) {
+		cm := node.Chain
+		c := node.Contracts
+		w := node.Wallet
+
+		renterFunds, hostFunds := types.Siacoins(10), types.Siacoins(20)
+		duration := uint64(10)
+		cs := cm.TipState()
+		fc := types.V2FileContract{
+			RevisionNumber:   0,
+			Filesize:         0,
+			Capacity:         0,
+			FileMerkleRoot:   types.Hash256{},
+			ProofHeight:      cs.Index.Height + duration,
+			ExpirationHeight: cs.Index.Height + duration + 10,
+			RenterOutput: types.SiacoinOutput{
+				Value:   renterFunds,
+				Address: w.Address(),
+			},
+			HostOutput: types.SiacoinOutput{
+				Value:   hostFunds,
+				Address: w.Address(),
+			},
+			MissedHostValue: hostFunds,
+			TotalCollateral: hostFunds,
+			RenterPublicKey: renterKey.PublicKey(),
+			HostPublicKey:   hostKey.PublicKey(),
+		}
+		fundAmount := cs.V2FileContractTax(fc).Add(hostFunds).Add(renterFunds)
+		sigHash := cs.ContractSigHash(fc)
+		fc.HostSignature = hostKey.SignHash(sigHash)
+		fc.RenterSignature = renterKey.SignHash(sigHash)
+
+		txn := types.V2Transaction{
+			FileContracts: []types.V2FileContract{fc},
+		}
+
+		basis, toSign, err := w.FundV2Transaction(&txn, fundAmount, false)
+		if err != nil {
+			t.Fatal("failed to fund transaction:", err)
+		}
+		w.SignV2Inputs(&txn, toSign)
+		formationSet := rhp4.TransactionSet{
+			Transactions: []types.V2Transaction{txn},
+			Basis:        basis,
+		}
+		contractID := txn.V2FileContractID(txn.ID(), 0)
+		// corrupt the formation set to trigger a rejection
+		formationSet.Transactions[len(formationSet.Transactions)-1].SiacoinInputs[0].SatisfiedPolicy.Signatures[0] = types.Signature{}
+		if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
+			t.Fatal("failed to add contract:", err)
+		}
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+
+		// add a root to the contract
+		var sector [proto4.SectorSize]byte
+		frand.Read(sector[:])
+		root := proto4.SectorRoot(&sector)
+		roots := []types.Hash256{root}
+
+		if err := node.Volumes.StoreSector(root, &sector, proto4.CachedSectorSubtrees(&sector), 1); err != nil {
+			t.Fatal(err)
+		}
+
+		fc.Filesize = proto4.SectorSize
+		fc.Capacity = proto4.SectorSize
+		fc.FileMerkleRoot = proto4.MetaRoot(roots)
+		fc.RevisionNumber++
+		revisionSigHash := cm.TipState().ContractSigHash(fc)
+		fc.HostSignature = hostKey.SignHash(revisionSigHash)
+		fc.RenterSignature = renterKey.SignHash(revisionSigHash)
+		if err := c.ReviseV2Contract(contractID, fc, roots, proto4.Usage{}); err != nil {
+			t.Fatal(err)
+		}
+		assertCachedRoots(t, contractID, 1)
+
+		// mine one block at a time until the contract is rejected so the
+		// rejection is still inside the reorg buffer and the roots are still
+		// cached
+		rejectContract := func(t *testing.T) {
+			t.Helper()
+			for i := 0; ; i++ {
+				testutil.MineAndSync(t, node, types.VoidAddress, 1)
+				if contract, err := c.V2Contract(contractID); err != nil {
+					t.Fatal(err)
+				} else if contract.Status == contracts.V2ContractStatusRejected {
+					break
+				} else if i > 20 {
+					t.Fatal("contract was not rejected")
+				}
+			}
+			expectedStatuses[contracts.V2ContractStatusPending]--
+			expectedStatuses[contracts.V2ContractStatusRejected]++
+		}
+		rejectContract(t)
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertStorageMetrics(t, 0, 0)
+		assertCachedRoots(t, contractID, 1)
+
+		// resubmitting the same contract replaces the rejected contract with a
+		// pending contract that has no roots
+		if err := c.AddV2Contract(formationSet, proto4.Usage{}); err != nil {
+			t.Fatal("failed to resubmit contract:", err)
+		}
+		expectedStatuses[contracts.V2ContractStatusRejected]--
+		expectedStatuses[contracts.V2ContractStatusPending]++
+		assertContractStatus(t, contractID, contracts.V2ContractStatusPending)
+		assertCachedRoots(t, contractID, 0)
+
+		// the formation set is still corrupt, leave the contract rejected
+		rejectContract(t)
+		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
+		assertCachedRoots(t, contractID, 0)
+	})
+
 	t.Run("rejected renewal with storage", func(t *testing.T) {
 		cm := node.Chain
 		c := node.Contracts
