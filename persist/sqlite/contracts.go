@@ -366,7 +366,7 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots, newR
 func (s *Store) V2SectorRoots(minHeight uint64) (roots map[types.FileContractID][]types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const contractsQuery = `SELECT contract_id, raw_revision, contract_v2_roots_map_id, contract_v2_roots_map_revision_number FROM contracts_v2
-WHERE contract_status <> $1 AND (resolution_height IS NULL OR last_updated_height >= $2);`
+WHERE contract_status <> $1 AND (resolution_height IS NULL OR last_status_update_height >= $2);`
 		rows, err := tx.Query(contractsQuery, contracts.V2ContractStatusRejected, minHeight)
 		if err != nil {
 			return err
@@ -455,7 +455,7 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 func (s *Store) ExpiredV2Contracts(minHeight, maxHeight uint64) (ids []types.FileContractID, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT contract_id FROM contracts_v2
-WHERE contract_status IN ($1, $2, $3, $4) AND last_updated_height >= $5 AND last_updated_height < $6`
+WHERE contract_status IN ($1, $2, $3, $4) AND last_status_update_height >= $5 AND last_status_update_height < $6`
 		rows, err := tx.Query(query, contracts.V2ContractStatusRejected, contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusFailed, contracts.V2ContractStatusRenewed, minHeight, maxHeight)
 		if err != nil {
 			return fmt.Errorf("failed to query contracts: %w", err)
@@ -543,15 +543,9 @@ LIMIT $3)`
 
 // updateResolvedV2Contract clears a contract and returns its ID
 func updateResolvedV2Contract(tx *txn, contractID types.FileContractID, renewedDBID int64) (dbID int64, err error) {
-	index, err := lastScannedIndex(tx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last scanned index: %w", err)
-	}
-	const clearQuery = `UPDATE contracts_v2 SET renewed_to=$1, last_updated_height=$2, last_updated_block_id=$3 WHERE contract_id=$4 RETURNING id;`
+	const clearQuery = `UPDATE contracts_v2 SET renewed_to=$1 WHERE contract_id=$2 RETURNING id;`
 	err = tx.QueryRow(clearQuery,
 		renewedDBID,
-		index.Height,
-		encode(index.ID),
 		encode(contractID),
 	).Scan(&dbID)
 	return
@@ -900,7 +894,7 @@ func insertV2Contract(tx *txn, contract contracts.V2Contract, mapID, mapRevision
 	const query = `INSERT INTO contracts_v2 (contract_id, renter_id, locked_collateral, rpc_revenue, storage_revenue, ingress_revenue,
 egress_revenue, account_funding, risked_collateral, revision_number, negotiation_height, proof_height, expiration_height, formation_txn_set,
 formation_txn_set_basis, raw_revision, contract_status, sector_count, contract_v2_roots_map_id, contract_v2_roots_map_revision_number,
-last_updated_height, last_updated_block_id) VALUES
+last_status_update_height, last_status_update_block_id) VALUES
  ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING id;`
 
 	renterID, err := renterDBID(tx, contract.RenterPublicKey)
@@ -1033,10 +1027,7 @@ func reviseV2Contract(tx *txn, id types.FileContractID, revision types.V2FileCon
 		return 0, fmt.Errorf("revision number went backwards: existing=%d revised=%d", existingRevision, revision.RevisionNumber)
 	}
 
-	index, err := lastScannedIndex(tx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last scanned index: %w", err)
-	} else if _, err := tx.Exec(`UPDATE contracts_v2 SET raw_revision=?, revision_number=?, sector_count=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`, encode(revision), encode(revision.RevisionNumber), revision.Filesize/proto4.SectorSize, index.Height, encode(index.ID), contractDBID); err != nil {
+	if _, err := tx.Exec(`UPDATE contracts_v2 SET raw_revision=?, revision_number=?, sector_count=? WHERE id=?`, encode(revision), encode(revision.RevisionNumber), revision.Filesize/proto4.SectorSize, contractDBID); err != nil {
 		return 0, fmt.Errorf("failed to update contract: %w", err)
 	} else if err := updateV2ContractUsage(tx, contractDBID, usage); err != nil {
 		return 0, fmt.Errorf("failed to update contract usage: %w", err)

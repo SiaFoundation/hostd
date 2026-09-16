@@ -33,16 +33,24 @@ func (rc *rootsCache) UpdateSectorRoots(id types.FileContractID, roots []types.H
 // ExpireContracts removes the cached sector roots of contracts that were
 // rejected or resolved before expireHeight.
 func (rc *rootsCache) ExpireContracts(height uint64) error {
+	rc.mu.RLock()
+	lastExpiredHeight := rc.lastExpiredHeight
+	rc.mu.RUnlock()
+	if height <= lastExpiredHeight {
+		rc.mu.Lock()
+		rc.lastExpiredHeight = height
+		rc.mu.Unlock()
+		return nil
+	}
+
+	expired, err := rc.store.ExpiredV2Contracts(lastExpiredHeight, height)
+	if err != nil {
+		return fmt.Errorf("failed to get expired contracts: %w", err)
+	}
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	if height > rc.lastExpiredHeight {
-		expired, err := rc.store.ExpiredV2Contracts(rc.lastExpiredHeight, height)
-		if err != nil {
-			return fmt.Errorf("failed to get expired contracts: %w", err)
-		}
-		for _, id := range expired {
-			delete(rc.contractSectors, id)
-		}
+	for _, id := range expired {
+		delete(rc.contractSectors, id)
 	}
 	rc.lastExpiredHeight = height
 	return nil

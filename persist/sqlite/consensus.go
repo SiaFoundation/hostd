@@ -1298,7 +1298,7 @@ func applyV2ContractFormation(tx *txn, index types.ChainIndex, confirmed []types
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=$1, contract_status=$2, last_updated_height=$3, last_updated_block_id=$4 WHERE id=$5`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=$1, contract_status=$2, last_status_update_height=$3, last_status_update_block_id=$4 WHERE id=$5`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update status statement: %w", err)
 	}
@@ -1373,7 +1373,7 @@ func revertV2ContractFormation(tx *txn, index types.ChainIndex, reverted []types
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=NULL, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET confirmation_index=NULL, contract_status=?, last_status_update_height=?, last_status_update_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1470,7 +1470,7 @@ func applySuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contract
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=?, last_status_update_height=?, last_status_update_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1555,7 +1555,7 @@ func applyFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.File
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=?, resolution_height=?, contract_status=?, last_status_update_height=?, last_status_update_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1643,7 +1643,7 @@ func revertSuccessfulV2Contracts(tx *txn, index types.ChainIndex, status contrac
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=?, last_status_update_height=?, last_status_update_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1715,7 +1715,7 @@ func revertFailedV2Contracts(tx *txn, index types.ChainIndex, failed []types.Fil
 	}
 	defer done()
 
-	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
+	updateStmt, err := tx.Prepare(`UPDATE contracts_v2 SET resolution_block_id=NULL, resolution_height=NULL, contract_status=?, last_status_update_height=?, last_status_update_block_id=? WHERE id=?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -1978,7 +1978,7 @@ func rejectV2Contracts(tx *txn, index types.ChainIndex, height uint64, log *zap.
 	}
 	defer stateDone()
 
-	updateStatus, err := tx.Prepare(`UPDATE contracts_v2 SET contract_status=?, last_updated_height=?, last_updated_block_id=? WHERE id=?`)
+	updateStatus, err := tx.Prepare(`UPDATE contracts_v2 SET contract_status=?, last_status_update_height=?, last_status_update_block_id=? WHERE id=?`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare v2 update statement: %w", err)
 	}

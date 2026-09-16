@@ -885,15 +885,15 @@ resolution_block_id, resolution_height) VALUES ($1, 1, $2, $3, $4, $5, $5, $5, $
 	}
 	defer store.Close()
 
-	assertLastUpdated := func(t *testing.T, id types.FileContractID, expected types.ChainIndex) {
+	assertLastStatusUpdate := func(t *testing.T, id types.FileContractID, expected types.ChainIndex) {
 		t.Helper()
 		var index types.ChainIndex
-		if err := store.readerDB.QueryRow(`SELECT last_updated_height, last_updated_block_id FROM contracts_v2 WHERE contract_id=$1`, encode(id)).Scan(&index.Height, decode(&index.ID)); err != nil {
+		if err := store.readerDB.QueryRow(`SELECT last_status_update_height, last_status_update_block_id FROM contracts_v2 WHERE contract_id=$1`, encode(id)).Scan(&index.Height, decode(&index.ID)); err != nil {
 			t.Fatal(err)
 		} else if index != expected {
-			t.Fatalf("expected last updated index %v for %v, got %v", expected, id, index)
+			t.Fatalf("expected last status update index %v for %v, got %v", expected, id, index)
 		}
 	}
-	assertLastUpdated(t, resolvedID, resolution)
-	assertLastUpdated(t, activeID, scanned)
+	assertLastStatusUpdate(t, resolvedID, resolution)
+	assertLastStatusUpdate(t, activeID, scanned)
 }
