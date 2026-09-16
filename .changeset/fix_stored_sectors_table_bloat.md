@@ -7,3 +7,5 @@ default: patch
 The cache kept 32 KiB of subtree roots inline on every sector row, which slowed
 sector reads, pruning and contract root lookups. Cached roots are discarded on
 upgrade and rebuilt on the next read.
+
+This database migration will take a long time on large hosts. Plan accordingly.
