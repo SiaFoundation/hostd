@@ -2,17 +2,13 @@ openapi: "3.0.0"
 info:
   title: hostd API
   description: >
-    hostd exposes endpoints for configuring and operating a Sia storage host.
-    It covers consensus access, host settings, storage management, contract queries,
-    metrics, alerts, and webhook notifications.
-  version: 2.4.1
+    hostd exposes endpoints for configuring and operating a Sia storage host. It covers consensus access, host settings, storage management, contract queries, metrics, alerts, and webhook notifications.
 
+  version: 2.10.3
 servers:
   - url: http://localhost:9980/api
-
 security:
   - basicAuth: []
-
 tags:
   - name: state
     description: Host status, announcements, and build metadata.
@@ -42,7 +38,6 @@ tags:
     description: System utilities, backups, and connectivity tests.
   - name: webhooks
     description: Configure outbound webhook integrations.
-
 paths:
   /state:
     get:
@@ -884,7 +879,6 @@ paths:
       responses:
         "200":
           description: Test event dispatched.
-
 components:
   securitySchemes:
     basicAuth:
