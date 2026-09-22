@@ -4,7 +4,7 @@ info:
   description: >
     hostd exposes endpoints for configuring and operating a Sia storage host. It covers consensus access, host settings, storage management, contract queries, metrics, alerts, and webhook notifications.
 
-  version: 2.10.3
+  version: 2.11.0
 servers:
   - url: http://localhost:9980/api
 security:
