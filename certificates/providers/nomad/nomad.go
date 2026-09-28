@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,11 +127,11 @@ func timeToRefresh(cert *tls.Certificate) time.Duration {
 }
 
 func backoff(failures int) time.Duration {
-	if failures == 0 {
+	if failures <= 0 {
 		return 0
 	}
-	// Exponential backoff with a maximum of 6 hours
-	return time.Duration(min(6*time.Hour, time.Minute*time.Duration(math.Pow(2, float64(failures)))))
+	// the exponent is clamped since 2^10 minutes already exceeds the maximum
+	return min(time.Minute<<min(failures, 10), 6*time.Hour)
 }
 
 // NewProvider creates a new nomad certificate provider.
