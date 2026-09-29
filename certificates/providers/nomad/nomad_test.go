@@ -10,8 +10,6 @@ import (
 // time.Duration after 28 consecutive failures, which retried immediately
 // instead of waiting.
 func TestBackoff(t *testing.T) {
-	const maxBackoff = 6 * time.Hour
-
 	tests := []struct {
 		failures int
 		expected time.Duration
