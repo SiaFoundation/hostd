@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxBackoff = 6 * time.Hour
+
 // A Provider is a certificate provider that issues and manages
 // certificates using the Sia Foundation's nomad service.
 type Provider struct {
@@ -131,7 +133,7 @@ func backoff(failures int) time.Duration {
 		return 0
 	}
 	// the exponent is clamped since 2^10 minutes already exceeds the maximum
-	return min(time.Minute<<min(failures, 10), 6*time.Hour)
+	return min(time.Minute<<min(failures, 10), maxBackoff)
 }
 
 // NewProvider creates a new nomad certificate provider.
