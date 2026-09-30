@@ -1,3 +1,9 @@
+## 2.11.1 (2026-09-30)
+
+### Fixes
+
+- Fixed the nomad certificate backoff overflowing after 28 consecutive failures
+
 ## 2.11.0 (2026-09-17)
 
 ### Features
