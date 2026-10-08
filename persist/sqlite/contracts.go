@@ -366,7 +366,7 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots, newR
 func (s *Store) V2SectorRoots(minHeight uint64) (roots map[types.FileContractID][]types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const contractsQuery = `SELECT contract_id, raw_revision, contract_v2_roots_map_id, contract_v2_roots_map_revision_number FROM contracts_v2
-WHERE contract_status <> $1 AND (resolution_height IS NULL OR last_status_update_height >= $2);`
+WHERE (contract_status <> $1 OR proof_height >= $2) AND (resolution_height IS NULL OR last_status_update_height >= $2);`
 		rows, err := tx.Query(contractsQuery, contracts.V2ContractStatusRejected, minHeight)
 		if err != nil {
 			return err
@@ -455,7 +455,9 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 func (s *Store) ExpiredV2Contracts(minHeight, maxHeight uint64) (ids []types.FileContractID, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT contract_id FROM contracts_v2
-WHERE contract_status IN ($1, $2, $3, $4) AND last_status_update_height >= $5 AND last_status_update_height < $6`
+WHERE contract_status IN ($1, $2, $3, $4)
+AND ((contract_status <> $1 AND last_status_update_height >= $5 AND last_status_update_height < $6)
+OR (contract_status = $1 AND proof_height >= $5 AND proof_height < $6))`
 		rows, err := tx.Query(query, contracts.V2ContractStatusRejected, contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusFailed, contracts.V2ContractStatusRenewed, minHeight, maxHeight)
 		if err != nil {
 			return fmt.Errorf("failed to query contracts: %w", err)
@@ -494,7 +496,7 @@ INNER JOIN contracts_v2 c ON (
 	c.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
 	AND c.contract_v2_roots_map_revision_number = csr.contract_v2_roots_map_revision_number
 )
-WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR c.contract_status = $2)
+WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR (c.contract_status = $2 AND c.proof_height < $1))
 AND NOT EXISTS (
 	SELECT 1 FROM contracts_v2 c2
 	WHERE c2.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
@@ -522,7 +524,7 @@ INNER JOIN contracts_v2 c ON (
 	c.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
 	AND c.contract_v2_roots_map_revision_number = csr.contract_v2_roots_map_revision_number
 )
-WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR c.contract_status = $2)
+WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR (c.contract_status = $2 AND c.proof_height < $1))
 AND EXISTS (
 	SELECT 1 FROM contract_v2_sector_roots csr2
 	WHERE csr2.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
