@@ -31,7 +31,7 @@ func (rc *rootsCache) UpdateSectorRoots(id types.FileContractID, roots []types.H
 }
 
 // ExpireContracts removes the cached sector roots of contracts that were
-// rejected or resolved before expireHeight.
+// resolved, or rejected with a proof height, below height.
 func (rc *rootsCache) ExpireContracts(height uint64) error {
 	rc.mu.RLock()
 	lastExpiredHeight := rc.lastExpiredHeight
