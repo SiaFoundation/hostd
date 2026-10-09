@@ -857,7 +857,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		}
 		rejectContract(t)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
-		assertStorageMetrics(t, 0, 0)
+		// the sector is retained until the proof height passes
+		assertStorageMetrics(t, 0, 1)
 		assertCachedRoots(t, contractID, 1)
 
 		// resubmitting the same contract replaces the rejected contract with a
@@ -944,7 +945,8 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, contractID, contracts.V2ContractStatusActive)
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusRejected)
 		assertContractMetrics(t, fc.TotalCollateral, usage.RiskedCollateral)
-		assertStorageMetrics(t, 1, 1)
+		// the renewal's sector is retained until its proof height
+		assertStorageMetrics(t, 1, 2)
 
 		// mine until the original contract is successful
 		testutil.MineAndSync(t, node, types.VoidAddress, int(fc.ProofHeight-cm.Tip().Height)+1)
@@ -954,9 +956,13 @@ func TestV2ContractLifecycle(t *testing.T) {
 		assertContractStatus(t, renewalID, contracts.V2ContractStatusRejected)
 		assertContractMetrics(t, types.ZeroCurrency, types.ZeroCurrency)
 		// storage metrics won't be garbage collected for 6 blocks
-		assertStorageMetrics(t, 0, 1)
+		assertStorageMetrics(t, 0, 2)
 
 		testutil.MineAndSync(t, node, types.VoidAddress, contracts.ReorgBuffer+1)
+		assertStorageMetrics(t, 0, 1)
+
+		// the rejected renewal's sector is reclaimed at its own proof height
+		testutil.MineAndSync(t, node, types.VoidAddress, int(renewal.ProofHeight-cm.Tip().Height)+contracts.ReorgBuffer+1)
 		assertStorageMetrics(t, 0, 0)
 	})
 
