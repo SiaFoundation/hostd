@@ -2096,7 +2096,7 @@ func TestV2SectorRootConsistency(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, ok := dbRoots[contractID]; ok {
-			t.Fatal("rejected contract should not have roots in V2SectorRoots")
+			t.Fatal("rejected contract past its proof height should not have roots in V2SectorRoots")
 		}
 	})
 
