@@ -2,4 +2,4 @@
 default: patch
 ---
 
-# Fixed rejected v2 contracts losing their sector roots before the formation could still confirm
+# Fix v2 sector roots being deleted while a contract may still need them
