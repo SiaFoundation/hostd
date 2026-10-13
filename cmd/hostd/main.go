@@ -11,7 +11,10 @@ import (
 	"runtime"
 	"syscall"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/wallet"
 	"go.sia.tech/hostd/v2/build"
 	"go.sia.tech/hostd/v2/config"
@@ -180,6 +183,7 @@ Commands:
 	config		Print the default hostd config
 	recalculate	Recalculate the derived metrics in the SQLite3 database
 	sqlite3		Perform various operations on the SQLite3 database
+	consensus	Perform various operations on the consensus database
 `
 
 	versionUsage = `Usage:
@@ -232,6 +236,28 @@ hostd sqlite3 backup <srcPath> <destPath>
 
 Create a backup of the SQLite3 database at the specified path. This is safe to run while the host is running.
 `
+
+	consensusUsage = `Usage:
+hostd consensus [subcommand]
+
+Perform various operations on the consensus database.
+
+Commands:
+	prune	Shrink the consensus database by removing history the host no longer needs
+`
+
+	consensusPruneUsage = `Usage:
+hostd consensus prune
+
+Rewrites the consensus database in the data directory, retaining only the
+blocks and state needed to operate the host from its last scanned chain index.
+The number of blocks kept below the last scanned index is set by the
+consensus.pruneTarget config value. The pruned database is written alongside the
+original and atomically replaces it on success, which temporarily requires
+free disk space roughly equal to the size of the pruned database.
+
+This command is not safe to run while the host is running.
+`
 )
 
 // checkFatalError prints an error message to stderr and exits with a 1 exit code. If err is nil, this is a no-op.
@@ -279,6 +305,58 @@ func runRecalcCommand(srcPath string, log *zap.Logger) error {
 	return nil
 }
 
+func pruneConsensusDB(dir string, network *consensus.Network, pruneTarget uint64, log *zap.Logger) error {
+	if pruneTarget == 0 {
+		return errors.New("consensus.pruneTarget must be set")
+	}
+
+	store, err := openSQLite3Database(dir, log.Named("sqlite3"))
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	tip, err := store.Tip()
+	store.Close()
+	if err != nil {
+		return fmt.Errorf("failed to get last scanned index: %w", err)
+	} else if tip == (types.ChainIndex{}) {
+		return errors.New("host has not scanned any blocks")
+	}
+
+	if tip.Height <= pruneTarget {
+		return fmt.Errorf("last scanned height %d is too low to prune", tip.Height)
+	}
+	height := tip.Height - pruneTarget
+
+	path := filepath.Join(dir, "consensus.db")
+	before, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat consensus database: %w", err)
+	}
+	log.Info("pruning consensus database", zap.String("path", path), zap.Uint64("height", height), zap.Stringer("lastScannedIndex", tip))
+	if err := coreutils.PruneBoltChainDB(path, network, height, chain.NewZapMigrationLogger(log.Named("chain"))); err != nil {
+		return fmt.Errorf("failed to prune consensus database: %w", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat pruned consensus database: %w", err)
+	}
+	log.Info("pruned consensus database", zap.Int64("sizeBefore", before.Size()), zap.Int64("sizeAfter", after.Size()))
+	return nil
+}
+
+func runConsensusPruneCommand(cfg config.Config, log *zap.Logger) error {
+	var network *consensus.Network
+	switch cfg.Consensus.Network {
+	case "mainnet":
+		network, _ = chain.Mainnet()
+	case "zen":
+		network, _ = chain.TestnetZen()
+	default:
+		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
+	}
+	return pruneConsensusDB(cfg.Directory, network, cfg.Consensus.PruneTarget, log)
+}
+
 func main() {
 	var instantSync bool
 	// attempt to load the config file, command line flags will override any
@@ -316,6 +394,8 @@ func main() {
 	sqlite3Cmd := flagg.New("sqlite3", sqlite3Usage)
 	sqlite3BackupCmd := flagg.New("backup", sqlite3BackupUsage)
 	sqlite3IntegrityCmd := flagg.New("integrity", sqlite3IntegrityUsage)
+	consensusCmd := flagg.New("consensus", consensusUsage)
+	consensusPruneCmd := flagg.New("prune", consensusPruneUsage)
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -329,6 +409,12 @@ func main() {
 				Sub: []flagg.Tree{
 					{Cmd: sqlite3IntegrityCmd},
 					{Cmd: sqlite3BackupCmd},
+				},
+			},
+			{
+				Cmd: consensusCmd,
+				Sub: []flagg.Tree{
+					{Cmd: consensusPruneCmd},
 				},
 			},
 		},
@@ -416,6 +502,18 @@ func main() {
 		}
 
 		checkFatalError("command failed", runBackupCommand(cmd.Arg(0), cmd.Arg(1)))
+	case consensusCmd:
+		cmd.Usage()
+	case consensusPruneCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+
+		log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.StdOut.Level)
+		defer log.Sync()
+
+		checkFatalError("command failed", runConsensusPruneCommand(cfg, log))
 	case rootCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
