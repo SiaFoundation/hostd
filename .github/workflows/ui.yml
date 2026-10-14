@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Update UI and open PR
-        uses: SiaFoundation/workflows/.github/actions/ui-update@d5d18a70438976ccb2c525c21dd956dc5639fc32 # master
+        uses: SiaFoundation/workflows/.github/actions/ui-update@4b83528b86239995d5d941f1f5c48f17ef9db4d1 # master
         with:
           moduleName: 'hostd'
           goVersion: '1.21'
