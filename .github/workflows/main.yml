@@ -10,6 +10,6 @@ env:
 
 jobs:
   test:
-    uses: SiaFoundation/workflows/.github/workflows/go-test.yml@4b83528b86239995d5d941f1f5c48f17ef9db4d1 # master
+    uses: SiaFoundation/workflows/.github/workflows/go-test.yml@5023d45bfcacd511248eb1daddc99d90b946941d # master
     with:
       go-version: "1.27"
