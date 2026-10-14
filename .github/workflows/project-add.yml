@@ -10,5 +10,5 @@ on:
 
 jobs:
   add-to-project:
-    uses: SiaFoundation/workflows/.github/workflows/project-add.yml@5023d45bfcacd511248eb1daddc99d90b946941d # master
+    uses: SiaFoundation/workflows/.github/workflows/project-add.yml@95130e8c532eb275d3e359b4c4ae97083ae96c8f # master
     secrets: inherit
