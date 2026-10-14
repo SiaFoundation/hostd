@@ -729,23 +729,6 @@ func TestExpireV2ContractSectorsBatching(t *testing.T) {
 		}
 	}
 
-	// leaves resolution_height unset and records the rejection height, as
-	// rejectV2Contracts does
-	rejectContract := func(t *testing.T, contractID types.FileContractID, height uint64) {
-		t.Helper()
-		err := db.transaction(func(tx *txn) error {
-			_, err := tx.Exec(`UPDATE contracts_v2 SET contract_status=$1, last_status_update_height=$2, last_status_update_block_id=$3 WHERE contract_id=$4`,
-				contracts.V2ContractStatusRejected, height, encode(types.BlockID{}), encode(contractID))
-			if err != nil {
-				return err
-			}
-			return incrementNumericStat(tx, metricRejectedContracts, 1, time.Now())
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	countSectorRows := func(t *testing.T, contractID types.FileContractID) int {
 		t.Helper()
 		var count int
@@ -988,6 +971,26 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 			}
 		}
 
+		rejectContract := func(t *testing.T, contractID types.FileContractID, parentID types.FileContractID) {
+			t.Helper()
+			err := db.transaction(func(tx *txn) error {
+				// set the contract status to rejected
+				if _, err := tx.Exec(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_id=$2`,
+					contracts.V2ContractStatusRejected, encode(contractID)); err != nil {
+					return err
+				}
+				// clear the renewed_to field on the parent so it can be renewed again
+				if _, err := tx.Exec(`UPDATE contracts_v2 SET renewed_to=NULL WHERE contract_id=$1`, encode(parentID)); err != nil {
+					return err
+				}
+				// increment rejected contracts metric (matches rejectV2Contracts behavior)
+				return incrementNumericStat(tx, metricRejectedContracts, 1, time.Now())
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		// create c1
 		c1 := contracts.V2Contract{
 			ID: frand.Entropy256(),
@@ -1034,14 +1037,8 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 			t.Fatal(err)
 		}
 
-		// reject c2 due to a reorg and clear c1's renewed_to
-		rejectContract(t, c2.ID, 50)
-		if err := db.transaction(func(tx *txn) error {
-			_, err := tx.Exec(`UPDATE contracts_v2 SET renewed_to=NULL WHERE contract_id=$1`, encode(c1.ID))
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
+		// reject c2 due to a reorg
+		rejectContract(t, c2.ID, c1.ID)
 
 		// renew c1 → c3
 		c3 := contracts.V2Contract{
@@ -1072,74 +1069,6 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 
 		// verify all sectors are present
 		checkSectorRoots(t, c3.ID, c3Roots)
-	})
-
-	t.Run("rejected contract retained until proof height", func(t *testing.T) {
-		c := contracts.V2Contract{
-			ID: frand.Entropy256(),
-			V2FileContract: types.V2FileContract{
-				RenterPublicKey:  renterKey.PublicKey(),
-				HostPublicKey:    hostKey.PublicKey(),
-				ProofHeight:      100,
-				ExpirationHeight: 200,
-			},
-		}
-		if err := db.AddV2Contract(c, rhp4.TransactionSet{}); err != nil {
-			t.Fatal(err)
-		}
-
-		roots := storeSectors(t, 4)
-		c.V2FileContract.RevisionNumber++
-		c.V2FileContract.Filesize = proto4.SectorSize * uint64(len(roots))
-		if err := db.ReviseV2Contract(c.ID, c.V2FileContract, nil, roots, proto4.Usage{}); err != nil {
-			t.Fatal(err)
-		}
-
-		// reject the contract well before its proof height
-		rejectContract(t, c.ID, 50)
-
-		// roots survive expiration up to the proof height
-		if err := db.ExpireV2ContractSectors(100); err != nil {
-			t.Fatal(err)
-		} else if n := countSectorRows(t, c.ID); n != len(roots) {
-			t.Fatalf("expected %d sector roots, got %d", len(roots), n)
-		}
-
-		// and are still loaded into the roots cache
-		dbRoots, err := db.V2SectorRoots(100)
-		if err != nil {
-			t.Fatal(err)
-		} else if !slices.Equal(dbRoots[c.ID], roots) {
-			t.Fatalf("expected %d roots, got %d", len(roots), len(dbRoots[c.ID]))
-		}
-
-		// past the proof height the contract is excluded
-		dbRoots, err = db.V2SectorRoots(101)
-		if err != nil {
-			t.Fatal(err)
-		} else if _, ok := dbRoots[c.ID]; ok {
-			t.Fatal("expected contract to be excluded past its proof height")
-		}
-
-		// eviction happens at the proof height, not the rejection height
-		if expired, err := db.ExpiredV2Contracts(50, 51); err != nil {
-			t.Fatal(err)
-		} else if slices.Contains(expired, c.ID) {
-			t.Fatal("expected contract not to expire at its rejection height")
-		}
-
-		if expired, err := db.ExpiredV2Contracts(100, 101); err != nil {
-			t.Fatal(err)
-		} else if !slices.Contains(expired, c.ID) {
-			t.Fatal("expected contract to expire at its proof height")
-		}
-
-		// past the proof height the roots are deleted
-		if err := db.ExpireV2ContractSectors(101); err != nil {
-			t.Fatal(err)
-		} else if n := countSectorRows(t, c.ID); n != 0 {
-			t.Fatalf("expected 0 sector roots, got %d", n)
-		}
 	})
 
 	t.Run("inherited rows a live contract still resolves", func(t *testing.T) {
@@ -1199,19 +1128,44 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 			t.Fatal(err)
 		}
 
-		// c1 resolves into c2, and c3 is rejected before its proof height
-		resolveContract(t, c1.ID, 10)
-		rejectContract(t, c3.ID, 50)
+		assertInheritedRoots := func(t *testing.T) {
+			t.Helper()
+			dbRoots, err := db.V2SectorRoots(100)
+			if err != nil {
+				t.Fatal(err)
+			} else if !slices.Equal(dbRoots[c2.ID], roots) {
+				t.Fatalf("expected c2 to resolve %d inherited roots, got %d", len(roots), len(dbRoots[c2.ID]))
+			}
+		}
 
+		// c1 resolves into c2 while c3 is still pending
+		resolveContract(t, c1.ID, 10)
 		if err := db.ExpireV2ContractSectors(100); err != nil {
 			t.Fatal(err)
 		}
+		assertInheritedRoots(t)
 
-		dbRoots, err := db.V2SectorRoots(100)
-		if err != nil {
+		// c3 is rejected and c2 is the live contract again
+		if err := db.transaction(func(tx *txn) error {
+			_, err := tx.Exec(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_id=$2`,
+				contracts.V2ContractStatusRejected, encode(c3.ID))
+			return err
+		}); err != nil {
 			t.Fatal(err)
-		} else if !slices.Equal(dbRoots[c2.ID], roots) {
-			t.Fatalf("expected c2 to resolve %d inherited roots, got %d", len(roots), len(dbRoots[c2.ID]))
+		}
+		if err := db.ExpireV2ContractSectors(100); err != nil {
+			t.Fatal(err)
+		} else if n := countSectorRows(t, c3.ID); n != 0 {
+			t.Fatalf("expected the rejected contract to keep no rows, got %d", n)
+		}
+		assertInheritedRoots(t)
+
+		// nothing is left behind once the whole chain is dead
+		resolveContract(t, c2.ID, 200)
+		if err := db.ExpireV2ContractSectors(201); err != nil {
+			t.Fatal(err)
+		} else if n := countSectorRows(t, c1.ID); n != 0 {
+			t.Fatalf("expected 0 sector roots, got %d", n)
 		}
 	})
 }

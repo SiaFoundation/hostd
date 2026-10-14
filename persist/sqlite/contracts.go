@@ -360,13 +360,13 @@ func (s *Store) ReviseContract(revision contracts.SignedRevision, oldRoots, newR
 	})
 }
 
-// V2SectorRoots returns the sector roots of all v2 contracts that are either
-// unresolved or were resolved at or after minHeight, excluding rejected
-// contracts whose proof height is below minHeight.
+// V2SectorRoots returns the sector roots of all v2 contracts that have not
+// been rejected and are either unresolved or were resolved at or after
+// minHeight.
 func (s *Store) V2SectorRoots(minHeight uint64) (roots map[types.FileContractID][]types.Hash256, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const contractsQuery = `SELECT contract_id, raw_revision, contract_v2_roots_map_id, contract_v2_roots_map_revision_number FROM contracts_v2
-WHERE (contract_status <> $1 OR proof_height >= $2) AND (resolution_height IS NULL OR last_status_update_height >= $2);`
+WHERE contract_status <> $1 AND (resolution_height IS NULL OR last_status_update_height >= $2);`
 		rows, err := tx.Query(contractsQuery, contracts.V2ContractStatusRejected, minHeight)
 		if err != nil {
 			return err
@@ -450,21 +450,13 @@ func (s *Store) ExpireV2ContractSectors(height uint64) error {
 	}
 }
 
-// ExpiredV2Contracts returns the IDs of v2 contracts that were resolved, or
-// rejected with a proof height, in [minHeight, maxHeight).
+// ExpiredV2Contracts returns the IDs of v2 contracts that were rejected or
+// resolved at a height in [minHeight, maxHeight).
 func (s *Store) ExpiredV2Contracts(minHeight, maxHeight uint64) (ids []types.FileContractID, err error) {
 	err = s.transaction(func(tx *txn) error {
-		// the unary + on contract_status keeps the planner off
-		// contracts_v2_contract_status_last_status_update_height for the
-		// rejected arm so it ranges over contracts_v2_proof_height instead
 		const query = `SELECT contract_id FROM contracts_v2
-WHERE contract_status IN (?, ?, ?) AND last_status_update_height >= ? AND last_status_update_height < ?
-UNION ALL
-SELECT contract_id FROM contracts_v2
-WHERE +contract_status = ? AND proof_height >= ? AND proof_height < ?`
-		rows, err := tx.Query(query,
-			contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusFailed, contracts.V2ContractStatusRenewed, minHeight, maxHeight,
-			contracts.V2ContractStatusRejected, minHeight, maxHeight)
+WHERE contract_status IN ($1, $2, $3, $4) AND last_status_update_height >= $5 AND last_status_update_height < $6`
+		rows, err := tx.Query(query, contracts.V2ContractStatusRejected, contracts.V2ContractStatusSuccessful, contracts.V2ContractStatusFailed, contracts.V2ContractStatusRenewed, minHeight, maxHeight)
 		if err != nil {
 			return fmt.Errorf("failed to query contracts: %w", err)
 		}
@@ -502,7 +494,7 @@ INNER JOIN contracts_v2 c ON (
 	c.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
 	AND c.contract_v2_roots_map_revision_number = csr.contract_v2_roots_map_revision_number
 )
-WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR (c.contract_status = $2 AND c.proof_height < $1))
+WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR c.contract_status = $2)
 AND NOT EXISTS (
 	SELECT 1 FROM contracts_v2 c2
 	WHERE c2.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
@@ -524,13 +516,15 @@ LIMIT $3);`
 	// delete roots that have been superseded by a replacement at a higher
 	// revision for the same root_index. These are from expired contracts
 	// that have an active higher-revision contract in the same renewal chain.
+	// A row is not superseded while a live contract at an intermediate
+	// revision still resolves it.
 	const supersededQuery = `DELETE FROM contract_v2_sector_roots
 WHERE id IN (SELECT csr.id FROM contract_v2_sector_roots csr
 INNER JOIN contracts_v2 c ON (
 	c.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
 	AND c.contract_v2_roots_map_revision_number = csr.contract_v2_roots_map_revision_number
 )
-WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR (c.contract_status = $2 AND c.proof_height < $1))
+WHERE ((c.resolution_height IS NOT NULL AND c.resolution_height < $1) OR c.contract_status = $2)
 AND EXISTS (
 	SELECT 1 FROM contract_v2_sector_roots csr2
 	WHERE csr2.contract_v2_roots_map_id = csr.contract_v2_roots_map_id
@@ -542,7 +536,7 @@ AND EXISTS (
 		AND live.contract_v2_roots_map_revision_number > csr.contract_v2_roots_map_revision_number
 		AND live.contract_v2_roots_map_revision_number < csr2.contract_v2_roots_map_revision_number
 		AND (live.resolution_height IS NULL OR live.resolution_height >= $1)
-		AND live.contract_status <> $2
+		AND live.contract_status != $2
 		AND csr.root_index < live.sector_count
 	)
 )
