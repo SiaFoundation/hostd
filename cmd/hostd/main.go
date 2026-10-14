@@ -305,7 +305,34 @@ func runRecalcCommand(srcPath string, log *zap.Logger) error {
 	return nil
 }
 
-func pruneConsensusDB(dir string, network *consensus.Network, pruneTarget uint64, log *zap.Logger) error {
+// checkConsensusTip verifies that the consensus database's best chain at the
+// height of the last scanned index matches the index itself. The host resets
+// chain-derived state and rescans if they differ on startup, which requires
+// history that pruning would remove.
+func checkConsensusTip(path string, network *consensus.Network, genesisBlock types.Block, tip types.ChainIndex, log *zap.Logger) error {
+	bdb, err := coreutils.OpenBoltChainDB(path)
+	if err != nil {
+		return fmt.Errorf("failed to open consensus database: %w", err)
+	}
+	defer bdb.Close()
+
+	dbstore, err := chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chain")))
+	if err != nil {
+		return fmt.Errorf("failed to create chain store: %w", err)
+	}
+	snapshot, release := dbstore.Snapshot()
+	defer release()
+
+	index, ok := snapshot.BestIndex(tip.Height)
+	if !ok {
+		return fmt.Errorf("consensus database tip %v is below last scanned index %v: start hostd to reconcile state before pruning", snapshot.TipState().Index, tip)
+	} else if index != tip {
+		return fmt.Errorf("consensus database has %v at height %d but last scanned index is %v: start hostd to reconcile state before pruning", index, tip.Height, tip)
+	}
+	return nil
+}
+
+func pruneConsensusDB(dir string, network *consensus.Network, genesisBlock types.Block, pruneTarget uint64, log *zap.Logger) error {
 	if pruneTarget == 0 {
 		return errors.New("consensus.pruneTarget must be set")
 	}
@@ -331,6 +358,8 @@ func pruneConsensusDB(dir string, network *consensus.Network, pruneTarget uint64
 	before, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("failed to stat consensus database: %w", err)
+	} else if err := checkConsensusTip(path, network, genesisBlock, tip, log); err != nil {
+		return err
 	}
 	log.Info("pruning consensus database", zap.String("path", path), zap.Uint64("height", height), zap.Stringer("lastScannedIndex", tip))
 	if err := coreutils.PruneBoltChainDB(path, network, height, chain.NewZapMigrationLogger(log.Named("chain"))); err != nil {
@@ -346,15 +375,16 @@ func pruneConsensusDB(dir string, network *consensus.Network, pruneTarget uint64
 
 func runConsensusPruneCommand(cfg config.Config, log *zap.Logger) error {
 	var network *consensus.Network
+	var genesisBlock types.Block
 	switch cfg.Consensus.Network {
 	case "mainnet":
-		network, _ = chain.Mainnet()
+		network, genesisBlock = chain.Mainnet()
 	case "zen":
-		network, _ = chain.TestnetZen()
+		network, genesisBlock = chain.TestnetZen()
 	default:
 		return errors.New("invalid network: must be one of 'mainnet' or 'zen'")
 	}
-	return pruneConsensusDB(cfg.Directory, network, cfg.Consensus.PruneTarget, log)
+	return pruneConsensusDB(cfg.Directory, network, genesisBlock, cfg.Consensus.PruneTarget, log)
 }
 
 func main() {
