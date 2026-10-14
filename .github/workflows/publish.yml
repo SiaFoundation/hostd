@@ -17,7 +17,7 @@ jobs:
   test:
     permissions:
       contents: read
-    uses: SiaFoundation/workflows/.github/workflows/go-test.yml@70766ac59c74a44be6edb67e6f07c7bb67ffe3b2 # master
+    uses: SiaFoundation/workflows/.github/workflows/go-test.yml@d5d18a70438976ccb2c525c21dd956dc5639fc32 # master
   tag:
     name: Tag Release
     needs:
@@ -53,7 +53,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: SiaFoundation/workflows/.github/workflows/go-build.yml@70766ac59c74a44be6edb67e6f07c7bb67ffe3b2 # master
+    uses: SiaFoundation/workflows/.github/workflows/go-build.yml@d5d18a70438976ccb2c525c21dd956dc5639fc32 # master
     secrets: inherit
     with:
       linux-build-args: -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'
@@ -69,7 +69,7 @@ jobs:
       - build
     permissions:
       contents: read
-    uses: SiaFoundation/workflows/.github/workflows/linux-dispatch.yml@70766ac59c74a44be6edb67e6f07c7bb67ffe3b2 # master
+    uses: SiaFoundation/workflows/.github/workflows/linux-dispatch.yml@d5d18a70438976ccb2c525c21dd956dc5639fc32 # master
     secrets: inherit
     with:
       project: hostd
@@ -83,7 +83,7 @@ jobs:
       - build
     permissions:
       contents: read
-    uses: SiaFoundation/workflows/.github/workflows/homebrew-dispatch.yml@70766ac59c74a44be6edb67e6f07c7bb67ffe3b2 # master
+    uses: SiaFoundation/workflows/.github/workflows/homebrew-dispatch.yml@d5d18a70438976ccb2c525c21dd956dc5639fc32 # master
     secrets: inherit
     with:
       project: hostd
