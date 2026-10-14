@@ -6,6 +6,10 @@ on:
   # Enable manual trigger
   workflow_dispatch:
 
+permissions:
+  contents: write # pushes the update branch
+  pull-requests: write # opens the PR
+
 jobs:
   update-ui:
     runs-on: ubuntu-latest
