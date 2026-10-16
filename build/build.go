@@ -15,7 +15,8 @@ func Version() string {
 	return version
 }
 
-// Time returns the time at which the binary was built.
+// Time returns the build timestamp recorded in the build metadata. For tagged
+// versions, this is the commit time; development builds use the generation time.
 func Time() time.Time {
 	return time.Unix(buildTime, 0)
 }
