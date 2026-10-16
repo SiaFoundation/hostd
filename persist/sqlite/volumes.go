@@ -107,8 +107,8 @@ func (s *Store) batchRemoveVolumeSectors(id int64, force bool) (removed, lost in
 	return
 }
 
-// StorageUsage returns the number of sectors stored and the total number of sectors
-// available in the storage pool.
+// StorageUsage returns the number of used sectors and the total capacity, in
+// sectors, across the storage pool.
 func (s *Store) StorageUsage() (usedSectors, totalSectors uint64, err error) {
 	const query = `SELECT COALESCE(SUM(total_sectors), 0) AS total_sectors, COALESCE(SUM(used_sectors), 0) AS used_sectors FROM storage_volumes`
 	err = s.transaction(func(tx *txn) error {
