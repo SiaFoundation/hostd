@@ -7,7 +7,7 @@ require (
 	github.com/cloudflare/cloudflare-go v0.119.0
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/mattn/go-sqlite3 v1.14.52
-	github.com/shopspring/decimal v1.5.0
+	github.com/shopspring/decimal v1.6.0
 	go.sia.tech/core v0.21.8
 	go.sia.tech/coreutils v0.25.1
 	go.sia.tech/jape v0.14.4
