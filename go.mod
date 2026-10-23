@@ -8,8 +8,8 @@ require (
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/shopspring/decimal v1.5.0
-	go.sia.tech/core v0.21.7
-	go.sia.tech/coreutils v0.25.0
+	go.sia.tech/core v0.21.8
+	go.sia.tech/coreutils v0.25.1
 	go.sia.tech/jape v0.14.4
 	go.sia.tech/web/hostd v0.69.0
 	go.uber.org/zap v1.28.0
@@ -35,18 +35,18 @@ require (
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.63.0 // indirect
+	github.com/quic-go/quic-go v0.64.1 // indirect
 	github.com/quic-go/webtransport-go v0.13.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
-	go.sia.tech/mux v1.5.3 // indirect
+	go.sia.tech/mux v1.5.4 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/tools v0.50.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/tools v0.52.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
