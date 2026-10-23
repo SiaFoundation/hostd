@@ -1,3 +1,18 @@
+## 2.12.0-beta.1 (2026-10-23)
+
+### Features
+
+#### Added `hostd consensus prune` to shrink the consensus database
+
+The command rewrites `consensus.db` in the data directory, retaining only the blocks and state the host needs from its last scanned chain index, keeping `consensus.pruneTarget` blocks below it. The host must not be running.
+
+This enables older hosts to reduce the size of their consensus database on disk without requiring a new wallet for instant sync.
+
+### Fixes
+
+- Fixed the nomad certificate backoff overflowing after 28 consecutive failures
+- Fixed inherited v2 sector roots being pruned while a live contract still needed them
+
 ## 2.12.0-beta.0 (2026-10-14)
 
 ### Features
