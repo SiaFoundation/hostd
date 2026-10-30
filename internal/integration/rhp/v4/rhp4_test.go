@@ -342,7 +342,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 		}
 		revision.Revision = aRes.Revision
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if rs.Renewed {
@@ -400,7 +400,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -441,7 +441,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -485,7 +485,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -533,7 +533,7 @@ func TestRPCRefreshPartialRollover(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -617,7 +617,7 @@ func TestRPCRefreshFullRollover(t *testing.T) {
 		}
 		revision.Revision = aRes.Revision
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if rs.Renewed {
@@ -670,7 +670,7 @@ func TestRPCRefreshFullRollover(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -807,7 +807,7 @@ func TestRPCRenew(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -845,7 +845,7 @@ func TestRPCRenew(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -883,7 +883,7 @@ func TestRPCRenew(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -927,7 +927,7 @@ func TestRPCRenew(t *testing.T) {
 			t.Fatal("host signature verification failed")
 		}
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		} else if !rs.Renewed {
@@ -1372,7 +1372,7 @@ func TestAppendSectors(t *testing.T) {
 	assertLastRevision := func(t *testing.T) {
 		t.Helper()
 
-		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, revision.ID)
+		rs, err := rhp4.RPCLatestRevision(context.Background(), transport, cm.TipState(), renterKey.PublicKey(), revision.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
