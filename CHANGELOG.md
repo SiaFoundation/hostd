@@ -1,3 +1,9 @@
+## 2.12.1 (2026-10-30)
+
+### Fixes
+
+- Update coreutils to v0.25.3
+
 ## 2.12.0 (2026-10-23)
 
 ### Features
