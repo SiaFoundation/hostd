@@ -559,7 +559,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 		return Volume{}, fmt.Errorf("failed to stat volume file: %w", err)
 	}
 
-	f, err := os.Create(localPath)
+	d, err := openVolumeData(localPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return Volume{}, fmt.Errorf("failed to create volume file: %w", err)
 	}
@@ -571,7 +571,7 @@ func (vm *VolumeManager) AddVolume(ctx context.Context, localPath string, maxSec
 
 	// add the new volume to the volume map
 	vm.mu.Lock()
-	vol := vm.initVolume(volumeID, localPath, VolumeStatusCreating, f)
+	vol := vm.initVolume(volumeID, localPath, VolumeStatusCreating, d)
 	vm.mu.Unlock()
 
 	vm.vs.SetAvailable(volumeID, true)

@@ -129,12 +129,12 @@ func (v *volume) OpenVolume(localPath string, reload bool) error {
 	if v.data != nil && !reload {
 		return nil
 	}
-	f, err := os.OpenFile(localPath, os.O_RDWR, 0700)
+	d, err := openVolumeData(localPath, os.O_RDWR, 0700)
 	if err != nil {
 		return err
 	}
 	v.location = localPath
-	v.data = f
+	v.data = d
 	return nil
 }
 
