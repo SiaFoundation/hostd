@@ -3,7 +3,6 @@ package storage
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"sync"
 
@@ -15,8 +14,10 @@ type (
 	// volumeData wraps the methods needed to read and write sector data to a
 	// volume.
 	volumeData interface {
-		io.ReaderAt
-		io.WriterAt
+		// ReadSector reads len(p) bytes at offset without crossing a sector boundary.
+		ReadSector(p []byte, offset int64) (int, error)
+		// WriteSector writes a sector at a sector-aligned offset.
+		WriteSector(data *[proto4.SectorSize]byte, offset int64) (int, error)
 
 		Sync() error
 		Truncate(int64) error
@@ -182,7 +183,7 @@ func (v *volume) ReadSector(index, offset, length uint64) ([]byte, error) {
 	}
 
 	data := make([]byte, length)
-	n, err := v.data.ReadAt(data, int64(index*proto4.SectorSize+offset))
+	n, err := v.data.ReadSector(data, int64(index*proto4.SectorSize+offset))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sector at index %v: %w", index, err)
 	} else if uint64(n) != length {
@@ -200,7 +201,7 @@ func (v *volume) WriteSector(data *[proto4.SectorSize]byte, index uint64) error 
 	if v.data == nil {
 		panic("volume not open") // developer error
 	}
-	n, err := v.data.WriteAt(data[:], int64(index*proto4.SectorSize))
+	n, err := v.data.WriteSector(data, int64(index*proto4.SectorSize))
 	if err != nil {
 		if isNotEnoughStorageErr(err) {
 			err = ErrNotEnoughStorage
