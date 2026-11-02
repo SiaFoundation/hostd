@@ -1,4 +1,4 @@
-package directio
+package storage
 
 import (
 	"bytes"
@@ -16,14 +16,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func scratchFile(t *testing.T) *File {
+func scratchFile(t *testing.T) *volumeDataFile {
 	t.Helper()
-	f, err := OpenFile(filepath.Join(t.TempDir(), "volume.dat"), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	f, err := openVolumeData(filepath.Join(t.TempDir(), "volume.dat"), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.Close() })
-	return f
+	return f.(*volumeDataFile)
 }
 
 func testAlignedBuffer(size, alignment int) []byte {
@@ -88,10 +88,11 @@ func TestFileRandomWrites(t *testing.T) {
 	if err := os.WriteFile(path, want, 0600); err != nil {
 		t.Fatal(err)
 	}
-	f, err := OpenFile(path, os.O_RDWR, 0600)
+	d, err := openVolumeData(path, os.O_RDWR, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
+	f := d.(*volumeDataFile)
 	t.Cleanup(func() { f.Close() })
 	writeBuffer := testAlignedBuffer(sectorSize+1, f.alignment)
 	readBuffer := testAlignedBuffer(sectorSize+1, f.alignment)
@@ -398,7 +399,7 @@ func TestFileLifecycle(t *testing.T) {
 
 func TestOpenFileErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.dat")
-	if _, err := OpenFile(path, os.O_RDWR, 0600); !errors.Is(err, os.ErrNotExist) {
+	if _, err := openVolumeData(path, os.O_RDWR, 0600); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing file: %v", err)
 	}
 	f := scratchFile(t)
@@ -406,7 +407,7 @@ func TestOpenFileErrors(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	readOnly, err := OpenFile(path, os.O_RDONLY, 0600)
+	readOnly, err := openVolumeData(path, os.O_RDONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +436,7 @@ func TestOpenFileBufferedFallback(t *testing.T) {
 				return tc.err
 			}
 			path := filepath.Join(t.TempDir(), "volume.dat")
-			f, err := openFileWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR|int(windows.FILE_FLAG_NO_BUFFERING), 0600, queryInfo)
+			f, err := openVolumeDataWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR|int(windows.FILE_FLAG_NO_BUFFERING), 0600, queryInfo)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -456,7 +457,7 @@ func TestOpenFileBufferedFallback(t *testing.T) {
 			if n, err := f.ReadSector(read, 3); n != len(read) || err != nil || !bytes.Equal(read, data[3:16]) {
 				t.Fatalf("buffered partial read: n=%d err=%v data=%x", n, err, read)
 			}
-			if existing, err := openFileWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600, queryInfo); !errors.Is(err, os.ErrExist) {
+			if existing, err := openVolumeDataWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600, queryInfo); !errors.Is(err, os.ErrExist) {
 				if existing != nil {
 					existing.Close()
 				}
@@ -498,7 +499,7 @@ func TestOpenFileAlignment(t *testing.T) {
 				return nil
 			}
 			path := filepath.Join(t.TempDir(), "volume.dat")
-			f, err := openFileWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600, queryInfo)
+			f, err := openVolumeDataWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600, queryInfo)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -551,7 +552,7 @@ func TestOpenFileTruncate(t *testing.T) {
 				}
 				return windows.GetFileInformationByHandleEx(h, class, p, length)
 			}
-			f, err := openFileWithInfo(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600, queryInfo)
+			f, err := openVolumeDataWithInfo(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600, queryInfo)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -582,7 +583,7 @@ func TestOpenFileDirectOpenFallback(t *testing.T) {
 		attributeErr = windows.SetFileAttributes(name, windows.FILE_ATTRIBUTE_READONLY)
 		return nil
 	}
-	f, err := openFileWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600, queryInfo)
+	f, err := openVolumeDataWithInfo(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600, queryInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +611,7 @@ func TestOpenFileBufferedErrors(t *testing.T) {
 		return windows.ERROR_NOT_SUPPORTED
 	}
 	path := filepath.Join(t.TempDir(), "missing.dat")
-	if _, err := openFileWithInfo(path, os.O_RDONLY, 0600, queryInfo); !errors.Is(err, os.ErrNotExist) {
+	if _, err := openVolumeDataWithInfo(path, os.O_RDONLY, 0600, queryInfo); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing file: %v", err)
 	} else if queries != 0 {
 		t.Fatal("queried metadata after failed open")
@@ -618,7 +619,7 @@ func TestOpenFileBufferedErrors(t *testing.T) {
 	if err := os.WriteFile(path, []byte("read only"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	f, err := openFileWithInfo(path, os.O_RDONLY, 0600, queryInfo)
+	f, err := openVolumeDataWithInfo(path, os.O_RDONLY, 0600, queryInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
