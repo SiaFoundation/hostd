@@ -32,6 +32,16 @@ func testAlignedBuffer(size, alignment int) []byte {
 	return buf[offset : offset+size]
 }
 
+func isUnbuffered(t *testing.T, f *os.File) bool {
+	t.Helper()
+	const fileModeInformation = 16
+	var mode uint32
+	if err := windows.NtQueryInformationFile(windows.Handle(f.Fd()), &windows.IO_STATUS_BLOCK{}, (*byte)(unsafe.Pointer(&mode)), uint32(unsafe.Sizeof(mode)), fileModeInformation); err != nil {
+		t.Fatal(err)
+	}
+	return mode&windows.FILE_NO_INTERMEDIATE_BUFFERING != 0
+}
+
 func TestFileRoundTrip(t *testing.T) {
 	f := scratchFile(t)
 	const sectorSize = 4 << 20
@@ -443,6 +453,8 @@ func TestOpenFileBufferedFallback(t *testing.T) {
 			t.Cleanup(func() { f.Close() })
 			if f.blockSize != 1 || f.alignment != 1 {
 				t.Fatalf("expected buffered file, got block size %d and alignment %d", f.blockSize, f.alignment)
+			} else if isUnbuffered(t, f.file) {
+				t.Fatal("expected buffered native handle")
 			}
 			data := new([proto4.SectorSize]byte)
 			for i := range data {
@@ -513,6 +525,8 @@ func TestOpenFileAlignment(t *testing.T) {
 				t.Fatal("unexpected buffered fallback on a filesystem supporting unbuffered opening")
 			} else if f.blockSize != 512 || f.alignment != int(tc.alignment) {
 				t.Fatalf("block size=%d alignment=%d, want 512 and %d", f.blockSize, f.alignment, tc.alignment)
+			} else if !isUnbuffered(t, f.file) {
+				t.Fatal("expected unbuffered native handle")
 			} else if err := f.Close(); err != nil {
 				t.Fatal(err)
 			} else if err := os.Remove(path); err != nil {
@@ -592,6 +606,8 @@ func TestOpenFileDirectOpenFallback(t *testing.T) {
 		t.Fatal(attributeErr)
 	} else if f.blockSize != 1 || f.alignment != 1 {
 		t.Fatal("expected failed unbuffered reopen to retain the buffered file")
+	} else if isUnbuffered(t, f.file) {
+		t.Fatal("expected buffered native handle after failed unbuffered reopen")
 	}
 	if n, err := f.WriteSector(new([proto4.SectorSize]byte), 0); n != proto4.SectorSize || err != nil {
 		t.Fatalf("retained buffered handle is not writable: n=%d err=%v", n, err)
