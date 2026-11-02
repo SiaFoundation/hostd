@@ -3,7 +3,6 @@ package directio
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"math/bits"
@@ -11,17 +10,28 @@ import (
 	"sync"
 	"unsafe"
 
+	proto4 "go.sia.tech/core/rhp/v4"
 	"golang.org/x/sys/windows"
 )
 
-const bufferSize = 4 << 20
+const bufferSize = proto4.SectorSize
+
+type fileStorageInfo struct {
+	LogicalBytesPerSector                                 uint32
+	PhysicalBytesPerSectorForAtomicity                    uint32
+	PhysicalBytesPerSectorForPerformance                  uint32
+	FileSystemEffectivePhysicalBytesPerSectorForAtomicity uint32
+	Flags                                                 uint32
+	ByteOffsetForSectorAlignment                          uint32
+	ByteOffsetForPartitionAlignment                       uint32
+}
 
 // https://github.com/golang/go/issues/8005#issuecomment-190753527
 type noCopy struct{}
 
 func (*noCopy) Lock() {}
 
-// File provides unbuffered I/O. It must not be copied after first use.
+// File provides sector I/O. It must not be copied after first use.
 type File struct {
 	file      *os.File
 	blockSize int
@@ -64,9 +74,10 @@ func (f *File) readAlignedAt(p []byte, offset int64) (int, error) {
 	return n, err
 }
 
-// ReadAt reads at offset, using an aligned temporary buffer when necessary.
-func (f *File) ReadAt(p []byte, offset int64) (int, error) {
-	if offset < 0 || int64(len(p)) > math.MaxInt64-offset {
+// ReadSector reads at offset, using an aligned temporary buffer when necessary.
+// The read must not cross a sector boundary.
+func (f *File) ReadSector(p []byte, offset int64) (int, error) {
+	if offset < 0 || len(p) > bufferSize-int(offset%bufferSize) || int64(len(p)) > math.MaxInt64-offset {
 		return 0, f.invalid("read")
 	} else if len(p) == 0 {
 		return 0, nil
@@ -75,62 +86,32 @@ func (f *File) ReadAt(p []byte, offset int64) (int, error) {
 	}
 
 	skip := int(offset % int64(f.blockSize))
-	length := min(len(p), bufferSize-skip)
-	padded := (skip + length + f.blockSize - 1) / f.blockSize * f.blockSize
+	padded := (skip + len(p) + f.blockSize - 1) / f.blockSize * f.blockSize
 	buf, pool := f.buffer(padded)
 	defer pool.Put(buf)
-	var total int
-	for len(p) > 0 {
-		base := offset - offset%int64(f.blockSize)
-		skip := int(offset - base)
-		length := min(len(p), len(*buf)-skip)
-		padded := (skip + length + f.blockSize - 1) / f.blockSize * f.blockSize
-		n, err := f.readAlignedAt((*buf)[:padded], base)
-		copied := copy(p[:length], (*buf)[min(skip, n):n])
-		total += copied
-		p = p[copied:]
-		offset += int64(copied)
-		if err != nil {
-			if errors.Is(err, io.EOF) && len(p) == 0 {
-				return total, nil
-			}
-			return total, err
-		} else if copied != length {
-			return total, io.EOF
-		}
+	n, err := f.readAlignedAt((*buf)[:padded], offset-int64(skip))
+	n = copy(p, (*buf)[min(skip, n):n])
+	if errors.Is(err, io.EOF) && n == len(p) {
+		err = nil
+	} else if err == nil && n < len(p) {
+		err = io.EOF
 	}
-	return total, nil
+	return n, err
 }
 
-// WriteAt writes at offset. The offset and length must be multiples of the
-// disk's logical sector size. Call Sync to flush the hardware cache afterward.
-func (f *File) WriteAt(p []byte, offset int64) (int, error) {
-	if offset < 0 || int64(len(p)) > math.MaxInt64-offset {
+// WriteSector writes a sector at offset. The offset must be a multiple of the
+// sector size. Call Sync to flush the hardware cache afterward.
+func (f *File) WriteSector(data *[proto4.SectorSize]byte, offset int64) (int, error) {
+	if offset < 0 || offset%bufferSize != 0 || offset > math.MaxInt64-bufferSize {
 		return 0, f.invalid("write")
-	} else if len(p) == 0 {
-		return 0, nil
-	} else if offset%int64(f.blockSize) != 0 || len(p)%f.blockSize != 0 {
-		return 0, f.invalid("write")
-	} else if f.aligned(p) {
-		return f.file.WriteAt(p, offset)
+	} else if f.aligned(data[:]) {
+		return f.file.WriteAt(data[:], offset)
 	}
 
-	buf, pool := f.buffer(min(len(p), bufferSize))
+	buf, pool := f.buffer(bufferSize)
 	defer pool.Put(buf)
-	var total int
-	for len(p) > 0 {
-		length := copy(*buf, p)
-		n, err := f.file.WriteAt((*buf)[:length], offset)
-		total += n
-		if err != nil {
-			return total, err
-		} else if n != length {
-			return total, io.ErrShortWrite
-		}
-		p = p[n:]
-		offset += int64(n)
-	}
-	return total, nil
+	copy(*buf, data[:])
+	return f.file.WriteAt(*buf, offset)
 }
 
 // Sync flushes the underlying file and hardware cache.
@@ -142,37 +123,39 @@ func (f *File) Truncate(size int64) error { return f.file.Truncate(size) }
 // Close closes the file.
 func (f *File) Close() error { return f.file.Close() }
 
-// OpenFile opens a file with FILE_FLAG_NO_BUFFERING and determines its alignment.
+// OpenFile uses unbuffered I/O when supported, falling back to buffered I/O
+// when the file's alignment cannot be determined or unbuffered opening fails.
 func OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
-	f, err := os.OpenFile(name, flag|int(windows.FILE_FLAG_NO_BUFFERING), perm)
+	return openFileWithInfo(name, flag, perm, windows.GetFileInformationByHandleEx)
+}
+
+func openFileWithInfo(name string, flag int, perm os.FileMode, queryInfo func(windows.Handle, uint32, *byte, uint32) error) (*File, error) {
+	flag &^= int(windows.FILE_FLAG_NO_BUFFERING)
+	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
 		return nil, err
 	}
-	var info struct {
-		LogicalBytesPerSector                                 uint32
-		PhysicalBytesPerSectorForAtomicity                    uint32
-		PhysicalBytesPerSectorForPerformance                  uint32
-		FileSystemEffectivePhysicalBytesPerSectorForAtomicity uint32
-		Flags                                                 uint32
-		ByteOffsetForSectorAlignment                          uint32
-		ByteOffsetForPartitionAlignment                       uint32
-	}
-	if err := windows.GetFileInformationByHandleEx(windows.Handle(f.Fd()), windows.FileStorageInfo, (*byte)(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
-		f.Close()
-		return nil, &os.PathError{Op: "query sector alignment", Path: name, Err: err}
-	}
+	var info fileStorageInfo
 	validSize := func(size uint32) bool { return size != 0 && size <= bufferSize && size&(size-1) == 0 }
-	if !validSize(info.LogicalBytesPerSector) {
-		f.Close()
-		return nil, fmt.Errorf("unsupported logical sector size %d for %q: %w", info.LogicalBytesPerSector, name, os.ErrInvalid)
+	if err := queryInfo(windows.Handle(f.Fd()), windows.FileStorageInfo, (*byte)(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil || !validSize(info.LogicalBytesPerSector) {
+		return &File{file: f, blockSize: 1, alignment: 1}, nil
+	}
+	// Apply creation and truncation only on the first open. Keep its handle
+	// until the unbuffered open succeeds so unsupported files remain usable.
+	direct, err := os.OpenFile(name, flag&^(os.O_CREATE|os.O_EXCL|os.O_TRUNC)|int(windows.FILE_FLAG_NO_BUFFERING), perm)
+	if err != nil {
+		return &File{file: f, blockSize: 1, alignment: 1}, nil
+	} else if err := f.Close(); err != nil {
+		direct.Close()
+		return nil, err
 	}
 	alignment := info.LogicalBytesPerSector
 	// Some drivers return invalid optional physical sizes; retain the logical
 	// sector alignment in that case.
-	for _, size := range []uint32{info.PhysicalBytesPerSectorForAtomicity, info.PhysicalBytesPerSectorForPerformance, info.FileSystemEffectivePhysicalBytesPerSectorForAtomicity} {
+	for _, size := range []uint32{info.PhysicalBytesPerSectorForAtomicity, info.FileSystemEffectivePhysicalBytesPerSectorForAtomicity} {
 		if validSize(size) {
 			alignment = max(alignment, size)
 		}
 	}
-	return &File{file: f, blockSize: int(info.LogicalBytesPerSector), alignment: int(alignment)}, nil
+	return &File{file: direct, blockSize: int(info.LogicalBytesPerSector), alignment: int(alignment)}, nil
 }
