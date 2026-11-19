@@ -522,7 +522,7 @@ func TestV2DuplicateContracts(t *testing.T) {
 	}
 
 	// change the contract status to rejected
-	err = db.transaction(func(tx *txn) error {
+	err = db.writeTransaction(func(tx *txn) error {
 		if err := incrementNumericStat(tx, metricRejectedContracts, 1, time.Now()); err != nil {
 			return err
 		}
@@ -719,7 +719,7 @@ func TestExpireV2ContractSectorsBatching(t *testing.T) {
 
 	resolveContract := func(t *testing.T, contractID types.FileContractID, height uint64) {
 		t.Helper()
-		err := db.transaction(func(tx *txn) error {
+		err := db.writeTransaction(func(tx *txn) error {
 			_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3 WHERE contract_id=$4`,
 				height, encode(types.BlockID{}), contracts.V2ContractStatusSuccessful, encode(contractID))
 			return err
@@ -973,7 +973,7 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 
 		rejectContract := func(t *testing.T, contractID types.FileContractID, parentID types.FileContractID) {
 			t.Helper()
-			err := db.transaction(func(tx *txn) error {
+			err := db.writeTransaction(func(tx *txn) error {
 				// set the contract status to rejected
 				if _, err := tx.Exec(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_id=$2`,
 					contracts.V2ContractStatusRejected, encode(contractID)); err != nil {
@@ -1146,7 +1146,7 @@ WHERE c.contract_id = $1`, encode(contractID)).Scan(&count)
 		assertInheritedRoots(t)
 
 		// c3 is rejected and c2 is the live contract again
-		if err := db.transaction(func(tx *txn) error {
+		if err := db.writeTransaction(func(tx *txn) error {
 			_, err := tx.Exec(`UPDATE contracts_v2 SET contract_status=$1 WHERE contract_id=$2`,
 				contracts.V2ContractStatusRejected, encode(c3.ID))
 			return err
@@ -1413,7 +1413,7 @@ func BenchmarkExpireV2ContractSectors(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	err = db.transaction(func(tx *txn) error {
+	err = db.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3`,
 			100, encode(types.BlockID{}), contracts.V2ContractStatusSuccessful)
 		return err
@@ -1522,7 +1522,7 @@ func BenchmarkExpireV2ContractSectorsSuperseded(b *testing.B) {
 	}
 
 	// resolve c1 so its rows become eligible for expiry
-	err = db.transaction(func(tx *txn) error {
+	err = db.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3 WHERE contract_id=$4`,
 			proofHeight, encode(types.BlockID{}), contracts.V2ContractStatusRenewed, encode(c1.ID))
 		return err

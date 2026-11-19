@@ -277,7 +277,7 @@ func initDBVersion(tb testing.TB, fp string, target int64, log *zap.Logger) *Sto
 			tb.Fatal(err)
 		}
 	})
-	if _, err := readerDB.Exec(initialSchema); err != nil {
+	if _, err := writerDB.Exec(initialSchema); err != nil {
 		tb.Fatal(err)
 	}
 
@@ -541,7 +541,7 @@ func TestMigrateV44(t *testing.T) {
 		Height: frand.Uint64n(math.MaxUint32), // SQLite only supports int64
 	}
 
-	err := store.transaction(func(tx *txn) error {
+	err := store.writeTransaction(func(tx *txn) error {
 		var renterID int64
 		err := tx.QueryRow(`INSERT INTO contract_renters (public_key) VALUES ($1) RETURNING id`, encode(types.PublicKey(frand.Entropy256()))).Scan(&renterID)
 		if err != nil {
@@ -618,7 +618,7 @@ func TestMigrateV51(t *testing.T) {
 	// lone case: active contract that is not part of any renewal chain
 	loneActive := types.FileContractID(frand.Entropy256())
 
-	err := store.transaction(func(tx *txn) error {
+	err := store.writeTransaction(func(tx *txn) error {
 		var renterID int64
 		if err := tx.QueryRow(`INSERT INTO contract_renters (public_key) VALUES ($1) RETURNING id`, encode(types.PublicKey(frand.Entropy256()))).Scan(&renterID); err != nil {
 			return err
@@ -779,7 +779,7 @@ func TestMigrateV55(t *testing.T) {
 	contractRoot, tempRoot, sharedRoot, unreferencedRoot := roots[0], roots[1], roots[2], roots[3]
 
 	// populate the pre-migration schema directly
-	err := store.transaction(func(tx *txn) error {
+	err := store.writeTransaction(func(tx *txn) error {
 		if _, err := tx.Exec(`INSERT INTO storage_volumes (id, disk_path, used_sectors, total_sectors, read_only, available) VALUES (1, 'test', 4, 4, false, true)`); err != nil {
 			return err
 		} else if err := incrementNumericStat(tx, metricPhysicalSectors, len(roots), time.Now()); err != nil {
@@ -851,7 +851,7 @@ func TestMigrateV56(t *testing.T) {
 	resolvedID, activeID := types.FileContractID(frand.Entropy256()), types.FileContractID(frand.Entropy256())
 
 	// populate the pre-migration schema directly
-	err := store.transaction(func(tx *txn) error {
+	err := store.writeTransaction(func(tx *txn) error {
 		if _, err := tx.Exec(`UPDATE global_settings SET last_scanned_index=$1`, encode(scanned)); err != nil {
 			return err
 		} else if _, err := tx.Exec(`INSERT INTO contract_renters (id, public_key) VALUES (1, $1)`, encode(types.GeneratePrivateKey().PublicKey())); err != nil {
