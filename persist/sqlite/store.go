@@ -68,7 +68,7 @@ var sqliteBaseParams = []string{
 }
 
 func readerFilepath(fp string) string {
-	return "file:" + fp + "?" + strings.Join(sqliteBaseParams, "&")
+	return "file:" + fp + "?" + strings.Join(sqliteBaseParams, "&") + "&_query_only=true"
 }
 
 func writerFilepath(fp string) string {

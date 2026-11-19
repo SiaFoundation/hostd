@@ -1011,7 +1011,7 @@ func TestPrune(t *testing.T) {
 	resolveContract := func(t *testing.T, c contracts.V2Contract, height uint64) {
 		t.Helper()
 
-		err := db.transaction(func(tx *txn) error {
+		err := db.writeTransaction(func(tx *txn) error {
 			_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3 WHERE contract_id=$4`,
 				height, encode(types.BlockID{}), contracts.V2ContractStatusSuccessful, encode(c.ID))
 			return err
@@ -1197,7 +1197,7 @@ func TestSectorRefCount(t *testing.T) {
 	assertRefCounts(t, 1, 0, 0)
 
 	// resolve the contract and expire its sectors
-	err = db.transaction(func(tx *txn) error {
+	err = db.writeTransaction(func(tx *txn) error {
 		_, err := tx.Exec(`UPDATE contracts_v2 SET resolution_height=$1, resolution_block_id=$2, contract_status=$3 WHERE contract_id=$4`,
 			100, encode(types.BlockID{}), contracts.V2ContractStatusSuccessful, encode(contract.ID))
 		return err
@@ -1769,7 +1769,7 @@ func cacheTestSubtrees(db *Store, roots []types.Hash256) error {
 	for i := 0; i < len(roots); i += batchSize {
 		batch := roots[i:min(i+batchSize, len(roots))]
 
-		err := db.transaction(func(tx *txn) error {
+		err := db.writeTransaction(func(tx *txn) error {
 			stmt, err := tx.Prepare(`INSERT INTO sector_subtree_cache (sector_id, subtree_roots)
 SELECT id, $1 FROM stored_sectors WHERE sector_root=$2
 ON CONFLICT (sector_id) DO UPDATE SET subtree_roots=EXCLUDED.subtree_roots`)

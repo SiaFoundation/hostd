@@ -347,7 +347,7 @@ func TestResetRejectedAccountFundingWithPoolAttachment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = db.transaction(func(tx *txn) error {
+	err = db.writeTransaction(func(tx *txn) error {
 		return resetRejectedAccountFunding(tx, contractDBID, log)
 	})
 	if err != nil {

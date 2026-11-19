@@ -49,7 +49,7 @@ func TestRecalcVolumeMetricsEmptyVolume(t *testing.T) {
 	// reproduce the state a legacy interrupted force removal leaves: every
 	// volume_sectors row gone, storage_volumes row still present with stale
 	// counts.
-	err = db.transaction(func(tx *txn) error {
+	err = db.writeTransaction(func(tx *txn) error {
 		if _, err := tx.Exec(`DELETE FROM volume_sectors WHERE volume_id=$1`, damaged.ID); err != nil {
 			return err
 		}
