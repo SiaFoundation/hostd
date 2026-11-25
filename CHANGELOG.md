@@ -1,3 +1,13 @@
+## 2.12.3-beta.0 (2026-11-25)
+
+### Fixes
+
+- Open the readonly database connection with query_only=true to avoid misuse.
+
+#### Improved concurrent database performance
+
+Disabled SQLite memory statistics tracking, which serialized concurrent queries on a global mutex.
+
 ## 2.12.2 (2026-11-16)
 
 ### Fixes
