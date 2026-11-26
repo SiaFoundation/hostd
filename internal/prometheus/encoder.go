@@ -16,6 +16,8 @@ type Metric struct {
 	Timestamp time.Time
 }
 
+var labelEscaper = strings.NewReplacer(`\`, `\\`, "\n", `\n`, `"`, `\"`)
+
 // encode encodes a Metric into a Prometheus metric string.
 func (m *Metric) encode(sb *strings.Builder) error {
 	sb.WriteString(m.Name)
@@ -29,9 +31,9 @@ func (m *Metric) encode(sb *strings.Builder) error {
 			sb.WriteString(`="`)
 			switch v := v.(type) {
 			case string:
-				sb.WriteString(v)
+				labelEscaper.WriteString(sb, v)
 			case []byte:
-				sb.Write(v)
+				labelEscaper.WriteString(sb, string(v))
 			case int:
 				sb.WriteString(strconv.Itoa(v))
 			case int64:
@@ -41,7 +43,7 @@ func (m *Metric) encode(sb *strings.Builder) error {
 			case bool:
 				sb.WriteString(strconv.FormatBool(v))
 			case fmt.Stringer:
-				sb.WriteString(v.String())
+				labelEscaper.WriteString(sb, v.String())
 			default:
 				return fmt.Errorf("unsupported label value %T", v)
 			}
